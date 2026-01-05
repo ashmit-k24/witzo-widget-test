@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
+import { config } from '../config/env';
 import authService from '../services/authService';
 import { UserResponse } from '../types';
 import logger from '../utils/logger';
@@ -113,7 +114,7 @@ export const authenticateToken = async (
  */
 export const optionalAuth = async (
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
@@ -156,22 +157,22 @@ export const setCookies = (
 ): void => {
   const isProduction = process.env.NODE_ENV === 'production';
 
-  // Access token cookie (15 minutes)
+  // Access token cookie - use config values
   res.cookie(COOKIE_NAMES.ACCESS_TOKEN, accessToken, {
     httpOnly: true,
     secure: options?.secure ?? isProduction,
     sameSite: options?.sameSite ?? 'strict',
-    maxAge: 15 * 60 * 1000, // 15 minutes in milliseconds
+    maxAge: config.ACCESS_TOKEN_EXPIRY_MINUTES * 60 * 1000,
     domain: options?.domain,
     path: '/',
   });
 
-  // Refresh token cookie (7 days)
+  // Refresh token cookie - use config values
   res.cookie(COOKIE_NAMES.REFRESH_TOKEN, refreshToken, {
     httpOnly: true,
     secure: options?.secure ?? isProduction,
     sameSite: options?.sameSite ?? 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+    maxAge: config.REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
     domain: options?.domain,
     path: '/',
   });

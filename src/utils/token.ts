@@ -129,13 +129,37 @@ class TokenUtil {
       const [encodedHeader, encodedPayload, signature] = parts;
       const secret = type === 'access' ? this.accessTokenSecret : this.refreshTokenSecret;
 
-      // Verify signature
+      // Validate header and algorithm
+      try {
+        const headerString = Buffer.from(encodedHeader, 'base64url').toString('utf-8');
+        const header = JSON.parse(headerString);
+
+        if (header.alg !== 'HS256' || header.typ !== 'JWT') {
+          return { valid: false, error: 'Invalid token algorithm' };
+        }
+      } catch (error) {
+        return { valid: false, error: 'Invalid token header' };
+      }
+
+      // Verify signature using constant-time comparison
       const expectedSignature = this.createSignature(
         `${encodedHeader}.${encodedPayload}`,
         secret
       );
 
-      if (signature !== expectedSignature) {
+      // Use constant-time comparison to prevent timing attacks
+      const signatureBuffer = Buffer.from(signature);
+      const expectedBuffer = Buffer.from(expectedSignature);
+
+      let signaturesMatch = false;
+      try {
+        signaturesMatch = crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+      } catch (error) {
+        // Buffers are different lengths, signatures don't match
+        signaturesMatch = false;
+      }
+
+      if (!signaturesMatch) {
         return { valid: false, error: 'Invalid token signature' };
       }
 

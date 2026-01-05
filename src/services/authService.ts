@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { PoolClient } from 'pg';
 import pool from '../config/database';
 import { config } from '../config/env';
@@ -22,10 +23,12 @@ import emailService from './emailService';
  */
 class AuthService {
   /**
-   * Generate a 6-digit verification code
+   * Generate a cryptographically secure 6-digit verification code
    */
   private generateVerificationCode(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    // Use crypto.randomInt for cryptographically secure random numbers
+    const randomNum = crypto.randomInt(100000, 1000000);
+    return randomNum.toString();
   }
 
   /**
@@ -69,6 +72,26 @@ class AuthService {
         userId = userResult.rows[0].id;
       }
 
+      // Service-layer rate limiting: Check unused code requests in last hour
+      const recentRequestsResult = await client.query(
+        `SELECT COUNT(*) as count FROM verification_codes
+         WHERE user_id = $1
+         AND created_at > NOW() - INTERVAL '1 hour'
+         AND is_used = FALSE`,
+        [userId]
+      );
+
+      const recentRequests = parseInt(recentRequestsResult.rows[0].count, 10);
+      if (recentRequests >= 3) {
+        await client.query('ROLLBACK');
+        logger.warn('Rate limit exceeded for verification code requests', {
+          email: normalizedEmail,
+          userId,
+          requests: recentRequests,
+        });
+        throw new Error('Too many verification code requests. Please try again in an hour.');
+      }
+
       // Invalidate previous unused codes for this user
       await client.query(
         'UPDATE verification_codes SET is_used = TRUE WHERE user_id = $1 AND is_used = FALSE',
@@ -86,15 +109,26 @@ class AuthService {
         [userId, code, expiresAt]
       );
 
-      await client.query('COMMIT');
-
-      // Send verification email asynchronously
-      emailService.sendVerificationCode(normalizedEmail, code).catch((error: Error) => {
+      // Send verification email BEFORE committing the transaction
+      // This ensures atomicity - if email fails, the entire transaction is rolled back
+      try {
+        await emailService.sendVerificationCode(normalizedEmail, code);
+        logger.info('Verification code sent successfully', { email: normalizedEmail, userId });
+      } catch (emailError) {
+        const err = emailError as Error;
         logger.error('Failed to send verification email', {
           email: normalizedEmail,
-          error: error.message,
+          userId,
+          error: err.message,
+          stack: err.stack,
         });
-      });
+
+        // Throw error to trigger rollback in the catch block
+        throw new Error('Failed to send verification email. Please try again.');
+      }
+
+      // Only commit if email was sent successfully
+      await client.query('COMMIT');
 
       logger.info('Verification code generated', { email: normalizedEmail, userId });
 
@@ -193,8 +227,19 @@ class AuthService {
         };
       }
 
-      // Check if code matches
-      if (verificationRecord.code !== code) {
+      // Check if code matches using constant-time comparison to prevent timing attacks
+      const storedCodeBuffer = Buffer.from(verificationRecord.code.padStart(6, '0'));
+      const providedCodeBuffer = Buffer.from(code.padStart(6, '0'));
+
+      let isCodeValid = false;
+      try {
+        isCodeValid = crypto.timingSafeEqual(storedCodeBuffer, providedCodeBuffer);
+      } catch (error) {
+        // Buffers are different lengths, code is invalid
+        isCodeValid = false;
+      }
+
+      if (!isCodeValid) {
         // Increment attempts
         await client.query('UPDATE verification_codes SET attempts = attempts + 1 WHERE id = $1', [
           verificationRecord.id,
@@ -270,8 +315,8 @@ class AuthService {
       // Hash refresh token for storage
       const hashedRefreshToken = tokenUtil.hashToken(refreshToken);
 
-      // Update session with actual tokens
-      await client.query(
+      // Update session with actual tokens - MUST succeed before commit
+      const updateResult = await client.query(
         `UPDATE sessions
          SET access_token = $1,
              refresh_token = $2,
@@ -281,6 +326,11 @@ class AuthService {
          WHERE id = $5`,
         [accessToken, hashedRefreshToken, accessTokenExpiresAt, refreshTokenExpiresAt, sessionId]
       );
+
+      // Verify the update succeeded
+      if (updateResult.rowCount === null || updateResult.rowCount === 0) {
+        throw new Error('Failed to update session with tokens');
+      }
 
       await client.query('COMMIT');
 
@@ -546,9 +596,11 @@ class AuthService {
            AND updated_at < CURRENT_TIMESTAMP - INTERVAL '30 days'`
       );
 
-      // Delete expired or used verification codes
+      // Delete old verification codes (expired/used AND older than 7 days for audit trail)
       const codesResult = await pool.query(
-        'DELETE FROM verification_codes WHERE expires_at < CURRENT_TIMESTAMP OR is_used = TRUE'
+        `DELETE FROM verification_codes
+         WHERE (expires_at < CURRENT_TIMESTAMP OR is_used = TRUE)
+           AND created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'`
       );
 
       logger.info('Cleanup completed', {
