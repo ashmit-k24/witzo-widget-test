@@ -15,6 +15,7 @@ import {
 } from '../types';
 import logger from '../utils/logger';
 import tokenUtil from '../utils/token';
+import uuidUtil from '../utils/uuid';
 import emailService from './emailService';
 
 /**
@@ -53,23 +54,26 @@ class AuthService {
 
       const normalizedEmail = email.toLowerCase().trim();
 
-      // Check if user exists, if not create one
+      // Check if user exists, if not create one with a unique UUID
       const userResult = await client.query<User>(
         'SELECT id, is_verified FROM users WHERE email = $1',
         [normalizedEmail]
       );
 
-      let userId: number;
+      let userId: string;
       if (userResult.rows.length === 0) {
-        // Create new user
-        const insertResult = await client.query<{ id: number }>(
-          'INSERT INTO users (email) VALUES ($1) RETURNING id',
-          [normalizedEmail]
+        // Create new user with a unique UUID (long string, not sequential)
+        const newUserId = uuidUtil.generateUuid();
+        const insertResult = await client.query<{ id: string }>(
+          'INSERT INTO users (id, email) VALUES ($1, $2) RETURNING id',
+          [newUserId, normalizedEmail]
         );
         userId = insertResult.rows[0].id;
         logger.info('New user created', { email: normalizedEmail, userId });
       } else {
+        // Email exists - use the same existing ID
         userId = userResult.rows[0].id;
+        logger.info('Existing user found', { email: normalizedEmail, userId });
       }
 
       // Service-layer rate limiting: Check unused code requests in last hour
@@ -443,7 +447,7 @@ class AuthService {
       // Verify session and refresh token
       const sessionResult = await client.query<{
         id: number;
-        user_id: number;
+        user_id: string;
         email: string;
         is_verified: boolean;
         refresh_token_expires_at: Date;

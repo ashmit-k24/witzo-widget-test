@@ -1,6 +1,6 @@
 // User types
 export interface User {
-  id: number;
+  id: string;
   email: string;
   is_verified: boolean;
   created_at: Date;
@@ -9,7 +9,7 @@ export interface User {
 }
 
 export interface UserResponse {
-  id: number;
+  id: string;
   email: string;
   isVerified: boolean;
 }
@@ -17,7 +17,7 @@ export interface UserResponse {
 // Verification Code types
 export interface VerificationCode {
   id: number;
-  user_id: number;
+  user_id: string;
   code: string;
   attempts: number;
   expires_at: Date;
@@ -28,7 +28,7 @@ export interface VerificationCode {
 // Session types
 export interface Session {
   id: number;
-  user_id: number;
+  user_id: string;
   access_token: string;
   refresh_token: string;
   access_token_expires_at: Date;
@@ -112,7 +112,7 @@ export interface LoggerMeta {
 
 // Token payload
 export interface TokenPayload {
-  userId: number;
+  userId: string;
   email: string;
   sessionId: number;
   type: 'access' | 'refresh';
