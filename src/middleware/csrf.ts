@@ -60,7 +60,6 @@ export const verifyCsrfToken = (req: Request, res: Response, next: NextFunction)
 
      // Check if both tokens exist
      if (!cookieToken || !headerToken) {
-          console.log(headerToken, cookieToken, "hey");
           logger.warn("CSRF token missing", {
                path: req.path,
                method: req.method,

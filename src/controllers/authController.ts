@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { clearCookies, setCookies } from "../middleware/auth";
 import authService from "../services/authService";
+import googleAuthService, { GoogleProfile } from "../services/googleAuthService";
 import { RequestCodeBody, VerifyCodeBody } from "../types";
 import logger from "../utils/logger";
 
@@ -9,11 +10,7 @@ import logger from "../utils/logger";
  * @desc    Request verification code for email authentication
  * @access  Public
  */
-export const requestCode = async (
-     req: Request<{}, {}, RequestCodeBody>,
-     res: Response,
-     next: NextFunction
-): Promise<void> => {
+export const requestCode = async (req: Request<{}, {}, RequestCodeBody>, res: Response, next: NextFunction): Promise<void> => {
      try {
           const { email } = req.body;
 
@@ -36,11 +33,7 @@ export const requestCode = async (
  * @desc    Verify code and login (sets authentication cookies)
  * @access  Public
  */
-export const verifyCode = async (
-     req: Request<{}, {}, VerifyCodeBody>,
-     res: Response,
-     next: NextFunction
-): Promise<void> => {
+export const verifyCode = async (req: Request<{}, {}, VerifyCodeBody>, res: Response, next: NextFunction): Promise<void> => {
      try {
           const { email, code } = req.body;
           const ipAddress = req.ip;
@@ -82,11 +75,7 @@ export const verifyCode = async (
  * @desc    Refresh access token using refresh token from cookies
  * @access  Public (requires refresh token cookie)
  */
-export const refreshToken = async (
-     req: Request,
-     res: Response,
-     next: NextFunction
-): Promise<void> => {
+export const refreshToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
      try {
           const refreshToken = req.cookies?.refresh_token;
 
@@ -134,11 +123,7 @@ export const refreshToken = async (
  * @desc    Logout user and clear authentication cookies
  * @access  Protected
  */
-export const logout = async (
-     req: Request,
-     res: Response,
-     next: NextFunction
-): Promise<void> => {
+export const logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
      try {
           const accessToken = req.cookies?.access_token;
 
@@ -152,8 +137,8 @@ export const logout = async (
           }
 
           logger.info("Logout requested", {
-               userId: req.user?.id,
-               email: req.user?.email,
+               userId: (req.user as any)?.id,
+               email: (req.user as any)?.email,
           });
 
           const result = await authService.logout(accessToken);
@@ -190,4 +175,50 @@ export const validateSession = async (req: Request, res: Response): Promise<void
           message: "Session is valid",
           user: req.user,
      });
+};
+
+/**
+ * @route   POST /api/auth/google/callback
+ * @desc    Handle Google OAuth callback and login user
+ * @access  Public
+ */
+export const googleCallback = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+     try {
+          const profile = req.user as GoogleProfile;
+          const ipAddress = req.ip;
+          const userAgent = req.get("user-agent");
+
+          if (!profile || !profile.email) {
+               res.status(400).json({
+                    success: false,
+                    message: "Invalid Google profile data",
+               });
+               return;
+          }
+
+          logger.info("Google OAuth callback", {
+               email: profile.email,
+               ip: ipAddress,
+               userAgent,
+          });
+
+          const result = await googleAuthService.authenticateWithGoogle(profile, ipAddress, userAgent);
+
+          if (result.success && result.accessToken && result.refreshToken) {
+               setCookies(res, result.accessToken, result.refreshToken);
+
+               res.status(200).json({
+                    success: true,
+                    message: result.message,
+                    user: result.user,
+               });
+          } else {
+               res.status(401).json({
+                    success: false,
+                    message: result.message || "Google authentication failed",
+               });
+          }
+     } catch (error) {
+          next(error);
+     }
 };

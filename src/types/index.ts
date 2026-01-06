@@ -144,4 +144,55 @@ export interface EnvConfig {
   JWT_SECRET: string;
   JWT_REFRESH_SECRET: string;
   COOKIE_SECRET: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  GOOGLE_CALLBACK_URL: string;
+  PINECONE_API_KEY: string;
+  PINECONE_ENVIRONMENT: string;
+  PINECONE_INDEX_NAME: string;
+  OPENAI_API_KEY: string;
+  OPENAI_MODEL: string;
+}
+
+// Web Scraper types
+export interface ScrapedPage {
+  url: string;
+  title: string;
+  content: string;
+  links: string[];
+  metadata?: {
+    description?: string;
+    keywords?: string;
+    author?: string;
+    [key: string]: any;
+  };
+}
+
+export interface ScrapeRequest {
+  url: string;
+  maxDepth?: number;
+  maxPages?: number;
+}
+
+export interface ScrapeJobStatus {
+  jobId: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  progress: {
+    totalPages: number;
+    scrapedPages: number;
+    storedPages: number;
+  };
+  startedAt: Date;
+  completedAt?: Date;
+  error?: string;
+}
+
+export interface PineconeMetadata {
+  url: string;
+  title: string;
+  description?: string;
+  scrapedAt: string;
+  chunkIndex: number;
+  totalChunks: number;
+  userId: string;
 }

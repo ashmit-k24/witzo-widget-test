@@ -5,12 +5,16 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { Server } from "http";
 import { config } from "./config/env";
+import passport, { configurePassport } from "./config/passport";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/routes";
 import authService from "./services/authService";
 import logger from "./utils/logger";
 
 const app: Application = express();
+
+// Configure Passport
+configurePassport();
 
 // Security middleware
 app.use(helmet());
@@ -29,6 +33,9 @@ app.use(cookieParser(config.COOKIE_SECRET));
 // Body parser
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+
+// Initialize Passport middleware
+app.use(passport.initialize());
 
 // Global rate limiting
 const limiter = rateLimit({
@@ -101,7 +108,6 @@ const gracefulShutdown = (server: Server) => {
 const server: Server = app.listen(config.PORT, () => {
      logger.info(`Server running in ${config.NODE_ENV} mode on port ${config.PORT}`);
      console.log(`🚀 Server is running on http://localhost:${config.PORT}`);
-     console.log(`📧 Email auth system ready`);
 });
 
 // Handle graceful shutdown
