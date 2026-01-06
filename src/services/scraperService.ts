@@ -109,6 +109,7 @@ class ScraperService {
                          links.push(absoluteUrl);
                     } catch (error) {
                          // Invalid URL, skip it
+                         logger.warn(`Invalid URL found: ${href}`, { error });
                     }
                }
           });
