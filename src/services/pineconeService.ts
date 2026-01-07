@@ -173,11 +173,52 @@ class PineconeService {
                const namespace = this.getUserNamespace(userId);
                const index = this.pinecone.index(this.indexName).namespace(namespace);
 
-               await index.deleteMany({
-                    filter: { url: { $eq: url } },
+               // Extract base domain from URL (e.g., https://www.webomindapps.com)
+               const urlObj = new URL(url);
+               const baseUrl = `${urlObj.protocol}//${urlObj.hostname}`;
+
+               logger.info(`Deleting all documents from domain: ${baseUrl} (user: ${userId})`);
+
+               // Use a dummy vector to list all vectors (Pinecone requires a vector for query)
+               const dummyEmbedding = await this.generateEmbedding("delete query");
+
+               // Fetch ALL vectors from the namespace (we'll filter by URL)
+               const queryResponse = await index.query({
+                    vector: dummyEmbedding,
+                    topK: 10000, // Maximum limit
+                    includeMetadata: true,
                });
 
-               logger.info(`Deleted all chunks for URL: ${url} (user: ${userId})`);
+               if (!queryResponse.matches || queryResponse.matches.length === 0) {
+                    logger.info(`No documents found in namespace for user: ${userId}`);
+                    return;
+               }
+
+               // Filter vectors that match the base URL (all pages from same domain)
+               const matchingIds: string[] = [];
+               for (const match of queryResponse.matches) {
+                    if (match.metadata && match.metadata.url) {
+                         const vectorUrl = match.metadata.url as string;
+                         // Check if the vector's URL starts with the base URL
+                         if (vectorUrl.startsWith(baseUrl)) {
+                              matchingIds.push(match.id);
+                         }
+                    }
+               }
+
+               if (matchingIds.length === 0) {
+                    logger.info(`No documents found matching base URL: ${baseUrl} (user: ${userId})`);
+                    return;
+               }
+
+               // Delete by IDs in batches of 1000 (Pinecone limit)
+               const batchSize = 1000;
+               for (let i = 0; i < matchingIds.length; i += batchSize) {
+                    const batch = matchingIds.slice(i, i + batchSize);
+                    await index.deleteMany(batch);
+               }
+
+               logger.info(`Deleted ${matchingIds.length} chunks from domain ${baseUrl} (user: ${userId})`);
           } catch (error) {
                logger.error("Error deleting documents from Pinecone", { error, url, userId });
                throw error;

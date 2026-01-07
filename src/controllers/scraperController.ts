@@ -7,7 +7,7 @@ import logger from "../utils/logger";
 export const scrapeWebsite = async (req: Request, res: Response): Promise<void> => {
      try {
           const { url, maxDepth = 3, maxPages = 100 } = req.body as ScrapeRequest;
-          const userId = (req as any).user?.id || (req as any).user?.userId || (req as any).userId;
+          const userId = (req as any).user?.id;
 
           if (!userId) {
                res.status(401).json({
@@ -110,7 +110,7 @@ export const queryDocuments = async (req: Request, res: Response): Promise<void>
 export const deleteDocuments = async (req: Request, res: Response): Promise<void> => {
      try {
           const { url } = req.body;
-          const userId = (req as any).user?.userId;
+          const userId = (req as any).user?.id;
 
           if (!userId) {
                res.status(401).json({
@@ -150,7 +150,7 @@ export const deleteDocuments = async (req: Request, res: Response): Promise<void
 
 export const deleteAllDocuments = async (req: Request, res: Response): Promise<void> => {
      try {
-          const userId = (req as any).user?.userId;
+          const userId = (req as any).user?.id;
 
           if (!userId) {
                res.status(401).json({

@@ -2,6 +2,7 @@ import { Router } from "express";
 import passport from "../config/passport";
 import { authLimiter, verifyLimiter } from "../config/rateLimiters";
 import * as authController from "../controllers/authController";
+import * as chatController from "../controllers/chatController";
 import * as scraperController from "../controllers/scraperController";
 import { authenticateToken } from "../middleware/auth";
 import { setCsrfToken, verifyCsrfToken } from "../middleware/csrf";
@@ -116,5 +117,39 @@ router.get("/scraper/stats", authenticateToken, scraperController.getStats);
  * @access  Protected
  */
 router.get("/scraper/progress", authenticateToken, scraperController.getProgress);
+
+// ============================================
+// Chat/RAG Routes (Public API)
+// ============================================
+
+/**
+ * @route   POST /api/auth/chat
+ * @desc    Chat with AI using scraped data (RAG)
+ * @access  Public (requires userId in body)
+ * @body    { userId: string, sessionId?: string, message: string }
+ */
+router.post("/chat", chatController.chat);
+
+/**
+ * @route   GET /api/auth/chat/session/:sessionId
+ * @desc    Get chat session history
+ * @access  Public
+ */
+router.get("/chat/session/:sessionId", chatController.getChatSession);
+
+/**
+ * @route   DELETE /api/auth/chat/session/:sessionId
+ * @desc    Clear a specific chat session
+ * @access  Public
+ */
+router.delete("/chat/session/:sessionId", chatController.clearChatSession);
+
+/**
+ * @route   POST /api/auth/chat/clear-user-sessions
+ * @desc    Clear all sessions for a user
+ * @access  Public
+ * @body    { userId: string }
+ */
+router.post("/chat/clear-user-sessions", chatController.clearUserSessions);
 
 export default router;

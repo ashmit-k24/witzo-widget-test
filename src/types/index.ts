@@ -196,3 +196,36 @@ export interface PineconeMetadata {
   totalChunks: number;
   userId: string;
 }
+
+// Chat types
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: Date;
+}
+
+export interface ChatSession {
+  sessionId: string;
+  userId: string;
+  messages: ChatMessage[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChatRequest {
+  userId: string;
+  sessionId?: string;
+  message: string;
+}
+
+export interface ChatResponse {
+  success: boolean;
+  sessionId: string;
+  response: string;
+  sources?: Array<{
+    url: string;
+    title: string;
+    relevanceScore: number;
+  }>;
+  message?: string;
+}
