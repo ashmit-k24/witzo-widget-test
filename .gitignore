@@ -7,7 +7,11 @@ yarn.lock
 .env
 .env.local
 .env.*.local
+
+# Claude AI
+.claude/
 .claude
+
 # IDE
 .vscode/
 .idea/
