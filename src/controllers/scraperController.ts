@@ -229,3 +229,42 @@ export const getProgress = async (_req: Request, res: Response): Promise<void> =
           });
      }
 };
+
+export const getAllSources = async (req: Request, res: Response): Promise<void> => {
+     try {
+          const userId = (req as any).user?.id;
+
+          if (!userId) {
+               res.status(401).json({
+                    success: false,
+                    message: "User not authenticated",
+               });
+               return;
+          }
+
+          logger.info(`Fetching all sources for user: ${userId}`);
+
+          const sources = await pineconeService.getAllUserSources(userId);
+
+          res.status(200).json({
+               success: true,
+               message: "Sources retrieved successfully",
+               data: {
+                    documents: sources.documents,
+                    websites: sources.websites,
+                    summary: {
+                         totalDocuments: sources.documents.length,
+                         totalWebsites: sources.websites.length,
+                         totalChunks: sources.totalChunks,
+                    },
+               },
+          });
+     } catch (error) {
+          logger.error("Error in getAllSources controller", { error });
+          res.status(500).json({
+               success: false,
+               message: "Internal server error while fetching sources",
+               error: error instanceof Error ? error.message : "Unknown error",
+          });
+     }
+};

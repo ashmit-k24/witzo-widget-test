@@ -8,7 +8,10 @@
       "Bash(psql:*)",
       "Bash(where:*)",
       "Bash(npx tsx:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(node -e:*)",
+      "Bash(node -pe:*)",
+      "Bash(cat:*)"
     ]
   }
 }

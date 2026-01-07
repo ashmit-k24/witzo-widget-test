@@ -229,3 +229,28 @@ export interface ChatResponse {
   }>;
   message?: string;
 }
+
+// Document Upload types
+export interface DocumentUploadResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    filename: string;
+    fileType: string;
+    size: number;
+    chunks: number;
+    processedAt: string;
+  };
+  error?: string;
+}
+
+export interface ParsedDocument {
+  filename: string;
+  content: string;
+  metadata: {
+    fileType: string;
+    size: number;
+    uploadedAt: string;
+    [key: string]: any;
+  };
+}

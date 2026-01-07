@@ -4,9 +4,11 @@ import { authLimiter, verifyLimiter } from "../config/rateLimiters";
 import * as authController from "../controllers/authController";
 import * as chatController from "../controllers/chatController";
 import * as scraperController from "../controllers/scraperController";
+import * as documentController from "../controllers/documentController";
 import { authenticateToken } from "../middleware/auth";
 import { setCsrfToken, verifyCsrfToken } from "../middleware/csrf";
 import { validate, validationRules } from "../middleware/validator";
+import { upload } from "../middleware/upload";
 
 const router = Router();
 
@@ -118,6 +120,13 @@ router.get("/scraper/stats", authenticateToken, scraperController.getStats);
  */
 router.get("/scraper/progress", authenticateToken, scraperController.getProgress);
 
+/**
+ * @route   GET /api/auth/scraper/sources
+ * @desc    Get all user's stored sources (documents and websites)
+ * @access  Protected
+ */
+router.get("/scraper/sources", authenticateToken, scraperController.getAllSources);
+
 // ============================================
 // Chat/RAG Routes (Public API)
 // ============================================
@@ -151,5 +160,35 @@ router.delete("/chat/session/:sessionId", chatController.clearChatSession);
  * @body    { userId: string }
  */
 router.post("/chat/clear-user-sessions", chatController.clearUserSessions);
+
+// ============================================
+// Document Upload Routes (Protected)
+// ============================================
+
+/**
+ * @route   POST /api/auth/documents/upload
+ * @desc    Upload a single document (PDF, Word, Excel, CSV, TXT)
+ * @access  Protected
+ * @body    multipart/form-data with 'document' field
+ */
+router.post(
+     "/documents/upload",
+     authenticateToken,
+     upload.single("document"),
+     documentController.uploadDocument
+);
+
+/**
+ * @route   POST /api/auth/documents/upload-multiple
+ * @desc    Upload multiple documents at once
+ * @access  Protected
+ * @body    multipart/form-data with 'documents' field (array)
+ */
+router.post(
+     "/documents/upload-multiple",
+     authenticateToken,
+     upload.array("documents", 10),
+     documentController.uploadMultipleDocuments
+);
 
 export default router;

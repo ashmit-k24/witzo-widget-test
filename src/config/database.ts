@@ -11,6 +11,7 @@ const poolConfig: PoolConfig = {
   max: config.DB_MAX_CONNECTIONS,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  application_name: 'witzo-ai-automation-chatbot',
 };
 
 const pool = new Pool(poolConfig);

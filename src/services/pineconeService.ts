@@ -173,11 +173,19 @@ class PineconeService {
                const namespace = this.getUserNamespace(userId);
                const index = this.pinecone.index(this.indexName).namespace(namespace);
 
-               // Extract base domain from URL (e.g., https://www.webomindapps.com)
-               const urlObj = new URL(url);
-               const baseUrl = `${urlObj.protocol}//${urlObj.hostname}`;
+               let baseUrl: string;
 
-               logger.info(`Deleting all documents from domain: ${baseUrl} (user: ${userId})`);
+               // Handle both document:// URLs and regular website URLs
+               if (url.startsWith('document://')) {
+                    // For documents, use exact match (the full document:// URL)
+                    baseUrl = url;
+                    logger.info(`Deleting document: ${baseUrl} (user: ${userId})`);
+               } else {
+                    // For websites, extract base domain (e.g., https://www.webomindapps.com)
+                    const urlObj = new URL(url);
+                    baseUrl = `${urlObj.protocol}//${urlObj.hostname}`;
+                    logger.info(`Deleting all documents from domain: ${baseUrl} (user: ${userId})`);
+               }
 
                // Use a dummy vector to list all vectors (Pinecone requires a vector for query)
                const dummyEmbedding = await this.generateEmbedding("delete query");
@@ -194,20 +202,28 @@ class PineconeService {
                     return;
                }
 
-               // Filter vectors that match the base URL (all pages from same domain)
+               // Filter vectors that match the base URL (all pages from same domain or exact document)
                const matchingIds: string[] = [];
                for (const match of queryResponse.matches) {
                     if (match.metadata && match.metadata.url) {
                          const vectorUrl = match.metadata.url as string;
-                         // Check if the vector's URL starts with the base URL
-                         if (vectorUrl.startsWith(baseUrl)) {
-                              matchingIds.push(match.id);
+
+                         if (url.startsWith('document://')) {
+                              // For documents, exact match only
+                              if (vectorUrl === baseUrl) {
+                                   matchingIds.push(match.id);
+                              }
+                         } else {
+                              // For websites, match all pages from the domain
+                              if (vectorUrl.startsWith(baseUrl)) {
+                                   matchingIds.push(match.id);
+                              }
                          }
                     }
                }
 
                if (matchingIds.length === 0) {
-                    logger.info(`No documents found matching base URL: ${baseUrl} (user: ${userId})`);
+                    logger.info(`No documents found matching URL: ${baseUrl} (user: ${userId})`);
                     return;
                }
 
@@ -218,7 +234,7 @@ class PineconeService {
                     await index.deleteMany(batch);
                }
 
-               logger.info(`Deleted ${matchingIds.length} chunks from domain ${baseUrl} (user: ${userId})`);
+               logger.info(`Deleted ${matchingIds.length} chunks from ${url.startsWith('document://') ? 'document' : 'domain'} ${baseUrl} (user: ${userId})`);
           } catch (error) {
                logger.error("Error deleting documents from Pinecone", { error, url, userId });
                throw error;
@@ -253,6 +269,107 @@ class PineconeService {
                return stats;
           } catch (error) {
                logger.error("Error getting Pinecone stats", { error, userId });
+               throw error;
+          }
+     }
+
+     async getAllUserSources(userId: string): Promise<{
+          documents: Array<{
+               filename: string;
+               url: string;
+               fileType: string;
+               uploadedAt: string;
+               chunks: number;
+          }>;
+          websites: Array<{
+               url: string;
+               title: string;
+               scrapedAt: string;
+               chunks: number;
+          }>;
+          totalChunks: number;
+     }> {
+          try {
+               const namespace = this.getUserNamespace(userId);
+               const index = this.pinecone.index(this.indexName).namespace(namespace);
+
+               logger.info(`Fetching all sources for user: ${userId}`);
+
+               // Use a dummy vector to list all vectors
+               const dummyEmbedding = await this.generateEmbedding("list query");
+
+               // Fetch ALL vectors from the namespace
+               const queryResponse = await index.query({
+                    vector: dummyEmbedding,
+                    topK: 10000, // Maximum limit
+                    includeMetadata: true,
+               });
+
+               if (!queryResponse.matches || queryResponse.matches.length === 0) {
+                    return {
+                         documents: [],
+                         websites: [],
+                         totalChunks: 0,
+                    };
+               }
+
+               // Group by URL to get unique sources
+               const sourceMap = new Map<string, any>();
+
+               for (const match of queryResponse.matches) {
+                    if (match.metadata && match.metadata.url) {
+                         const url = match.metadata.url as string;
+
+                         if (!sourceMap.has(url)) {
+                              sourceMap.set(url, {
+                                   url,
+                                   title: match.metadata.title || url,
+                                   uploadedAt: match.metadata.scrapedAt || match.metadata.uploadedAt || new Date().toISOString(),
+                                   fileType: match.metadata.fileType,
+                                   chunks: 0,
+                              });
+                         }
+
+                         // Increment chunk count
+                         const source = sourceMap.get(url);
+                         source.chunks++;
+                    }
+               }
+
+               // Separate documents from websites
+               const documents: Array<any> = [];
+               const websites: Array<any> = [];
+
+               for (const source of sourceMap.values()) {
+                    if (source.url.startsWith('document://')) {
+                         // It's an uploaded document
+                         documents.push({
+                              filename: source.url.replace('document://', ''),
+                              url: source.url,
+                              fileType: source.fileType || 'unknown',
+                              uploadedAt: source.uploadedAt,
+                              chunks: source.chunks,
+                         });
+                    } else {
+                         // It's a scraped website
+                         websites.push({
+                              url: source.url,
+                              title: source.title,
+                              scrapedAt: source.uploadedAt,
+                              chunks: source.chunks,
+                         });
+                    }
+               }
+
+               logger.info(`Found ${documents.length} documents and ${websites.length} websites for user: ${userId}`);
+
+               return {
+                    documents: documents.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()),
+                    websites: websites.sort((a, b) => new Date(b.scrapedAt).getTime() - new Date(a.scrapedAt).getTime()),
+                    totalChunks: queryResponse.matches.length,
+               };
+          } catch (error) {
+               logger.error("Error fetching user sources from Pinecone", { error, userId });
                throw error;
           }
      }
