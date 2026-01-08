@@ -31,12 +31,30 @@ export const chat = async (req: Request, res: Response): Promise<void> => {
 
           const result = await chatService.chat(userId, message, sessionId);
 
-          res.status(200).json({
+          // Add usage stats from middleware if available
+          const usage = (res.locals as any).usage;
+
+          const responseData: any = {
                success: true,
                sessionId: result.sessionId,
                response: result.response,
-               // sources: result.sources,
-          });
+               sources: result.sources,
+          };
+
+          // Include usage information if available
+          if (usage) {
+               responseData.usage = {
+                    conversationsRemaining: usage.conversationsRemaining,
+                    resetDate: usage.resetDate,
+               };
+
+               // Add warning if approaching limit
+               if (usage.isApproachingLimit) {
+                    responseData.warning = "You're approaching your monthly conversation limit";
+               }
+          }
+
+          res.status(200).json(responseData);
      } catch (error) {
           logger.error("Error in chat controller", { error });
           res.status(500).json({

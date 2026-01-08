@@ -97,19 +97,32 @@ class ChatService {
 
                const { context, sources } = await this.retrieveRelevantContext(userId, message);
 
-               let systemPrompt = `You are a helpful AI assistant that answers questions based ONLY on the provided context from the user's scraped website data.
+               // Build conversation history with prompt caching
+               // The system prompt and context will be cached to reduce token costs
+               const conversationHistory: Array<any> = [
+                    {
+                         role: "system",
+                         content: [
+                              {
+                                   type: "text",
+                                   text: `You are a helpful AI assistant that answers questions based ONLY on the provided context from the user's scraped website data.
 
 IMPORTANT RULES:
 1. Answer questions ONLY using the information from the provided context
 2. If the answer is not in the context, respond with: "I don't have data related to your question in the scraped content."
 3. Do not use any external knowledge or make up information
 4. Be concise and accurate
-5. Always cite which source you're using when answering
-
-Context from scraped websites:
-${context || "No relevant context found."}`;
-
-               const conversationHistory: Array<{ role: "system" | "user" | "assistant"; content: string }> = [{ role: "system", content: systemPrompt }];
+5. Always cite which source you're using when answering`,
+                                   cache_control: { type: "ephemeral" }
+                              },
+                              {
+                                   type: "text",
+                                   text: `\n\nContext from scraped websites:\n${context || "No relevant context found."}`,
+                                   cache_control: { type: "ephemeral" }
+                              }
+                         ]
+                    }
+               ];
 
                const recentMessages = session.messages.slice(-10);
                for (const msg of recentMessages) {
@@ -120,10 +133,11 @@ ${context || "No relevant context found."}`;
                }
 
                const completion = await this.openai.chat.completions.create({
-                    model: "gpt-4o-mini",
+                    model: "gpt-4o",  // Using GPT-4o for faster responses
                     messages: conversationHistory,
                     temperature: 0.3,
                     max_tokens: 500,
+                    store: true,  // Enable prompt caching
                });
 
                const assistantResponse = completion.choices[0].message.content || "I apologize, but I couldn't generate a response.";

@@ -6,6 +6,14 @@ export interface User {
   created_at: Date;
   updated_at: Date;
   last_login: Date | null;
+  plan_type: 'free' | 'basic';
+  conversations_used: number;
+  conversations_limit: number;
+  plan_reset_date: Date;
+  plan_expires_at: Date | null;
+  stripe_customer_id: string | null;
+  subscription_id: string | null;
+  subscription_status: string | null;
 }
 
 export interface UserResponse {
@@ -147,6 +155,7 @@ export interface EnvConfig {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   GOOGLE_CALLBACK_URL: string;
+  FRONTEND_URL: string;
   PINECONE_API_KEY: string;
   PINECONE_ENVIRONMENT: string;
   PINECONE_INDEX_NAME: string;
@@ -253,4 +262,42 @@ export interface ParsedDocument {
     uploadedAt: string;
     [key: string]: any;
   };
+}
+
+// Usage Tracking types
+export interface UsageStats {
+  planType: 'free' | 'basic';
+  conversationsUsed: number;
+  conversationsLimit: number;
+  conversationsRemaining: number;
+  resetDate: Date;
+  isApproachingLimit: boolean;
+  isAtLimit: boolean;
+}
+
+// Subscription types
+export interface Subscription {
+  id: number;
+  user_id: string;
+  stripe_subscription_id: string;
+  stripe_customer_id: string;
+  plan_type: 'free' | 'basic';
+  status: string;
+  current_period_start: Date;
+  current_period_end: Date;
+  cancel_at_period_end: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Payment History types
+export interface PaymentHistory {
+  id: number;
+  user_id: string;
+  stripe_payment_id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  plan_type: 'free' | 'basic';
+  created_at: Date;
 }

@@ -189,10 +189,9 @@ export const googleCallback = async (req: Request, res: Response, next: NextFunc
           const userAgent = req.get("user-agent");
 
           if (!profile || !profile.email) {
-               res.status(400).json({
-                    success: false,
-                    message: "Invalid Google profile data",
-               });
+               // Redirect to frontend with error
+               const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3001";
+               res.redirect(`${frontendUrl}/login?error=invalid_profile`);
                return;
           }
 
@@ -207,16 +206,14 @@ export const googleCallback = async (req: Request, res: Response, next: NextFunc
           if (result.success && result.accessToken && result.refreshToken) {
                setCookies(res, result.accessToken, result.refreshToken);
 
-               res.status(200).json({
-                    success: true,
-                    message: result.message,
-                    user: result.user,
-               });
+               // Redirect to dashboard on success
+               const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3001";
+               res.redirect(`${frontendUrl}/dashboard`);
           } else {
-               res.status(401).json({
-                    success: false,
-                    message: result.message || "Google authentication failed",
-               });
+               // Redirect to login with error message
+               const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3001";
+               const errorMessage = encodeURIComponent(result.message || "Google authentication failed");
+               res.redirect(`${frontendUrl}/login?error=${errorMessage}`);
           }
      } catch (error) {
           next(error);

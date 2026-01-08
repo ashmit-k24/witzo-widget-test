@@ -3,17 +3,28 @@ import passport from "../config/passport";
 import { authLimiter, verifyLimiter } from "../config/rateLimiters";
 import * as authController from "../controllers/authController";
 import * as chatController from "../controllers/chatController";
-import * as scraperController from "../controllers/scraperController";
+import * as csrfController from "../controllers/csrfController";
 import * as documentController from "../controllers/documentController";
+import * as scraperController from "../controllers/scraperController";
+import * as usageController from "../controllers/usageController";
 import { authenticateToken } from "../middleware/auth";
 import { setCsrfToken, verifyCsrfToken } from "../middleware/csrf";
-import { validate, validationRules } from "../middleware/validator";
 import { upload } from "../middleware/upload";
+import { addUsageToResponse, checkConversationLimit, trackConversation } from "../middleware/usageLimit";
+import { validate, validationRules } from "../middleware/validator";
 
 const router = Router();
 
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
+
+/**
+ * @route   GET /api/auth/csrf-token
+ * @desc    Get CSRF token for client-side requests
+ * @access  Public
+ * @returns CSRF token in response body, cookie, and header
+ */
+router.get("/csrf-token", csrfController.getCsrfToken);
 
 /**
  * @route   POST /api/auth/request-code
@@ -56,6 +67,25 @@ router.get("/me", authenticateToken, authController.getCurrentUser);
  * @access  Protected
  */
 router.get("/validate", authenticateToken, authController.validateSession);
+
+// ============================================
+// Usage Tracking Routes
+// ============================================
+
+/**
+ * @route   GET /api/auth/usage
+ * @desc    Get current user's usage statistics
+ * @access  Protected
+ */
+router.get("/usage", authenticateToken, usageController.getUserUsage);
+
+/**
+ * @route   POST /api/auth/usage/check
+ * @desc    Check usage statistics for a specific user (public API)
+ * @access  Public
+ * @body    { userId: string }
+ */
+router.post("/usage/check", usageController.checkUsage);
 
 /**
  * @route   GET /api/auth/google
@@ -136,8 +166,11 @@ router.get("/scraper/sources", authenticateToken, scraperController.getAllSource
  * @desc    Chat with AI using scraped data (RAG)
  * @access  Public (requires userId in body)
  * @body    { userId: string, sessionId?: string, message: string }
+ * @middleware checkConversationLimit - Verifies user hasn't exceeded plan limit
+ * @middleware trackConversation - Increments usage counter after successful response
+ * @middleware addUsageToResponse - Adds usage stats to response
  */
-router.post("/chat", chatController.chat);
+router.post("/chat", checkConversationLimit, trackConversation, addUsageToResponse, chatController.chat);
 
 /**
  * @route   GET /api/auth/chat/session/:sessionId
@@ -171,12 +204,7 @@ router.post("/chat/clear-user-sessions", chatController.clearUserSessions);
  * @access  Protected
  * @body    multipart/form-data with 'document' field
  */
-router.post(
-     "/documents/upload",
-     authenticateToken,
-     upload.single("document"),
-     documentController.uploadDocument
-);
+router.post("/documents/upload", authenticateToken, upload.single("document"), documentController.uploadDocument);
 
 /**
  * @route   POST /api/auth/documents/upload-multiple
@@ -184,11 +212,6 @@ router.post(
  * @access  Protected
  * @body    multipart/form-data with 'documents' field (array)
  */
-router.post(
-     "/documents/upload-multiple",
-     authenticateToken,
-     upload.array("documents", 10),
-     documentController.uploadMultipleDocuments
-);
+router.post("/documents/upload-multiple", authenticateToken, upload.array("documents", 10), documentController.uploadMultipleDocuments);
 
 export default router;
