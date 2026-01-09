@@ -161,6 +161,11 @@ export interface EnvConfig {
   PINECONE_INDEX_NAME: string;
   OPENAI_API_KEY: string;
   OPENAI_MODEL: string;
+
+  // Redis
+  REDIS_HOST: string;
+  REDIS_PORT: number;
+  REDIS_PASSWORD?: string;
 }
 
 // Web Scraper types

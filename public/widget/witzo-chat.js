@@ -14,9 +14,10 @@
       // Properties
       this.apiUrl = '';
       this.widgetKey = '';
-      this.sessionId = this.generateSessionId();
+      this.sessionId = this.getOrCreateSessionId(); // Updated to use storage
       this.isOpen = false;
       this.messages = [];
+      this.limitReached = false; // Flag to track limit status
 
       // Configuration with defaults
       this.config = {
@@ -32,6 +33,17 @@
         closeButtonColor: '#6B7280',
         logoIcon: null
       };
+    }
+
+    // New method for session persistence
+    getOrCreateSessionId() {
+      const STORAGE_KEY = 'witzo_chat_session_id';
+      let sid = localStorage.getItem(STORAGE_KEY);
+      if (!sid) {
+        sid = 'session_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+        localStorage.setItem(STORAGE_KEY, sid);
+      }
+      return sid;
     }
 
     connectedCallback() {
@@ -60,9 +72,7 @@
       }
     }
 
-    generateSessionId() {
-      return 'session_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
-    }
+    // generateSessionId removed in favor of getOrCreateSessionId
 
     render() {
       this.shadowRoot.innerHTML = `
@@ -358,7 +368,7 @@
             </div>
           </div>
           <div class="chat-input">
-            <input type="text" placeholder="Type your message..." aria-label="Message input" />
+            <input type="text" id="witzo-message" name="witzo-message" placeholder="Type your message..." aria-label="Message input" />
             <button class="send-button" aria-label="Send message">
               <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -507,7 +517,8 @@
           `;
           this.addMessage(limitMessage, 'bot');
 
-          // Disable input after limit reached
+          // Disable input checking flag
+          this.limitReached = true;
           input.disabled = true;
           sendButton.disabled = true;
           input.placeholder = 'Conversation limit reached';
@@ -530,8 +541,8 @@
         console.error('Witzo Chat Error:', error);
         this.addMessage('Sorry, there was an error. Please try again.', 'bot');
       } finally {
-        // Re-enable input (unless disabled due to limit)
-        if (!input.disabled) {
+        // Re-enable input (unless limit reached)
+        if (!this.limitReached) {
           input.disabled = false;
           sendButton.disabled = false;
           input.focus();

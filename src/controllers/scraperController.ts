@@ -211,9 +211,14 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
      }
 };
 
-export const getProgress = async (_req: Request, res: Response): Promise<void> => {
+export const getProgress = async (req: Request, res: Response): Promise<void> => {
      try {
-          const progress = await scraperService.getScrapingProgress();
+          const userId = (req as any).user?.id || req.body.userId; // Try both (body for testing sometimes)
+          // We can't really get progress without userId now as queues are likely user-specific eventually
+          // For now, pass what we have or a placeholder if public/testing? 
+          // Assuming authed route:
+
+          const progress = await scraperService.getScrapingProgress(userId || "unknown");
 
           res.status(200).json({
                success: true,

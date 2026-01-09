@@ -7,10 +7,15 @@ import { Server } from "http";
 import { config } from "./config/env";
 import passport, { configurePassport } from "./config/passport";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
-import authRoutes from "./routes/routes";
 import publicRoutes from "./routes/publicRoutes";
+import authRoutes from "./routes/routes";
 import authService from "./services/authService";
+import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
+import { createScraperWorker } from "./workers/scraperWorker";
+
+// Start background workers
+createScraperWorker();
 
 const app: Application = express();
 
@@ -113,6 +118,14 @@ setInterval(() => {
           logger.error("Scheduled cleanup failed", { error: error.message });
      });
 }, CLEANUP_INTERVAL);
+
+// Flush analytics buffer periodically
+const ANALYTICS_FLUSH_INTERVAL = 60 * 1000; // 1 minute
+setInterval(() => {
+     widgetService.flushAnalytics().catch((error: Error) => {
+          logger.error("Scheduled analytics flush failed", { error: error.message });
+     });
+}, ANALYTICS_FLUSH_INTERVAL);
 
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {

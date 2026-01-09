@@ -63,6 +63,11 @@ export const config: EnvConfig = {
      // OpenAI
      OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
      OPENAI_MODEL: process.env.OPENAI_MODEL || "text-embedding-3-small",
+
+     // Redis
+     REDIS_HOST: process.env.REDIS_HOST || "localhost",
+     REDIS_PORT: getEnvNumber("REDIS_PORT", 6379),
+     REDIS_PASSWORD: process.env.REDIS_PASSWORD || undefined,
 };
 
 export default config;

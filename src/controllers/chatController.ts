@@ -38,7 +38,7 @@ export const chat = async (req: Request, res: Response): Promise<void> => {
                success: true,
                sessionId: result.sessionId,
                response: result.response,
-               sources: result.sources,
+               // sources: result.sources,
           };
 
           // Include usage information if available
@@ -77,7 +77,8 @@ export const getChatSession = async (req: Request, res: Response): Promise<void>
                return;
           }
 
-          const session = chatService.getSession(sessionId);
+
+          const session = await chatService.getSession(sessionId);
 
           if (!session) {
                res.status(404).json({
@@ -120,7 +121,8 @@ export const clearChatSession = async (req: Request, res: Response): Promise<voi
                return;
           }
 
-          const cleared = chatService.clearSession(sessionId);
+
+          const cleared = await chatService.clearSession(sessionId);
 
           if (!cleared) {
                res.status(404).json({
@@ -156,7 +158,8 @@ export const clearUserSessions = async (req: Request, res: Response): Promise<vo
                return;
           }
 
-          const clearedCount = chatService.clearUserSessions(userId);
+
+          const clearedCount = await chatService.clearUserSessions(userId);
 
           res.status(200).json({
                success: true,

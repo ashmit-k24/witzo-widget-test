@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { chatService } from "../services/chatService";
-import widgetService from "../services/widgetService";
 import usageTrackingService from "../services/usageTrackingService";
+import widgetService from "../services/widgetService";
 import logger from "../utils/logger";
 
 /**
@@ -311,7 +311,7 @@ export const webhookChat = async (req: Request, res: Response, next: NextFunctio
                success: true,
                sessionId: result.sessionId,
                response: result.response,
-               sources: result.sources,
+               // sources: result.sources,
                usage: {
                     conversationsRemaining: usage.conversationsRemaining,
                     resetDate: usage.resetDate,

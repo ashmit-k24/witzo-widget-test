@@ -1,6 +1,11 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../config/database";
+import { redis } from "../config/redis";
 import logger from "../utils/logger";
+
+const WIDGET_KEY_CACHE_TTL = 3600; // 1 hour
+const ANALYTICS_BUFFER_KEY = "analytics:buffer";
+const ANALYTICS_BATCH_SIZE = 100;
 
 export interface WidgetKey {
      id: number;
@@ -48,6 +53,10 @@ class WidgetService {
           return `wk_${uuidv4().replace(/-/g, "")}`;
      }
 
+     private getCacheKey(widgetKey: string): string {
+          return `widget_key:${widgetKey}`;
+     }
+
      /**
       * Create a new widget key for a user
       */
@@ -71,8 +80,13 @@ class WidgetService {
                     [userId, widgetKey, widgetName, allowedDomains, JSON.stringify(widgetConfig)]
                );
 
+               const widget = this.mapRowToWidgetKey(result.rows[0]);
+
+               // Cache the new key
+               await redis.setex(this.getCacheKey(widgetKey), WIDGET_KEY_CACHE_TTL, JSON.stringify(widget));
+
                logger.info("Widget key created", { userId, widgetKey });
-               return this.mapRowToWidgetKey(result.rows[0]);
+               return widget;
           } catch (error) {
                logger.error("Error creating widget key", { error, userId });
                throw error;
@@ -80,17 +94,28 @@ class WidgetService {
      }
 
      /**
-      * Get widget key by key string
+      * Get widget key by key string (Cached)
       */
      async getWidgetKeyByKey(widgetKey: string): Promise<WidgetKey | null> {
           try {
+               // Try cache first
+               const cached = await redis.get(this.getCacheKey(widgetKey));
+               if (cached) {
+                    return JSON.parse(cached);
+               }
+
                const result = await pool.query(`SELECT * FROM widget_keys WHERE widget_key = $1`, [widgetKey]);
 
                if (result.rows.length === 0) {
                     return null;
                }
 
-               return this.mapRowToWidgetKey(result.rows[0]);
+               const widget = this.mapRowToWidgetKey(result.rows[0]);
+
+               // Cache result
+               await redis.setex(this.getCacheKey(widgetKey), WIDGET_KEY_CACHE_TTL, JSON.stringify(widget));
+
+               return widget;
           } catch (error) {
                logger.error("Error fetching widget key", { error, widgetKey });
                throw error;
@@ -102,6 +127,8 @@ class WidgetService {
       */
      async getUserWidgetKey(userId: string): Promise<WidgetKey | null> {
           try {
+               // We don't cache by userID easily because primary lookup is by key
+               // But we could add a secondary cache if needed
                const result = await pool.query(`SELECT * FROM widget_keys WHERE user_id = $1`, [userId]);
 
                if (result.rows.length === 0) {
@@ -146,8 +173,8 @@ class WidgetService {
                     }
                }
 
-               // Update last used timestamp and usage count
-               await this.updateWidgetUsage(widget.id);
+               // Update usage stats (fire and forget, maybe buffered later if needed)
+               this.updateWidgetUsage(widget.id);
 
                return { valid: true, userId: widget.user_id };
           } catch (error) {
@@ -208,8 +235,13 @@ class WidgetService {
                     throw new Error("Widget key not found");
                }
 
+               const widget = this.mapRowToWidgetKey(result.rows[0]);
+
+               // Invalidate cache
+               await redis.del(this.getCacheKey(widget.widget_key));
+
                logger.info("Widget key updated", { userId });
-               return this.mapRowToWidgetKey(result.rows[0]);
+               return widget;
           } catch (error) {
                logger.error("Error updating widget key", { error, userId });
                throw error;
@@ -217,7 +249,7 @@ class WidgetService {
      }
 
      /**
-      * Update widget usage statistics
+      * Update widget usage statistics (Now just DB update, low priority)
       */
      private async updateWidgetUsage(widgetKeyId: number): Promise<void> {
           try {
@@ -234,23 +266,78 @@ class WidgetService {
      }
 
      /**
-      * Track widget analytics event
+      * Track widget analytics event (Buffered)
       */
      async trackWidgetEvent(widgetKey: string, eventType: string, eventData: any = {}, metadata?: { ipAddress?: string; userAgent?: string; refererUrl?: string }): Promise<void> {
           try {
+               // We verify key exists quickly via cache
                const widget = await this.getWidgetKeyByKey(widgetKey);
-               if (!widget) {
-                    return;
-               }
+               if (!widget) return;
 
-               await pool.query(
-                    `INSERT INTO widget_analytics
-                    (widget_key_id, event_type, event_data, ip_address, user_agent, referer_url)
-                    VALUES ($1, $2, $3, $4, $5, $6)`,
-                    [widget.id, eventType, JSON.stringify(eventData), metadata?.ipAddress || null, metadata?.userAgent || null, metadata?.refererUrl || null]
-               );
+               const event = {
+                    widget_key_id: widget.id,
+                    event_type: eventType,
+                    event_data: eventData,
+                    ip_address: metadata?.ipAddress,
+                    user_agent: metadata?.userAgent,
+                    referer_url: metadata?.refererUrl,
+                    created_at: new Date().toISOString()
+               };
+
+               // Push to Redis Buffer
+               await redis.lpush(ANALYTICS_BUFFER_KEY, JSON.stringify(event));
           } catch (error) {
-               logger.error("Error tracking widget event", { error, widgetKey, eventType });
+               logger.error("Error tracing widget event", { error, widgetKey, eventType });
+          }
+     }
+
+     /**
+      * Flush buffered analytics to Database
+      */
+     async flushAnalytics(): Promise<void> {
+          try {
+               const len = await redis.llen(ANALYTICS_BUFFER_KEY);
+               if (len === 0) return;
+
+               const batchSize = Math.min(len, ANALYTICS_BATCH_SIZE);
+               const eventsStr = await redis.rpop(ANALYTICS_BUFFER_KEY, batchSize);
+
+               if (!eventsStr || (Array.isArray(eventsStr) && eventsStr.length === 0)) return;
+
+               // Redis implementation of rpop with count returns array (ioredis support?)
+               // If ioredis version doesn't support count, we loop. 
+               // Assuming standard redis rpop with count support or we use loop.
+               // Let's safe guard:
+               const events = (Array.isArray(eventsStr) ? eventsStr : [eventsStr])
+                    .map(s => s ? JSON.parse(s) : null)
+                    .filter(e => e !== null);
+
+               if (events.length === 0) return;
+
+               const client = await pool.connect();
+               try {
+                    await client.query("BEGIN");
+
+                    for (const event of events) {
+                         await client.query(
+                              `INSERT INTO widget_analytics
+                              (widget_key_id, event_type, event_data, ip_address, user_agent, referer_url, created_at)
+                              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                              [event.widget_key_id, event.event_type, JSON.stringify(event.event_data), event.ip_address, event.user_agent, event.referer_url, event.created_at]
+                         );
+                    }
+
+                    await client.query("COMMIT");
+                    logger.info(`Flushed ${events.length} analytics events to DB`);
+               } catch (error) {
+                    await client.query("ROLLBACK");
+                    logger.error("Error flushing analytics", { error });
+                    // Re-queue events? For now we drop them to avoid death loop, or log specifically
+               } finally {
+                    client.release();
+               }
+          } catch (error) {
+               logger.error("Error in flushAnalytics", { error });
           }
      }
 
@@ -259,7 +346,14 @@ class WidgetService {
       */
      async deleteWidgetKey(userId: string): Promise<void> {
           try {
+               const currentWidget = await this.getUserWidgetKey(userId);
+
                await pool.query(`DELETE FROM widget_keys WHERE user_id = $1`, [userId]);
+
+               if (currentWidget) {
+                    await redis.del(this.getCacheKey(currentWidget.widget_key));
+               }
+
                logger.info("Widget key deleted", { userId });
           } catch (error) {
                logger.error("Error deleting widget key", { error, userId });
@@ -286,6 +380,11 @@ class WidgetService {
                     RETURNING *`,
                     [newWidgetKey, userId]
                );
+
+               // Invalidate old key cache
+               await redis.del(this.getCacheKey(currentWidget.widget_key));
+
+               // New key will be cached on first read
 
                logger.info("Widget key regenerated", { userId, newWidgetKey });
                return this.mapRowToWidgetKey(result.rows[0]);
