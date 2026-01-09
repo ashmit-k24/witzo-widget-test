@@ -1,9 +1,24 @@
 /**
  * Witzo Chat Widget - Standalone Version
- * Self-contained chat widget with widget-key authentication
+ * Updated to match text-widget design
  */
 (function() {
   'use strict';
+
+  // Helper: Sanitize URL
+  function sanitizeURL(url) {
+    if (!url) return '';
+    // Allow http, https, mailto, tel protocols
+    if (/^(https?|mailto|tel):/i.test(url)) return url;
+    return '';
+  }
+
+  // Helper: Sanitize HTML (simple version)
+  function sanitizeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
 
   // Define the custom element
   class WitzoChatWidget extends HTMLElement {
@@ -14,49 +29,50 @@
       // Properties
       this.apiUrl = '';
       this.widgetKey = '';
-      this.sessionId = this.getOrCreateSessionId(); // Updated to use storage
+      this.sessionId = '';
       this.isOpen = false;
-      this.messages = [];
-      this.limitReached = false; // Flag to track limit status
+      this.successfulChatCount = 0;
+      this.date = new Date();
+      
+      this.elements = {};
 
-      // Configuration with defaults
+      // Configuration with defaults (matching text-widget types)
       this.config = {
-        primaryText: '**Hey there!** How can I help you?',
-        botColor: '#4F46E5',
-        sendColor: '#4F46E5',
-        floatingBtn: '#4F46E5',
+        primaryText: null,
+        botColor: '#fc0e3f',
+        sendColor: '#fc0e3f',
+        floatingBtnColor: '#fc0e3f',
         autoOpen: false,
-        bannerText: 'Chat Support',
-        bannerTextColor: '#FFFFFF',
-        bannerColor: '#4F46E5',
-        userChatColor: '#E5E7EB',
-        closeButtonColor: '#6B7280',
-        logoIcon: null
+        bannerText: 'Text Chat',
+        bannerTextColor: '',
+        userChatColor: '#d01137ff',
+        closeButtonColor: '',
+        logoIcon: null,
+        bannerTextParagraph: 'I am AI powered and learning',
+        bannerTextParagraphColor: ''
       };
     }
 
-    // New method for session persistence
-    getOrCreateSessionId() {
-      const STORAGE_KEY = 'witzo_chat_session_id';
-      let sid = localStorage.getItem(STORAGE_KEY);
-      if (!sid) {
-        sid = 'session_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
-        localStorage.setItem(STORAGE_KEY, sid);
-      }
-      return sid;
-    }
-
     connectedCallback() {
+      // Initialize Session
+      this.initializeSession();
+
       // Read attributes
       this.apiUrl = this.getAttribute('api-url') || '';
       this.widgetKey = this.getAttribute('widget-key') || '';
 
       // Read configuration from attributes
-      Object.keys(this.config).forEach(key => {
-        const kebabKey = key.replace(/([A-Z])/g, '-$1').toLowerCase();
-        const value = this.getAttribute(kebabKey);
+      const attrs = [
+        'primary-text', 'bot-color', 'send-color', 'floating-btn-color', 
+        'auto-open', 'banner-text', 'banner-text-color', 'user-chat-color',
+        'close-button-color', 'logo-icon', 'banner-text-paragraph', 
+        'banner-text-paragraph-color'
+      ];
+
+      attrs.forEach(attr => {
+        const value = this.getAttribute(attr);
         if (value !== null) {
-          // Convert string booleans
+          const key = attr.replace(/-([a-z])/g, g => g[1].toUpperCase());
           if (value === 'true') this.config[key] = true;
           else if (value === 'false') this.config[key] = false;
           else this.config[key] = value;
@@ -64,503 +80,601 @@
       });
 
       this.render();
-      this.attachEventListeners();
+      this.bindEvents();
+
+      // Process default message
+      if (this.config.primaryText) {
+        setTimeout(() => {
+          this.displayDefaultMessage();
+        }, 500);
+      }
 
       // Auto-open if configured
       if (this.config.autoOpen) {
-        setTimeout(() => this.openChat(), 500);
+        setTimeout(() => {
+            if (!this.isOpen) this.toggleChat();
+        }, 5000);
       }
+
+      // Show floating button after delay
+      setTimeout(() => {
+         if (this.elements.floatingBtn) this.elements.floatingBtn.classList.remove('hidden');
+      }, 2000);
+    }
+    
+    initializeSession() {
+        const date = sessionStorage.getItem('witzo_chat_date');
+        if (date) {
+            this.date = new Date(date);
+        } else {
+            sessionStorage.setItem('witzo_chat_date', new Date().toISOString());
+        }
+
+        const chatCount = sessionStorage.getItem('witzo_chat_count');
+        if (chatCount) this.successfulChatCount = Number(chatCount);
+        else sessionStorage.setItem('witzo_chat_count', `0`);
+
+        // Session Token
+        const STORAGE_KEY = 'witzo_chat_session_token';
+        let session = sessionStorage.getItem(STORAGE_KEY);
+        if(!session){
+             // UUID Fallback
+             session = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = (Math.random() * 16) | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+            sessionStorage.setItem(STORAGE_KEY, session);
+        }
+        this.sessionId = session;
     }
 
-    // generateSessionId removed in favor of getOrCreateSessionId
-
     render() {
+      // Use the CSS and HTML from template.ts
       this.shadowRoot.innerHTML = `
-        <style>
-          * {
-            margin: 0;
-            padding: 0;
+      <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap');
+          *,
+          ::after,
+          ::before {
             box-sizing: border-box;
           }
-
           :host {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 999999;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-family: 'Open Sans', sans-serif;
+            display: block;
+            /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
           }
-
-          .chat-button {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: ${this.config.floatingBtn};
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          #textChatWidget {
+            position: fixed;
+            bottom: 6em;
+            right: 2em;
+            z-index: 9999;
+            width: 27rem;
+            height: 100%;
+            max-width: 90vw;
+            max-height: 70vh;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: transform 0.3s, box-shadow 0.3s;
-          }
-
-          .chat-button:hover {
-            transform: scale(1.1);
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-          }
-
-          .chat-button svg {
-            width: 28px;
-            height: 28px;
-            fill: white;
-          }
-
-          .chat-window {
-            position: fixed;
-            bottom: 90px;
-            right: 20px;
-            width: 380px;
-            height: 600px;
-            max-height: calc(100vh - 120px);
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-            display: none;
             flex-direction: column;
+            border-radius: 1.5rem;
             overflow: hidden;
-            animation: slideUp 0.3s ease-out;
+            transition: width 0.4s ease-in-out, max-width 0.4s ease-in-out, max-height 0.4s ease-in-out;
+            background: #fff; /* Ensure background is white */
           }
 
-          .chat-window.open {
-            display: flex;
+          .chat-widget {
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(10px);
+            transform: translateY(20px);
+            opacity: 0;
+            animation: slideUp 0.4s ease-out forwards;
           }
+          
+          .hidden { display: none !important; }
 
           @keyframes slideUp {
-            from {
-              opacity: 0;
-              transform: translateY(20px);
-            }
             to {
-              opacity: 1;
               transform: translateY(0);
+              opacity: 1;
             }
           }
 
+          .chat-widget.minimizing {
+            opacity: 1;
+            transform: translateY(0px);
+            animation: slideDown 0.3s ease-in forwards;
+          }
+
+          @keyframes slideDown {
+            to {
+              transform: translateY(20px);
+              opacity: 0;
+            }
+          }
+
+          /* Header */
           .chat-header {
-            background: ${this.config.bannerColor};
-            color: ${this.config.bannerTextColor};
-            padding: 16px 20px;
+            background: #120b14;
+            padding: 0rem 1rem;
             display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+            height: 60px; /* Fixed height for header */
+          }
+          .chat-header-left {
+            display: flex;
+            width: auto;
             justify-content: space-between;
             align-items: center;
+            gap: 0.75rem;
           }
-
-          .chat-header h3 {
-            font-size: 16px;
+          .chat-icon {
+            width: auto;
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .chat-title {
+            color: #fff;
+            font-size: 18px;
             font-weight: 600;
+            letter-spacing: -0.14px;
             margin: 0;
           }
-
-          .close-button {
-            background: none;
+          .chat-header-right {
+            display: flex;
+            align-items: center;
+          }
+          .chat-action-btn {
             border: none;
-            color: ${this.config.closeButtonColor};
-            cursor: pointer;
-            padding: 4px;
+            background: transparent;
+            border-radius: 0.5rem;
             display: flex;
             align-items: center;
             justify-content: center;
-            opacity: 0.8;
-            transition: opacity 0.2s;
+            cursor: pointer;
+            margin-left: 0.5rem;
+            padding: 5px;
           }
-
-          .close-button:hover {
-            opacity: 1;
-          }
-
-          .close-button svg {
-            width: 20px;
-            height: 20px;
-            fill: currentColor;
-          }
-
+          
+          /* Messages Area */
           .chat-messages {
+            padding: 1.25rem;
+            background: #fff;
             flex: 1;
             overflow-y: auto;
-            padding: 20px;
-            background: #F9FAFB;
-          }
-
-          .message {
-            margin-bottom: 16px;
             display: flex;
             flex-direction: column;
+            gap: 1rem;
+            scrollbar-width: thin;
+            scrollbar-color: #888 #f5f5f5;
           }
-
-          .message.bot {
-            align-items: flex-start;
+          .chat-message { display: flex; align-items: flex-start; gap: 0.75rem; }
+          
+          /* Bubbles */
+          .chat-bubble-ai { 
+            background: #ececec; 
+            border-radius: 1rem; 
+            padding: 0.8rem 1rem; 
+            max-width: 280px; 
+            color: #0f172a; 
+            font-size: 0.875rem; 
+            line-height: 1.3; 
           }
-
-          .message.user {
-            align-items: flex-end;
+          .chat-bubble-user {
+            background: ${this.config.userChatColor || '#ffdde4'}; /* Default or Config */
+            color: #000;
+            border-radius: 1rem;
+            padding: 0.8rem 1rem;
+            max-width: 280px;
+            font-size: 0.875rem;
+            line-height: 1.3;
           }
-
-          .message-bubble {
-            max-width: 80%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            word-wrap: break-word;
-            line-height: 1.5;
-            font-size: 14px;
-          }
-
-          .message.bot .message-bubble {
-            background: ${this.config.botColor};
-            color: white;
-            border-bottom-left-radius: 4px;
-          }
-
-          .message.user .message-bubble {
-            background: ${this.config.userChatColor};
-            color: #1F2937;
-            border-bottom-right-radius: 4px;
-          }
-
-          .message-sources {
-            margin-top: 8px;
-            font-size: 12px;
-            color: #6B7280;
-          }
-
-          .message-sources a {
-            color: ${this.config.botColor};
-            text-decoration: none;
-          }
-
-          .message-sources a:hover {
-            text-decoration: underline;
-          }
-
-          .typing-indicator {
-            display: none;
-            align-items: center;
-            gap: 4px;
-            padding: 12px 16px;
-            background: ${this.config.botColor};
-            color: white;
-            border-radius: 12px;
-            border-bottom-left-radius: 4px;
-            max-width: 80px;
-          }
-
-          .typing-indicator.active {
+          
+          .chat-message.user {
             display: flex;
+            flex-direction: row;
+            gap: 0.5em;
+            justify-content: flex-end;
           }
 
-          .typing-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: white;
-            animation: typing 1.4s infinite;
-          }
-
-          .typing-dot:nth-child(2) {
-            animation-delay: 0.2s;
-          }
-
-          .typing-dot:nth-child(3) {
-            animation-delay: 0.4s;
-          }
-
-          @keyframes typing {
-            0%, 60%, 100% {
-              opacity: 0.3;
-              transform: translateY(0);
-            }
-            30% {
-              opacity: 1;
-              transform: translateY(-10px);
-            }
-          }
-
+            /* Inputs */
           .chat-input {
-            padding: 16px 20px;
-            border-top: 1px solid #E5E7EB;
-            background: white;
+            padding: 1rem;
+            padding-bottom: 0.25rem;
+            background: #fff;
+            border-top: 1px solid #e2e8f0;
             display: flex;
-            gap: 10px;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
           }
-
-          .chat-input input {
+          .chat-title-paragraph{
+            color: #999;
+            font-size: 10px;
+            font-weight: 600;
+            margin: 0;
+            align-self: flex-start;
+          }
+          .chat-input-container{
+            display: flex;
+            width: 100%;
+            gap: 0.5rem;
+            align-items: center;
+            justify-content: space-between;
+          }
+          .chat-text-input {
             flex: 1;
-            border: 1px solid #E5E7EB;
-            border-radius: 8px;
-            padding: 10px 14px;
-            font-size: 14px;
+            background: #ececec;
+            border: 1px solid #fff;
+            border-radius: 9999px;
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
             outline: none;
-            transition: border-color 0.2s;
           }
-
-          .chat-input input:focus {
-            border-color: ${this.config.botColor};
-          }
-
-          .send-button {
-            background: ${this.config.sendColor};
+           .chat-send-btn {
+            width: 3rem;
+            height: 3rem;
             border: none;
-            border-radius: 8px;
-            padding: 10px 16px;
-            color: white;
-            cursor: pointer;
-            transition: opacity 0.2s;
+            border-radius: 0.75rem;
             display: flex;
             align-items: center;
             justify-content: center;
+            color: #fff;
+            cursor: pointer;
+            overflow: hidden;
+            background: transparent;
+            padding: 0;
           }
-
-          .send-button:hover {
-            opacity: 0.9;
+          
+          /* Footer */
+          .chat-footer {
+            background: #fff;
+            padding-bottom: 10px;
           }
-
-          .send-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+          .powered-by {
+            text-align: center;
+            font-size: 10px;
+            font-weight: 500;
+            color: #999;
+            margin: 6px 0 0 0;
+            padding: 0;
+            opacity: 0.7;
           }
-
-          .send-button svg {
-            width: 20px;
-            height: 20px;
-            fill: white;
+          .powered-by-brand {
+             font-weight: 700;
+             color: #666;
+             text-decoration: none;
+             cursor: pointer;
           }
-
-          @media (max-width: 480px) {
-            .chat-window {
-              width: calc(100vw - 40px);
-              height: calc(100vh - 120px);
-              bottom: 90px;
-              right: 20px;
+          
+          /* Floating Button */
+          #floatingBtn {
+            bottom: 15px;
+            position: fixed;
+            right: 45px;
+            z-index: 9999;
+            animation: float 3s ease-in-out infinite;
+          }
+          .floating-btn {
+            cursor: pointer;
+            align-items: center;
+            background: ${this.config.floatingBtnColor || '#fc0e3f'};
+            border: 0;
+            border-radius: 9999px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            color: #fff;
+            display: flex;
+            filter: brightness(1.15);
+            font-weight: 500;
+            overflow: hidden;
+            padding: 1.25rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          }
+           @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+          }
+          
+          /* Typing Indicators */
+           .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+          }
+           .typing-container{
+              background: #ececec;
+              border-radius: 50px;
+              padding: 7px 15px;
+              font-size: 14px;
+              color: #666;
             }
+           .typing-dots-text  {
+            font-size: 1.5rem;
+            line-height: 0.5;
+            animation: fadeInOut 1.5s infinite;
+            opacity: 0;
           }
-        </style>
+           .typing-dots-text:nth-child(1) { animation-delay: 0s; }
+           .typing-dots-text:nth-child(2) { animation-delay: 0.5s; }
+           .typing-dots-text:nth-child(3) { animation-delay: 1s; }
+           
+           @keyframes fadeInOut {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 1; }
+          }
 
-        <button class="chat-button" aria-label="Open chat">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
-          </svg>
-        </button>
+           #logoIcon{
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            object-fit: contain;
+            }
+            
+            /* Markdown Styles inside bubbles */
+            .md-content p { margin: 0; }
+            .md-content ul, .md-content ol { padding-left: 20px; margin: 5px 0; }
+            .md-content a { color: #007bff; text-decoration: none; }
+            .md-content a:hover { text-decoration: underline; }
 
-        <div class="chat-window">
-          <div class="chat-header">
-            <h3>${this.config.bannerText}</h3>
-            <button class="close-button" aria-label="Close chat">
-              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-              </svg>
-            </button>
-          </div>
-          <div class="chat-messages">
-            <div class="typing-indicator">
-              <div class="typing-dot"></div>
-              <div class="typing-dot"></div>
-              <div class="typing-dot"></div>
+      </style>
+
+        <!-- Chat Widget Box -->
+        <div id="textChatWidget" class="chat-widget hidden">
+            <!-- Header -->
+            <div id="chat-header" class="chat-header" style="background-color: ${this.config.botColor};">
+                <div class="chat-header-left">
+                     <div class="chat-icon">
+                        ${this.config.logoIcon 
+                            ? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
+                            : `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+                        }
+                    </div>
+                     <div class="online-ready">
+                        <div class="online-ready-text">
+                        <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || '#fff'}">${this.config.bannerText}</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-header-right">
+                    <button id="closeTextChat" class="chat-action-btn">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 18 18" fill="none">
+                            <path id="close-button-icon" fill="${this.config.closeButtonColor || 'white'}" d="M9.21387 0.125C11.5101 0.127425 13.7122 1.04041 15.3359 2.66406C16.9596 4.28776 17.8726 6.48988 17.875 8.78613C17.8749 10.4989 17.3676 12.1735 16.416 13.5977C15.4644 15.0219 14.1109 16.1316 12.5283 16.7871C10.9459 17.4425 9.20431 17.6144 7.52441 17.2803C5.84472 16.9461 4.3019 16.1211 3.09082 14.9102C1.87964 13.699 1.05392 12.1555 0.719727 10.4756C0.38557 8.79567 0.557473 7.05415 1.21289 5.47168C1.86833 3.88932 2.97833 2.5366 4.40234 1.58496C5.82644 0.633413 7.50114 0.125111 9.21387 0.125ZM12.1074 1.80176C10.7262 1.22963 9.20557 1.0804 7.73926 1.37207C6.27313 1.6638 4.92618 2.38339 3.86914 3.44043C2.8121 4.49747 2.09251 5.84442 1.80078 7.31055C1.50911 8.77686 1.65834 10.2975 2.23047 11.6787C2.8026 13.0599 3.7716 14.2407 5.01465 15.0713C6.25771 15.9019 7.71983 16.3447 9.21484 16.3447C11.2188 16.3424 13.1396 15.5449 14.5566 14.1279C15.9737 12.7109 16.7711 10.7901 16.7734 8.78613C16.7734 7.29112 16.3306 5.829 15.5 4.58594C14.6694 3.34289 13.4886 2.37389 12.1074 1.80176ZM11.918 5.53125C11.9903 5.53128 12.0621 5.54557 12.1289 5.57324C12.1957 5.60093 12.2565 5.64129 12.3076 5.69238C12.3587 5.74346 12.3991 5.80438 12.4268 5.87109C12.4544 5.93785 12.4687 6.00978 12.4688 6.08203C12.4687 6.15432 12.4544 6.22617 12.4268 6.29297C12.3991 6.35971 12.3587 6.42056 12.3076 6.47168L10.0811 8.69727L9.99316 8.78613L10.0811 8.87402L12.3076 11.0996C12.3587 11.1507 12.3991 11.2116 12.4268 11.2783C12.4544 11.3452 12.4688 11.4169 12.4688 11.4893C12.4687 11.5616 12.4544 11.6334 12.4268 11.7002C12.3991 11.767 12.3587 11.8278 12.3076 11.8789C12.2565 11.93 12.1957 11.9703 12.1289 11.998C12.0621 12.0257 11.9903 12.04 11.918 12.04C11.8456 12.04 11.7739 12.0257 11.707 11.998C11.6403 11.9704 11.5795 11.93 11.5283 11.8789L9.30273 9.65234L9.21484 9.56445L9.12598 9.65234L6.90039 11.8789C6.84927 11.9299 6.78842 11.9704 6.72168 11.998C6.65488 12.0257 6.58303 12.04 6.51074 12.04C6.43849 12.04 6.36656 12.0257 6.2998 11.998C6.23309 11.9704 6.17217 11.93 6.12109 11.8789C6.07 11.8278 6.02964 11.7669 6.00195 11.7002C5.97428 11.6334 5.95999 11.5616 5.95996 11.4893C5.95996 11.4169 5.9743 11.3451 6.00195 11.2783C6.0296 11.2116 6.07006 11.1507 6.12109 11.0996L8.34766 8.87402L8.43555 8.78613L8.34766 8.69727L6.12109 6.47168H6.12012C6.01729 6.36839 5.95996 6.22781 5.95996 6.08203C5.96006 5.93598 6.01782 5.79566 6.12109 5.69238C6.22437 5.5891 6.3647 5.53135 6.51074 5.53125C6.65675 5.53125 6.79706 5.58926 6.90039 5.69238L9.12598 7.91895L9.21484 8.00684L9.30273 7.91895L11.5283 5.69238C11.5794 5.64135 11.6403 5.60089 11.707 5.57324C11.7739 5.54559 11.8456 5.53125 11.918 5.53125Z"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
-          </div>
-          <div class="chat-input">
-            <input type="text" id="witzo-message" name="witzo-message" placeholder="Type your message..." aria-label="Message input" />
-            <button class="send-button" aria-label="Send message">
-              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-              </svg>
+
+            <!-- Messages Area -->
+            <div id="textMessagesArea" class="chat-messages">
+                <!-- Messages will be appended here -->
+            </div>
+
+             <!-- Input Area -->
+            <div class="chat-input">
+                <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || '#999'}">${this.config.bannerTextParagraph}</p>
+                <div class="chat-input-container">
+                    <input id="textMessageInput" type="text" placeholder="Type your message..." class="chat-text-input" />
+                    <button class="chat-send-btn" id="textSendButton">
+                         <!-- Send Icon with Color Mask Logic simulated with SVG fill -->
+                        <svg width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect width="50" height="50" rx="14" fill="${this.config.sendColor}"/>
+                            <path d="M26.4286 17.5143L34.1429 25.2286M34.1429 25.2286L26.4286 32.9429M34.1429 25.2286L14.8571 25.2286" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="chat-footer">
+                <h3 class="powered-by">
+                powered by 
+                <a href="https://witzo.ai/" target="_blank" rel="noopener noreferrer" class="powered-by-brand">
+                    witzo
+                </a>
+                </h3>
+            </div>
+        </div>
+
+        <!-- Floating Chat Button -->
+        <div id="floatingBtn" class="floating">
+            <button class="floating-btn hidden" id="floating-btn">
+                 <svg width="32" height="26" viewBox="0 0 32 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path fill-rule="evenodd" clip-rule="evenodd" d="M0.375 6.3125C0.375 3.27493 2.83743 0.8125 5.875 0.8125H25.8125C28.8501 0.8125 31.3125 3.27493 31.3125 6.3125V15.1743L27.5114 13.7677C27.411 13.7306 27.3319 13.6515 27.2948 13.5511L25.4689 8.6168C25.3507 8.29761 24.8993 8.29761 24.7811 8.6168L22.9552 13.5511C22.9181 13.6515 22.839 13.7306 22.7386 13.7677L17.8043 15.5936C17.4851 15.7118 17.4851 16.1632 17.8043 16.2814L22.7386 18.1073C22.839 18.1444 22.9181 18.2235 22.9552 18.3239L24.3618 22.125H18.9339C18.9202 22.1484 18.9049 22.1714 18.888 22.1939L16.3936 25.5174C16.1186 25.8838 15.5689 25.8838 15.2939 25.5174L12.7994 22.1939C12.7826 22.1714 12.7673 22.1484 12.7536 22.125H5.875C2.83743 22.125 0.375 19.6626 0.375 16.625V6.3125ZM19.1094 8.15215C19.0504 7.99255 18.8246 7.99255 18.7656 8.15215L18.4097 9.11387C18.3911 9.16405 18.3516 9.20363 18.3014 9.2222L17.3397 9.57808C17.1801 9.6371 17.1801 9.8629 17.3397 9.92192L18.3014 10.2778C18.3516 10.2964 18.3911 10.3359 18.4097 10.3861L18.7656 11.3478C18.8246 11.5074 19.0504 11.5074 19.1094 11.3478L19.4653 10.3861C19.4839 10.3359 19.5234 10.2964 19.5736 10.2778L20.5353 9.92192C20.6949 9.8629 20.6949 9.6371 20.5353 9.57808L19.5736 9.2222C19.5234 9.20363 19.4839 9.16405 19.4653 9.11387L19.1094 8.15215Z" fill="white"/>
+                  </svg>
             </button>
-          </div>
         </div>
       `;
 
-      // Show welcome message if configured
-      if (this.config.primaryText) {
-        setTimeout(() => {
-          this.addMessage(this.parseMarkdown(this.config.primaryText), 'bot');
-        }, 500);
-      }
+      // Cache elements
+      this.elements = {
+        widget: this.shadowRoot.getElementById('textChatWidget'),
+        floatingBtn: this.shadowRoot.getElementById('floating-btn'),
+        closeBtn: this.shadowRoot.getElementById('closeTextChat'),
+        messagesContainer: this.shadowRoot.getElementById('textMessagesArea'),
+        input: this.shadowRoot.getElementById('textMessageInput'),
+        sendBtn: this.shadowRoot.getElementById('textSendButton')
+      };
     }
 
-    attachEventListeners() {
-      const chatButton = this.shadowRoot.querySelector('.chat-button');
-      const closeButton = this.shadowRoot.querySelector('.close-button');
-      const sendButton = this.shadowRoot.querySelector('.send-button');
-      const input = this.shadowRoot.querySelector('.chat-input input');
-
-      chatButton.addEventListener('click', () => this.toggleChat());
-      closeButton.addEventListener('click', () => this.closeChat());
-      sendButton.addEventListener('click', () => this.sendMessage());
-      input.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') this.sendMessage();
-      });
+    bindEvents() {
+        this.elements.floatingBtn.addEventListener('click', () => this.toggleChat());
+        this.elements.closeBtn.addEventListener('click', () => this.toggleChat());
+        
+        this.elements.sendBtn.addEventListener('click', () => this.handleSend());
+        this.elements.input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.handleSend();
+            }
+        });
     }
 
     toggleChat() {
-      this.isOpen ? this.closeChat() : this.openChat();
-    }
-
-    openChat() {
-      this.isOpen = true;
-      const chatWindow = this.shadowRoot.querySelector('.chat-window');
-      chatWindow.classList.add('open');
-
-      // Focus input
-      setTimeout(() => {
-        this.shadowRoot.querySelector('.chat-input input').focus();
-      }, 100);
-    }
-
-    closeChat() {
-      this.isOpen = false;
-      const chatWindow = this.shadowRoot.querySelector('.chat-window');
-      chatWindow.classList.remove('open');
-    }
-
-    addMessage(content, type, sources = []) {
-      const messagesContainer = this.shadowRoot.querySelector('.chat-messages');
-      const messageDiv = document.createElement('div');
-      messageDiv.className = `message ${type}`;
-
-      const bubble = document.createElement('div');
-      bubble.className = 'message-bubble';
-      bubble.innerHTML = content;
-
-      messageDiv.appendChild(bubble);
-
-      // Add sources if available
-      if (sources && sources.length > 0) {
-        const sourcesDiv = document.createElement('div');
-        sourcesDiv.className = 'message-sources';
-        sourcesDiv.innerHTML = '<strong>Sources:</strong><br>' +
-          sources.map(s => `<a href="${s.url}" target="_blank">📄 ${s.title}</a>`).join('<br>');
-        messageDiv.appendChild(sourcesDiv);
+      if (!this.isOpen) {
+        // Open
+        this.isOpen = true;
+        this.elements.widget.classList.remove('hidden');
+        this.elements.widget.classList.remove('minimizing');
+        this.elements.floatingBtn.classList.add('hidden');
+        setTimeout(() => this.elements.input.focus(), 100);
+      } else {
+        // Close
+        this.isOpen = false;
+        this.elements.widget.classList.add('minimizing');
+        setTimeout(() => {
+            this.elements.widget.classList.add('hidden');
+            this.elements.floatingBtn.classList.remove('hidden');
+        }, 300);
       }
-
-      // Insert before typing indicator
-      const typingIndicator = messagesContainer.querySelector('.typing-indicator');
-      messagesContainer.insertBefore(messageDiv, typingIndicator);
-
-      // Scroll to bottom
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
-      this.messages.push({ content, type, sources, timestamp: new Date() });
     }
 
-    showTyping() {
-      const typingIndicator = this.shadowRoot.querySelector('.typing-indicator');
-      typingIndicator.classList.add('active');
+    async handleSend() {
+        const text = this.elements.input.value.trim();
+        if(!text) return;
 
-      const messagesContainer = this.shadowRoot.querySelector('.chat-messages');
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-
-    hideTyping() {
-      const typingIndicator = this.shadowRoot.querySelector('.typing-indicator');
-      typingIndicator.classList.remove('active');
-    }
-
-    async sendMessage() {
-      const input = this.shadowRoot.querySelector('.chat-input input');
-      const message = input.value.trim();
-
-      if (!message) return;
-
-      // Validate widget key
-      if (!this.widgetKey) {
-        console.error('Witzo Chat: widget-key attribute is required');
-        this.addMessage('Error: Widget not configured properly', 'bot');
-        return;
-      }
-
-      // Add user message
-      this.addMessage(this.escapeHtml(message), 'user');
-      input.value = '';
-
-      // Show typing indicator
-      this.showTyping();
-
-      // Disable input
-      const sendButton = this.shadowRoot.querySelector('.send-button');
-      input.disabled = true;
-      sendButton.disabled = true;
-
-      try {
-        const response = await fetch(this.apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            widgetKey: this.widgetKey,
-            message: message,
-            sessionId: this.sessionId
-          })
-        });
-
-        const data = await response.json();
-
-        this.hideTyping();
-
-        // Handle conversation limit reached
-        if (response.status === 403 && data.limitReached) {
-          const limitMessage = `
-            ${data.message || "You've reached your conversation limit."}
-
-            Plan: ${data.data?.planType || 'Unknown'}
-            Used: ${data.data?.conversationsUsed || 0}/${data.data?.conversationsLimit || 0}
-            Resets: ${data.data?.resetDate ? new Date(data.data.resetDate).toLocaleDateString() : 'Unknown'}
-          `;
-          this.addMessage(limitMessage, 'bot');
-
-          // Disable input checking flag
-          this.limitReached = true;
-          input.disabled = true;
-          sendButton.disabled = true;
-          input.placeholder = 'Conversation limit reached';
-          return;
+        // Reset chat count if time gap large (simple version)
+        const gap = new Date().getTime() - this.date.getTime();
+        if (gap > 2 * 60 * 1000) {
+            this.successfulChatCount = 0;
+            this.date = new Date();
         }
 
-        if (data.success && data.response) {
-          this.addMessage(this.parseMarkdown(data.response), 'bot', data.sources || []);
+        // Add User Message
+        this.appendMessage(text, 'user');
+        this.elements.input.value = '';
 
-          // Show usage warning if approaching limit
-          if (data.warning) {
-            console.warn('Witzo Widget:', data.warning);
-            console.log('Usage:', data.usage);
-          }
-        } else {
-          this.addMessage(data.message || 'Sorry, I couldn\'t process that. Please try again.', 'bot');
+        // Show Typing Indicator
+        const typingWrapper = this.showTypingIndicator();
+
+        try {
+             const body = {
+                sessionId: this.sessionId,
+                action: 'sendMessage',
+                chatInput: text,
+                chatCount: this.successfulChatCount,
+                uniqueId: this.widgetKey,
+            };
+
+            const response = await fetch(this.apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            const rawText = await response.text();
+            let content = "Sorry, didn't get that.";
+
+            if (response.ok) {
+                try {
+                    const result = JSON.parse(rawText);
+                    content = result.output || result.message || content;
+                } catch(e) {
+                    console.error('JSON Error', e);
+                }
+                this.successfulChatCount++;
+                sessionStorage.setItem('witzo_chat_count', `${this.successfulChatCount}`);
+            } else {
+                try {
+                     const err = JSON.parse(rawText);
+                     content = err.message || content;
+                } catch(e){}
+            }
+
+            // Replace typing indicator with response
+            this.updateTypingToMessage(typingWrapper, content);
+
+        } catch (error) {
+            console.error('Network Error', error);
+            this.updateTypingToMessage(typingWrapper, "Sorry, network error occurred.");
         }
-      } catch (error) {
-        this.hideTyping();
-        console.error('Witzo Chat Error:', error);
-        this.addMessage('Sorry, there was an error. Please try again.', 'bot');
-      } finally {
-        // Re-enable input (unless limit reached)
-        if (!this.limitReached) {
-          input.disabled = false;
-          sendButton.disabled = false;
-          input.focus();
+    }
+
+    appendMessage(text, type) {
+        const wrapper = document.createElement('div');
+        wrapper.className = `chat-message ${type === 'user' ? 'user' : ''}`;
+
+        const bubble = document.createElement('div');
+        // Type 'user' gets chat-bubble-user, bot gets chat-bubble-ai
+        bubble.className = type === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai';
+        
+        // Render content
+        bubble.innerHTML = `<div class="md-content"><p>${this.parseMarkdown(this.escapeHtml(text))}</p></div>`;
+
+        wrapper.appendChild(bubble);
+        this.elements.messagesContainer.appendChild(wrapper);
+        this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+    }
+
+    showTypingIndicator() {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'chat-message';
+
+        const bubble = document.createElement('div');
+        bubble.className = 'typing-indicator chat-bubble-ai'; // Borrow styles
+        bubble.innerHTML = `
+            <div class="typing-container">
+                <span class="typing-dots-text">.</span>
+                <span class="typing-dots-text">.</span>
+                <span class="typing-dots-text">.</span>
+            </div>
+        `;
+
+        wrapper.appendChild(bubble);
+        this.elements.messagesContainer.appendChild(wrapper);
+        this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+        return wrapper;
+    }
+
+    updateTypingToMessage(wrapper, text) {
+        const bubble = wrapper.querySelector('.typing-indicator');
+        if(bubble) {
+            bubble.classList.remove('typing-indicator');
+            bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
         }
-      }
+        this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+    }
+
+    displayDefaultMessage() {
+         const wrapper = document.createElement('div');
+         wrapper.className = 'chat-message';
+         const bubble = document.createElement('div');
+         bubble.className = 'chat-bubble-ai';
+         bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(this.config.primaryText)}</div>`;
+         wrapper.appendChild(bubble);
+         this.elements.messagesContainer.appendChild(wrapper);
     }
 
     parseMarkdown(text) {
-      return text
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/\n/g, '<br>');
+      if(!text) return '';
+      // Simple markdown parsing to match text-widget capabilities
+      let html = text;
+      
+      // Bold **text**
+      html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      
+      // Links [text](url)
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, txt, url) => {
+          return `<a href="${sanitizeURL(url)}" target="_blank" rel="noopener noreferrer">${txt}</a>`;
+      });
+      
+      // Newlines to br
+      html = html.replace(/\n/g, '<br>');
+      
+      return html;
     }
-
+    
     escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
+        return text.replace(/[&<>"']/g, function(m) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[m];
+        });
     }
   }
 
