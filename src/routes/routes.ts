@@ -7,6 +7,7 @@ import * as csrfController from "../controllers/csrfController";
 import * as documentController from "../controllers/documentController";
 import * as scraperController from "../controllers/scraperController";
 import * as usageController from "../controllers/usageController";
+import * as widgetController from "../controllers/widgetController";
 import { authenticateToken } from "../middleware/auth";
 import { setCsrfToken, verifyCsrfToken } from "../middleware/csrf";
 import { upload } from "../middleware/upload";
@@ -213,5 +214,51 @@ router.post("/documents/upload", authenticateToken, upload.single("document"), d
  * @body    multipart/form-data with 'documents' field (array)
  */
 router.post("/documents/upload-multiple", authenticateToken, upload.array("documents", 10), documentController.uploadMultipleDocuments);
+
+// ============================================
+// Widget Management Routes (Protected)
+// ============================================
+
+/**
+ * @route   POST /api/auth/widget/create
+ * @desc    Create a new widget key for embedding chat
+ * @access  Protected
+ */
+router.post("/widget/create", verifyCsrfToken, authenticateToken, widgetController.createWidgetKey);
+
+/**
+ * @route   GET /api/auth/widget/key
+ * @desc    Get current user's widget key and config
+ * @access  Protected
+ */
+router.get("/widget/key", authenticateToken, widgetController.getWidgetKey);
+
+/**
+ * @route   PUT /api/auth/widget/update
+ * @desc    Update widget configuration
+ * @access  Protected
+ */
+router.put("/widget/update", verifyCsrfToken, authenticateToken, widgetController.updateWidgetKey);
+
+/**
+ * @route   POST /api/auth/widget/regenerate
+ * @desc    Regenerate widget key (keeps config)
+ * @access  Protected
+ */
+router.post("/widget/regenerate", verifyCsrfToken, authenticateToken, widgetController.regenerateWidgetKey);
+
+/**
+ * @route   DELETE /api/auth/widget/delete
+ * @desc    Delete widget key
+ * @access  Protected
+ */
+router.delete("/widget/delete", verifyCsrfToken, authenticateToken, widgetController.deleteWidgetKey);
+
+/**
+ * @route   GET /api/auth/widget/analytics
+ * @desc    Get widget usage analytics
+ * @access  Protected
+ */
+router.get("/widget/analytics", authenticateToken, widgetController.getWidgetAnalytics);
 
 export default router;

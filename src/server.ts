@@ -8,6 +8,7 @@ import { config } from "./config/env";
 import passport, { configurePassport } from "./config/passport";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/routes";
+import publicRoutes from "./routes/publicRoutes";
 import authService from "./services/authService";
 import logger from "./utils/logger";
 
@@ -16,8 +17,27 @@ const app: Application = express();
 // Configure Passport
 configurePassport();
 
-// Security middleware
-app.use(helmet());
+// Security middleware with relaxed CSP for widget embedding
+app.use(
+     helmet({
+          contentSecurityPolicy: {
+               directives: {
+                    defaultSrc: ["'self'"],
+                    scriptSrc: ["'self'", "'unsafe-inline'"],
+                    styleSrc: ["'self'", "'unsafe-inline'"],
+                    imgSrc: ["'self'", "data:", "https:"],
+                    connectSrc: ["'self'"],
+                    fontSrc: ["'self'", "data:"],
+                    objectSrc: ["'none'"],
+                    mediaSrc: ["'self'"],
+                    frameSrc: ["'self'"],
+               },
+          },
+          crossOriginEmbedderPolicy: false,
+          crossOriginOpenerPolicy: false,
+          crossOriginResourcePolicy: { policy: "cross-origin" },
+     })
+);
 
 // CORS configuration
 app.use(
@@ -62,6 +82,9 @@ app.use((req: Request, _res: Response, next) => {
      next();
 });
 
+// Serve widget static files from public directory
+app.use("/widget", express.static("public/widget"));
+
 // Health check endpoint
 app.get("/health", (_req: Request, res: Response) => {
      res.status(200).json({
@@ -73,6 +96,9 @@ app.get("/health", (_req: Request, res: Response) => {
 
 // API routes
 app.use("/api/auth", authRoutes);
+
+// Public API routes (for widget embedding)
+app.use("/api/v1", publicRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
