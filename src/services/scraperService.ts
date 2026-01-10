@@ -45,15 +45,40 @@ class ScraperService {
           }
      }
 
-     async getScrapingProgress(_userId: string): Promise<any> {
-          // This method needs to be updated to check job status from Queue if we want real progress
-          // For now, simple implementation or we can query BullMQ API
-          // Ideally we store job ID in DB associated with user, or query active jobs for user
+     async getScrapingProgress(userId: string): Promise<{ isScraping: boolean; jobs: any[] }> {
+          try {
+               // Get all jobs in active, waiting, or delayed states
+               const jobs = await scraperQueue.getJobs(["active", "waiting", "delayed"]);
 
-          return {
-               message: "Check job status using job ID (implementation pending)",
-               queuedPages: await scraperQueue.count(),
-          };
+               logger.info(`[getScrapingProgress] Found ${jobs.length} total jobs in queue`, {
+                    userId,
+                    jobIds: jobs.map(j => j.id),
+                    jobData: jobs.map(j => ({ id: j.id, userId: j.data?.userId, url: j.data?.url, state: j.name }))
+               });
+
+               // Filter jobs for the specific user
+               const userJobs = jobs.filter((job) => job.data.userId === userId);
+
+               logger.info(`[getScrapingProgress] Found ${userJobs.length} jobs for user ${userId}`, {
+                    userJobs: userJobs.map(j => j.id)
+               });
+
+               return {
+                    isScraping: userJobs.length > 0,
+                    jobs: userJobs.map((job) => ({
+                         id: job.id,
+                         url: job.data.url,
+                         progress: job.progress,
+                         state: job.name, // or await job.getState() if needed, but name is usually the job name key
+                    })),
+               };
+          } catch (error) {
+               logger.error("Error getting scraping progress", { error, userId });
+               return {
+                    isScraping: false,
+                    jobs: [],
+               };
+          }
      }
 }
 

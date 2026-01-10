@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from "express";
+import { config } from "../config/env";
 import { clearCookies, setCookies } from "../middleware/auth";
 import authService from "../services/authService";
 import googleAuthService, { GoogleProfile } from "../services/googleAuthService";
@@ -52,10 +53,12 @@ export const verifyCode = async (req: Request<{}, {}, VerifyCodeBody>, res: Resp
                setCookies(res, result.accessToken, result.refreshToken);
 
                // Return success response without tokens (they're in cookies)
+               // Include token expiry info for frontend to schedule refresh
                res.status(200).json({
                     success: true,
                     message: result.message,
                     user: result.user,
+                    expiresIn: config.ACCESS_TOKEN_EXPIRY_MINUTES * 60, // in seconds
                });
           } else {
                const statusCode = result.success ? 200 : 401;
@@ -102,6 +105,7 @@ export const refreshToken = async (req: Request, res: Response, next: NextFuncti
                     success: true,
                     message: result.message,
                     user: result.user,
+                    expiresIn: config.ACCESS_TOKEN_EXPIRY_MINUTES * 60, // in seconds
                });
           } else {
                // Clear invalid cookies
@@ -206,9 +210,10 @@ export const googleCallback = async (req: Request, res: Response, next: NextFunc
           if (result.success && result.accessToken && result.refreshToken) {
                setCookies(res, result.accessToken, result.refreshToken);
 
-               // Redirect to dashboard on success
+               // Redirect to dashboard on success with expiry info in query param
                const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3001";
-               res.redirect(`${frontendUrl}/dashboard`);
+               const expiresIn = config.ACCESS_TOKEN_EXPIRY_MINUTES * 60;
+               res.redirect(`${frontendUrl}/dashboard?expiresIn=${expiresIn}`);
           } else {
                // Redirect to login with error message
                const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3001";
