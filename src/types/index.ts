@@ -136,6 +136,7 @@ export interface EnvConfig {
   DB_USER: string;
   DB_PASSWORD: string;
   DB_MAX_CONNECTIONS: number;
+  DB_MIN_CONNECTIONS: number;
   EMAIL_HOST: string;
   EMAIL_PORT: number;
   EMAIL_SECURE: boolean;
@@ -166,6 +167,26 @@ export interface EnvConfig {
   REDIS_HOST: string;
   REDIS_PORT: number;
   REDIS_PASSWORD?: string;
+
+  // Separate Redis Instances
+  REDIS_CACHE_HOST: string;
+  REDIS_CACHE_PORT: number;
+  REDIS_CACHE_PASSWORD?: string;
+
+  REDIS_QUEUE_HOST: string;
+  REDIS_QUEUE_PORT: number;
+  REDIS_QUEUE_PASSWORD?: string;
+
+  REDIS_ANALYTICS_HOST: string;
+  REDIS_ANALYTICS_PORT: number;
+  REDIS_ANALYTICS_PASSWORD?: string;
+
+  // Scraper Configuration
+  SCRAPER_CONCURRENCY: number;
+
+  // Analytics Configuration
+  ANALYTICS_BUFFER_SIZE: number;
+  ANALYTICS_FLUSH_INTERVAL_MS: number;
 }
 
 // Web Scraper types

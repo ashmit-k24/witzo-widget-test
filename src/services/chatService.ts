@@ -1,10 +1,12 @@
 import OpenAI from "openai";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "../config/env";
-import { redis } from "../config/redis";
+import { redisCache } from "../config/redis";
 import { ChatMessage, ChatSession } from "../types";
 import logger from "../utils/logger";
 import { pineconeService } from "./pineconeService";
+import { openAICircuitBreaker } from "../utils/circuitBreaker";
+import { retryOnRateLimit } from "../utils/retry";
 
 const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days
 
@@ -45,14 +47,14 @@ class ChatService {
           await this.saveSession(newSession);
 
           // Track session for user
-          await redis.sadd(this.getUserSessionsKey(userId), newSessionId);
+          await redisCache.sadd(this.getUserSessionsKey(userId), newSessionId);
 
           return newSession;
      }
 
      private async saveSession(session: ChatSession): Promise<void> {
           const key = this.getSessionKey(session.sessionId);
-          await redis.setex(key, SESSION_TTL, JSON.stringify(session));
+          await redisCache.setex(key, SESSION_TTL, JSON.stringify(session));
      }
 
      private async retrieveRelevantContext(
@@ -151,12 +153,17 @@ IMPORTANT RULES:
                     });
                }
 
-               const completion = await this.openai.chat.completions.create({
-                    model: "gpt-4o",
-                    messages: conversationHistory,
-                    temperature: 0.3,
-                    max_tokens: 500,
-                    store: true,
+               // Use circuit breaker and retry logic for OpenAI API calls
+               const completion = await openAICircuitBreaker.execute(async () => {
+                    return await retryOnRateLimit(async () => {
+                         return await this.openai.chat.completions.create({
+                              model: "gpt-4o",
+                              messages: conversationHistory,
+                              temperature: 0.3,
+                              max_tokens: 500,
+                              store: true,
+                         });
+                    });
                });
 
                const assistantResponse = completion.choices[0].message.content || "I apologize, but I couldn't generate a response.";
@@ -190,7 +197,7 @@ IMPORTANT RULES:
 
      async getSession(sessionId: string): Promise<ChatSession | null> {
           const key = this.getSessionKey(sessionId);
-          const data = await redis.get(key);
+          const data = await redisCache.get(key);
           if (!data) return null;
           return JSON.parse(data);
      }
@@ -199,8 +206,8 @@ IMPORTANT RULES:
           const session = await this.getSession(sessionId);
           if (session) {
                const key = this.getSessionKey(sessionId);
-               await redis.del(key);
-               await redis.srem(this.getUserSessionsKey(session.userId), sessionId);
+               await redisCache.del(key);
+               await redisCache.srem(this.getUserSessionsKey(session.userId), sessionId);
                return true;
           }
           return false;
@@ -208,11 +215,11 @@ IMPORTANT RULES:
 
      async clearUserSessions(userId: string): Promise<number> {
           const userSessionsKey = this.getUserSessionsKey(userId);
-          const sessionIds = await redis.smembers(userSessionsKey);
+          const sessionIds = await redisCache.smembers(userSessionsKey);
 
           if (sessionIds.length === 0) return 0;
 
-          const pipeline = redis.pipeline();
+          const pipeline = redisCache.pipeline();
 
           // Delete all individual session keys
           for (const sessionId of sessionIds) {

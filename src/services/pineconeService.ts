@@ -1,8 +1,10 @@
-import { Pinecone } from "@pinecone-database/pinecone";
+import { Pinecone, PineconeRecord } from "@pinecone-database/pinecone";
 import OpenAI from "openai";
 import { config } from "../config/env";
 import { PineconeMetadata } from "../types";
+import { openAICircuitBreaker, pineconeCircuitBreaker } from "../utils/circuitBreaker";
 import logger from "../utils/logger";
+import { retryOnRateLimit, retryWithBackoff } from "../utils/retry";
 
 class PineconeService {
      private pinecone: Pinecone;
@@ -62,10 +64,15 @@ class PineconeService {
 
      async generateEmbedding(text: string): Promise<number[]> {
           try {
-               const response = await this.openai.embeddings.create({
-                    model: config.OPENAI_MODEL,
-                    input: text,
-                    dimensions: 1024, // Specify 1024 dimensions to match Pinecone index
+               // Use circuit breaker and retry logic for OpenAI embeddings API
+               const response = await openAICircuitBreaker.execute(async () => {
+                    return await retryOnRateLimit(async () => {
+                         return await this.openai.embeddings.create({
+                              model: config.OPENAI_MODEL,
+                              input: text,
+                              dimensions: 1024, // Specify 1024 dimensions to match Pinecone index
+                         });
+                    });
                });
                return response.data[0].embedding;
           } catch (error) {
@@ -107,7 +114,7 @@ class PineconeService {
                const index = this.pinecone.index(this.indexName).namespace(namespace);
                chunks = this.chunkText(content);
 
-               const vectors = [];
+               const vectors: PineconeRecord[] = [];
 
                for (let i = 0; i < chunks.length; i++) {
                     const chunk = chunks[i];
@@ -135,7 +142,12 @@ class PineconeService {
                     });
                }
 
-               await index.upsert(vectors);
+               // Use circuit breaker and retry for Pinecone upsert
+               await pineconeCircuitBreaker.execute(async () => {
+                    return await retryWithBackoff(async () => {
+                         return await index.upsert(vectors);
+                    }, { name: 'PineconeUpsert', maxRetries: 3 });
+               });
                logger.info(`Upserted ${chunks.length} chunks for URL: ${url} (user: ${userId})`);
           } catch (error) {
                logger.error("Error upserting document to Pinecone", {
@@ -155,10 +167,13 @@ class PineconeService {
                const index = this.pinecone.index(this.indexName).namespace(namespace);
                const queryEmbedding = await this.generateEmbedding(query);
 
-               const queryResponse = await index.query({
-                    vector: queryEmbedding,
-                    topK,
-                    includeMetadata: true,
+               // Use circuit breaker for Pinecone query
+               const queryResponse = await pineconeCircuitBreaker.execute(async () => {
+                    return await index.query({
+                         vector: queryEmbedding,
+                         topK,
+                         includeMetadata: true,
+                    });
                });
 
                return queryResponse.matches || [];
@@ -231,7 +246,10 @@ class PineconeService {
                const batchSize = 1000;
                for (let i = 0; i < matchingIds.length; i += batchSize) {
                     const batch = matchingIds.slice(i, i + batchSize);
-                    await index.deleteMany(batch);
+                    // Use circuit breaker for Pinecone delete
+                    await pineconeCircuitBreaker.execute(async () => {
+                         return await index.deleteMany(batch);
+                    });
                }
 
                logger.info(`Deleted ${matchingIds.length} chunks from ${url.startsWith('document://') ? 'document' : 'domain'} ${baseUrl} (user: ${userId})`);

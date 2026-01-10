@@ -23,7 +23,8 @@ export const config: EnvConfig = {
      DB_NAME: process.env.DB_NAME || "auth_db",
      DB_USER: process.env.DB_USER || "postgres",
      DB_PASSWORD: process.env.DB_PASSWORD || "postgres",
-     DB_MAX_CONNECTIONS: getEnvNumber("DB_MAX_CONNECTIONS", 20),
+     DB_MAX_CONNECTIONS: getEnvNumber("DB_MAX_CONNECTIONS", 100),
+     DB_MIN_CONNECTIONS: getEnvNumber("DB_MIN_CONNECTIONS", 10),
 
      // Email
      EMAIL_HOST: process.env.EMAIL_HOST || "smtp.gmail.com",
@@ -44,7 +45,27 @@ export const config: EnvConfig = {
 
      // Rate Limiting
      RATE_LIMIT_WINDOW_MS: getEnvNumber("RATE_LIMIT_WINDOW_MS", 900000),
-     RATE_LIMIT_MAX_REQUESTS: getEnvNumber("RATE_LIMIT_MAX_REQUESTS", 100),
+     RATE_LIMIT_MAX_REQUESTS: getEnvNumber("RATE_LIMIT_MAX_REQUESTS", 1000),
+
+     // Redis Instances (for separation of concerns)
+     REDIS_CACHE_HOST: process.env.REDIS_CACHE_HOST || process.env.REDIS_HOST || "localhost",
+     REDIS_CACHE_PORT: getEnvNumber("REDIS_CACHE_PORT", getEnvNumber("REDIS_PORT", 6379)),
+     REDIS_CACHE_PASSWORD: process.env.REDIS_CACHE_PASSWORD || process.env.REDIS_PASSWORD || undefined,
+
+     REDIS_QUEUE_HOST: process.env.REDIS_QUEUE_HOST || process.env.REDIS_HOST || "localhost",
+     REDIS_QUEUE_PORT: getEnvNumber("REDIS_QUEUE_PORT", getEnvNumber("REDIS_PORT", 6379)),
+     REDIS_QUEUE_PASSWORD: process.env.REDIS_QUEUE_PASSWORD || process.env.REDIS_PASSWORD || undefined,
+
+     REDIS_ANALYTICS_HOST: process.env.REDIS_ANALYTICS_HOST || process.env.REDIS_HOST || "localhost",
+     REDIS_ANALYTICS_PORT: getEnvNumber("REDIS_ANALYTICS_PORT", getEnvNumber("REDIS_PORT", 6379)),
+     REDIS_ANALYTICS_PASSWORD: process.env.REDIS_ANALYTICS_PASSWORD || process.env.REDIS_PASSWORD || undefined,
+
+     // Scraper Configuration
+     SCRAPER_CONCURRENCY: getEnvNumber("SCRAPER_CONCURRENCY", 10),
+
+     // Analytics Configuration
+     ANALYTICS_BUFFER_SIZE: getEnvNumber("ANALYTICS_BUFFER_SIZE", 5000),
+     ANALYTICS_FLUSH_INTERVAL_MS: getEnvNumber("ANALYTICS_FLUSH_INTERVAL_MS", 60000),
 
      // CORS
      CORS_ORIGIN: process.env.CORS_ORIGIN,

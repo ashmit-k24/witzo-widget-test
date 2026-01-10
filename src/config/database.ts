@@ -9,13 +9,16 @@ const poolConfig: PoolConfig = {
   user: config.DB_USER,
   password: config.DB_PASSWORD,
   max: config.DB_MAX_CONNECTIONS,
+  min: config.DB_MIN_CONNECTIONS, // Minimum pool size to maintain
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 10000, // Increased from 2s to 10s - wait 10 seconds before timing out
+  connectionTimeoutMillis: 10000, // Wait 10 seconds before timing out
   keepAlive: true, // Keep TCP connection alive
   keepAliveInitialDelayMillis: 10000, // Initial delay before sending keep-alive probes
   statement_timeout: 30000, // Abort statements that take longer than 30 seconds
   query_timeout: 30000, // Query timeout in milliseconds
   application_name: 'witzo-ai-automation-chatbot',
+  // Allow returning clients to the pool on error for better resilience
+  allowExitOnIdle: false,
 };
 
 const pool = new Pool(poolConfig);

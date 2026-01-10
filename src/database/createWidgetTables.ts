@@ -52,11 +52,15 @@ export const createWidgetTables = async (): Promise<void> => {
                );
           `);
 
-          // Create index for analytics
+          // Create indexes for analytics (optimized for high-traffic queries)
           await client.query(`
                CREATE INDEX IF NOT EXISTS idx_widget_analytics_key_id ON widget_analytics(widget_key_id);
                CREATE INDEX IF NOT EXISTS idx_widget_analytics_event_type ON widget_analytics(event_type);
-               CREATE INDEX IF NOT EXISTS idx_widget_analytics_created_at ON widget_analytics(created_at);
+               CREATE INDEX IF NOT EXISTS idx_widget_analytics_created_at ON widget_analytics(created_at DESC);
+               -- Composite index for common query pattern (widget + time range)
+               CREATE INDEX IF NOT EXISTS idx_widget_analytics_key_created ON widget_analytics(widget_key_id, created_at DESC);
+               -- Composite index for analytics by event type and time
+               CREATE INDEX IF NOT EXISTS idx_widget_analytics_event_created ON widget_analytics(event_type, created_at DESC);
           `);
 
           await client.query("COMMIT");

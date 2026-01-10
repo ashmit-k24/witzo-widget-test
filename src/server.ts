@@ -9,6 +9,7 @@ import passport, { configurePassport } from "./config/passport";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import publicRoutes from "./routes/publicRoutes";
 import authRoutes from "./routes/routes";
+import healthRoutes from "./routes/healthRoutes";
 import authService from "./services/authService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
@@ -90,14 +91,8 @@ app.use((req: Request, _res: Response, next) => {
 // Serve widget static files from public directory
 app.use("/widget", express.static("public/widget"));
 
-// Health check endpoint
-app.get("/health", (_req: Request, res: Response) => {
-     res.status(200).json({
-          status: "healthy",
-          timestamp: new Date().toISOString(),
-          uptime: process.uptime(),
-     });
-});
+// Health check routes (no rate limiting for health checks)
+app.use(healthRoutes);
 
 // API routes
 app.use("/api/auth", authRoutes);
@@ -119,13 +114,12 @@ setInterval(() => {
      });
 }, CLEANUP_INTERVAL);
 
-// Flush analytics buffer periodically
-const ANALYTICS_FLUSH_INTERVAL = 60 * 1000; // 1 minute
+// Flush analytics buffer periodically (configurable for high-traffic scenarios)
 setInterval(() => {
      widgetService.flushAnalytics().catch((error: Error) => {
           logger.error("Scheduled analytics flush failed", { error: error.message });
      });
-}, ANALYTICS_FLUSH_INTERVAL);
+}, config.ANALYTICS_FLUSH_INTERVAL_MS);
 
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {

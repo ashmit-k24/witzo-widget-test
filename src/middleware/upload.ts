@@ -52,6 +52,11 @@ export const upload = multer({
      storage,
      fileFilter,
      limits: {
-          fileSize: 10 * 1024 * 1024, // 10MB limit
+          fileSize: 10 * 1024 * 1024, // 10MB per file
+          files: 10, // Maximum 10 files at once
+          fields: 20, // Maximum 20 non-file fields
+          fieldSize: 1 * 1024 * 1024, // 1MB per field value
+          fieldNameSize: 100, // 100 bytes max field name
+          headerPairs: 2000, // Max header key-value pairs
      },
 });

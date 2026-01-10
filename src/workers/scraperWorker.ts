@@ -149,11 +149,11 @@ const processScrapeJob = async (job: Job<ScrapeJobData>) => {
 export const createScraperWorker = () => {
         const worker = new Worker(SCRAPER_QUEUE_NAME, processScrapeJob, {
                 connection: {
-                        host: config.REDIS_HOST,
-                        port: config.REDIS_PORT,
-                        password: config.REDIS_PASSWORD,
+                        host: config.REDIS_QUEUE_HOST,
+                        port: config.REDIS_QUEUE_PORT,
+                        password: config.REDIS_QUEUE_PASSWORD,
                 },
-                concurrency: 5, // Process 5 scraping jobs concurrently
+                concurrency: config.SCRAPER_CONCURRENCY, // Configurable concurrency (default: 10)
         });
 
         worker.on("completed", (job) => {
