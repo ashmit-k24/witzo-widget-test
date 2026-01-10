@@ -28,11 +28,14 @@ export interface WidgetConfig {
      botColor?: string;
      sendColor?: string;
      floatingBtn?: string;
+     floatingBtnColor?: string;
      chatVoiceIconColor?: string;
      voiceSendButton?: string;
      autoOpen?: boolean;
      bannerText?: string;
      bannerTextColor?: string;
+     bannerTextParagraph?: string;
+     bannerTextParagraphColor?: string;
      closeButtonColor?: string;
      logoIcon?: string;
      bannerColor?: string;

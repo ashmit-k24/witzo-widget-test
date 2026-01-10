@@ -42,14 +42,18 @@
         botColor: '#fc0e3f',
         sendColor: '#fc0e3f',
         floatingBtnColor: '#fc0e3f',
+        floatingBtn: '#fc0e3f',
         autoOpen: false,
         bannerText: 'Text Chat',
         bannerTextColor: '',
+        bannerColor: '#120b14',
         userChatColor: '#d01137ff',
         closeButtonColor: '',
         logoIcon: null,
-        bannerTextParagraph: 'I am AI powered and learning',
-        bannerTextParagraphColor: ''
+        // bannerTextParagraph: 'I am AI powered and learning',
+        bannerTextParagraphColor: '',
+        chatVoiceIconColor: '#7908FB',
+        voiceSendButton: '#7908FB'
       };
     }
 
@@ -63,10 +67,10 @@
 
       // Read configuration from attributes
       const attrs = [
-        'primary-text', 'bot-color', 'send-color', 'floating-btn-color', 
-        'auto-open', 'banner-text', 'banner-text-color', 'user-chat-color',
-        'close-button-color', 'logo-icon', 'banner-text-paragraph', 
-        'banner-text-paragraph-color'
+        'primary-text', 'bot-color', 'send-color', 'floating-btn-color', 'floating-btn',
+        'auto-open', 'banner-text', 'banner-text-color', 'banner-color', 'user-chat-color',
+        'close-button-color', 'logo-icon', 'banner-text-paragraph',
+        'banner-text-paragraph-color', 'chat-voice-icon-color', 'voice-send-button'
       ];
 
       attrs.forEach(attr => {
@@ -194,7 +198,7 @@
 
           /* Header */
           .chat-header {
-            background: #120b14;
+            background: ${this.config.bannerColor || '#120b14'};
             padding: 0rem 1rem;
             display: flex;
             align-items: center;
@@ -361,7 +365,7 @@
           .floating-btn {
             cursor: pointer;
             align-items: center;
-            background: ${this.config.floatingBtnColor || '#fc0e3f'};
+            background: ${this.config.floatingBtn || this.config.floatingBtnColor || '#fc0e3f'};
             border: 0;
             border-radius: 9999px;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
@@ -424,7 +428,7 @@
         <!-- Chat Widget Box -->
         <div id="textChatWidget" class="chat-widget hidden">
             <!-- Header -->
-            <div id="chat-header" class="chat-header" style="background-color: ${this.config.botColor};">
+            <div id="chat-header" class="chat-header">
                 <div class="chat-header-left">
                      <div class="chat-icon">
                         ${this.config.logoIcon 
@@ -454,7 +458,7 @@
 
              <!-- Input Area -->
             <div class="chat-input">
-                <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || '#999'}">${this.config.bannerTextParagraph}</p>
+                <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || '#999'}"></p>
                 <div class="chat-input-container">
                     <input id="textMessageInput" type="text" placeholder="Type your message..." class="chat-text-input" />
                     <button class="chat-send-btn" id="textSendButton">
@@ -480,7 +484,7 @@
         <!-- Floating Chat Button -->
         <div id="floatingBtn" class="floating">
             <button class="floating-btn hidden" id="floating-btn">
-                 <svg width="32" height="26" viewBox="0 0 32 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+                 <svg width="32" height="32" viewBox="0 0 32 26" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path fill-rule="evenodd" clip-rule="evenodd" d="M0.375 6.3125C0.375 3.27493 2.83743 0.8125 5.875 0.8125H25.8125C28.8501 0.8125 31.3125 3.27493 31.3125 6.3125V15.1743L27.5114 13.7677C27.411 13.7306 27.3319 13.6515 27.2948 13.5511L25.4689 8.6168C25.3507 8.29761 24.8993 8.29761 24.7811 8.6168L22.9552 13.5511C22.9181 13.6515 22.839 13.7306 22.7386 13.7677L17.8043 15.5936C17.4851 15.7118 17.4851 16.1632 17.8043 16.2814L22.7386 18.1073C22.839 18.1444 22.9181 18.2235 22.9552 18.3239L24.3618 22.125H18.9339C18.9202 22.1484 18.9049 22.1714 18.888 22.1939L16.3936 25.5174C16.1186 25.8838 15.5689 25.8838 15.2939 25.5174L12.7994 22.1939C12.7826 22.1714 12.7673 22.1484 12.7536 22.125H5.875C2.83743 22.125 0.375 19.6626 0.375 16.625V6.3125ZM19.1094 8.15215C19.0504 7.99255 18.8246 7.99255 18.7656 8.15215L18.4097 9.11387C18.3911 9.16405 18.3516 9.20363 18.3014 9.2222L17.3397 9.57808C17.1801 9.6371 17.1801 9.8629 17.3397 9.92192L18.3014 10.2778C18.3516 10.2964 18.3911 10.3359 18.4097 10.3861L18.7656 11.3478C18.8246 11.5074 19.0504 11.5074 19.1094 11.3478L19.4653 10.3861C19.4839 10.3359 19.5234 10.2964 19.5736 10.2778L20.5353 9.92192C20.6949 9.8629 20.6949 9.6371 20.5353 9.57808L19.5736 9.2222C19.5234 9.20363 19.4839 9.16405 19.4653 9.11387L19.1094 8.15215Z" fill="white"/>
                   </svg>
             </button>
@@ -550,11 +554,9 @@
 
         try {
              const body = {
+                widgetKey: this.widgetKey,
+                message: text,
                 sessionId: this.sessionId,
-                action: 'sendMessage',
-                chatInput: text,
-                chatCount: this.successfulChatCount,
-                uniqueId: this.widgetKey,
             };
 
             const response = await fetch(this.apiUrl, {
@@ -569,7 +571,14 @@
             if (response.ok) {
                 try {
                     const result = JSON.parse(rawText);
-                    content = result.output || result.message || content;
+                    // Support both old and new response formats
+                    content = result.response || result.output || result.message || content;
+
+                    // Update sessionId if provided
+                    if (result.sessionId) {
+                        this.sessionId = result.sessionId;
+                        sessionStorage.setItem('witzo_chat_session_token', result.sessionId);
+                    }
                 } catch(e) {
                     console.error('JSON Error', e);
                 }

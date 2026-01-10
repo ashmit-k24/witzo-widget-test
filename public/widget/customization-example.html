@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Widget Customization Dashboard - Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .card h2 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 1.5rem;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group label {
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="url"],
+        .form-group textarea {
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input[type="text"]:focus,
+        .form-group input[type="url"]:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+            font-family: inherit;
+        }
+
+        .color-input-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .color-input-wrapper input[type="color"] {
+            width: 60px;
+            height: 42px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .color-input-wrapper input[type="text"] {
+            flex: 1;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .embed-code {
+            background: #f8f9fa;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .embed-code h3 {
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .code-block {
+            background: #2d3748;
+            color: #68d391;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .copy-btn {
+            margin-top: 10px;
+            padding: 8px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .copy-btn:hover {
+            background: #5568d3;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+
+        .info-box h4 {
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+
+        .info-box p {
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .preview-note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Widget Customization Dashboard</h1>
+            <p>Customize your Witzo Chat Widget - All changes are saved via API</p>
+        </div>
+
+        <div class="preview-note">
+            <strong>📝 Note:</strong> This is a UI example. Connect it to your backend API endpoints to save customizations to the database.
+        </div>
+
+        <div class="card">
+            <h2>Widget Appearance</h2>
+            <form id="widgetConfigForm">
+                <!-- Text Content -->
+                <h3 style="margin-top: 0; margin-bottom: 15px; color: #667eea;">Text Content</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Primary Welcome Message (supports **markdown**)</label>
+                        <textarea id="primaryText" placeholder="**Hey there!** Ask me anything...">**Hey there, I'm Merlin Chat**
+Got questions about Zycus? Ask me anything and I'll provide you with the info you're looking for.</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Banner Text (Header Title)</label>
+                        <input type="text" id="bannerText" value="Merlin Chat" placeholder="Chat Widget">
+                    </div>
+                    <div class="form-group">
+                        <label>Footer Text (Input Area)</label>
+                        <input type="text" id="bannerTextParagraph" value="I am AI powered and learning" placeholder="Powered by AI">
+                    </div>
+                </div>
+
+                <!-- Colors -->
+                <h3 style="margin-top: 30px; margin-bottom: 15px; color: #667eea;">Colors</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Header Background Color</label>
+                        <div class="color-input-wrapper">
+                            <input type="color" id="bannerColorPicker" value="#CDCFD1">
+                            <input type="text" id="bannerColor" value="#CDCFD1">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Header Text Color</label>
+                        <div class="color-input-wrapper">
+                            <input type="color" id="bannerTextColorPicker" value="#1B73CC">
+                            <input type="text" id="bannerTextColor" value="#1B73CC">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Send Button Color</label>
+                        <div class="color-input-wrapper">
+                            <input type="color" id="sendColorPicker" value="#B82E12">
+                            <input type="text" id="sendColor" value="#B82E12">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Floating Button Color</label>
+                        <div class="color-input-wrapper">
+                            <input type="color" id="floatingBtnPicker" value="#B82E12">
+                            <input type="text" id="floatingBtn" value="#B82E12">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>User Message Bubble Color</label>
+                        <div class="color-input-wrapper">
+                            <input type="color" id="userChatColorPicker" value="#CDCFD1">
+                            <input type="text" id="userChatColor" value="#CDCFD1">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Close Button Color</label>
+                        <div class="color-input-wrapper">
+                            <input type="color" id="closeButtonColorPicker" value="#F527EE">
+                            <input type="text" id="closeButtonColor" value="#F527EE">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Footer Text Color</label>
+                        <div class="color-input-wrapper">
+                            <input type="color" id="bannerTextParagraphColorPicker" value="#999999">
+                            <input type="text" id="bannerTextParagraphColor" value="#999999">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advanced -->
+                <h3 style="margin-top: 30px; margin-bottom: 15px; color: #667eea;">Advanced Settings</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Logo Icon URL (Optional)</label>
+                        <input type="url" id="logoIcon" value="https://www.zycus.com/wp-content/uploads/2025/01/zycus-new-logo-190x38.webp" placeholder="https://example.com/logo.png">
+                    </div>
+                    <div class="form-group">
+                        <label>Widget Name (for your reference)</label>
+                        <input type="text" id="widgetName" value="My Chat Widget" placeholder="My Chat Widget">
+                    </div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="autoOpen" checked>
+                    <label for="autoOpen">Auto-open widget after 5 seconds</label>
+                </div>
+
+                <div class="button-group">
+                    <button type="button" class="btn btn-primary" onclick="saveConfiguration()">💾 Save Configuration</button>
+                    <button type="button" class="btn btn-secondary" onclick="generateEmbedCode()">📋 Generate Embed Code</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="embed-code">
+                <h3>📦 Your Single-Line Embed Code</h3>
+                <p style="margin-bottom: 10px; color: #666;">Copy this code and paste it on your website (before closing &lt;/body&gt; tag)</p>
+                <div class="code-block" id="embedCodeBlock">
+&lt;script src="http://localhost:3053/api/v1/embed/wk_YOUR_WIDGET_KEY.js"&gt;&lt;/script&gt;
+                </div>
+                <button class="copy-btn" onclick="copyEmbedCode()">📋 Copy to Clipboard</button>
+            </div>
+
+            <div class="info-box">
+                <h4>🔑 How to Get Your Widget Key</h4>
+                <p>
+                    1. Call <code>POST /api/auth/widget/create</code> with your configuration<br>
+                    2. You'll receive a unique widget key like <code>wk_abc123...</code><br>
+                    3. Use the single-line script with your widget key<br>
+                    4. Update your configuration anytime with <code>PUT /api/auth/widget/update</code>
+                </p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>API Request Example</h2>
+            <p style="margin-bottom: 15px; color: #666;">Use this to create/update your widget configuration:</p>
+            <div class="code-block" id="apiRequestExample">
+// Create widget
+const response = await fetch('http://localhost:3053/api/auth/widget/create', {
+    method: 'POST',
+    headers: {
+        'Authorization': 'Bearer YOUR_JWT_TOKEN',
+        'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+        widgetName: 'My Chat Widget',
+        widgetConfig: {
+            primaryText: '**Hey there!** Ask me anything...',
+            bannerText: 'Chat Support',
+            bannerColor: '#CDCFD1',
+            sendColor: '#B82E12',
+            // ... other config options
+        }
+    })
+});
+
+const data = await response.json();
+console.log('Embed Code:', data.data.embedCode);
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sync color pickers with text inputs
+        document.querySelectorAll('input[type="color"]').forEach(picker => {
+            const textInput = document.getElementById(picker.id.replace('Picker', ''));
+
+            picker.addEventListener('input', (e) => {
+                textInput.value = e.target.value.toUpperCase();
+            });
+
+            textInput.addEventListener('input', (e) => {
+                if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                    picker.value = e.target.value;
+                }
+            });
+        });
+
+        function getFormConfig() {
+            return {
+                primaryText: document.getElementById('primaryText').value,
+                bannerText: document.getElementById('bannerText').value,
+                bannerTextColor: document.getElementById('bannerTextColor').value,
+                bannerColor: document.getElementById('bannerColor').value,
+                bannerTextParagraph: document.getElementById('bannerTextParagraph').value,
+                bannerTextParagraphColor: document.getElementById('bannerTextParagraphColor').value,
+                sendColor: document.getElementById('sendColor').value,
+                floatingBtn: document.getElementById('floatingBtn').value,
+                userChatColor: document.getElementById('userChatColor').value,
+                closeButtonColor: document.getElementById('closeButtonColor').value,
+                logoIcon: document.getElementById('logoIcon').value || null,
+                autoOpen: document.getElementById('autoOpen').checked,
+            };
+        }
+
+        async function saveConfiguration() {
+            const widgetName = document.getElementById('widgetName').value;
+            const config = getFormConfig();
+
+            console.log('Widget Configuration:', { widgetName, widgetConfig: config });
+
+            // In a real application, you would call your API here:
+            /*
+            const response = await fetch('http://localhost:3053/api/auth/widget/update', {
+                method: 'PUT',
+                headers: {
+                    'Authorization': 'Bearer YOUR_JWT_TOKEN',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    widgetName: widgetName,
+                    widgetConfig: config
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                alert('✅ Widget configuration saved successfully!');
+                document.getElementById('embedCodeBlock').textContent = data.data.embedCode;
+            }
+            */
+
+            alert('✅ Configuration saved!\n\n(In production, this would call your API endpoint)');
+            generateEmbedCode();
+        }
+
+        function generateEmbedCode() {
+            const config = getFormConfig();
+            const apiRequestCode = `// Create or Update Widget Configuration
+const response = await fetch('http://localhost:3053/api/auth/widget/update', {
+    method: 'PUT',
+    headers: {
+        'Authorization': 'Bearer YOUR_JWT_TOKEN',
+        'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+        widgetName: '${document.getElementById('widgetName').value}',
+        widgetConfig: ${JSON.stringify(config, null, 12).split('\n').join('\n        ')}
+    })
+});
+
+const data = await response.json();
+console.log('Widget Key:', data.data.widgetKey);
+console.log('Embed Code:', data.data.embedCode);`;
+
+            document.getElementById('apiRequestExample').textContent = apiRequestCode;
+            alert('📋 API request example updated! Scroll down to see it.');
+        }
+
+        function copyEmbedCode() {
+            const code = document.getElementById('embedCodeBlock').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('✅ Embed code copied to clipboard!');
+            });
+        }
+    </script>
+</body>
+</html>

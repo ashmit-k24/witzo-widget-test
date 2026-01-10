@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Witzo Chat Widget - Customization Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+        }
+        .info {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .info h2 {
+            margin-top: 0;
+        }
+        .info code {
+            background: #fff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        .config-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .config-table th,
+        .config-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .config-table th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Witzo Chat Widget - Customization Test</h1>
+
+    <div class="info">
+        <h2>Widget Configuration</h2>
+        <p>This page demonstrates all available customization options for the Witzo Chat Widget.</p>
+
+        <table class="config-table">
+            <thead>
+                <tr>
+                    <th>Attribute</th>
+                    <th>Value</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>api-url</code></td>
+                    <td>http://localhost:3053/api/v1/webhook</td>
+                    <td>Webhook endpoint URL</td>
+                </tr>
+                <tr>
+                    <td><code>widget-key</code></td>
+                    <td>your-widget-key-here</td>
+                    <td>Your unique widget key</td>
+                </tr>
+                <tr>
+                    <td><code>primary-text</code></td>
+                    <td>Custom welcome message</td>
+                    <td>Initial greeting message (supports markdown)</td>
+                </tr>
+                <tr>
+                    <td><code>banner-text</code></td>
+                    <td>Merlin Chat</td>
+                    <td>Header title text</td>
+                </tr>
+                <tr>
+                    <td><code>banner-text-color</code></td>
+                    <td>#1B73CC</td>
+                    <td>Header title text color</td>
+                </tr>
+                <tr>
+                    <td><code>banner-color</code></td>
+                    <td>#CDCFD1</td>
+                    <td>Header background color</td>
+                </tr>
+                <tr>
+                    <td><code>bot-color</code></td>
+                    <td>#ff6699</td>
+                    <td>Bot theme color (legacy, use banner-color instead)</td>
+                </tr>
+                <tr>
+                    <td><code>send-color</code></td>
+                    <td>#B82E12</td>
+                    <td>Send button background color</td>
+                </tr>
+                <tr>
+                    <td><code>floating-btn</code></td>
+                    <td>#B82E12</td>
+                    <td>Floating button background color</td>
+                </tr>
+                <tr>
+                    <td><code>user-chat-color</code></td>
+                    <td>#CDCFD1</td>
+                    <td>User message bubble background color</td>
+                </tr>
+                <tr>
+                    <td><code>close-button-color</code></td>
+                    <td>#F527EE</td>
+                    <td>Close button icon color</td>
+                </tr>
+                <tr>
+                    <td><code>chat-voice-icon-color</code></td>
+                    <td>#7908FB</td>
+                    <td>Voice icon color (for future use)</td>
+                </tr>
+                <tr>
+                    <td><code>voice-send-button</code></td>
+                    <td>#7908FB</td>
+                    <td>Voice send button color (for future use)</td>
+                </tr>
+                <tr>
+                    <td><code>logo-icon</code></td>
+                    <td>URL to logo image</td>
+                    <td>Custom logo URL (displays in header)</td>
+                </tr>
+                <tr>
+                    <td><code>auto-open</code></td>
+                    <td>true/false</td>
+                    <td>Auto-open chat after 5 seconds</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Witzo Chat Widget with Full Customization -->
+    <witzo-chat
+        id="witzoChat"
+        api-url="http://localhost:3053/api/v1/webhook"
+        widget-key="your-widget-key-here"
+        primary-text="**Hey there, I'm Merlin Chat**
+Got questions about Zycus? Ask me anything and I'll provide you with the info you're looking for."
+        bot-color="#ff6699"
+        send-color="#B82E12"
+        floating-btn="#B82E12"
+        chat-voice-icon-color="#7908FB"
+        voice-send-button="#7908FB"
+        auto-open="true"
+        banner-text="Merlin Chat"
+        banner-text-color="#1B73CC"
+        close-button-color="#F527EE"
+        logo-icon="https://www.zycus.com/wp-content/uploads/2025/01/zycus-new-logo-190x38.webp"
+        banner-color="#CDCFD1"
+        user-chat-color="#CDCFD1"
+    ></witzo-chat>
+
+    <!-- Load the Widget Script -->
+    <script src="./witzo-chat.js"></script>
+
+    <script>
+        console.log('Witzo Chat Widget Test Page Loaded');
+        console.log('Make sure to replace "your-widget-key-here" with your actual widget key');
+    </script>
+</body>
+</html>
