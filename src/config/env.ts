@@ -32,7 +32,7 @@ export const config: EnvConfig = {
      EMAIL_SECURE: getEnvBoolean("EMAIL_SECURE", false),
      EMAIL_USER: process.env.EMAIL_USER || "",
      EMAIL_PASSWORD: process.env.EMAIL_PASSWORD || "",
-     EMAIL_FROM: process.env.EMAIL_FROM || "noreply@yourapp.com",
+     EMAIL_FROM: process.env.EMAIL_FROM || "noreply@witzo.ai",
 
      // Security
      VERIFICATION_CODE_EXPIRY_MINUTES: getEnvNumber("VERIFICATION_CODE_EXPIRY_MINUTES", 10),

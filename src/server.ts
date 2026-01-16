@@ -19,38 +19,68 @@ import { createScraperWorker } from "./workers/scraperWorker";
 createScraperWorker();
 
 const app: Application = express();
+app.set("trust proxy", 1);
 
 // Configure Passport
 configurePassport();
 
 // Security middleware with relaxed CSP for widget embedding
+
 app.use(
-     helmet({
-          contentSecurityPolicy: {
-               directives: {
-                    defaultSrc: ["'self'"],
-                    scriptSrc: ["'self'", "'unsafe-inline'"],
-                    styleSrc: ["'self'", "'unsafe-inline'"],
-                    imgSrc: ["'self'", "data:", "https:"],
-                    connectSrc: ["'self'"],
-                    fontSrc: ["'self'", "data:"],
-                    objectSrc: ["'none'"],
-                    mediaSrc: ["'self'"],
-                    frameSrc: ["'self'"],
-               },
-          },
-          crossOriginEmbedderPolicy: false,
-          crossOriginOpenerPolicy: false,
-          crossOriginResourcePolicy: { policy: "cross-origin" },
-     })
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'self'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
 );
 
 // CORS configuration
+const configuredOrigins = [config.CORS_ORIGIN, config.FRONTEND_URL]
+  .filter((value): value is string => Boolean(value))
+  .join(",");
+const rawOrigins = configuredOrigins
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowAnyOrigin = rawOrigins.includes("*");
+const allowedOriginSet = new Set(
+  rawOrigins
+    .filter((origin) => origin !== "*")
+    .map((origin) => origin.toLowerCase()),
+);
+
 app.use(
-     cors({
-          origin: config.CORS_ORIGIN || "*",
-          credentials: true,
-     })
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const normalizedOrigin = origin.toLowerCase();
+
+      if (allowAnyOrigin || allowedOriginSet.has(normalizedOrigin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  }),
 );
 
 // Cookie parser middleware
@@ -65,27 +95,27 @@ app.use(passport.initialize());
 
 // Global rate limiting
 const limiter = rateLimit({
-     windowMs: config.RATE_LIMIT_WINDOW_MS,
-     max: config.RATE_LIMIT_MAX_REQUESTS,
-     message: {
-          success: false,
-          message: "Too many requests from this IP, please try again later.",
-     },
-     standardHeaders: true,
-     legacyHeaders: false,
+  windowMs: config.RATE_LIMIT_WINDOW_MS,
+  max: config.RATE_LIMIT_MAX_REQUESTS,
+  message: {
+    success: false,
+    message: "Too many requests from this IP, please try again later.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 app.use(limiter);
 
 // Request logging middleware
 app.use((req: Request, _res: Response, next) => {
-     logger.debug("Incoming request", {
-          method: req.method,
-          path: req.path,
-          ip: req.ip,
-          userAgent: req.get("user-agent"),
-     });
-     next();
+  logger.debug("Incoming request", {
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    userAgent: req.get("user-agent"),
+  });
+  next();
 });
 
 // Serve widget static files from public directory
@@ -109,38 +139,40 @@ app.use(errorHandler);
 // Cleanup expired sessions and codes periodically
 const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
 setInterval(() => {
-     authService.cleanupExpired().catch((error: Error) => {
-          logger.error("Scheduled cleanup failed", { error: error.message });
-     });
+  authService.cleanupExpired().catch((error: Error) => {
+    logger.error("Scheduled cleanup failed", { error: error.message });
+  });
 }, CLEANUP_INTERVAL);
 
 // Flush analytics buffer periodically (configurable for high-traffic scenarios)
 setInterval(() => {
-     widgetService.flushAnalytics().catch((error: Error) => {
-          logger.error("Scheduled analytics flush failed", { error: error.message });
-     });
+  widgetService.flushAnalytics().catch((error: Error) => {
+    logger.error("Scheduled analytics flush failed", { error: error.message });
+  });
 }, config.ANALYTICS_FLUSH_INTERVAL_MS);
 
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {
-     logger.info("Received shutdown signal, closing server gracefully...");
+  logger.info("Received shutdown signal, closing server gracefully...");
 
-     server.close(() => {
-          logger.info("Server closed");
-          process.exit(0);
-     });
+  server.close(() => {
+    logger.info("Server closed");
+    process.exit(0);
+  });
 
-     // Force shutdown after 10 seconds
-     setTimeout(() => {
-          logger.error("Forced shutdown after timeout");
-          process.exit(1);
-     }, 10000);
+  // Force shutdown after 10 seconds
+  setTimeout(() => {
+    logger.error("Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000);
 };
 
 // Start server
 const server: Server = app.listen(config.PORT, () => {
-     logger.info(`Server running in ${config.NODE_ENV} mode on port ${config.PORT}`);
-     console.log(`🚀 Server is running on http://localhost:${config.PORT}`);
+  logger.info(
+    `Server running in ${config.NODE_ENV} mode on port ${config.PORT}`,
+  );
+  console.log(`🚀 Server is running on http://localhost:${config.PORT}`);
 });
 
 // Handle graceful shutdown
@@ -149,7 +181,7 @@ process.on("SIGINT", () => gracefulShutdown(server));
 
 // Handle unhandled promise rejections
 process.on("unhandledRejection", (reason: Error, promise: Promise<any>) => {
-     logger.error("Unhandled Rejection", { reason: reason.message, promise });
+  logger.error("Unhandled Rejection", { reason: reason.message, promise });
 });
 
 export default app;

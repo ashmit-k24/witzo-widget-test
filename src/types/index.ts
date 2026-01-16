@@ -6,7 +6,7 @@ export interface User {
   created_at: Date;
   updated_at: Date;
   last_login: Date | null;
-  plan_type: 'free' | 'basic';
+  plan_type: "free" | "basic";
   conversations_used: number;
   conversations_limit: number;
   plan_reset_date: Date;
@@ -123,7 +123,7 @@ export interface TokenPayload {
   userId: string;
   email: string;
   sessionId: number;
-  type: 'access' | 'refresh';
+  type: "access" | "refresh";
 }
 
 // Environment variables
@@ -211,7 +211,7 @@ export interface ScrapeRequest {
 
 export interface ScrapeJobStatus {
   jobId: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  status: "pending" | "in_progress" | "completed" | "failed";
   progress: {
     totalPages: number;
     scrapedPages: number;
@@ -234,7 +234,7 @@ export interface PineconeMetadata {
 
 // Chat types
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: Date;
 }
@@ -248,7 +248,7 @@ export interface ChatSession {
 }
 
 export interface ChatRequest {
-  userId: string;
+  userId?: string;
   sessionId?: string;
   message: string;
 }
@@ -292,12 +292,27 @@ export interface ParsedDocument {
 
 // Usage Tracking types
 export interface UsageStats {
-  planType: 'free' | 'basic';
+  planType: "free" | "basic";
   conversationsUsed: number;
   conversationsLimit: number;
   conversationsRemaining: number;
   resetDate: Date;
   isApproachingLimit: boolean;
+  isAtLimit: boolean;
+}
+
+// Scraper Page Limits by plan type
+export const SCRAPER_PAGE_LIMITS: Record<"free" | "basic", number> = {
+  free: 15,
+  basic: 40,
+};
+
+// Scraper Usage Stats
+export interface ScraperUsageStats {
+  planType: "free" | "basic";
+  pagesUsed: number;
+  pagesLimit: number;
+  pagesRemaining: number;
   isAtLimit: boolean;
 }
 
@@ -307,7 +322,7 @@ export interface Subscription {
   user_id: string;
   stripe_subscription_id: string;
   stripe_customer_id: string;
-  plan_type: 'free' | 'basic';
+  plan_type: "free" | "basic";
   status: string;
   current_period_start: Date;
   current_period_end: Date;
@@ -324,6 +339,6 @@ export interface PaymentHistory {
   amount: number;
   currency: string;
   status: string;
-  plan_type: 'free' | 'basic';
+  plan_type: "free" | "basic";
   created_at: Date;
 }

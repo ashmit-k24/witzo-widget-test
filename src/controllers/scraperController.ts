@@ -1,13 +1,14 @@
 import { Request, Response } from "express";
 import { pineconeService } from "../services/pineconeService";
 import { scraperService } from "../services/scraperService";
-import { ScrapeRequest } from "../types";
+import { ScrapeRequest, SCRAPER_PAGE_LIMITS } from "../types";
 import logger from "../utils/logger";
 
 export const scrapeWebsite = async (req: Request, res: Response): Promise<void> => {
      try {
           const { url, maxDepth = 3, maxPages = 100 } = req.body as ScrapeRequest;
           const userId = (req as any).user?.id;
+          const planType = (req as any).user?.plan_type || "free";
 
           if (!userId) {
                res.status(401).json({
@@ -25,10 +26,34 @@ export const scrapeWebsite = async (req: Request, res: Response): Promise<void> 
                return;
           }
 
+          // Check if URL has already been scraped for this user
+          const existingSource = await pineconeService.checkSourceExists(userId, url);
+          if (existingSource.exists) {
+               logger.info(`URL already scraped for user: ${userId}`, { url, chunks: existingSource.chunks });
+               res.status(409).json({
+                    success: false,
+                    message: `This website has already been scraped. We found ${existingSource.chunks} existing chunks from this source.`,
+                    data: {
+                         alreadyScraped: true,
+                         existingChunks: existingSource.chunks,
+                         scrapedAt: existingSource.scrapedAt,
+                    },
+               });
+               return;
+          }
+
+          // Get current scraper usage stats
+          const scraperUsage = await pineconeService.getScraperUsageStats(userId, planType);
+
+          // Count available pages before scraping
+          logger.info(`Counting pages for URL: ${url}`, { maxDepth, maxPages, userId });
+          const pageCountResult = await scraperService.countAvailablePages(url, maxDepth, maxPages);
+
           logger.info(`Starting scrape for URL: ${url}`, {
                maxDepth,
                maxPages,
                userId,
+               discoveredPages: pageCountResult.totalPages,
           });
 
           const result = await scraperService.scrapeWebsite(userId, url, {
@@ -40,12 +65,21 @@ export const scrapeWebsite = async (req: Request, res: Response): Promise<void> 
                success: result.success,
                message: result.message,
                data: {
-                    totalPages: result.totalPages,
+                    totalPagesFound: pageCountResult.totalPages,
+                    discoveredUrls: pageCountResult.discoveredUrls,
+                    baseUrl: pageCountResult.baseUrl,
+                    estimatedTime: pageCountResult.estimatedTime,
+                    jobId: result.jobId,
                     scrapedPages: result.pages.map((page) => ({
                          url: page.url,
                          title: page.title,
                          contentLength: page.content.length,
                     })),
+                    usage: {
+                         pagesUsed: scraperUsage.pagesUsed + 1, // +1 for this scrape
+                         pagesLimit: scraperUsage.pagesLimit,
+                         pagesRemaining: Math.max(0, scraperUsage.pagesRemaining - 1),
+                    },
                },
           });
      } catch (error) {
@@ -61,7 +95,7 @@ export const scrapeWebsite = async (req: Request, res: Response): Promise<void> 
 export const queryDocuments = async (req: Request, res: Response): Promise<void> => {
      try {
           const { query, topK = 10 } = req.body;
-          const userId = (req as any).user?.userId;
+          const userId = (req as any).user?.id;
 
           if (!userId) {
                res.status(401).json({
@@ -180,7 +214,7 @@ export const deleteAllDocuments = async (req: Request, res: Response): Promise<v
 
 export const getStats = async (req: Request, res: Response): Promise<void> => {
      try {
-          const userId = (req as any).user?.userId;
+          const userId = (req as any).user?.id;
 
           if (!userId) {
                res.status(401).json({
@@ -213,12 +247,17 @@ export const getStats = async (req: Request, res: Response): Promise<void> => {
 
 export const getProgress = async (req: Request, res: Response): Promise<void> => {
      try {
-          const userId = (req as any).user?.id || req.body.userId; // Try both (body for testing sometimes)
-          // We can't really get progress without userId now as queues are likely user-specific eventually
-          // For now, pass what we have or a placeholder if public/testing? 
-          // Assuming authed route:
+          const userId = (req as any).user?.id;
 
-          const progress = await scraperService.getScrapingProgress(userId || "unknown");
+          if (!userId) {
+               res.status(401).json({
+                    success: false,
+                    message: "User not authenticated",
+               });
+               return;
+          }
+
+          const progress = await scraperService.getScrapingProgress(userId);
 
           res.status(200).json({
                success: true,
@@ -238,6 +277,7 @@ export const getProgress = async (req: Request, res: Response): Promise<void> =>
 export const getAllSources = async (req: Request, res: Response): Promise<void> => {
      try {
           const userId = (req as any).user?.id;
+          const planType = (req as any).user?.plan_type || "free";
 
           if (!userId) {
                res.status(401).json({
@@ -250,6 +290,8 @@ export const getAllSources = async (req: Request, res: Response): Promise<void> 
           logger.info(`Fetching all sources for user: ${userId}`);
 
           const sources = await pineconeService.getAllUserSources(userId);
+          const pagesLimit = SCRAPER_PAGE_LIMITS[planType as "free" | "basic"];
+          const pagesUsed = sources.websites.length;
 
           res.status(200).json({
                success: true,
@@ -261,6 +303,13 @@ export const getAllSources = async (req: Request, res: Response): Promise<void> 
                          totalDocuments: sources.documents.length,
                          totalWebsites: sources.websites.length,
                          totalChunks: sources.totalChunks,
+                    },
+                    scraperUsage: {
+                         planType,
+                         pagesUsed,
+                         pagesLimit,
+                         pagesRemaining: Math.max(0, pagesLimit - pagesUsed),
+                         isAtLimit: pagesUsed >= pagesLimit,
                     },
                },
           });

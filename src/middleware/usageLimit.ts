@@ -1,6 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
-import usageTrackingService from '../services/usageTrackingService';
-import logger from '../utils/logger';
+import { Request, Response, NextFunction } from "express";
+import usageTrackingService from "../services/usageTrackingService";
+import { pineconeService } from "../services/pineconeService";
+import { SCRAPER_PAGE_LIMITS } from "../types";
+import logger from "../utils/logger";
 
 /**
  * Middleware to check if user has reached conversation limit
@@ -9,15 +11,15 @@ import logger from '../utils/logger';
 export const checkConversationLimit = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
-    const userId = req.body.userId || (req as any).user?.id;
+    const userId = (req as any).user?.id;
 
     if (!userId) {
       res.status(401).json({
         success: false,
-        message: 'Unauthorized - User ID not found',
+        message: "Unauthorized - User ID not found",
       });
       return;
     }
@@ -37,7 +39,7 @@ export const checkConversationLimit = async (
           conversationsUsed: usage.conversationsUsed,
           conversationsLimit: usage.conversationsLimit,
           resetDate: usage.resetDate,
-          upgradeUrl: '/api/auth/upgrade',
+          upgradeUrl: "/api/auth/upgrade",
         },
       });
       return;
@@ -47,14 +49,14 @@ export const checkConversationLimit = async (
     next();
   } catch (error) {
     const err = error as Error;
-    logger.error('Error in checkConversationLimit middleware', {
+    logger.error("Error in checkConversationLimit middleware", {
       error: err.message,
       stack: err.stack,
     });
 
     res.status(500).json({
       success: false,
-      message: 'Internal server error while checking conversation limit',
+      message: "Internal server error while checking conversation limit",
     });
   }
 };
@@ -66,9 +68,9 @@ export const checkConversationLimit = async (
 export const trackConversation = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): void => {
-  const userId = req.body.userId || (req as any).user?.id;
+  const userId = (req as any).user?.id;
 
   if (!userId) {
     next();
@@ -76,24 +78,26 @@ export const trackConversation = (
   }
 
   // Track after response is sent
-  res.on('finish', async () => {
+  res.on("finish", async () => {
     // Only track if response was successful
     if (res.statusCode === 200) {
       try {
         await usageTrackingService.trackConversation(userId);
 
         // Check if user is approaching limit and log a warning
-        const isApproaching = await usageTrackingService.isApproachingLimit(userId);
+        const isApproaching =
+          await usageTrackingService.isApproachingLimit(userId);
         if (isApproaching) {
-          const remaining = await usageTrackingService.getRemainingConversations(userId);
-          logger.warn('User approaching conversation limit', {
+          const remaining =
+            await usageTrackingService.getRemainingConversations(userId);
+          logger.warn("User approaching conversation limit", {
             userId,
             conversationsRemaining: remaining,
           });
         }
       } catch (error) {
         const err = error as Error;
-        logger.error('Error tracking conversation', {
+        logger.error("Error tracking conversation", {
           userId,
           error: err.message,
         });
@@ -112,9 +116,9 @@ export const trackConversation = (
 export const addUsageToResponse = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
-  const userId = req.body.userId || (req as any).user?.id;
+  const userId = (req as any).user?.id;
 
   if (!userId) {
     next();
@@ -132,7 +136,7 @@ export const addUsageToResponse = async (
     };
   } catch (error) {
     const err = error as Error;
-    logger.error('Error adding usage to response', {
+    logger.error("Error adding usage to response", {
       userId,
       error: err.message,
     });
@@ -140,4 +144,74 @@ export const addUsageToResponse = async (
   }
 
   next();
+};
+
+/**
+ * Middleware to check if user has reached scraper page limit
+ * Blocks request if user has exceeded their plan's page limit
+ * Free users: 15 pages, Basic users: 40 pages
+ */
+export const checkScraperLimit = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const userId = (req as any).user?.id;
+    const planType = (req as any).user?.plan_type || "free";
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized - User ID not found",
+      });
+      return;
+    }
+
+    // Check if user can scrape more pages
+    const canScrape = await pineconeService.canUserScrape(userId, planType);
+
+    if (!canScrape) {
+      // Get usage stats to provide helpful info
+      const usage = await pineconeService.getScraperUsageStats(userId, planType);
+
+      logger.warn("User has reached scraper page limit", {
+        userId,
+        planType,
+        pagesUsed: usage.pagesUsed,
+        pagesLimit: usage.pagesLimit,
+      });
+
+      res.status(403).json({
+        success: false,
+        message: `You've reached your website scraping limit. ${planType === "free" ? "Free" : "Basic"} plan allows ${usage.pagesLimit} websites.`,
+        data: {
+          planType: usage.planType,
+          pagesUsed: usage.pagesUsed,
+          pagesLimit: usage.pagesLimit,
+          pagesRemaining: usage.pagesRemaining,
+          upgradeUrl: planType === "free" ? "/api/auth/upgrade" : undefined,
+          upgradeMessage:
+            planType === "free"
+              ? "Upgrade to Basic plan for 40 website pages"
+              : "You have reached the maximum limit for Basic plan",
+        },
+      });
+      return;
+    }
+
+    // User can scrape, proceed
+    next();
+  } catch (error) {
+    const err = error as Error;
+    logger.error("Error in checkScraperLimit middleware", {
+      error: err.message,
+      stack: err.stack,
+    });
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while checking scraper limit",
+    });
+  }
 };

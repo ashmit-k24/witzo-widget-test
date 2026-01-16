@@ -11,7 +11,12 @@ import * as widgetController from "../controllers/widgetController";
 import { authenticateToken } from "../middleware/auth";
 import { setCsrfToken, verifyCsrfToken } from "../middleware/csrf";
 import { upload } from "../middleware/upload";
-import { addUsageToResponse, checkConversationLimit, trackConversation } from "../middleware/usageLimit";
+import {
+  addUsageToResponse,
+  checkConversationLimit,
+  checkScraperLimit,
+  trackConversation,
+} from "../middleware/usageLimit";
 import { validate, validationRules } from "../middleware/validator";
 
 const router = Router();
@@ -32,14 +37,28 @@ router.get("/csrf-token", csrfController.getCsrfToken);
  * @desc    Request verification code for email authentication
  * @access  Public
  */
-router.post("/request-code", verifyCsrfToken, authLimiter, validationRules.requestCode, validate, authController.requestCode);
+router.post(
+  "/request-code",
+  verifyCsrfToken,
+  authLimiter,
+  validationRules.requestCode,
+  validate,
+  authController.requestCode,
+);
 
 /**
  * @route   POST /api/auth/verify
  * @desc    Verify code and login (sets authentication cookies)
  * @access  Public
  */
-router.post("/verify", verifyCsrfToken, verifyLimiter, validationRules.verifyCode, validate, authController.verifyCode);
+router.post(
+  "/verify",
+  verifyCsrfToken,
+  verifyLimiter,
+  validationRules.verifyCode,
+  validate,
+  authController.verifyCode,
+);
 
 /**
  * @route   POST /api/auth/refresh
@@ -53,7 +72,12 @@ router.post("/refresh", verifyCsrfToken, authController.refreshToken);
  * @desc    Logout user and clear authentication cookies
  * @access  Protected
  */
-router.post("/logout", verifyCsrfToken, authenticateToken, authController.logout);
+router.post(
+  "/logout",
+  verifyCsrfToken,
+  authenticateToken,
+  authController.logout,
+);
 
 /**
  * @route   GET /api/auth/me
@@ -82,118 +106,132 @@ router.get("/usage", authenticateToken, usageController.getUserUsage);
 
 /**
  * @route   POST /api/auth/usage/check
- * @desc    Check usage statistics for a specific user (public API)
- * @access  Public
- * @body    { userId: string }
+ * @desc    Check usage statistics for the authenticated user
+ * @access  Protected
  */
-router.post("/usage/check", usageController.checkUsage);
+router.post("/usage/check", authenticateToken, usageController.checkUsage);
+
+// ============================================
+// Scraper Routes
+// ============================================
+
+router.post(
+  "/scraper/scrape",
+  verifyCsrfToken,
+  authenticateToken,
+  checkScraperLimit,
+  scraperController.scrapeWebsite,
+);
+
+router.post(
+  "/scraper/query",
+  verifyCsrfToken,
+  authenticateToken,
+  scraperController.queryDocuments,
+);
+
+router.delete(
+  "/scraper/delete",
+  verifyCsrfToken,
+  authenticateToken,
+  scraperController.deleteDocuments,
+);
+
+router.delete(
+  "/scraper/delete-all",
+  verifyCsrfToken,
+  authenticateToken,
+  scraperController.deleteAllDocuments,
+);
+
+router.get("/scraper/stats", authenticateToken, scraperController.getStats);
+
+router.get(
+  "/scraper/progress",
+  authenticateToken,
+  scraperController.getProgress,
+);
+
+router.get(
+  "/scraper/sources",
+  authenticateToken,
+  scraperController.getAllSources,
+);
+
+/**
+ * @route   POST /api/auth/chat
+ * @desc    Chat with AI using scraped data (RAG)
+ * @access  Protected
+ * @middleware checkConversationLimit - Verifies user hasn't exceeded plan limit
+ * @middleware trackConversation - Increments usage counter after successful response
+ * @middleware addUsageToResponse - Adds usage stats to response
+ */
+router.post(
+  "/chat",
+  authenticateToken,
+  checkConversationLimit,
+  trackConversation,
+  addUsageToResponse,
+  chatController.chat,
+);
+
+/**
+ * @route   GET /api/auth/chat/session/:sessionId
+ * @desc    Get chat session history
+ * @access  Protected
+ */
+router.get(
+  "/chat/session/:sessionId",
+  authenticateToken,
+  chatController.getChatSession,
+);
+
+/**
+ * @route   DELETE /api/auth/chat/session/:sessionId
+ * @desc    Clear a specific chat session
+ * @access  Protected
+ */
+router.delete(
+  "/chat/session/:sessionId",
+  authenticateToken,
+  chatController.clearChatSession,
+);
+
+/**
+ * @route   POST /api/auth/chat/clear-user-sessions
+ * @desc    Clear all sessions for the authenticated user
+ * @access  Protected
+ */
+router.post(
+  "/chat/clear-user-sessions",
+  authenticateToken,
+  chatController.clearUserSessions,
+);
 
 /**
  * @route   GET /api/auth/google
  * @desc    Initiate Google OAuth login
  * @access  Public
  */
-router.get("/google", authLimiter, passport.authenticate("google", { session: false }));
+router.get(
+  "/google",
+  authLimiter,
+  passport.authenticate("google", { session: false }),
+);
 
 /**
  * @route   GET /api/auth/google/callback
  * @desc    Google OAuth callback URL
  * @access  Public
  */
-router.get("/google/callback", passport.authenticate("google", { session: false, failureRedirect: "/login" }), authController.googleCallback);
-
-// ============================================
-// Scraper Routes
-// ============================================
-
-/**
- * @route   POST /api/auth/scraper/scrape
- * @desc    Scrape a website and store data in Pinecone
- * @access  Protected
- * @body    { url: string, maxDepth?: number, maxPages?: number }
- */
-router.post("/scraper/scrape", verifyCsrfToken, authenticateToken, scraperController.scrapeWebsite);
-
-/**
- * @route   POST /api/auth/scraper/query
- * @desc    Query scraped documents from Pinecone
- * @access  Protected
- * @body    { query: string, topK?: number }
- */
-router.post("/scraper/query", verifyCsrfToken, authenticateToken, scraperController.queryDocuments);
-
-/**
- * @route   DELETE /api/auth/scraper/delete
- * @desc    Delete all documents for a specific URL
- * @access  Protected
- * @body    { url: string }
- */
-router.delete("/scraper/delete", verifyCsrfToken, authenticateToken, scraperController.deleteDocuments);
-
-/**
- * @route   DELETE /api/auth/scraper/delete-all
- * @desc    Delete all documents for the current user
- * @access  Protected
- */
-router.delete("/scraper/delete-all", verifyCsrfToken, authenticateToken, scraperController.deleteAllDocuments);
-
-/**
- * @route   GET /api/auth/scraper/stats
- * @desc    Get Pinecone index statistics for current user
- * @access  Protected
- */
-router.get("/scraper/stats", authenticateToken, scraperController.getStats);
-
-/**
- * @route   GET /api/auth/scraper/progress
- * @desc    Get current scraping progress
- * @access  Protected
- */
-router.get("/scraper/progress", authenticateToken, scraperController.getProgress);
-
-/**
- * @route   GET /api/auth/scraper/sources
- * @desc    Get all user's stored sources (documents and websites)
- * @access  Protected
- */
-router.get("/scraper/sources", authenticateToken, scraperController.getAllSources);
-
-// ============================================
-// Chat/RAG Routes (Public API)
-// ============================================
-
-/**
- * @route   POST /api/auth/chat
- * @desc    Chat with AI using scraped data (RAG)
- * @access  Public (requires userId in body)
- * @body    { userId: string, sessionId?: string, message: string }
- * @middleware checkConversationLimit - Verifies user hasn't exceeded plan limit
- * @middleware trackConversation - Increments usage counter after successful response
- * @middleware addUsageToResponse - Adds usage stats to response
- */
-router.post("/chat", checkConversationLimit, trackConversation, addUsageToResponse, chatController.chat);
-
-/**
- * @route   GET /api/auth/chat/session/:sessionId
- * @desc    Get chat session history
- * @access  Public
- */
-router.get("/chat/session/:sessionId", chatController.getChatSession);
-
-/**
- * @route   DELETE /api/auth/chat/session/:sessionId
- * @desc    Clear a specific chat session
- * @access  Public
- */
-router.delete("/chat/session/:sessionId", chatController.clearChatSession);
-
-/**
- * @route   POST /api/auth/chat/clear-user-sessions
- * @desc    Clear all sessions for a user
- * @access  Public
- * @body    { userId: string }
- */
-router.post("/chat/clear-user-sessions", chatController.clearUserSessions);
+router.get(
+  "/google/callback",
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: "/login",
+  }),
+  authController.googleCallback,
+);
 
 // ============================================
 // Document Upload Routes (Protected)
@@ -205,7 +243,12 @@ router.post("/chat/clear-user-sessions", chatController.clearUserSessions);
  * @access  Protected
  * @body    multipart/form-data with 'document' field
  */
-router.post("/documents/upload", authenticateToken, upload.single("document"), documentController.uploadDocument);
+router.post(
+  "/documents/upload",
+  authenticateToken,
+  upload.single("document"),
+  documentController.uploadDocument,
+);
 
 /**
  * @route   POST /api/auth/documents/upload-multiple
@@ -213,7 +256,12 @@ router.post("/documents/upload", authenticateToken, upload.single("document"), d
  * @access  Protected
  * @body    multipart/form-data with 'documents' field (array)
  */
-router.post("/documents/upload-multiple", authenticateToken, upload.array("documents", 10), documentController.uploadMultipleDocuments);
+router.post(
+  "/documents/upload-multiple",
+  authenticateToken,
+  upload.array("documents", 10),
+  documentController.uploadMultipleDocuments,
+);
 
 // ============================================
 // Widget Management Routes (Protected)
@@ -224,7 +272,12 @@ router.post("/documents/upload-multiple", authenticateToken, upload.array("docum
  * @desc    Create a new widget key for embedding chat
  * @access  Protected
  */
-router.post("/widget/create", verifyCsrfToken, authenticateToken, widgetController.createWidgetKey);
+router.post(
+  "/widget/create",
+  verifyCsrfToken,
+  authenticateToken,
+  widgetController.createWidgetKey,
+);
 
 /**
  * @route   GET /api/auth/widget/key
@@ -238,27 +291,46 @@ router.get("/widget/key", authenticateToken, widgetController.getWidgetKey);
  * @desc    Update widget configuration
  * @access  Protected
  */
-router.put("/widget/update", verifyCsrfToken, authenticateToken, widgetController.updateWidgetKey);
+router.put(
+  "/widget/update",
+  verifyCsrfToken,
+  authenticateToken,
+  widgetController.updateWidgetKey,
+);
 
 /**
  * @route   POST /api/auth/widget/regenerate
  * @desc    Regenerate widget key (keeps config)
  * @access  Protected
  */
-router.post("/widget/regenerate", verifyCsrfToken, authenticateToken, widgetController.regenerateWidgetKey);
+router.post(
+  "/widget/regenerate",
+  verifyCsrfToken,
+  authenticateToken,
+  widgetController.regenerateWidgetKey,
+);
 
 /**
  * @route   DELETE /api/auth/widget/delete
  * @desc    Delete widget key
  * @access  Protected
  */
-router.delete("/widget/delete", verifyCsrfToken, authenticateToken, widgetController.deleteWidgetKey);
+router.delete(
+  "/widget/delete",
+  verifyCsrfToken,
+  authenticateToken,
+  widgetController.deleteWidgetKey,
+);
 
 /**
  * @route   GET /api/auth/widget/analytics
  * @desc    Get widget usage analytics
  * @access  Protected
  */
-router.get("/widget/analytics", authenticateToken, widgetController.getWidgetAnalytics);
+router.get(
+  "/widget/analytics",
+  authenticateToken,
+  widgetController.getWidgetAnalytics,
+);
 
 export default router;

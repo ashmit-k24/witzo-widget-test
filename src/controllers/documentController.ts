@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { documentParserService } from "../services/documentParserService";
+import { pineconeService } from "../services/pineconeService";
 import logger from "../utils/logger";
 
 export const uploadDocument = async (req: Request, res: Response): Promise<void> => {
@@ -23,6 +24,24 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
           }
 
           const { path: filePath, originalname, size } = req.file;
+
+          // Check if document has already been uploaded for this user
+          const documentUrl = `document://${originalname}`;
+          const existingSource = await pineconeService.checkSourceExists(userId, documentUrl);
+          if (existingSource.exists) {
+               logger.info(`Document already uploaded for user: ${userId}`, { filename: originalname, chunks: existingSource.chunks });
+               res.status(409).json({
+                    success: false,
+                    message: `This document "${originalname}" has already been uploaded. We found ${existingSource.chunks} existing chunks from this file.`,
+                    data: {
+                         alreadyUploaded: true,
+                         filename: originalname,
+                         existingChunks: existingSource.chunks,
+                         uploadedAt: existingSource.scrapedAt,
+                    },
+               });
+               return;
+          }
 
           logger.info(`Document upload started`, {
                userId,
@@ -84,6 +103,21 @@ export const uploadMultipleDocuments = async (req: Request, res: Response): Prom
 
           for (const file of files) {
                try {
+                    // Check if document has already been uploaded for this user
+                    const documentUrl = `document://${file.originalname}`;
+                    const existingSource = await pineconeService.checkSourceExists(userId, documentUrl);
+                    if (existingSource.exists) {
+                         logger.info(`Document already uploaded for user: ${userId}`, { filename: file.originalname, chunks: existingSource.chunks });
+                         results.push({
+                              filename: file.originalname,
+                              success: false,
+                              error: `Document already uploaded (${existingSource.chunks} chunks exist)`,
+                              alreadyUploaded: true,
+                              existingChunks: existingSource.chunks,
+                         });
+                         continue;
+                    }
+
                     const result = await documentParserService.processAndStoreDocument(userId, file.path, file.originalname, file.size);
 
                     results.push({
