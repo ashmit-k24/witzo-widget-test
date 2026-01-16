@@ -538,6 +538,7 @@ class AuthService {
 					id: session.user_id,
 					email: session.email,
 					isVerified: session.is_verified,
+					sessionId,
 				},
 			};
 		} catch (error) {
@@ -684,6 +685,7 @@ class AuthService {
 					id: session.user_id,
 					email: session.email,
 					isVerified: session.is_verified,
+					sessionId: session.id,
 				},
 			};
 		} catch (error) {

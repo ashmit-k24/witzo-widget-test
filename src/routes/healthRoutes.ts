@@ -335,11 +335,9 @@ router.get(
 			logger.error("Metrics endpoint error", {
 				error,
 			});
-			res
-				.status(500)
-				.json({
-					error: "Failed to generate metrics",
-				});
+			res.status(500).json({
+				error: "Failed to generate metrics",
+			});
 		}
 	},
 );

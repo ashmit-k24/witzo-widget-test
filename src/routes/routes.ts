@@ -118,6 +118,57 @@ router.get(
 );
 
 // ============================================
+// Session Management Routes
+// ============================================
+
+/**
+ * @route   GET /api/auth/sessions
+ * @desc    Get all active sessions for the current user
+ * @access  Protected
+ */
+router.get(
+	"/sessions",
+	authenticateToken,
+	authController.getSessions,
+);
+
+/**
+ * @route   DELETE /api/auth/sessions/:sessionId
+ * @desc    Revoke a specific session (logout from a device)
+ * @access  Protected
+ */
+router.delete(
+	"/sessions/:sessionId",
+	verifyCsrfToken,
+	authenticateToken,
+	authController.revokeSession,
+);
+
+/**
+ * @route   POST /api/auth/sessions/revoke-all
+ * @desc    Revoke all sessions except current one
+ * @access  Protected
+ */
+router.post(
+	"/sessions/revoke-all",
+	verifyCsrfToken,
+	authenticateToken,
+	authController.revokeAllOtherSessions,
+);
+
+/**
+ * @route   POST /api/auth/logout-all
+ * @desc    Logout from all devices (including current)
+ * @access  Protected
+ */
+router.post(
+	"/logout-all",
+	verifyCsrfToken,
+	authenticateToken,
+	authController.logoutAll,
+);
+
+// ============================================
 // Usage Tracking Routes
 // ============================================
 

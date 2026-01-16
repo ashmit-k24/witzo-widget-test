@@ -20,6 +20,7 @@ export interface UserResponse {
 	id: string;
 	email: string;
 	isVerified: boolean;
+	sessionId?: number;
 }
 
 // Verification Code types

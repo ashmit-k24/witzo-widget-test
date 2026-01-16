@@ -12,6 +12,7 @@ import authService from "../services/authService";
 import googleAuthService, {
 	GoogleProfile,
 } from "../services/googleAuthService";
+import sessionService from "../services/sessionService";
 import {
 	RequestCodeBody,
 	VerifyCodeBody,
@@ -247,6 +248,134 @@ export const validateSession = async (
 		message: "Session is valid",
 		user: req.user,
 	});
+};
+
+/**
+ * @route   GET /api/auth/sessions
+ * @desc    Get all active sessions for the current user
+ * @access  Protected
+ */
+export const getSessions = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const user = req.user as any;
+		const currentSessionId = user?.sessionId;
+
+		const result =
+			await sessionService.getUserSessions(
+				user.id,
+				currentSessionId,
+			);
+
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   DELETE /api/auth/sessions/:sessionId
+ * @desc    Revoke a specific session
+ * @access  Protected
+ */
+export const revokeSession = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const user = req.user as any;
+		const sessionIdToRevoke = parseInt(
+			req.params.sessionId,
+			10,
+		);
+		const currentSessionId = user?.sessionId;
+
+		if (isNaN(sessionIdToRevoke)) {
+			res.status(400).json({
+				success: false,
+				message: "Invalid session ID",
+			});
+			return;
+		}
+
+		const result =
+			await sessionService.revokeSession(
+				user.id,
+				sessionIdToRevoke,
+				currentSessionId,
+			);
+
+		res.status(result.success ? 200 : 400).json(
+			result,
+		);
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/sessions/revoke-all
+ * @desc    Revoke all sessions except current one
+ * @access  Protected
+ */
+export const revokeAllOtherSessions = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const user = req.user as any;
+		const currentSessionId = user?.sessionId;
+
+		if (!currentSessionId) {
+			res.status(400).json({
+				success: false,
+				message: "Current session not found",
+			});
+			return;
+		}
+
+		const result =
+			await sessionService.revokeAllOtherSessions(
+				user.id,
+				currentSessionId,
+			);
+
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/logout-all
+ * @desc    Logout from all devices (including current)
+ * @access  Protected
+ */
+export const logoutAll = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const user = req.user as any;
+
+		const result =
+			await sessionService.revokeAllSessions(
+				user.id,
+			);
+
+		// Clear cookies for current session
+		clearCookies(res);
+
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
 };
 
 /**

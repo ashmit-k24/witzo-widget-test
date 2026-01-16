@@ -66,7 +66,7 @@ export const config: EnvConfig = {
 	),
 	ACCESS_TOKEN_EXPIRY_MINUTES: getEnvNumber(
 		"ACCESS_TOKEN_EXPIRY_MINUTES",
-		15,
+		1440,
 	),
 	REFRESH_TOKEN_EXPIRY_DAYS: getEnvNumber(
 		"REFRESH_TOKEN_EXPIRY_DAYS",
