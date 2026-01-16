@@ -13,14 +13,20 @@ const router = Router();
  * @desc    Get widget configuration by widget key
  * @access  Public (requires valid widget key)
  */
-router.get("/widget/config/:widgetKey", widgetController.getWidgetConfig);
+router.get(
+	"/widget/config/:widgetKey",
+	widgetController.getWidgetConfig,
+);
 
 /**
  * @route   POST /api/v1/webhook
  * @desc    Public webhook endpoint for widget chat messages
  * @access  Public (requires valid widget key in body)
  */
-router.post("/webhook", widgetController.webhookChat);
+router.post(
+	"/webhook",
+	widgetController.webhookChat,
+);
 
 /**
  * @route   GET /api/v1/widget/embed.js
@@ -28,12 +34,18 @@ router.post("/webhook", widgetController.webhookChat);
  * @access  Public
  */
 router.get("/widget/embed.js", (_req, res) => {
-     res.setHeader("Content-Type", "application/javascript");
-     res.setHeader("Cache-Control", "public, max-age=3600"); // Cache for 1 hour
+	res.setHeader(
+		"Content-Type",
+		"application/javascript",
+	);
+	res.setHeader(
+		"Cache-Control",
+		"public, max-age=3600",
+	); // Cache for 1 hour
 
-     // Serve the widget embed script
-     // For now, we'll serve a placeholder that tells users to use their own widget
-     res.send(`
+	// Serve the widget embed script
+	// For now, we'll serve a placeholder that tells users to use their own widget
+	res.send(`
 // Witzo Chat Widget Embed Script
 console.log('Witzo Chat Widget: Use your own chat widget component with the widget-key attribute');
 console.warn('This endpoint is for serving your custom widget JavaScript. Please implement your own widget or use an existing chat widget library.');
@@ -49,6 +61,9 @@ console.warn('This endpoint is for serving your custom widget JavaScript. Please
  * @access  Public
  * @example <script src="http://localhost:3008/api/v1/embed/wk_abc123.js"></script>
  */
-router.get("/embed/:widgetKey.js", widgetController.generateEmbedScript);
+router.get(
+	"/embed/:widgetKey.js",
+	widgetController.generateEmbedScript,
+);
 
 export default router;

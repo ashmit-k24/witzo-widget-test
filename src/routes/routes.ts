@@ -1,6 +1,9 @@
 import { Router } from "express";
 import passport from "../config/passport";
-import { authLimiter, verifyLimiter } from "../config/rateLimiters";
+import {
+	authLimiter,
+	verifyLimiter,
+} from "../config/rateLimiters";
 import * as authController from "../controllers/authController";
 import * as chatController from "../controllers/chatController";
 import * as csrfController from "../controllers/csrfController";
@@ -9,15 +12,21 @@ import * as scraperController from "../controllers/scraperController";
 import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
 import { authenticateToken } from "../middleware/auth";
-import { setCsrfToken, verifyCsrfToken } from "../middleware/csrf";
+import {
+	setCsrfToken,
+	verifyCsrfToken,
+} from "../middleware/csrf";
 import { upload } from "../middleware/upload";
 import {
-  addUsageToResponse,
-  checkConversationLimit,
-  checkScraperLimit,
-  trackConversation,
+	addUsageToResponse,
+	checkConversationLimit,
+	checkScraperLimit,
+	trackConversation,
 } from "../middleware/usageLimit";
-import { validate, validationRules } from "../middleware/validator";
+import {
+	validate,
+	validationRules,
+} from "../middleware/validator";
 
 const router = Router();
 
@@ -30,7 +39,10 @@ router.use(setCsrfToken);
  * @access  Public
  * @returns CSRF token in response body, cookie, and header
  */
-router.get("/csrf-token", csrfController.getCsrfToken);
+router.get(
+	"/csrf-token",
+	csrfController.getCsrfToken,
+);
 
 /**
  * @route   POST /api/auth/request-code
@@ -38,12 +50,12 @@ router.get("/csrf-token", csrfController.getCsrfToken);
  * @access  Public
  */
 router.post(
-  "/request-code",
-  verifyCsrfToken,
-  authLimiter,
-  validationRules.requestCode,
-  validate,
-  authController.requestCode,
+	"/request-code",
+	verifyCsrfToken,
+	authLimiter,
+	validationRules.requestCode,
+	validate,
+	authController.requestCode,
 );
 
 /**
@@ -52,12 +64,12 @@ router.post(
  * @access  Public
  */
 router.post(
-  "/verify",
-  verifyCsrfToken,
-  verifyLimiter,
-  validationRules.verifyCode,
-  validate,
-  authController.verifyCode,
+	"/verify",
+	verifyCsrfToken,
+	verifyLimiter,
+	validationRules.verifyCode,
+	validate,
+	authController.verifyCode,
 );
 
 /**
@@ -65,7 +77,11 @@ router.post(
  * @desc    Refresh access token using refresh token from cookies
  * @access  Public (requires refresh token cookie)
  */
-router.post("/refresh", verifyCsrfToken, authController.refreshToken);
+router.post(
+	"/refresh",
+	verifyCsrfToken,
+	authController.refreshToken,
+);
 
 /**
  * @route   POST /api/auth/logout
@@ -73,10 +89,10 @@ router.post("/refresh", verifyCsrfToken, authController.refreshToken);
  * @access  Protected
  */
 router.post(
-  "/logout",
-  verifyCsrfToken,
-  authenticateToken,
-  authController.logout,
+	"/logout",
+	verifyCsrfToken,
+	authenticateToken,
+	authController.logout,
 );
 
 /**
@@ -84,14 +100,22 @@ router.post(
  * @desc    Get current authenticated user information
  * @access  Protected
  */
-router.get("/me", authenticateToken, authController.getCurrentUser);
+router.get(
+	"/me",
+	authenticateToken,
+	authController.getCurrentUser,
+);
 
 /**
  * @route   GET /api/auth/validate
  * @desc    Validate current session
  * @access  Protected
  */
-router.get("/validate", authenticateToken, authController.validateSession);
+router.get(
+	"/validate",
+	authenticateToken,
+	authController.validateSession,
+);
 
 // ============================================
 // Usage Tracking Routes
@@ -102,60 +126,72 @@ router.get("/validate", authenticateToken, authController.validateSession);
  * @desc    Get current user's usage statistics
  * @access  Protected
  */
-router.get("/usage", authenticateToken, usageController.getUserUsage);
+router.get(
+	"/usage",
+	authenticateToken,
+	usageController.getUserUsage,
+);
 
 /**
  * @route   POST /api/auth/usage/check
  * @desc    Check usage statistics for the authenticated user
  * @access  Protected
  */
-router.post("/usage/check", authenticateToken, usageController.checkUsage);
+router.post(
+	"/usage/check",
+	authenticateToken,
+	usageController.checkUsage,
+);
 
 // ============================================
 // Scraper Routes
 // ============================================
 
 router.post(
-  "/scraper/scrape",
-  verifyCsrfToken,
-  authenticateToken,
-  checkScraperLimit,
-  scraperController.scrapeWebsite,
+	"/scraper/scrape",
+	verifyCsrfToken,
+	authenticateToken,
+	checkScraperLimit,
+	scraperController.scrapeWebsite,
 );
 
 router.post(
-  "/scraper/query",
-  verifyCsrfToken,
-  authenticateToken,
-  scraperController.queryDocuments,
+	"/scraper/query",
+	verifyCsrfToken,
+	authenticateToken,
+	scraperController.queryDocuments,
 );
 
 router.delete(
-  "/scraper/delete",
-  verifyCsrfToken,
-  authenticateToken,
-  scraperController.deleteDocuments,
+	"/scraper/delete",
+	verifyCsrfToken,
+	authenticateToken,
+	scraperController.deleteDocuments,
 );
 
 router.delete(
-  "/scraper/delete-all",
-  verifyCsrfToken,
-  authenticateToken,
-  scraperController.deleteAllDocuments,
-);
-
-router.get("/scraper/stats", authenticateToken, scraperController.getStats);
-
-router.get(
-  "/scraper/progress",
-  authenticateToken,
-  scraperController.getProgress,
+	"/scraper/delete-all",
+	verifyCsrfToken,
+	authenticateToken,
+	scraperController.deleteAllDocuments,
 );
 
 router.get(
-  "/scraper/sources",
-  authenticateToken,
-  scraperController.getAllSources,
+	"/scraper/stats",
+	authenticateToken,
+	scraperController.getStats,
+);
+
+router.get(
+	"/scraper/progress",
+	authenticateToken,
+	scraperController.getProgress,
+);
+
+router.get(
+	"/scraper/sources",
+	authenticateToken,
+	scraperController.getAllSources,
 );
 
 /**
@@ -167,12 +203,12 @@ router.get(
  * @middleware addUsageToResponse - Adds usage stats to response
  */
 router.post(
-  "/chat",
-  authenticateToken,
-  checkConversationLimit,
-  trackConversation,
-  addUsageToResponse,
-  chatController.chat,
+	"/chat",
+	authenticateToken,
+	checkConversationLimit,
+	trackConversation,
+	addUsageToResponse,
+	chatController.chat,
 );
 
 /**
@@ -181,9 +217,9 @@ router.post(
  * @access  Protected
  */
 router.get(
-  "/chat/session/:sessionId",
-  authenticateToken,
-  chatController.getChatSession,
+	"/chat/session/:sessionId",
+	authenticateToken,
+	chatController.getChatSession,
 );
 
 /**
@@ -192,9 +228,9 @@ router.get(
  * @access  Protected
  */
 router.delete(
-  "/chat/session/:sessionId",
-  authenticateToken,
-  chatController.clearChatSession,
+	"/chat/session/:sessionId",
+	authenticateToken,
+	chatController.clearChatSession,
 );
 
 /**
@@ -203,9 +239,9 @@ router.delete(
  * @access  Protected
  */
 router.post(
-  "/chat/clear-user-sessions",
-  authenticateToken,
-  chatController.clearUserSessions,
+	"/chat/clear-user-sessions",
+	authenticateToken,
+	chatController.clearUserSessions,
 );
 
 /**
@@ -214,9 +250,11 @@ router.post(
  * @access  Public
  */
 router.get(
-  "/google",
-  authLimiter,
-  passport.authenticate("google", { session: false }),
+	"/google",
+	authLimiter,
+	passport.authenticate("google", {
+		session: false,
+	}),
 );
 
 /**
@@ -225,12 +263,12 @@ router.get(
  * @access  Public
  */
 router.get(
-  "/google/callback",
-  passport.authenticate("google", {
-    session: false,
-    failureRedirect: "/login",
-  }),
-  authController.googleCallback,
+	"/google/callback",
+	passport.authenticate("google", {
+		session: false,
+		failureRedirect: "/login",
+	}),
+	authController.googleCallback,
 );
 
 // ============================================
@@ -244,10 +282,10 @@ router.get(
  * @body    multipart/form-data with 'document' field
  */
 router.post(
-  "/documents/upload",
-  authenticateToken,
-  upload.single("document"),
-  documentController.uploadDocument,
+	"/documents/upload",
+	authenticateToken,
+	upload.single("document"),
+	documentController.uploadDocument,
 );
 
 /**
@@ -257,10 +295,10 @@ router.post(
  * @body    multipart/form-data with 'documents' field (array)
  */
 router.post(
-  "/documents/upload-multiple",
-  authenticateToken,
-  upload.array("documents", 10),
-  documentController.uploadMultipleDocuments,
+	"/documents/upload-multiple",
+	authenticateToken,
+	upload.array("documents", 10),
+	documentController.uploadMultipleDocuments,
 );
 
 // ============================================
@@ -273,10 +311,10 @@ router.post(
  * @access  Protected
  */
 router.post(
-  "/widget/create",
-  verifyCsrfToken,
-  authenticateToken,
-  widgetController.createWidgetKey,
+	"/widget/create",
+	verifyCsrfToken,
+	authenticateToken,
+	widgetController.createWidgetKey,
 );
 
 /**
@@ -284,7 +322,11 @@ router.post(
  * @desc    Get current user's widget key and config
  * @access  Protected
  */
-router.get("/widget/key", authenticateToken, widgetController.getWidgetKey);
+router.get(
+	"/widget/key",
+	authenticateToken,
+	widgetController.getWidgetKey,
+);
 
 /**
  * @route   PUT /api/auth/widget/update
@@ -292,10 +334,10 @@ router.get("/widget/key", authenticateToken, widgetController.getWidgetKey);
  * @access  Protected
  */
 router.put(
-  "/widget/update",
-  verifyCsrfToken,
-  authenticateToken,
-  widgetController.updateWidgetKey,
+	"/widget/update",
+	verifyCsrfToken,
+	authenticateToken,
+	widgetController.updateWidgetKey,
 );
 
 /**
@@ -304,10 +346,10 @@ router.put(
  * @access  Protected
  */
 router.post(
-  "/widget/regenerate",
-  verifyCsrfToken,
-  authenticateToken,
-  widgetController.regenerateWidgetKey,
+	"/widget/regenerate",
+	verifyCsrfToken,
+	authenticateToken,
+	widgetController.regenerateWidgetKey,
 );
 
 /**
@@ -316,10 +358,10 @@ router.post(
  * @access  Protected
  */
 router.delete(
-  "/widget/delete",
-  verifyCsrfToken,
-  authenticateToken,
-  widgetController.deleteWidgetKey,
+	"/widget/delete",
+	verifyCsrfToken,
+	authenticateToken,
+	widgetController.deleteWidgetKey,
 );
 
 /**
@@ -328,9 +370,9 @@ router.delete(
  * @access  Protected
  */
 router.get(
-  "/widget/analytics",
-  authenticateToken,
-  widgetController.getWidgetAnalytics,
+	"/widget/analytics",
+	authenticateToken,
+	widgetController.getWidgetAnalytics,
 );
 
 export default router;

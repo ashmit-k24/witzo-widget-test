@@ -6,16 +6,17 @@ import { config } from "./env";
  * Limits: 5 requests per window
  */
 export const authLimiter = rateLimit({
-     windowMs: config.RATE_LIMIT_WINDOW_MS,
-     max: 5,
-     message: {
-          success: false,
-          message: "Too many authentication attempts. Please try again later.",
-          code: "RATE_LIMIT_EXCEEDED",
-     },
-     standardHeaders: true,
-     legacyHeaders: false,
-     skipSuccessfulRequests: false,
+	windowMs: config.RATE_LIMIT_WINDOW_MS,
+	max: 5,
+	message: {
+		success: false,
+		message:
+			"Too many authentication attempts. Please try again later.",
+		code: "RATE_LIMIT_EXCEEDED",
+	},
+	standardHeaders: true,
+	legacyHeaders: false,
+	skipSuccessfulRequests: false,
 });
 
 /**
@@ -23,13 +24,14 @@ export const authLimiter = rateLimit({
  * Limits: 10 requests per window
  */
 export const verifyLimiter = rateLimit({
-     windowMs: config.RATE_LIMIT_WINDOW_MS,
-     max: 10,
-     message: {
-          success: false,
-          message: "Too many verification attempts. Please try again later.",
-          code: "RATE_LIMIT_EXCEEDED",
-     },
-     standardHeaders: true,
-     legacyHeaders: false,
+	windowMs: config.RATE_LIMIT_WINDOW_MS,
+	max: 10,
+	message: {
+		success: false,
+		message:
+			"Too many verification attempts. Please try again later.",
+		code: "RATE_LIMIT_EXCEEDED",
+	},
+	standardHeaders: true,
+	legacyHeaders: false,
 });

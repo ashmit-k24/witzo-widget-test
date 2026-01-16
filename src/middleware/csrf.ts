@@ -1,5 +1,9 @@
 import crypto from "crypto";
-import { NextFunction, Request, Response } from "express";
+import {
+	NextFunction,
+	Request,
+	Response,
+} from "express";
 import { config } from "../config/env";
 import logger from "../utils/logger";
 
@@ -15,100 +19,119 @@ const CSRF_HEADER_NAME = "x-csrf-token";
  * Generate a cryptographically secure CSRF token
  */
 function generateCsrfToken(): string {
-     return crypto.randomBytes(32).toString("hex");
+	return crypto.randomBytes(32).toString("hex");
 }
 
 /**
  * Middleware to set CSRF token cookie
  * Call this on GET requests that serve pages/SPAs
  */
-export const setCsrfToken = (req: Request, res: Response, next: NextFunction): void => {
-     // Generate or reuse existing CSRF token
-     let csrfToken = req.cookies?.[CSRF_COOKIE_NAME];
+export const setCsrfToken = (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): void => {
+	// Generate or reuse existing CSRF token
+	let csrfToken = req.cookies?.[CSRF_COOKIE_NAME];
 
-     if (!csrfToken) {
-          csrfToken = generateCsrfToken();
+	if (!csrfToken) {
+		csrfToken = generateCsrfToken();
 
-          // Set CSRF token as a cookie
-          res.cookie(CSRF_COOKIE_NAME, csrfToken, {
-               httpOnly: false, // Must be readable by JavaScript
-               secure: config.NODE_ENV === "production",
-               sameSite: "strict",
-               maxAge: 24 * 60 * 60 * 1000, // 24 hours
-               path: "/",
-          });
-     }
+		// Set CSRF token as a cookie
+		res.cookie(CSRF_COOKIE_NAME, csrfToken, {
+			httpOnly: false, // Must be readable by JavaScript
+			secure: config.NODE_ENV === "production",
+			sameSite: "strict",
+			maxAge: 24 * 60 * 60 * 1000, // 24 hours
+			path: "/",
+		});
+	}
 
-     // Also send in response header for convenience
-     res.setHeader("X-CSRF-Token", csrfToken);
-     next();
+	// Also send in response header for convenience
+	res.setHeader("X-CSRF-Token", csrfToken);
+	next();
 };
 
 /**
  * Middleware to verify CSRF token on state-changing operations
  * Use this on POST, PUT, PATCH, DELETE routes
  */
-export const verifyCsrfToken = (req: Request, res: Response, next: NextFunction): void => {
-     // Skip CSRF check for safe methods
-     if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
-          next();
-          return;
-     }
+export const verifyCsrfToken = (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): void => {
+	// Skip CSRF check for safe methods
+	if (
+		["GET", "HEAD", "OPTIONS"].includes(
+			req.method,
+		)
+	) {
+		next();
+		return;
+	}
 
-     const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
-     const headerToken = req.get(CSRF_HEADER_NAME);
+	const cookieToken =
+		req.cookies?.[CSRF_COOKIE_NAME];
+	const headerToken = req.get(CSRF_HEADER_NAME);
 
-     // Check if both tokens exist
-     if (!cookieToken || !headerToken) {
-          logger.warn("CSRF token missing", {
-               path: req.path,
-               method: req.method,
-               ip: req.ip,
-               hasCookie: !!cookieToken,
-               hasHeader: !!headerToken,
-          });
+	// Check if both tokens exist
+	if (!cookieToken || !headerToken) {
+		logger.warn("CSRF token missing", {
+			path: req.path,
+			method: req.method,
+			ip: req.ip,
+			hasCookie: !!cookieToken,
+			hasHeader: !!headerToken,
+		});
 
-          res.status(403).json({
-               success: false,
-               message: "CSRF token missing",
-               code: "CSRF_TOKEN_MISSING",
-          });
-          return;
-     }
+		res.status(403).json({
+			success: false,
+			message: "CSRF token missing",
+			code: "CSRF_TOKEN_MISSING",
+		});
+		return;
+	}
 
-     // Verify tokens match using constant-time comparison
-     const cookieBuffer = Buffer.from(cookieToken);
-     const headerBuffer = Buffer.from(headerToken);
+	// Verify tokens match using constant-time comparison
+	const cookieBuffer = Buffer.from(cookieToken);
+	const headerBuffer = Buffer.from(headerToken);
 
-     let tokensMatch = false;
-     try {
-          tokensMatch = crypto.timingSafeEqual(cookieBuffer, headerBuffer);
-     } catch (error) {
-          // Tokens are different lengths
-          tokensMatch = false;
-     }
+	let tokensMatch = false;
+	try {
+		tokensMatch = crypto.timingSafeEqual(
+			cookieBuffer,
+			headerBuffer,
+		);
+	} catch (error) {
+		// Tokens are different lengths
+		tokensMatch = false;
+	}
 
-     if (!tokensMatch) {
-          logger.warn("CSRF token mismatch", {
-               path: req.path,
-               method: req.method,
-               ip: req.ip,
-          });
+	if (!tokensMatch) {
+		logger.warn("CSRF token mismatch", {
+			path: req.path,
+			method: req.method,
+			ip: req.ip,
+		});
 
-          res.status(403).json({
-               success: false,
-               message: "Invalid CSRF token",
-               code: "CSRF_TOKEN_INVALID",
-          });
-          return;
-     }
+		res.status(403).json({
+			success: false,
+			message: "Invalid CSRF token",
+			code: "CSRF_TOKEN_INVALID",
+		});
+		return;
+	}
 
-     // Tokens match, allow request
-     next();
+	// Tokens match, allow request
+	next();
 };
 
 /**
  * Combined middleware that sets and verifies CSRF token
  * Use this as a catch-all if you want automatic CSRF protection
  */
-export const csrfProtection = [setCsrfToken, verifyCsrfToken];
+export const csrfProtection = [
+	setCsrfToken,
+	verifyCsrfToken,
+];

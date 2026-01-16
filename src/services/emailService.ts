@@ -1,38 +1,52 @@
-import nodemailer, { Transporter } from 'nodemailer';
-import { config } from '../config/env';
-import { EmailResult } from '../types';
-import logger from '../utils/logger';
+import nodemailer, {
+	Transporter,
+} from "nodemailer";
+import { config } from "../config/env";
+import { EmailResult } from "../types";
+import logger from "../utils/logger";
 
 class EmailService {
-  private transporter: Transporter;
+	private transporter: Transporter;
 
-  constructor() {
-    this.transporter = nodemailer.createTransport({
-      host: config.EMAIL_HOST,
-      port: config.EMAIL_PORT,
-      secure: config.EMAIL_SECURE,
-      auth: {
-        user: config.EMAIL_USER,
-        pass: config.EMAIL_PASSWORD,
-      },
-    });
+	constructor() {
+		this.transporter = nodemailer.createTransport(
+			{
+				host: config.EMAIL_HOST,
+				port: config.EMAIL_PORT,
+				secure: config.EMAIL_SECURE,
+				auth: {
+					user: config.EMAIL_USER,
+					pass: config.EMAIL_PASSWORD,
+				},
+			},
+		);
 
-    // Verify transporter configuration
-    this.transporter.verify((error) => {
-      if (error) {
-        logger.error('Email transporter verification failed', { error: error.message });
-      } else {
-        logger.info('Email service is ready to send messages');
-      }
-    });
-  }
+		// Verify transporter configuration
+		this.transporter.verify((error) => {
+			if (error) {
+				logger.error(
+					"Email transporter verification failed",
+					{
+						error: error.message,
+					},
+				);
+			} else {
+				logger.info(
+					"Email service is ready to send messages",
+				);
+			}
+		});
+	}
 
-  async sendVerificationCode(email: string, code: string): Promise<EmailResult> {
-    const mailOptions = {
-      from: config.EMAIL_FROM,
-      to: email,
-      subject: 'Your Verification Code',
-      html: `
+	async sendVerificationCode(
+		email: string,
+		code: string,
+	): Promise<EmailResult> {
+		const mailOptions = {
+			from: config.EMAIL_FROM,
+			to: email,
+			subject: "Your Verification Code",
+			html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -85,25 +99,36 @@ class EmailService {
         </body>
         </html>
       `,
-      text: `Your verification code is: ${code}. This code will expire in ${config.VERIFICATION_CODE_EXPIRY_MINUTES} minutes.`,
-    };
+			text: `Your verification code is: ${code}. This code will expire in ${config.VERIFICATION_CODE_EXPIRY_MINUTES} minutes.`,
+		};
 
-    try {
-      const info = await this.transporter.sendMail(mailOptions);
-      logger.info('Verification email sent', { 
-        email, 
-        messageId: info.messageId 
-      });
-      return { success: true, messageId: info.messageId };
-    } catch (error) {
-      const err = error as Error;
-      logger.error('Failed to send verification email', { 
-        email, 
-        error: err.message 
-      });
-      throw new Error('Failed to send verification email');
-    }
-  }
+		try {
+			const info =
+				await this.transporter.sendMail(
+					mailOptions,
+				);
+			logger.info("Verification email sent", {
+				email,
+				messageId: info.messageId,
+			});
+			return {
+				success: true,
+				messageId: info.messageId,
+			};
+		} catch (error) {
+			const err = error as Error;
+			logger.error(
+				"Failed to send verification email",
+				{
+					email,
+					error: err.message,
+				},
+			);
+			throw new Error(
+				"Failed to send verification email",
+			);
+		}
+	}
 }
 
 export default new EmailService();
