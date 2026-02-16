@@ -312,7 +312,7 @@ export const SCRAPER_PAGE_LIMITS: Record<
 	number
 > = {
 	free: 15,
-	basic: 40,
+	basic: 30,
 };
 
 // Scraper Usage Stats

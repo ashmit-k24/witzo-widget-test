@@ -83,6 +83,47 @@ export const chat = async (
 	}
 };
 
+export const getUserChatSessions = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = (req.user as any)?.id;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const sessions =
+			await chatService.getUserChatSessions(
+				userId,
+			);
+
+		res.status(200).json({
+			success: true,
+			data: sessions,
+		});
+	} catch (error) {
+		logger.error(
+			"Error getting user chat sessions",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while retrieving sessions",
+			error:
+				error instanceof Error
+					? error.message
+					: "Unknown error",
+		});
+	}
+};
+
 export const getChatSession = async (
 	req: Request,
 	res: Response,

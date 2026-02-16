@@ -173,7 +173,7 @@ class PineconeService {
 			const listResponse =
 				await index.listPaginated({
 					paginationToken,
-					limit: 1000,
+					limit: 100,
 				});
 			const ids =
 				listResponse.vectors

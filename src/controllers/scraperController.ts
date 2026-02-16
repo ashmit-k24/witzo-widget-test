@@ -70,33 +70,16 @@ export const scrapeWebsite = async (
 				planType,
 			);
 
-		// Count available pages before scraping
-		logger.info(
-			`Counting pages for URL: ${url}`,
-			{
-				maxDepth,
-				maxPages,
-				userId,
-			},
-		);
-		const pageCountResult =
-			await scraperService.countAvailablePages(
-				url,
-				maxDepth,
-				maxPages,
-			);
-
 		logger.info(
 			`Starting scrape for URL: ${url}`,
 			{
 				maxDepth,
 				maxPages,
 				userId,
-				discoveredPages:
-					pageCountResult.totalPages,
 			},
 		);
 
+		// Scrape synchronously — waits until all pages are scraped
 		const result =
 			await scraperService.scrapeWebsite(
 				userId,
@@ -111,14 +94,7 @@ export const scrapeWebsite = async (
 			success: result.success,
 			message: result.message,
 			data: {
-				totalPagesFound:
-					pageCountResult.totalPages,
-				discoveredUrls:
-					pageCountResult.discoveredUrls,
-				baseUrl: pageCountResult.baseUrl,
-				estimatedTime:
-					pageCountResult.estimatedTime,
-				jobId: result.jobId,
+				pagesScraped: result.pagesScraped,
 				scrapedPages: result.pages.map(
 					(page) => ({
 						url: page.url,
@@ -127,11 +103,11 @@ export const scrapeWebsite = async (
 					}),
 				),
 				usage: {
-					pagesUsed: scraperUsage.pagesUsed + 1, // +1 for this scrape
+					pagesUsed: scraperUsage.pagesUsed + result.pagesScraped,
 					pagesLimit: scraperUsage.pagesLimit,
 					pagesRemaining: Math.max(
 						0,
-						scraperUsage.pagesRemaining - 1,
+						scraperUsage.pagesRemaining - result.pagesScraped,
 					),
 				},
 			},
@@ -356,48 +332,6 @@ export const getStats = async (
 			success: false,
 			message:
 				"Internal server error while getting stats",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
-		});
-	}
-};
-
-export const getProgress = async (
-	req: Request,
-	res: Response,
-): Promise<void> => {
-	try {
-		const userId = (req as any).user?.id;
-
-		if (!userId) {
-			res.status(401).json({
-				success: false,
-				message: "User not authenticated",
-			});
-			return;
-		}
-
-		const progress =
-			await scraperService.getScrapingProgress(
-				userId,
-			);
-
-		res.status(200).json({
-			success: true,
-			message: "Progress retrieved successfully",
-			data: progress,
-		});
-	} catch (error) {
-		logger.error(
-			"Error in getProgress controller",
-			{ error },
-		);
-		res.status(500).json({
-			success: false,
-			message:
-				"Internal server error while getting progress",
 			error:
 				error instanceof Error
 					? error.message

@@ -234,12 +234,6 @@ router.get(
 );
 
 router.get(
-	"/scraper/progress",
-	authenticateToken,
-	scraperController.getProgress,
-);
-
-router.get(
 	"/scraper/sources",
 	authenticateToken,
 	scraperController.getAllSources,
@@ -260,6 +254,17 @@ router.post(
 	trackConversation,
 	addUsageToResponse,
 	chatController.chat,
+);
+
+/**
+ * @route   GET /api/auth/chat/sessions
+ * @desc    List all chat sessions for the authenticated user
+ * @access  Protected
+ */
+router.get(
+	"/chat/sessions",
+	authenticateToken,
+	chatController.getUserChatSessions,
 );
 
 /**

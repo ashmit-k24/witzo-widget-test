@@ -187,7 +187,7 @@ export const addUsageToResponse = async (
 /**
  * Middleware to check if user has reached scraper page limit
  * Blocks request if user has exceeded their plan's page limit
- * Free users: 15 pages, Basic users: 40 pages
+ * Free users: 15 pages, Basic users: 30 pages
  */
 export const checkScraperLimit = async (
 	req: Request,
@@ -247,7 +247,7 @@ export const checkScraperLimit = async (
 							: undefined,
 					upgradeMessage:
 						planType === "free"
-							? "Upgrade to Basic plan for 40 website pages"
+							? "Upgrade to Basic plan for 30 website pages"
 							: "You have reached the maximum limit for Basic plan",
 				},
 			});

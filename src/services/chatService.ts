@@ -300,6 +300,97 @@ IMPORTANT RULES:
 		return false;
 	}
 
+	async getUserChatSessions(
+		userId: string,
+	): Promise<
+		Array<{
+			sessionId: string;
+			messageCount: number;
+			createdAt: Date;
+			updatedAt: Date;
+			lastMessage: string | null;
+		}>
+	> {
+		const userSessionsKey =
+			this.getUserSessionsKey(userId);
+		const sessionIds =
+			await redisCache.smembers(
+				userSessionsKey,
+			);
+
+		if (sessionIds.length === 0) return [];
+
+		const pipeline = redisCache.pipeline();
+		for (const sessionId of sessionIds) {
+			pipeline.get(
+				this.getSessionKey(sessionId),
+			);
+		}
+		const results = await pipeline.exec();
+
+		const sessions: Array<{
+			sessionId: string;
+			messageCount: number;
+			createdAt: Date;
+			updatedAt: Date;
+			lastMessage: string | null;
+		}> = [];
+		const staleIds: string[] = [];
+
+		for (let i = 0; i < (results?.length ?? 0); i++) {
+			const [err, data] = results![i];
+			if (err || !data) {
+				staleIds.push(sessionIds[i]);
+				continue;
+			}
+
+			const session: ChatSession = JSON.parse(
+				data as string,
+			);
+			if (session.userId !== userId) continue;
+
+			const lastMsg =
+				session.messages.length > 0
+					? session.messages[
+							session.messages.length - 1
+						]
+					: null;
+
+			sessions.push({
+				sessionId: session.sessionId,
+				messageCount:
+					session.messages.length,
+				createdAt: session.createdAt,
+				updatedAt: session.updatedAt,
+				lastMessage: lastMsg
+					? lastMsg.content.substring(0, 100)
+					: null,
+			});
+		}
+
+		// Clean up stale session IDs
+		if (staleIds.length > 0) {
+			const cleanupPipeline =
+				redisCache.pipeline();
+			for (const id of staleIds) {
+				cleanupPipeline.srem(
+					userSessionsKey,
+					id,
+				);
+			}
+			await cleanupPipeline.exec();
+		}
+
+		// Sort by updatedAt descending
+		sessions.sort(
+			(a, b) =>
+				new Date(b.updatedAt).getTime() -
+				new Date(a.updatedAt).getTime(),
+		);
+
+		return sessions;
+	}
+
 	async clearUserSessions(
 		userId: string,
 	): Promise<number> {

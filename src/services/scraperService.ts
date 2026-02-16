@@ -1,6 +1,6 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { scraperQueue } from "../config/queue";
+import { pineconeService } from "./pineconeService";
 import { ScrapedPage } from "../types";
 import logger from "../utils/logger";
 
@@ -9,276 +9,255 @@ interface CrawlOptions {
 	maxPages?: number;
 }
 
-interface PageCountResult {
-	totalPages: number;
-	discoveredUrls: string[];
-	baseUrl: string;
-	estimatedTime: string;
+interface ScrapeResult {
+	success: boolean;
+	message: string;
+	pagesScraped: number;
+	pages: ScrapedPage[];
 }
 
 class ScraperService {
-	// Kept for interface compatibility, though normalizeUrl/isValidUrl are now in worker
-	// If other services use these, they should be moved to a shared util
-
-	async scrapeWebsite(
-		userId: string,
-		url: string,
-		options: CrawlOptions = {},
-	): Promise<{
-		success: boolean;
-		message: string;
-		jobId?: string;
-		totalPages: number; // For compatibility
-		pages: ScrapedPage[]; // For compatibility (empty now)
-	}> {
+	private normalizeUrl(url: string): string {
 		try {
-			const job = await scraperQueue.add(
-				"scrape-website",
-				{
-					userId,
-					url,
-					maxDepth: options.maxDepth || 3,
-					maxPages: options.maxPages || 100,
-				},
-			);
-
-			logger.info(`Scrape job added to queue`, {
-				jobId: job.id,
-				userId,
-				url,
-			});
-
-			return {
-				success: true,
-				message:
-					"Scraping started in background. You can check progress via the progress endpoint.",
-				jobId: job.id,
-				totalPages: 0, // Async, so we don't know yet
-				pages: [], // Async, so we don't return pages in response
-			};
-		} catch (error) {
-			logger.error(
-				"Error adding scrape job to queue",
-				{ error, userId },
-			);
-			throw error;
-		}
-	}
-
-	async getScrapingProgress(
-		userId: string,
-	): Promise<{
-		isScraping: boolean;
-		jobs: any[];
-	}> {
-		try {
-			// Get all jobs in active, waiting, or delayed states
-			const jobs = await scraperQueue.getJobs([
-				"active",
-				"waiting",
-				"delayed",
-			]);
-
-			logger.info(
-				`[getScrapingProgress] Found ${jobs.length} total jobs in queue`,
-				{
-					userId,
-					jobIds: jobs.map((j) => j.id),
-					jobData: jobs.map((j) => ({
-						id: j.id,
-						userId: j.data?.userId,
-						url: j.data?.url,
-						state: j.name,
-					})),
-				},
-			);
-
-			// Filter jobs for the specific user
-			const userJobs = jobs.filter(
-				(job) => job.data.userId === userId,
-			);
-
-			logger.info(
-				`[getScrapingProgress] Found ${userJobs.length} jobs for user ${userId}`,
-				{
-					userJobs: userJobs.map((j) => j.id),
-				},
-			);
-
-			return {
-				isScraping: userJobs.length > 0,
-				jobs: userJobs.map((job) => ({
-					id: job.id,
-					url: job.data.url,
-					progress: job.progress,
-					state: job.name, // or await job.getState() if needed, but name is usually the job name key
-				})),
-			};
-		} catch (error) {
-			logger.error(
-				"Error getting scraping progress",
-				{ error, userId },
-			);
-			return {
-				isScraping: false,
-				jobs: [],
-			};
-		}
-	}
-
-	private normalizeUrl(
-		url: string,
-		baseUrl: string,
-	): string | null {
-		try {
-			const urlObj = new URL(url, baseUrl);
-			// Remove hash and trailing slash
+			const urlObj = new URL(url);
 			urlObj.hash = "";
-			let normalized = urlObj.href;
-			if (normalized.endsWith("/")) {
-				normalized = normalized.slice(0, -1);
-			}
-			return normalized;
+			return urlObj.href.replace(/\/$/, "");
 		} catch {
-			return null;
+			return url;
 		}
 	}
 
 	private isValidInternalUrl(
 		url: string,
-		baseHostname: string,
+		baseUrl: string,
 	): boolean {
 		try {
 			const urlObj = new URL(url);
-			return urlObj.hostname === baseHostname;
+			const baseUrlObj = new URL(baseUrl);
+
+			const normalizeHostname = (
+				hostname: string,
+			) => hostname.replace(/^www\./, "");
+			const urlHostname = normalizeHostname(
+				urlObj.hostname,
+			);
+			const baseHostname = normalizeHostname(
+				baseUrlObj.hostname,
+			);
+
+			if (urlHostname !== baseHostname)
+				return false;
+
+			const excludeExtensions = [
+				".pdf",
+				".jpg",
+				".jpeg",
+				".png",
+				".gif",
+				".svg",
+				".webp",
+				".zip",
+				".rar",
+				".exe",
+				".dmg",
+				".doc",
+				".docx",
+				".xls",
+				".xlsx",
+				".ppt",
+				".pptx",
+				".mp4",
+				".mp3",
+				".avi",
+				".mov",
+				".wav",
+				".css",
+				".js",
+				".json",
+				".xml",
+			];
+
+			if (
+				excludeExtensions.some((ext) =>
+					urlObj.pathname
+						.toLowerCase()
+						.endsWith(ext),
+				)
+			)
+				return false;
+			if (!urlObj.protocol.startsWith("http"))
+				return false;
+
+			return true;
 		} catch {
 			return false;
 		}
 	}
 
-	async countAvailablePages(
+	private async fetchPageContent(
 		url: string,
-		maxDepth: number = 3,
-		maxPages: number = 100,
-	): Promise<PageCountResult> {
-		const startTime = Date.now();
-		const baseUrlObj = new URL(url);
-		const baseHostname = baseUrlObj.hostname;
-		const baseUrl = `${baseUrlObj.protocol}//${baseHostname}`;
+	): Promise<string> {
+		const response = await axios.get(url, {
+			headers: {
+				"User-Agent":
+					"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+			},
+			timeout: 10000,
+		});
+		return response.data;
+	}
 
-		const discoveredUrls = new Set<string>();
+	private extractPageData(
+		html: string,
+		url: string,
+	): ScrapedPage {
+		const $ = cheerio.load(html);
+		$(
+			"script, style, noscript, iframe",
+		).remove();
+
+		const title =
+			$("title").text().trim() ||
+			$("h1").first().text().trim() ||
+			"No Title";
+		const content = $("body")
+			.text()
+			.replace(/\s+/g, " ")
+			.trim();
+
+		const links: string[] = [];
+		$("a[href]").each((_, element) => {
+			const href = $(element).attr("href");
+			if (
+				href &&
+				href.trim() &&
+				!href.startsWith("#") &&
+				!href.startsWith("javascript:") &&
+				!href.startsWith("mailto:")
+			) {
+				try {
+					links.push(new URL(href, url).href);
+				} catch {
+					// ignore invalid urls
+				}
+			}
+		});
+
+		const metadata: any = {};
+		const description = $(
+			'meta[name="description"]',
+		).attr("content");
+		if (description)
+			metadata.description = description;
+
+		return {
+			url,
+			title,
+			content,
+			links: [...new Set(links)],
+			metadata,
+		};
+	}
+
+	async scrapeWebsite(
+		userId: string,
+		url: string,
+		options: CrawlOptions = {},
+	): Promise<ScrapeResult> {
+		const maxDepth = options.maxDepth || 3;
+		const maxPages = options.maxPages || 100;
 		const visitedUrls = new Set<string>();
-		const queue: {
+		const urlQueue: Array<{
 			url: string;
 			depth: number;
-		}[] = [{ url, depth: 0 }];
-
-		discoveredUrls.add(url);
+		}> = [{ url, depth: 0 }];
+		const scrapedPages: ScrapedPage[] = [];
 
 		logger.info(
-			`Starting page count for ${url}`,
+			`Starting synchronous scrape for user ${userId} on ${url}`,
 			{ maxDepth, maxPages },
 		);
 
-		while (
-			queue.length > 0 &&
-			discoveredUrls.size < maxPages
-		) {
-			const current = queue.shift();
-			if (
-				!current ||
-				visitedUrls.has(current.url)
-			)
-				continue;
-			if (current.depth > maxDepth) continue;
+		await pineconeService.ensureIndexExists();
 
-			visitedUrls.add(current.url);
+		while (
+			urlQueue.length > 0 &&
+			visitedUrls.size < maxPages
+		) {
+			const { url: currentUrl, depth } =
+				urlQueue.shift()!;
+			const normalizedUrl =
+				this.normalizeUrl(currentUrl);
+
+			if (visitedUrls.has(normalizedUrl))
+				continue;
+			if (depth > maxDepth) continue;
+
+			visitedUrls.add(normalizedUrl);
 
 			try {
-				// Quick HEAD request first to check if page exists
-				const response = await axios.get(
-					current.url,
-					{
-						timeout: 5000,
-						maxRedirects: 3,
-						headers: {
-							"User-Agent":
-								"Mozilla/5.0 (compatible; WitzoBot/1.0; +https://witzo.ai)",
-						},
-					},
+				const html =
+					await this.fetchPageContent(
+						normalizedUrl,
+					);
+				const pageData =
+					this.extractPageData(
+						html,
+						normalizedUrl,
+					);
+
+				// Store in Pinecone
+				await pineconeService.upsertDocument(
+					userId,
+					pageData.url,
+					pageData.title,
+					pageData.content,
+					pageData.metadata,
 				);
 
-				if (response.status !== 200) continue;
+				scrapedPages.push(pageData);
 
-				const contentType =
-					response.headers["content-type"] || "";
-				if (!contentType.includes("text/html"))
-					continue;
-
-				const $ = cheerio.load(response.data);
-
-				// Extract all links
-				$("a[href]").each((_, element) => {
-					if (discoveredUrls.size >= maxPages)
-						return false;
-
-					const href = $(element).attr("href");
-					if (!href) return true;
-
-					const normalizedUrl = this.normalizeUrl(
-						href,
-						current.url,
-					);
-					if (!normalizedUrl) return true;
-
-					if (
-						!discoveredUrls.has(normalizedUrl) &&
-						this.isValidInternalUrl(
-							normalizedUrl,
-							baseHostname,
-						)
-					) {
-						discoveredUrls.add(normalizedUrl);
-						if (current.depth < maxDepth) {
-							queue.push({
-								url: normalizedUrl,
-								depth: current.depth + 1,
+				if (depth < maxDepth) {
+					for (const link of pageData.links) {
+						const normalizedLink =
+							this.normalizeUrl(link);
+						if (
+							!visitedUrls.has(
+								normalizedLink,
+							) &&
+							this.isValidInternalUrl(
+								normalizedLink,
+								url,
+							)
+						) {
+							urlQueue.push({
+								url: normalizedLink,
+								depth: depth + 1,
 							});
 						}
 					}
-					return true;
-				});
+				}
 			} catch (error) {
-				// Skip failed URLs silently during counting
-				logger.debug(
-					`Failed to fetch ${current.url} during page count`,
-					{
-						error,
-					},
+				logger.error(
+					`Error scraping ${normalizedUrl}`,
+					{ error },
 				);
 			}
 		}
 
-		const elapsedTime = Date.now() - startTime;
-		const estimatedScrapingTime = Math.ceil(
-			(discoveredUrls.size * 2) / 60,
-		); // ~2 seconds per page
-
 		logger.info(
-			`Page count completed for ${url}`,
+			`Scrape completed for user ${userId}`,
 			{
-				totalPages: discoveredUrls.size,
-				timeElapsed: `${elapsedTime}ms`,
+				pagesScraped: scrapedPages.length,
+				url,
 			},
 		);
 
 		return {
-			totalPages: discoveredUrls.size,
-			discoveredUrls: Array.from(
-				discoveredUrls,
-			).slice(0, 50), // Return first 50 URLs as sample
-			baseUrl,
-			estimatedTime: `${estimatedScrapingTime} minute${estimatedScrapingTime !== 1 ? "s" : ""}`,
+			success: true,
+			message: `Successfully scraped ${scrapedPages.length} page(s)`,
+			pagesScraped: scrapedPages.length,
+			pages: scrapedPages,
 		};
 	}
 }
