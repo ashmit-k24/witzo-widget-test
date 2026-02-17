@@ -87,8 +87,7 @@ export const authenticateToken = async (
 			!refreshResult.newRefreshToken
 		) {
 			// Clear cookies and require re-login
-			res.clearCookie(COOKIE_NAMES.ACCESS_TOKEN);
-			res.clearCookie(COOKIE_NAMES.REFRESH_TOKEN);
+			clearCookies(res);
 
 			res.status(401).json({
 				success: false,

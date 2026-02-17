@@ -23,6 +23,17 @@ import emailService from "./emailService";
  * Handles email-based authentication with JWT tokens and refresh tokens
  */
 class AuthService {
+	private createHttpError(
+		message: string,
+		statusCode: number,
+	): Error & { statusCode: number } {
+		const error = new Error(message) as Error & {
+			statusCode: number;
+		};
+		error.statusCode = statusCode;
+		return error;
+	}
+
 	/**
 	 * Generate a cryptographically secure 6-digit verification code
 	 */
@@ -109,7 +120,6 @@ class AuthService {
 				10,
 			);
 			if (recentRequests >= 3) {
-				await client.query("ROLLBACK");
 				logger.warn(
 					"Rate limit exceeded for verification code requests",
 					{
@@ -118,8 +128,9 @@ class AuthService {
 						requests: recentRequests,
 					},
 				);
-				throw new Error(
+				throw this.createHttpError(
 					"Too many verification code requests. Please try again in an hour.",
+					429,
 				);
 			}
 
@@ -195,7 +206,12 @@ class AuthService {
 					60, // in seconds
 			};
 		} catch (error) {
-			await client.query("ROLLBACK");
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// Transaction may already be closed in edge paths.
+			}
+
 			const err = error as Error;
 			logger.error(
 				"Error requesting verification code",
@@ -205,8 +221,14 @@ class AuthService {
 					stack: err.stack,
 				},
 			);
-			throw new Error(
+
+			if ("statusCode" in err) {
+				throw err;
+			}
+
+			throw this.createHttpError(
 				"Failed to generate verification code",
+				500,
 			);
 		} finally {
 			client.release();

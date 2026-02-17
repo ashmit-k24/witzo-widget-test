@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { config } from "../config/env";
 import passport from "../config/passport";
 import {
 	authLimiter,
@@ -322,7 +323,7 @@ router.get(
 	"/google/callback",
 	passport.authenticate("google", {
 		session: false,
-		failureRedirect: "/login",
+		failureRedirect: `${config.FRONTEND_URL}/login?error=google_auth_failed`,
 	}),
 	authController.googleCallback,
 );
