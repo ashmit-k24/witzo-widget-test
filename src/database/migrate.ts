@@ -1,441 +1,244 @@
+import { readFile } from "fs/promises";
+import path from "path";
 import { PoolClient } from "pg";
 import pool from "../config/database";
 import logger from "../utils/logger";
 
-const createUpdateTimestampFunction = async (
+type Migration = {
+	id: string;
+	description: string;
+	file: string;
+};
+
+const MIGRATION_LOCK_ID = 982451653;
+const SQL_MIGRATIONS_DIR = path.join(__dirname, "sql");
+
+const migrations: Migration[] = [
+	{
+		id: "20260217_001_extensions_and_helpers",
+		description:
+			"Enable pgcrypto and create helper functions",
+		file: "20260217_001_extensions_and_helpers.sql",
+	},
+	{
+		id: "20260217_002_users_table",
+		description:
+			"Create users table and users indexes",
+		file: "20260217_002_users_table.sql",
+	},
+	{
+		id: "20260217_003_validate_users_id_type",
+		description:
+			"Validate users.id UUID compatibility",
+		file: "20260217_003_validate_users_id_type.sql",
+	},
+	{
+		id: "20260217_004_verification_codes",
+		description:
+			"Create verification codes table and indexes",
+		file: "20260217_004_verification_codes.sql",
+	},
+	{
+		id: "20260217_005_sessions",
+		description:
+			"Create sessions table, indexes, and trigger",
+		file: "20260217_005_sessions.sql",
+	},
+	{
+		id: "20260217_006_subscriptions",
+		description:
+			"Create subscriptions and payment history",
+		file: "20260217_006_subscriptions.sql",
+	},
+	{
+		id: "20260217_007_widgets",
+		description:
+			"Create widget keys and analytics tables",
+		file: "20260217_007_widgets.sql",
+	},
+	{
+		id: "20260217_008_legacy_sessions_upgrade",
+		description:
+			"Upgrade legacy sessions schema when required",
+		file: "20260217_008_legacy_sessions_upgrade.sql",
+	},
+	{
+		id: "20260217_009_users_backfill_defaults",
+		description:
+			"Backfill users pricing fields and defaults",
+		file: "20260217_009_users_backfill_defaults.sql",
+	},
+];
+
+const ensureMigrationTable = async (
 	client: PoolClient,
 ): Promise<void> => {
 	await client.query(`
-    CREATE OR REPLACE FUNCTION update_updated_at_column()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      NEW.updated_at = CURRENT_TIMESTAMP;
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id VARCHAR(100) PRIMARY KEY,
+      description TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      duration_ms INTEGER NOT NULL
+    );
   `);
 };
 
-const createUpdatedAtTrigger = async (
-	client: PoolClient,
-	tableName: string,
-	triggerName: string,
-): Promise<void> => {
-	await client.query(`
-    DROP TRIGGER IF EXISTS ${triggerName} ON ${tableName};
-    CREATE TRIGGER ${triggerName}
-    BEFORE UPDATE ON ${tableName}
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-  `);
-};
-
-const ensurePlanTypeConstraintOnUsers = async (
-	client: PoolClient,
-): Promise<void> => {
-	await client.query(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'plan_type_check'
-          AND conrelid = 'users'::regclass
-      ) THEN
-        ALTER TABLE users
-        ADD CONSTRAINT plan_type_check CHECK (plan_type IN ('free', 'basic'));
-      END IF;
-    END $$;
-  `);
-};
-
-const validateUsersIdType = async (
+const acquireMigrationLock = async (
 	client: PoolClient,
 ): Promise<void> => {
 	const result = await client.query<{
-		data_type: string;
-		udt_name: string;
-	}>(`
-    SELECT data_type, udt_name
-    FROM information_schema.columns
-    WHERE table_name = 'users' AND column_name = 'id';
-  `);
+		pg_try_advisory_lock: boolean;
+	}>(
+		"SELECT pg_try_advisory_lock($1) AS pg_try_advisory_lock",
+		[MIGRATION_LOCK_ID],
+	);
 
-	if (result.rows.length === 0) return;
-
-	const idColumn = result.rows[0];
-	if (
-		idColumn.data_type !== "uuid" &&
-		idColumn.udt_name !== "uuid"
-	) {
+	if (!result.rows[0]?.pg_try_advisory_lock) {
 		throw new Error(
-			`Incompatible users.id type detected (${idColumn.data_type}). This app requires UUID user IDs.`,
+			"Another migration process is already running. Try again after it completes.",
 		);
 	}
 };
 
-/**
- * Single migration entrypoint:
- * creates all required tables/indexes/triggers for auth, subscriptions, and widgets.
- */
-const createTables = async (): Promise<void> => {
-	const client: PoolClient = await pool.connect();
+const releaseMigrationLock = async (
+	client: PoolClient,
+): Promise<void> => {
+	await client.query("SELECT pg_advisory_unlock($1)", [
+		MIGRATION_LOCK_ID,
+	]);
+};
+
+const hasMigrationRun = async (
+	client: PoolClient,
+	id: string,
+): Promise<boolean> => {
+	const result = await client.query(
+		"SELECT 1 FROM schema_migrations WHERE id = $1 LIMIT 1",
+		[id],
+	);
+
+	return result.rows.length > 0;
+};
+
+const recordMigration = async (
+	client: PoolClient,
+	migration: Migration,
+	durationMs: number,
+): Promise<void> => {
+	await client.query(
+		`INSERT INTO schema_migrations (id, description, file_name, duration_ms)
+     VALUES ($1, $2, $3, $4)`,
+		[
+			migration.id,
+			migration.description,
+			migration.file,
+			durationMs,
+		],
+	);
+};
+
+const readMigrationSql = async (
+	fileName: string,
+): Promise<string> => {
+	const filePath = path.join(
+		SQL_MIGRATIONS_DIR,
+		fileName,
+	);
+	return readFile(filePath, "utf8");
+};
+
+const runMigrations = async (): Promise<void> => {
+	const client = await pool.connect();
 
 	try {
-		await client.query("BEGIN");
+		await acquireMigrationLock(client);
+		await ensureMigrationTable(client);
 
-		await client.query(
-			'CREATE EXTENSION IF NOT EXISTS "pgcrypto";',
-		);
-		await createUpdateTimestampFunction(client);
+		logger.info("Starting database migrations", {
+			totalMigrations: migrations.length,
+		});
 
-		await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        email VARCHAR(255) UNIQUE NOT NULL,
-        is_verified BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login TIMESTAMP,
-        plan_type VARCHAR(20) NOT NULL DEFAULT 'free',
-        conversations_used INTEGER NOT NULL DEFAULT 0,
-        conversations_limit INTEGER NOT NULL DEFAULT 100,
-        plan_reset_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        plan_expires_at TIMESTAMP,
-        stripe_customer_id VARCHAR(255),
-        subscription_id VARCHAR(255),
-        subscription_status VARCHAR(50),
-        CONSTRAINT email_format CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$')
-      );
-    `);
+		for (const migration of migrations) {
+			const alreadyRan = await hasMigrationRun(
+				client,
+				migration.id,
+			);
 
-		await ensurePlanTypeConstraintOnUsers(client);
+			if (alreadyRan) {
+				logger.info("Skipping migration", {
+					id: migration.id,
+					file: migration.file,
+				});
+				continue;
+			}
 
-		await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-      CREATE INDEX IF NOT EXISTS idx_users_plan_type ON users(plan_type);
-      CREATE INDEX IF NOT EXISTS idx_users_stripe_customer ON users(stripe_customer_id);
-    `);
+			const sql = await readMigrationSql(
+				migration.file,
+			);
+			const start = Date.now();
 
-		await client.query(`
-      CREATE TABLE IF NOT EXISTS verification_codes (
-        id SERIAL PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        code VARCHAR(6) NOT NULL,
-        attempts INTEGER DEFAULT 0,
-        expires_at TIMESTAMP NOT NULL,
-        is_used BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT code_length CHECK (LENGTH(code) = 6)
-      );
-    `);
+			logger.info("Running migration", {
+				id: migration.id,
+				description: migration.description,
+				file: migration.file,
+			});
 
-		await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_verification_user_id ON verification_codes(user_id);
-      CREATE INDEX IF NOT EXISTS idx_verification_expires ON verification_codes(expires_at);
-      CREATE INDEX IF NOT EXISTS idx_verification_is_used ON verification_codes(is_used);
-    `);
+			try {
+				await client.query("BEGIN");
+				await client.query(sql);
+				await recordMigration(
+					client,
+					migration,
+					Date.now() - start,
+				);
+				await client.query("COMMIT");
 
-		await client.query(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id SERIAL PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        access_token TEXT NOT NULL,
-        refresh_token VARCHAR(64) NOT NULL,
-        access_token_expires_at TIMESTAMP NOT NULL,
-        refresh_token_expires_at TIMESTAMP NOT NULL,
-        is_revoked BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        ip_address VARCHAR(45),
-        user_agent TEXT
-      );
-    `);
+				logger.info(
+					"Migration completed",
+					{
+						id: migration.id,
+						durationMs:
+							Date.now() - start,
+					},
+				);
+			} catch (error) {
+				await client.query("ROLLBACK");
+				throw error;
+			}
+		}
 
-		await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_access_token ON sessions(access_token);
-      CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token);
-      CREATE INDEX IF NOT EXISTS idx_sessions_refresh_expires ON sessions(refresh_token_expires_at);
-      CREATE INDEX IF NOT EXISTS idx_sessions_is_revoked ON sessions(is_revoked);
-      CREATE INDEX IF NOT EXISTS idx_sessions_user_active ON sessions(user_id, is_revoked) WHERE is_revoked = FALSE;
-    `);
-
-		await client.query(`
-      CREATE TABLE IF NOT EXISTS subscriptions (
-        id SERIAL PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        stripe_subscription_id VARCHAR(255) UNIQUE NOT NULL,
-        stripe_customer_id VARCHAR(255) NOT NULL,
-        plan_type VARCHAR(20) NOT NULL,
-        status VARCHAR(50) NOT NULL,
-        current_period_start TIMESTAMP NOT NULL,
-        current_period_end TIMESTAMP NOT NULL,
-        cancel_at_period_end BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT sub_plan_type_check CHECK (plan_type IN ('free', 'basic'))
-      );
-    `);
-
-		await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
-      CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);
-      CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
-    `);
-
-		await client.query(`
-      CREATE TABLE IF NOT EXISTS payment_history (
-        id SERIAL PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        stripe_payment_id VARCHAR(255) NOT NULL,
-        amount INTEGER NOT NULL,
-        currency VARCHAR(10) DEFAULT 'usd',
-        status VARCHAR(50) NOT NULL,
-        plan_type VARCHAR(20) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-		await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_payment_history_user_id ON payment_history(user_id);
-      CREATE INDEX IF NOT EXISTS idx_payment_history_stripe_payment ON payment_history(stripe_payment_id);
-    `);
-
-		await client.query(`
-      CREATE TABLE IF NOT EXISTS widget_keys (
-        id SERIAL PRIMARY KEY,
-        user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-        widget_key VARCHAR(255) UNIQUE NOT NULL,
-        widget_name VARCHAR(255) DEFAULT 'My Chat Widget',
-        is_active BOOLEAN DEFAULT TRUE,
-        allowed_domains TEXT[],
-        widget_config JSONB DEFAULT '{}'::jsonb,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_used_at TIMESTAMP,
-        usage_count INTEGER DEFAULT 0
-      );
-    `);
-
-		await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_widget_keys_user_id ON widget_keys(user_id);
-      CREATE INDEX IF NOT EXISTS idx_widget_keys_key ON widget_keys(widget_key);
-      CREATE INDEX IF NOT EXISTS idx_widget_keys_active ON widget_keys(is_active);
-    `);
-
-		await client.query(`
-      CREATE TABLE IF NOT EXISTS widget_analytics (
-        id SERIAL PRIMARY KEY,
-        widget_key_id INTEGER NOT NULL REFERENCES widget_keys(id) ON DELETE CASCADE,
-        event_type VARCHAR(50) NOT NULL,
-        event_data JSONB DEFAULT '{}'::jsonb,
-        ip_address VARCHAR(45),
-        user_agent TEXT,
-        referer_url TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-		await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_widget_analytics_key_id ON widget_analytics(widget_key_id);
-      CREATE INDEX IF NOT EXISTS idx_widget_analytics_event_type ON widget_analytics(event_type);
-      CREATE INDEX IF NOT EXISTS idx_widget_analytics_created_at ON widget_analytics(created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_widget_analytics_key_created ON widget_analytics(widget_key_id, created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_widget_analytics_event_created ON widget_analytics(event_type, created_at DESC);
-    `);
-
-		await createUpdatedAtTrigger(
-			client,
-			"users",
-			"update_users_updated_at",
-		);
-		await createUpdatedAtTrigger(
-			client,
-			"sessions",
-			"update_sessions_updated_at",
-		);
-		await createUpdatedAtTrigger(
-			client,
-			"subscriptions",
-			"update_subscriptions_updated_at",
-		);
-		await createUpdatedAtTrigger(
-			client,
-			"widget_keys",
-			"update_widget_keys_updated_at",
-		);
-
-		await validateUsersIdType(client);
-
-		await client.query("COMMIT");
 		logger.info(
-			"Database tables, indexes, and triggers ensured successfully",
+			"Database migrations completed successfully",
 		);
-	} catch (error) {
-		await client.query("ROLLBACK");
-		const err = error as Error;
-		logger.error(
-			"Error creating database schema",
-			{
-				error: err.message,
-				stack: err.stack,
+	} finally {
+		await releaseMigrationLock(client).catch(
+			() => {
+				logger.warn(
+					"Failed to release migration advisory lock",
+				);
 			},
 		);
-		throw error;
-	} finally {
 		client.release();
 	}
 };
 
-const addPricingFieldsToUsers =
-	async (): Promise<void> => {
-		const client: PoolClient =
-			await pool.connect();
-
-		try {
-			await client.query("BEGIN");
-
-			await client.query(`
-        ALTER TABLE users
-        ADD COLUMN IF NOT EXISTS plan_type VARCHAR(20) DEFAULT 'free',
-        ADD COLUMN IF NOT EXISTS conversations_used INTEGER DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS conversations_limit INTEGER DEFAULT 100,
-        ADD COLUMN IF NOT EXISTS plan_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMP,
-        ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS subscription_id VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50);
-      `);
-
-			await ensurePlanTypeConstraintOnUsers(client);
-
-			await client.query(`
-        ALTER TABLE users
-        ALTER COLUMN conversations_limit SET DEFAULT 100;
-      `);
-
-			await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_users_plan_type ON users(plan_type);
-        CREATE INDEX IF NOT EXISTS idx_users_stripe_customer ON users(stripe_customer_id);
-      `);
-
-			await client.query("COMMIT");
-			logger.info(
-				"Users pricing fields ensured successfully",
-			);
-		} catch (error) {
-			await client.query("ROLLBACK");
-			const err = error as Error;
-			logger.error(
-				"Error ensuring users pricing fields",
-				{
-					error: err.message,
-					stack: err.stack,
-				},
-			);
-			throw error;
-		} finally {
-			client.release();
-		}
-	};
-
-const migrateSessionsTable =
-	async (): Promise<void> => {
-		const client: PoolClient =
-			await pool.connect();
-
-		try {
-			await client.query("BEGIN");
-
-			const legacySessionColumn =
-				await client.query(`
-          SELECT column_name
-          FROM information_schema.columns
-          WHERE table_name = 'sessions' AND column_name = 'session_token';
-        `);
-
-			if (legacySessionColumn.rows.length > 0) {
-				logger.info(
-					"Migrating legacy sessions table schema...",
-				);
-
-				await client.query(
-					"DROP TABLE IF EXISTS sessions CASCADE;",
-				);
-
-				await client.query(`
-          CREATE TABLE sessions (
-            id SERIAL PRIMARY KEY,
-            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            access_token TEXT NOT NULL,
-            refresh_token VARCHAR(64) NOT NULL,
-            access_token_expires_at TIMESTAMP NOT NULL,
-            refresh_token_expires_at TIMESTAMP NOT NULL,
-            is_revoked BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            ip_address VARCHAR(45),
-            user_agent TEXT
-          );
-        `);
-
-				await client.query(`
-          CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-          CREATE INDEX IF NOT EXISTS idx_sessions_access_token ON sessions(access_token);
-          CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token);
-          CREATE INDEX IF NOT EXISTS idx_sessions_refresh_expires ON sessions(refresh_token_expires_at);
-          CREATE INDEX IF NOT EXISTS idx_sessions_is_revoked ON sessions(is_revoked);
-          CREATE INDEX IF NOT EXISTS idx_sessions_user_active ON sessions(user_id, is_revoked) WHERE is_revoked = FALSE;
-        `);
-
-				await createUpdateTimestampFunction(
-					client,
-				);
-				await createUpdatedAtTrigger(
-					client,
-					"sessions",
-					"update_sessions_updated_at",
-				);
-			}
-
-			await client.query("COMMIT");
-		} catch (error) {
-			await client.query("ROLLBACK");
-			const err = error as Error;
-			logger.error(
-				"Error migrating sessions table",
-				{
-					error: err.message,
-					stack: err.stack,
-				},
-			);
-			throw error;
-		} finally {
-			client.release();
-		}
-	};
-
 if (require.main === module) {
-	(async () => {
-		try {
-			await createTables();
-			await migrateSessionsTable();
-			await addPricingFieldsToUsers();
+	runMigrations()
+		.then(() => {
 			console.log(
 				"Migration completed successfully",
 			);
 			process.exit(0);
-		} catch (error) {
-			const err = error as Error;
-			console.error("Migration failed:", err.message);
+		})
+		.catch((error: Error) => {
+			logger.error("Migration failed", {
+				error: error.message,
+				stack: error.stack,
+			});
+			console.error("Migration failed:", error.message);
 			process.exit(1);
-		}
-	})();
+		});
 }
 
-export {
-	addPricingFieldsToUsers,
-	createTables,
-	migrateSessionsTable,
-};
+export { migrations, runMigrations };
