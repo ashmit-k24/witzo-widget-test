@@ -27,9 +27,6 @@ ENV NODE_ENV=production
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
-
-RUN chmod +x ./docker-entrypoint.sh
 
 # Do NOT copy .env into the image — pass runtime config via --env-file or environment vars
 # Create non-root user for improved security
@@ -38,14 +35,12 @@ RUN useradd --create-home --shell /bin/bash appuser \
 
 USER appuser
 
-# Use APP_PORT if provided, fallback to 3008
-ENV APP_PORT=3008
+# App listens on PORT (see src/config/env.ts)
+ENV PORT=3008
 
-EXPOSE ${APP_PORT}
+EXPOSE ${PORT}
 
 # HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-#         CMD node -e "const http=require('http');const p=process.env.APP_PORT||3008;http.get({host:'127.0.0.1',port:p,path:'/health'},res=>process.exit(res.statusCode===200?0:1)).on('error',()=>process.exit(1));"
+#         CMD node -e "const http=require('http');const p=process.env.PORT||3008;http.get({host:'127.0.0.1',port:p,path:'/health'},res=>process.exit(res.statusCode===200?0:1)).on('error',()=>process.exit(1));"
 
-# Start the compiled server via entrypoint that validates env vars
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["node", "dist/server.js"]
