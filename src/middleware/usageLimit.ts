@@ -1,11 +1,10 @@
 import {
+	NextFunction,
 	Request,
 	Response,
-	NextFunction,
 } from "express";
-import usageTrackingService from "../services/usageTrackingService";
 import { pineconeService } from "../services/pineconeService";
-import { SCRAPER_PAGE_LIMITS } from "../types";
+import usageTrackingService from "../services/usageTrackingService";
 import logger from "../utils/logger";
 
 /**
