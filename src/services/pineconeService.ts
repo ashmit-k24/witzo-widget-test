@@ -625,11 +625,33 @@ class PineconeService {
 							continue;
 						}
 
-						if (!sourceMap.has(sourceUrl)) {
-							sourceMap.set(sourceUrl, {
-								url: sourceUrl,
+						const isDocument =
+							sourceUrl.startsWith(
+								"document://",
+							);
+						const metadataWithRoot = metadata as
+							| (PineconeMetadata & {
+									sourceRoot?: string;
+									sourceRootTitle?: string;
+							  })
+							| undefined;
+						const sourceRoot =
+							!isDocument &&
+							metadataWithRoot?.sourceRoot
+								? metadataWithRoot.sourceRoot
+								: sourceUrl;
+						const sourceKey = isDocument
+							? sourceUrl
+							: sourceRoot;
+
+						if (!sourceMap.has(sourceKey)) {
+							sourceMap.set(sourceKey, {
+								url: sourceKey,
 								title:
-									metadata?.title || sourceUrl,
+									(!isDocument &&
+										metadataWithRoot?.sourceRootTitle) ||
+									metadata?.title ||
+									sourceKey,
 								uploadedAt:
 									metadata?.scrapedAt ||
 									metadata?.uploadedAt ||
@@ -640,7 +662,7 @@ class PineconeService {
 						}
 
 						const source =
-							sourceMap.get(sourceUrl);
+							sourceMap.get(sourceKey);
 						if (source) {
 							source.chunks += 1;
 						}

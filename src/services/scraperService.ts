@@ -164,6 +164,8 @@ class ScraperService {
 		url: string,
 		options: CrawlOptions = {},
 	): Promise<ScrapeResult> {
+		const rootUrl = this.normalizeUrl(url);
+		let rootTitle = "";
 		const maxDepth = options.maxDepth || 3;
 		const maxPages = options.maxPages || 100;
 		const visitedUrls = new Set<string>();
@@ -206,13 +208,24 @@ class ScraperService {
 						normalizedUrl,
 					);
 
+				if (depth === 0 && pageData.title) {
+					rootTitle = pageData.title;
+				}
+
 				// Store in Pinecone
 				await pineconeService.upsertDocument(
 					userId,
 					pageData.url,
 					pageData.title,
 					pageData.content,
-					pageData.metadata,
+					{
+						...pageData.metadata,
+						sourceRoot: rootUrl,
+						sourceRootTitle:
+							rootTitle ||
+							pageData.title ||
+							rootUrl,
+					},
 				);
 
 				scrapedPages.push(pageData);
