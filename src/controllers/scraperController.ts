@@ -396,6 +396,49 @@ export const getAllSources = async (
 			},
 		});
 	} catch (error) {
+		const userId = (req as any).user?.id;
+		const planType =
+			(req as any).user?.plan_type || "free";
+		const pagesLimit =
+			SCRAPER_PAGE_LIMITS[
+				planType as "free" | "basic"
+			];
+		const isPineconeConnectionError =
+			error &&
+			typeof error === "object" &&
+			"name" in error &&
+			(error as { name?: string }).name ===
+				"PineconeConnectionError";
+
+		if (isPineconeConnectionError) {
+			logger.warn(
+				"Pinecone unavailable in getAllSources; returning empty source list",
+				{ userId, error },
+			);
+			res.status(200).json({
+				success: true,
+				message:
+					"Sources temporarily unavailable; returning empty list",
+				data: {
+					documents: [],
+					websites: [],
+					summary: {
+						totalDocuments: 0,
+						totalWebsites: 0,
+						totalChunks: 0,
+					},
+					scraperUsage: {
+						planType,
+						pagesUsed: 0,
+						pagesLimit,
+						pagesRemaining: pagesLimit,
+						isAtLimit: false,
+					},
+				},
+			});
+			return;
+		}
+
 		logger.error(
 			"Error in getAllSources controller",
 			{ error },
