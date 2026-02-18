@@ -58,7 +58,7 @@ jobs:
       - name: Re-create .env file on the runner
         run: |
           # Create .env with no leading indentation so docker --env-file can parse it correctly.
-          cat > $GITHUB_WORKSPACE/.env <<EOF
+          cat > $GITHUB_WORKSPACE/.env <<'EOF'
           APP_NAME=${{ secrets.APP_NAME }}
           PORT=${{ secrets.PORT }}
           NODE_ENV=${{ secrets.NODE_ENV }}
