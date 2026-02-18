@@ -1,4 +1,4 @@
-FROM node:18-bullseye-slim AS builder
+FROM node:20-bullseye-slim AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN npm run build
 RUN npm prune --production
 
 # Final runtime image
-FROM node:18-bullseye-slim AS runner
+FROM node:20-bullseye-slim AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production

@@ -1,0 +1,64 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swc
+.DS_Store
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Dependencies
+.npm
+.yarn
+
+# Logs
+logs/
+*.log
+
+# Testing
+coverage/
+.nyc_output/
+
+# Docker
+Dockerfile
+docker-compose.yml
+docker-compose.override.yml
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Documentation
+docs/
+README.md
+CHANGELOG.md
+
+# Misc
+.versionrc
+.commitlintrc
+.eslintrc*
+.prettierrc*
+tsconfig.json

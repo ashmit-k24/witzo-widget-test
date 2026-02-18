@@ -1,7 +1,7 @@
 import { Router } from "express";
 import * as widgetController from "../controllers/widgetController";
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * Public API routes for widget embedding

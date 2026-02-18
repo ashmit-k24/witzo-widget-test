@@ -29,7 +29,7 @@ import {
 	validationRules,
 } from "../middleware/validator";
 
-const router = Router();
+const router: Router = Router();
 
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
