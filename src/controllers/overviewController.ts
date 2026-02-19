@@ -113,6 +113,45 @@ export const getOverviewAnalytics = async (
 						).toFixed(1),
 				  )
 				: 0;
+		const avgSessionDurationMinutes =
+			totalSessions > 0
+				? Number(
+						(
+							sessions.reduce((sum, session) => {
+								const created = new Date(
+									session.createdAt,
+								).getTime();
+								const updated = new Date(
+									session.updatedAt,
+								).getTime();
+								if (
+									Number.isNaN(created) ||
+									Number.isNaN(updated) ||
+									updated < created
+								) {
+									return sum;
+								}
+								return (
+									sum +
+									(updated - created) /
+										(1000 * 60)
+								);
+							}, 0) / totalSessions
+						).toFixed(1),
+				  )
+				: 0;
+		const bounceSessions = sessions.filter(
+			(session) => session.messageCount <= 2,
+		).length;
+		const bounceRate =
+			totalSessions > 0
+				? Number(
+						(
+							(bounceSessions / totalSessions) *
+							100
+						).toFixed(1),
+				  )
+				: 0;
 
 		const last7DaysKeys = getLastNDaysKeys(7);
 		const dailyEventCounts = new Map<string, number>();
@@ -137,6 +176,10 @@ export const getOverviewAnalytics = async (
 					dailyEventCounts.get(date) || 0,
 			}),
 		);
+		const activeDaysLast7 =
+			activityLast7Days.filter(
+				(point) => point.totalEvents > 0,
+			).length;
 
 		const engagementRate =
 			totalViews > 0
@@ -178,6 +221,12 @@ export const getOverviewAnalytics = async (
 					totalDocuments,
 					totalChunks,
 				},
+				sessionInsights: {
+					avgSessionDurationMinutes,
+					bounceSessions,
+					bounceRate,
+					activeDaysLast7,
+				},
 				activityLast7Days,
 			},
 		});
@@ -199,4 +248,3 @@ export const getOverviewAnalytics = async (
 		});
 	}
 };
-
