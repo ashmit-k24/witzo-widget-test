@@ -89,6 +89,13 @@ export const getUserChatSessions = async (
 ): Promise<void> => {
 	try {
 		const userId = (req.user as any)?.id;
+		const planType =
+			(req.user as any)?.plan_type ===
+			"basic"
+				? "basic"
+				: "free";
+		const maxVisibleSessions =
+			planType === "basic" ? 10 : 4;
 
 		if (!userId) {
 			res.status(401).json({
@@ -102,10 +109,22 @@ export const getUserChatSessions = async (
 			await chatService.getUserChatSessions(
 				userId,
 			);
+		const limitedSessions = sessions.slice(
+			0,
+			maxVisibleSessions,
+		);
 
 		res.status(200).json({
 			success: true,
-			data: sessions,
+			data: limitedSessions,
+			meta: {
+				planType,
+				maxVisibleSessions,
+				totalAvailableSessions:
+					sessions.length,
+				returnedSessions:
+					limitedSessions.length,
+			},
 		});
 	} catch (error) {
 		logger.error(
