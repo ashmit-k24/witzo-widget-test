@@ -33,6 +33,9 @@ export const createWidgetKey = async (
 				allowedDomains,
 				widgetConfig,
 			});
+		const publicUrls = getWidgetPublicUrls(
+			widgetKey.widget_key,
+		);
 
 		res.status(201).json({
 			success: true,
@@ -42,6 +45,11 @@ export const createWidgetKey = async (
 				widgetName: widgetKey.widget_name,
 				allowedDomains: widgetKey.allowed_domains,
 				widgetConfig: widgetKey.widget_config,
+				apiBaseUrl: publicUrls.apiUrl,
+				embedScriptUrl:
+					publicUrls.embedScriptUrl,
+				widgetScriptUrl:
+					publicUrls.widgetScriptUrl,
 				embedCode: generateEmbedCode(
 					widgetKey.widget_key,
 					widgetKey.widget_config,
@@ -80,6 +88,10 @@ export const getWidgetKey = async (
 			return;
 		}
 
+		const publicUrls = getWidgetPublicUrls(
+			widgetKey.widget_key,
+		);
+
 		res.status(200).json({
 			success: true,
 			data: {
@@ -91,6 +103,11 @@ export const getWidgetKey = async (
 				usageCount: widgetKey.usage_count,
 				lastUsedAt: widgetKey.last_used_at,
 				createdAt: widgetKey.created_at,
+				apiBaseUrl: publicUrls.apiUrl,
+				embedScriptUrl:
+					publicUrls.embedScriptUrl,
+				widgetScriptUrl:
+					publicUrls.widgetScriptUrl,
 				embedCode: generateEmbedCode(
 					widgetKey.widget_key,
 					widgetKey.widget_config,
@@ -131,6 +148,9 @@ export const updateWidgetKey = async (
 					widgetConfig,
 				},
 			);
+		const publicUrls = getWidgetPublicUrls(
+			updatedWidget.widget_key,
+		);
 
 		res.status(200).json({
 			success: true,
@@ -142,6 +162,11 @@ export const updateWidgetKey = async (
 				allowedDomains:
 					updatedWidget.allowed_domains,
 				widgetConfig: updatedWidget.widget_config,
+				apiBaseUrl: publicUrls.apiUrl,
+				embedScriptUrl:
+					publicUrls.embedScriptUrl,
+				widgetScriptUrl:
+					publicUrls.widgetScriptUrl,
 				embedCode: generateEmbedCode(
 					updatedWidget.widget_key,
 					updatedWidget.widget_config,
@@ -170,6 +195,9 @@ export const regenerateWidgetKey = async (
 			await widgetService.regenerateWidgetKey(
 				userId,
 			);
+		const publicUrls = getWidgetPublicUrls(
+			newWidget.widget_key,
+		);
 
 		res.status(200).json({
 			success: true,
@@ -177,6 +205,11 @@ export const regenerateWidgetKey = async (
 				"Widget key regenerated successfully",
 			data: {
 				widgetKey: newWidget.widget_key,
+				apiBaseUrl: publicUrls.apiUrl,
+				embedScriptUrl:
+					publicUrls.embedScriptUrl,
+				widgetScriptUrl:
+					publicUrls.widgetScriptUrl,
 				embedCode: generateEmbedCode(
 					newWidget.widget_key,
 					newWidget.widget_config,
@@ -666,9 +699,8 @@ function generateEmbedCode(
 	widgetKey: string,
 	config: any,
 ): string {
-	const apiUrl =
-		process.env.WIDGET_API_URL ||
-		"http://localhost:3008";
+	const { apiUrl, widgetScriptUrl } =
+		getWidgetPublicUrls(widgetKey);
 
 	// Build config attributes
 	const configAttrs = Object.entries(config)
@@ -701,8 +733,28 @@ function generateEmbedCode(
       widget-key="${widgetKey}"
       ${configAttrs}
     ></witzo-chat>
-<script src="https://unpkg.com/@witzo-ai/chat-widget-embed" type="module"></script>
+<script src="${widgetScriptUrl}" type="module"></script>
 -->`;
+}
+
+function getWidgetPublicUrls(widgetKey: string): {
+	apiUrl: string;
+	widgetScriptUrl: string;
+	embedScriptUrl: string;
+} {
+	const apiUrl =
+		process.env.WIDGET_API_URL ||
+		"http://localhost:3008";
+	const widgetScriptUrl =
+		process.env.WIDGET_SCRIPT_URL ||
+		`${apiUrl}/widget/witzo-chat.js`;
+	const embedScriptUrl = `${apiUrl}/api/v1/embed/${widgetKey}.js`;
+
+	return {
+		apiUrl,
+		widgetScriptUrl,
+		embedScriptUrl,
+	};
 }
 
 /**
