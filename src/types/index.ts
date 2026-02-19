@@ -315,12 +315,30 @@ export const SCRAPER_PAGE_LIMITS: Record<
 	basic: 30,
 };
 
+// Document Limits by plan type
+export const DOCUMENT_LIMITS: Record<
+	"free" | "basic",
+	number
+> = {
+	free: 5,
+	basic: 10,
+};
+
 // Scraper Usage Stats
 export interface ScraperUsageStats {
 	planType: "free" | "basic";
 	pagesUsed: number;
 	pagesLimit: number;
 	pagesRemaining: number;
+	isAtLimit: boolean;
+}
+
+// Document Usage Stats
+export interface DocumentUsageStats {
+	planType: "free" | "basic";
+	documentsUsed: number;
+	documentsLimit: number;
+	documentsRemaining: number;
 	isAtLimit: boolean;
 }
 

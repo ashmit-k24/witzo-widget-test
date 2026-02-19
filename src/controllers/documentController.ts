@@ -9,6 +9,11 @@ export const uploadDocument = async (
 ): Promise<void> => {
 	try {
 		const userId = (req as any).user?.id;
+		const planType =
+			(req as any).user?.plan_type ===
+			"basic"
+				? "basic"
+				: "free";
 
 		if (!userId) {
 			res.status(401).json({
@@ -60,6 +65,49 @@ export const uploadDocument = async (
 			return;
 		}
 
+		// Enforce plan-based document limit for new uploads
+		const documentUsage =
+			await pineconeService.getDocumentUsageStats(
+				userId,
+				planType,
+			);
+		if (documentUsage.isAtLimit) {
+			logger.warn(
+				"User has reached document training limit",
+				{
+					userId,
+					planType,
+					documentsUsed:
+						documentUsage.documentsUsed,
+					documentsLimit:
+						documentUsage.documentsLimit,
+				},
+			);
+			res.status(403).json({
+				success: false,
+				message: `You've reached your document training limit. ${planType === "free" ? "Free" : "Basic"} plan allows ${documentUsage.documentsLimit} documents.`,
+				data: {
+					planType:
+						documentUsage.planType,
+					documentsUsed:
+						documentUsage.documentsUsed,
+					documentsLimit:
+						documentUsage.documentsLimit,
+					documentsRemaining:
+						documentUsage.documentsRemaining,
+					upgradeUrl:
+						planType === "free"
+							? "/api/auth/upgrade"
+							: undefined,
+					upgradeMessage:
+						planType === "free"
+							? "Upgrade to Basic plan for 10 document uploads"
+							: "You have reached the maximum limit for Basic plan",
+				},
+			});
+			return;
+		}
+
 		logger.info(`Document upload started`, {
 			userId,
 			filename: originalname,
@@ -73,6 +121,11 @@ export const uploadDocument = async (
 				originalname,
 				size,
 			);
+		const updatedUsage =
+			await pineconeService.getDocumentUsageStats(
+				userId,
+				planType,
+			);
 
 		res.status(200).json({
 			success: true,
@@ -85,6 +138,14 @@ export const uploadDocument = async (
 				size,
 				chunks: result.chunks,
 				processedAt: new Date().toISOString(),
+				usage: {
+					documentsUsed:
+						updatedUsage.documentsUsed,
+					documentsLimit:
+						updatedUsage.documentsLimit,
+					documentsRemaining:
+						updatedUsage.documentsRemaining,
+				},
 			},
 		});
 	} catch (error) {
@@ -110,6 +171,11 @@ export const uploadMultipleDocuments = async (
 ): Promise<void> => {
 	try {
 		const userId = (req as any).user?.id;
+		const planType =
+			(req as any).user?.plan_type ===
+			"basic"
+				? "basic"
+				: "free";
 
 		if (!userId) {
 			res.status(401).json({
@@ -138,7 +204,25 @@ export const uploadMultipleDocuments = async (
 			},
 		);
 
-		const results = [];
+		const initialUsage =
+			await pineconeService.getDocumentUsageStats(
+				userId,
+				planType,
+			);
+		let documentsUsed =
+			initialUsage.documentsUsed;
+		const documentsLimit =
+			initialUsage.documentsLimit;
+		const results: Array<{
+			filename: string;
+			success: boolean;
+			chunks?: number;
+			error?: string;
+			alreadyUploaded?: boolean;
+			existingChunks?: number;
+			limitExceeded?: boolean;
+			upgradeRequired?: boolean;
+		}> = [];
 
 		for (const file of files) {
 			try {
@@ -167,6 +251,18 @@ export const uploadMultipleDocuments = async (
 					continue;
 				}
 
+				if (documentsUsed >= documentsLimit) {
+					results.push({
+						filename: file.originalname,
+						success: false,
+						error: `Document limit reached (${documentsLimit} max for ${planType} plan)`,
+						limitExceeded: true,
+						upgradeRequired:
+							planType === "free",
+					});
+					continue;
+				}
+
 				const result =
 					await documentParserService.processAndStoreDocument(
 						userId,
@@ -174,6 +270,7 @@ export const uploadMultipleDocuments = async (
 						file.originalname,
 						file.size,
 					);
+				documentsUsed += 1;
 
 				results.push({
 					filename: file.originalname,
@@ -195,14 +292,45 @@ export const uploadMultipleDocuments = async (
 		const successCount = results.filter(
 			(r) => r.success,
 		).length;
+		const limitExceededCount = results.filter(
+			(r) => r.limitExceeded,
+		).length;
+		const finalDocumentsRemaining = Math.max(
+			0,
+			documentsLimit - documentsUsed,
+		);
+		const limitExceededMessage =
+			limitExceededCount > 0
+				? ` ${limitExceededCount} file(s) were skipped because your ${planType} plan allows only ${documentsLimit} documents.`
+				: "";
 
 		res.status(200).json({
 			success: true,
-			message: `Processed ${successCount} out of ${files.length} files successfully`,
+			message: `Processed ${successCount} out of ${files.length} files successfully.${limitExceededMessage}`,
 			data: {
 				totalFiles: files.length,
 				successCount,
 				failedCount: files.length - successCount,
+				documentUsage: {
+					planType,
+					documentsUsed,
+					documentsLimit,
+					documentsRemaining:
+						finalDocumentsRemaining,
+					isAtLimit:
+						documentsUsed >=
+						documentsLimit,
+				},
+				upgradeUrl:
+					planType === "free" &&
+					limitExceededCount > 0
+						? "/api/auth/upgrade"
+						: undefined,
+				upgradeMessage:
+					planType === "free" &&
+					limitExceededCount > 0
+						? "Upgrade to Basic plan for up to 10 document uploads"
+						: undefined,
 				results,
 			},
 		});

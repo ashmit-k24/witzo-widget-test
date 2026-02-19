@@ -19,7 +19,10 @@ export const scrapeWebsite = async (
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType =
-			(req as any).user?.plan_type || "free";
+			(req as any).user?.plan_type ===
+			"basic"
+				? "basic"
+				: "free";
 
 		if (!userId) {
 			res.status(401).json({
@@ -45,50 +48,87 @@ export const scrapeWebsite = async (
 			);
 		if (existingSource.exists) {
 			logger.info(
-				`URL already scraped for user: ${userId}`,
+				`URL already scraped for user; allowing incremental re-scrape: ${userId}`,
 				{
 					url,
 					chunks: existingSource.chunks,
 				},
 			);
-			res.status(409).json({
-				success: false,
-				message: `This website has already been scraped. We found ${existingSource.chunks} existing chunks from this source.`,
-				data: {
-					alreadyScraped: true,
-					existingChunks: existingSource.chunks,
-					scrapedAt: existingSource.scrapedAt,
-				},
-			});
-			return;
 		}
 
 		// Get current scraper usage stats
-		const scraperUsage =
-			await pineconeService.getScraperUsageStats(
-				userId,
-				planType,
+			const scraperUsage =
+				await pineconeService.getScraperUsageStats(
+					userId,
+					planType,
+				);
+			if (scraperUsage.pagesRemaining <= 0) {
+				res.status(403).json({
+					success: false,
+					message: `You've reached your website scraping limit. ${planType === "free" ? "Free" : "Basic"} plan allows ${scraperUsage.pagesLimit} pages.`,
+					data: {
+						planType:
+							scraperUsage.planType,
+						pagesUsed:
+							scraperUsage.pagesUsed,
+						pagesLimit:
+							scraperUsage.pagesLimit,
+						pagesRemaining:
+							scraperUsage.pagesRemaining,
+						upgradeUrl:
+							planType === "free"
+								? "/api/auth/upgrade"
+								: undefined,
+						upgradeMessage:
+							planType === "free"
+								? "Upgrade to Basic plan for 30 website pages"
+								: "You have reached the maximum limit for Basic plan",
+					},
+				});
+				return;
+			}
+
+			const normalizedMaxDepth = Math.max(
+				0,
+				Number(maxDepth) || 3,
+			);
+			const normalizedMaxPages = Math.max(
+				1,
+				Number(maxPages) || 100,
+			);
+			const effectiveMaxPages = Math.min(
+				normalizedMaxPages,
+				scraperUsage.pagesRemaining,
 			);
 
-		logger.info(
-			`Starting scrape for URL: ${url}`,
-			{
-				maxDepth,
-				maxPages,
-				userId,
-			},
-		);
-
-		// Scrape synchronously — waits until all pages are scraped
-		const result =
-			await scraperService.scrapeWebsite(
-				userId,
-				url,
+			logger.info(
+				`Starting scrape for URL: ${url}`,
 				{
-					maxDepth,
-					maxPages,
+					maxDepth: normalizedMaxDepth,
+					maxPages: normalizedMaxPages,
+					effectiveMaxPages,
+					userId,
+					planType,
 				},
 			);
+
+		// Scrape synchronously — waits until all pages are scraped
+				const result =
+					await scraperService.scrapeWebsite(
+						userId,
+						url,
+						{
+							maxDepth:
+								normalizedMaxDepth,
+							maxPages:
+								effectiveMaxPages,
+						},
+					);
+				const updatedUsage =
+					await pineconeService.getScraperUsageStats(
+						userId,
+						planType,
+					);
 
 		res.status(result.success ? 200 : 500).json({
 			success: result.success,
@@ -102,16 +142,22 @@ export const scrapeWebsite = async (
 						contentLength: page.content.length,
 					}),
 				),
-				usage: {
-					pagesUsed: scraperUsage.pagesUsed + result.pagesScraped,
-					pagesLimit: scraperUsage.pagesLimit,
-					pagesRemaining: Math.max(
-						0,
-						scraperUsage.pagesRemaining - result.pagesScraped,
-					),
+					usage: {
+						pagesUsed:
+							updatedUsage.pagesUsed,
+						pagesLimit:
+							updatedUsage.pagesLimit,
+						pagesRemaining:
+							updatedUsage.pagesRemaining,
+						requestedMaxPages:
+							normalizedMaxPages,
+						effectiveMaxPages,
+						limitApplied:
+							effectiveMaxPages <
+							normalizedMaxPages,
+					},
 				},
-			},
-		});
+			});
 	} catch (error) {
 		logger.error(
 			"Error in scrapeWebsite controller",
@@ -221,7 +267,7 @@ export const deleteDocuments = async (
 		}
 
 		logger.info(
-			`Deleting documents for URL: ${url}`,
+			`Deleting all documents for website: ${url}`,
 			{
 				userId,
 			},
@@ -234,7 +280,7 @@ export const deleteDocuments = async (
 
 		res.status(200).json({
 			success: true,
-			message: `All documents for URL ${url} have been deleted`,
+			message: `All documents for website ${url} have been deleted`,
 		});
 	} catch (error) {
 		logger.error(
@@ -245,6 +291,61 @@ export const deleteDocuments = async (
 			success: false,
 			message:
 				"Internal server error while deleting documents",
+			error:
+				error instanceof Error
+					? error.message
+					: "Unknown error",
+		});
+	}
+};
+
+export const deletePage = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const { url } = req.body;
+		const userId = (req as any).user?.id;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		if (!url) {
+			res.status(400).json({
+				success: false,
+				message: "URL is required",
+			});
+			return;
+		}
+
+		logger.info(
+			`Deleting individual page: ${url}`,
+			{ userId },
+		);
+
+		await pineconeService.deletePageByExactUrl(
+			userId,
+			url,
+		);
+
+		res.status(200).json({
+			success: true,
+			message: `Page ${url} has been deleted`,
+		});
+	} catch (error) {
+		logger.error(
+			"Error in deletePage controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while deleting page",
 			error:
 				error instanceof Error
 					? error.message
@@ -345,9 +446,12 @@ export const getAllSources = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type || "free";
+			const userId = (req as any).user?.id;
+			const planType =
+				(req as any).user?.plan_type ===
+				"basic"
+					? "basic"
+					: "free";
 
 		if (!userId) {
 			res.status(401).json({
@@ -369,7 +473,12 @@ export const getAllSources = async (
 			SCRAPER_PAGE_LIMITS[
 				planType as "free" | "basic"
 			];
-		const pagesUsed = sources.websites.length;
+
+		// Total individual pages across all websites
+		const pagesUsed = sources.websites.reduce(
+			(sum, w) => sum + w.pages.length,
+			0,
+		);
 
 		res.status(200).json({
 			success: true,
@@ -381,6 +490,7 @@ export const getAllSources = async (
 					totalDocuments:
 						sources.documents.length,
 					totalWebsites: sources.websites.length,
+					totalPages: pagesUsed,
 					totalChunks: sources.totalChunks,
 				},
 				scraperUsage: {
@@ -398,7 +508,10 @@ export const getAllSources = async (
 	} catch (error) {
 		const userId = (req as any).user?.id;
 		const planType =
-			(req as any).user?.plan_type || "free";
+			(req as any).user?.plan_type ===
+			"basic"
+				? "basic"
+				: "free";
 		const pagesLimit =
 			SCRAPER_PAGE_LIMITS[
 				planType as "free" | "basic"
@@ -425,6 +538,7 @@ export const getAllSources = async (
 					summary: {
 						totalDocuments: 0,
 						totalWebsites: 0,
+						totalPages: 0,
 						totalChunks: 0,
 					},
 					scraperUsage: {
@@ -447,6 +561,155 @@ export const getAllSources = async (
 			success: false,
 			message:
 				"Internal server error while fetching sources",
+			error:
+				error instanceof Error
+					? error.message
+					: "Unknown error",
+		});
+	}
+};
+
+export const retrainWebsite = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const {
+			url,
+			maxDepth = 3,
+			maxPages = 100,
+		} = req.body as ScrapeRequest;
+		const userId = (req as any).user?.id;
+		const planType =
+			(req as any).user?.plan_type || "free";
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		if (!url) {
+			res.status(400).json({
+				success: false,
+				message: "URL is required",
+			});
+			return;
+		}
+
+		logger.info(
+			`Retraining website: ${url}`,
+			{ userId },
+		);
+
+			// Delete all existing data for this website domain first
+			await pineconeService.deleteDocumentsByUrl(
+				userId,
+				url,
+			);
+
+			const scraperUsage =
+				await pineconeService.getScraperUsageStats(
+					userId,
+					planType,
+				);
+			if (scraperUsage.pagesRemaining <= 0) {
+				res.status(403).json({
+					success: false,
+					message: `You've reached your website scraping limit. ${planType === "free" ? "Free" : "Basic"} plan allows ${scraperUsage.pagesLimit} pages.`,
+					data: {
+						planType:
+							scraperUsage.planType,
+						pagesUsed:
+							scraperUsage.pagesUsed,
+						pagesLimit:
+							scraperUsage.pagesLimit,
+						pagesRemaining:
+							scraperUsage.pagesRemaining,
+						upgradeUrl:
+							planType === "free"
+								? "/api/auth/upgrade"
+								: undefined,
+						upgradeMessage:
+							planType === "free"
+								? "Upgrade to Basic plan for 30 website pages"
+								: "You have reached the maximum limit for Basic plan",
+					},
+				});
+				return;
+			}
+
+			const normalizedMaxDepth = Math.max(
+				0,
+				Number(maxDepth) || 3,
+			);
+			const normalizedMaxPages = Math.max(
+				1,
+				Number(maxPages) || 100,
+			);
+			const effectiveMaxPages = Math.min(
+				normalizedMaxPages,
+				scraperUsage.pagesRemaining,
+			);
+
+			// Re-scrape the website
+			const result =
+				await scraperService.scrapeWebsite(
+					userId,
+					url,
+					{
+						maxDepth:
+							normalizedMaxDepth,
+						maxPages:
+							effectiveMaxPages,
+					},
+				);
+
+			const updatedUsage =
+				await pineconeService.getScraperUsageStats(
+					userId,
+					planType,
+				);
+
+		res.status(result.success ? 200 : 500).json({
+			success: result.success,
+			message: `Website retrained successfully: ${result.message}`,
+			data: {
+				pagesScraped: result.pagesScraped,
+				scrapedPages: result.pages.map(
+					(page) => ({
+						url: page.url,
+						title: page.title,
+						contentLength: page.content.length,
+					}),
+					),
+					usage: {
+						pagesUsed:
+							updatedUsage.pagesUsed,
+						pagesLimit:
+							updatedUsage.pagesLimit,
+						pagesRemaining:
+							updatedUsage.pagesRemaining,
+						requestedMaxPages:
+							normalizedMaxPages,
+						effectiveMaxPages,
+						limitApplied:
+							effectiveMaxPages <
+							normalizedMaxPages,
+					},
+				},
+			});
+	} catch (error) {
+		logger.error(
+			"Error in retrainWebsite controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while retraining website",
 			error:
 				error instanceof Error
 					? error.message

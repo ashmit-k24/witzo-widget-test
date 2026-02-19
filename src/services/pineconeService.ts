@@ -5,6 +5,8 @@ import {
 import OpenAI from "openai";
 import { config } from "../config/env";
 import {
+	DocumentUsageStats,
+	DOCUMENT_LIMITS,
 	PineconeMetadata,
 	ScraperUsageStats,
 	SCRAPER_PAGE_LIMITS,
@@ -426,6 +428,74 @@ class PineconeService {
 		}
 	}
 
+	async deletePageByExactUrl(
+		userId: string,
+		exactUrl: string,
+	): Promise<void> {
+		try {
+			const namespace =
+				this.getUserNamespace(userId);
+			const index = this.pinecone
+				.index(this.indexName)
+				.namespace(namespace);
+
+			logger.info(
+				`Deleting exact page: ${exactUrl} (user: ${userId})`,
+			);
+
+			const matchingIds: string[] = [];
+			await this.forEachUserRecord(
+				userId,
+				async (records) => {
+					for (const [
+						id,
+						record,
+					] of Object.entries(records)) {
+						const recordUrl =
+							(record.metadata?.url as
+								| string
+								| undefined) ?? undefined;
+						if (recordUrl === exactUrl) {
+							matchingIds.push(id);
+						}
+					}
+				},
+			);
+
+			if (matchingIds.length === 0) {
+				logger.info(
+					`No chunks found for exact page: ${exactUrl} (user: ${userId})`,
+				);
+				return;
+			}
+
+			for (const batch of this.chunkArray(
+				matchingIds,
+				1000,
+			)) {
+				await pineconeCircuitBreaker.execute(
+					async () => {
+						await index.deleteMany(batch);
+					},
+				);
+			}
+
+			logger.info(
+				`Deleted ${matchingIds.length} chunks for exact page: ${exactUrl} (user: ${userId})`,
+			);
+		} catch (error) {
+			logger.error(
+				"Error deleting page by exact URL from Pinecone",
+				{
+					error,
+					exactUrl,
+					userId,
+				},
+			);
+			throw error;
+		}
+	}
+
 	async deleteAllUserDocuments(
 		userId: string,
 	): Promise<void> {
@@ -584,10 +654,16 @@ class PineconeService {
 			chunks: number;
 		}>;
 		websites: Array<{
-			url: string;
+			rootUrl: string;
 			title: string;
+			totalChunks: number;
 			scrapedAt: string;
-			chunks: number;
+			pages: Array<{
+				url: string;
+				title: string;
+				chunks: number;
+				scrapedAt: string;
+			}>;
 		}>;
 		totalChunks: number;
 	}> {
@@ -596,7 +672,7 @@ class PineconeService {
 				`Fetching all sources for user: ${userId}`,
 			);
 
-			const sourceMap = new Map<
+			const documentMap = new Map<
 				string,
 				{
 					url: string;
@@ -604,6 +680,24 @@ class PineconeService {
 					uploadedAt: string;
 					fileType?: string;
 					chunks: number;
+				}
+			>();
+
+			const websiteMap = new Map<
+				string,
+				{
+					rootUrl: string;
+					title: string;
+					scrapedAt: string;
+					pagesMap: Map<
+						string,
+						{
+							url: string;
+							title: string;
+							chunks: number;
+							scrapedAt: string;
+						}
+					>;
 				}
 			>();
 
@@ -617,6 +711,8 @@ class PineconeService {
 							| (PineconeMetadata & {
 									fileType?: string;
 									uploadedAt?: string;
+									sourceRoot?: string;
+									sourceRootTitle?: string;
 							  })
 							| undefined;
 
@@ -626,51 +722,79 @@ class PineconeService {
 						}
 
 						const isDocument =
-							sourceUrl.startsWith(
-								"document://",
-							);
-						const metadataWithRoot = metadata as
-							| (PineconeMetadata & {
-									sourceRoot?: string;
-									sourceRootTitle?: string;
-							  })
-							| undefined;
-						const sourceRoot =
-							!isDocument &&
-							metadataWithRoot?.sourceRoot
-								? metadataWithRoot.sourceRoot
-								: sourceUrl;
-						const sourceKey = isDocument
-							? sourceUrl
-							: sourceRoot;
+							sourceUrl.startsWith("document://");
 
-						if (!sourceMap.has(sourceKey)) {
-							sourceMap.set(sourceKey, {
-								url: sourceKey,
-								title:
-									(!isDocument &&
-										metadataWithRoot?.sourceRootTitle) ||
-									metadata?.title ||
-									sourceKey,
-								uploadedAt:
-									metadata?.scrapedAt ||
-									metadata?.uploadedAt ||
-									new Date().toISOString(),
-								fileType: metadata?.fileType,
-								chunks: 0,
-							});
-						}
+						if (isDocument) {
+							if (!documentMap.has(sourceUrl)) {
+								documentMap.set(sourceUrl, {
+									url: sourceUrl,
+									title:
+										metadata?.title || sourceUrl,
+									uploadedAt:
+										metadata?.scrapedAt ||
+										metadata?.uploadedAt ||
+										new Date().toISOString(),
+									fileType: metadata?.fileType,
+									chunks: 0,
+								});
+							}
+							const doc =
+								documentMap.get(sourceUrl);
+							if (doc) {
+								doc.chunks += 1;
+							}
+						} else {
+							// Group website pages by sourceRoot
+							const rootUrl =
+								metadata?.sourceRoot || sourceUrl;
+							const rootTitle =
+								metadata?.sourceRootTitle ||
+								metadata?.title ||
+								rootUrl;
 
-						const source =
-							sourceMap.get(sourceKey);
-						if (source) {
-							source.chunks += 1;
+							if (!websiteMap.has(rootUrl)) {
+								websiteMap.set(rootUrl, {
+									rootUrl,
+									title: rootTitle,
+									scrapedAt:
+										metadata?.scrapedAt ||
+										new Date().toISOString(),
+									pagesMap: new Map(),
+								});
+							}
+
+							const website =
+								websiteMap.get(rootUrl)!;
+
+							// Track individual page entry
+							if (
+								!website.pagesMap.has(sourceUrl)
+							) {
+								website.pagesMap.set(sourceUrl, {
+									url: sourceUrl,
+									title:
+										metadata?.title || sourceUrl,
+									chunks: 0,
+									scrapedAt:
+										metadata?.scrapedAt ||
+										new Date().toISOString(),
+								});
+							}
+
+							const page =
+								website.pagesMap.get(sourceUrl);
+							if (page) {
+								page.chunks += 1;
+							}
 						}
 					}
 				},
 			);
 
-			if (sourceMap.size === 0) {
+			if (
+				documentMap.size === 0 &&
+				websiteMap.size === 0
+			) {
 				return {
 					documents: [],
 					websites: [],
@@ -685,42 +809,60 @@ class PineconeService {
 				uploadedAt: string;
 				chunks: number;
 			}> = [];
-			const websites: Array<{
-				url: string;
-				title: string;
-				scrapedAt: string;
-				chunks: number;
-			}> = [];
+
 			let totalChunks = 0;
 
-			for (const source of sourceMap.values()) {
-				totalChunks += source.chunks;
-				if (
-					source.url.startsWith("document://")
-				) {
-					documents.push({
-						filename: source.url.replace(
-							"document://",
-							"",
-						),
-						url: source.url,
-						fileType:
-							source.fileType || "unknown",
-						uploadedAt: source.uploadedAt,
-						chunks: source.chunks,
-					});
-				} else {
-					websites.push({
-						url: source.url,
-						title: source.title,
-						scrapedAt: source.uploadedAt,
-						chunks: source.chunks,
-					});
-				}
+			for (const doc of documentMap.values()) {
+				totalChunks += doc.chunks;
+				documents.push({
+					filename: doc.url.replace(
+						"document://",
+						"",
+					),
+					url: doc.url,
+					fileType: doc.fileType || "unknown",
+					uploadedAt: doc.uploadedAt,
+					chunks: doc.chunks,
+				});
+			}
+
+			const websites: Array<{
+				rootUrl: string;
+				title: string;
+				totalChunks: number;
+				scrapedAt: string;
+				pages: Array<{
+					url: string;
+					title: string;
+					chunks: number;
+					scrapedAt: string;
+				}>;
+			}> = [];
+
+			for (const website of websiteMap.values()) {
+				const pages = Array.from(
+					website.pagesMap.values(),
+				).sort(
+					(a, b) =>
+						new Date(a.scrapedAt).getTime() -
+						new Date(b.scrapedAt).getTime(),
+				);
+				const websiteChunks = pages.reduce(
+					(sum, p) => sum + p.chunks,
+					0,
+				);
+				totalChunks += websiteChunks;
+				websites.push({
+					rootUrl: website.rootUrl,
+					title: website.title,
+					totalChunks: websiteChunks,
+					scrapedAt: website.scrapedAt,
+					pages,
+				});
 			}
 
 			logger.info(
-				`Found ${documents.length} documents and ${websites.length} websites for user: ${userId}`,
+				`Found ${documents.length} documents and ${websites.length} websites (${websites.reduce((s, w) => s + w.pages.length, 0)} pages) for user: ${userId}`,
 			);
 
 			return {
@@ -754,11 +896,30 @@ class PineconeService {
 		try {
 			const sources =
 				await this.getAllUserSources(userId);
-			// Count unique website URLs (not documents)
-			return sources.websites.length;
+			// Count total individual pages across all websites
+			return sources.websites.reduce(
+				(sum, w) => sum + w.pages.length,
+				0,
+			);
 		} catch (error) {
 			logger.error(
 				"Error counting scraped websites",
+				{ error, userId },
+			);
+			throw error;
+		}
+	}
+
+	async getUploadedDocumentCount(
+		userId: string,
+	): Promise<number> {
+		try {
+			const sources =
+				await this.getAllUserSources(userId);
+			return sources.documents.length;
+		} catch (error) {
+			logger.error(
+				"Error counting uploaded documents",
 				{ error, userId },
 			);
 			throw error;
@@ -796,6 +957,45 @@ class PineconeService {
 			planType,
 		);
 		return !usage.isAtLimit;
+	}
+
+	async getDocumentUsageStats(
+		userId: string,
+		planType: "free" | "basic",
+	): Promise<DocumentUsageStats> {
+		const documentsUsed =
+			await this.getUploadedDocumentCount(userId);
+		const documentsLimit =
+			DOCUMENT_LIMITS[planType];
+		const documentsRemaining = Math.max(
+			0,
+			documentsLimit - documentsUsed,
+		);
+
+		return {
+			planType,
+			documentsUsed,
+			documentsLimit,
+			documentsRemaining,
+			isAtLimit:
+				documentsUsed >= documentsLimit,
+		};
+	}
+
+	async canUserUploadDocuments(
+		userId: string,
+		planType: "free" | "basic",
+		newDocumentsCount: number = 1,
+	): Promise<boolean> {
+		const usage =
+			await this.getDocumentUsageStats(
+				userId,
+				planType,
+			);
+		return (
+			usage.documentsUsed + newDocumentsCount <=
+			usage.documentsLimit
+		);
 	}
 }
 

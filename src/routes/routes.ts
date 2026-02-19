@@ -222,10 +222,24 @@ router.delete(
 );
 
 router.delete(
+	"/scraper/delete-page",
+	verifyCsrfToken,
+	authenticateToken,
+	scraperController.deletePage,
+);
+
+router.delete(
 	"/scraper/delete-all",
 	verifyCsrfToken,
 	authenticateToken,
 	scraperController.deleteAllDocuments,
+);
+
+router.post(
+	"/scraper/retrain",
+	verifyCsrfToken,
+	authenticateToken,
+	scraperController.retrainWebsite,
 );
 
 router.get(
