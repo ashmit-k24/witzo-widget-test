@@ -9,6 +9,7 @@ import * as authController from "../controllers/authController";
 import * as chatController from "../controllers/chatController";
 import * as csrfController from "../controllers/csrfController";
 import * as documentController from "../controllers/documentController";
+import * as overviewController from "../controllers/overviewController";
 import * as scraperController from "../controllers/scraperController";
 import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
@@ -182,6 +183,12 @@ router.get(
 	"/usage",
 	authenticateToken,
 	usageController.getUserUsage,
+);
+
+router.get(
+	"/overview/analytics",
+	authenticateToken,
+	overviewController.getOverviewAnalytics,
 );
 
 /**
