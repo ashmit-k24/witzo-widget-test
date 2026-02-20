@@ -32,7 +32,9 @@ const getEnvString = (
 	key: string,
 	defaultValue: string,
 ): string => {
-	const value = normalizeEnvString(process.env[key]);
+	const value = normalizeEnvString(
+		process.env[key],
+	);
 	return value !== undefined && value !== ""
 		? value
 		: defaultValue;
@@ -41,17 +43,36 @@ const getEnvString = (
 const getOptionalEnvString = (
 	key: string,
 ): string | undefined => {
-	const value = normalizeEnvString(process.env[key]);
+	const value = normalizeEnvString(
+		process.env[key],
+	);
 	return value !== undefined && value !== ""
 		? value
 		: undefined;
+};
+
+const getEnvStringFromKeys = (
+	keys: string[],
+	defaultValue: string,
+): string => {
+	for (const key of keys) {
+		const value = normalizeEnvString(
+			process.env[key],
+		);
+		if (value !== undefined && value !== "") {
+			return value;
+		}
+	}
+	return defaultValue;
 };
 
 const getEnvNumber = (
 	key: string,
 	defaultValue: number,
 ): number => {
-	const value = normalizeEnvString(process.env[key]);
+	const value = normalizeEnvString(
+		process.env[key],
+	);
 	if (!value) {
 		return defaultValue;
 	}
@@ -66,7 +87,9 @@ const getEnvBoolean = (
 	key: string,
 	defaultValue: boolean,
 ): boolean => {
-	const value = normalizeEnvString(process.env[key]);
+	const value = normalizeEnvString(
+		process.env[key],
+	);
 	if (!value) {
 		return defaultValue;
 	}
@@ -124,17 +147,14 @@ export const config: EnvConfig = {
 		"smtp.gmail.com",
 	),
 	EMAIL_PORT: getEnvNumber("EMAIL_PORT", 587),
-	EMAIL_SECURE: getEnvBoolean(
-		"EMAIL_SECURE",
-		false,
-	),
+
 	EMAIL_USER: getEnvString("EMAIL_USER", ""),
 	EMAIL_PASSWORD: getEnvString(
 		"EMAIL_PASSWORD",
 		"",
 	),
-	EMAIL_FROM: getEnvString(
-		"EMAIL_FROM",
+	EMAIL_FROM: getEnvStringFromKeys(
+		["EMAIL_FROM", "EMAIL_FROM_ADDRESS"],
 		"noreply@witzo.ai",
 	),
 
@@ -155,21 +175,18 @@ export const config: EnvConfig = {
 		"REFRESH_TOKEN_EXPIRY_DAYS",
 		7,
 	),
-	JWT_SECRET:
-		getEnvString(
-			"JWT_SECRET",
-			"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
-		),
-	JWT_REFRESH_SECRET:
-		getEnvString(
-			"JWT_REFRESH_SECRET",
-			"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
-		),
-	COOKIE_SECRET:
-		getEnvString(
-			"COOKIE_SECRET",
-			"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
-		),
+	JWT_SECRET: getEnvString(
+		"JWT_SECRET",
+		"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
+	),
+	JWT_REFRESH_SECRET: getEnvString(
+		"JWT_REFRESH_SECRET",
+		"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
+	),
+	COOKIE_SECRET: getEnvString(
+		"COOKIE_SECRET",
+		"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
+	),
 
 	// Rate Limiting
 	RATE_LIMIT_WINDOW_MS: getEnvNumber(
@@ -182,11 +199,10 @@ export const config: EnvConfig = {
 	),
 
 	// Redis Instances (for separation of concerns)
-	REDIS_CACHE_HOST:
-		getEnvString(
-			"REDIS_CACHE_HOST",
-			getEnvString("REDIS_HOST", "localhost"),
-		),
+	REDIS_CACHE_HOST: getEnvString(
+		"REDIS_CACHE_HOST",
+		getEnvString("REDIS_HOST", "localhost"),
+	),
 	REDIS_CACHE_PORT: getEnvNumber(
 		"REDIS_CACHE_PORT",
 		getEnvNumber("REDIS_PORT", 6379),
@@ -194,14 +210,12 @@ export const config: EnvConfig = {
 	REDIS_CACHE_PASSWORD:
 		getOptionalEnvString(
 			"REDIS_CACHE_PASSWORD",
-		) ??
-		getOptionalEnvString("REDIS_PASSWORD"),
+		) ?? getOptionalEnvString("REDIS_PASSWORD"),
 
-	REDIS_QUEUE_HOST:
-		getEnvString(
-			"REDIS_QUEUE_HOST",
-			getEnvString("REDIS_HOST", "localhost"),
-		),
+	REDIS_QUEUE_HOST: getEnvString(
+		"REDIS_QUEUE_HOST",
+		getEnvString("REDIS_HOST", "localhost"),
+	),
 	REDIS_QUEUE_PORT: getEnvNumber(
 		"REDIS_QUEUE_PORT",
 		getEnvNumber("REDIS_PORT", 6379),
@@ -209,14 +223,12 @@ export const config: EnvConfig = {
 	REDIS_QUEUE_PASSWORD:
 		getOptionalEnvString(
 			"REDIS_QUEUE_PASSWORD",
-		) ??
-		getOptionalEnvString("REDIS_PASSWORD"),
+		) ?? getOptionalEnvString("REDIS_PASSWORD"),
 
-	REDIS_ANALYTICS_HOST:
-		getEnvString(
-			"REDIS_ANALYTICS_HOST",
-			getEnvString("REDIS_HOST", "localhost"),
-		),
+	REDIS_ANALYTICS_HOST: getEnvString(
+		"REDIS_ANALYTICS_HOST",
+		getEnvString("REDIS_HOST", "localhost"),
+	),
 	REDIS_ANALYTICS_PORT: getEnvNumber(
 		"REDIS_ANALYTICS_PORT",
 		getEnvNumber("REDIS_PORT", 6379),
@@ -224,8 +236,7 @@ export const config: EnvConfig = {
 	REDIS_ANALYTICS_PASSWORD:
 		getOptionalEnvString(
 			"REDIS_ANALYTICS_PASSWORD",
-		) ??
-		getOptionalEnvString("REDIS_PASSWORD"),
+		) ?? getOptionalEnvString("REDIS_PASSWORD"),
 
 	// Scraper Configuration
 	SCRAPER_CONCURRENCY: getEnvNumber(
@@ -257,11 +268,10 @@ export const config: EnvConfig = {
 		"GOOGLE_CLIENT_SECRET",
 		"",
 	),
-	GOOGLE_CALLBACK_URL:
-		getEnvString(
-			"GOOGLE_CALLBACK_URL",
-			"http://localhost:3000/api/auth/google/callback",
-		),
+	GOOGLE_CALLBACK_URL: getEnvString(
+		"GOOGLE_CALLBACK_URL",
+		"http://localhost:3000/api/auth/google/callback",
+	),
 	FRONTEND_URL: getEnvString(
 		"FRONTEND_URL",
 		"http://localhost:3001",
@@ -272,16 +282,14 @@ export const config: EnvConfig = {
 		"PINECONE_API_KEY",
 		"",
 	),
-	PINECONE_ENVIRONMENT:
-		getEnvString(
-			"PINECONE_ENVIRONMENT",
-			"us-east-1-aws",
-		),
-	PINECONE_INDEX_NAME:
-		getEnvString(
-			"PINECONE_INDEX_NAME",
-			"website-scraper",
-		),
+	PINECONE_ENVIRONMENT: getEnvString(
+		"PINECONE_ENVIRONMENT",
+		"us-east-1-aws",
+	),
+	PINECONE_INDEX_NAME: getEnvString(
+		"PINECONE_INDEX_NAME",
+		"website-scraper",
+	),
 
 	// OpenAI
 	OPENAI_API_KEY: getEnvString(
@@ -299,8 +307,9 @@ export const config: EnvConfig = {
 		"localhost",
 	),
 	REDIS_PORT: getEnvNumber("REDIS_PORT", 6379),
-	REDIS_PASSWORD:
-		getOptionalEnvString("REDIS_PASSWORD"),
+	REDIS_PASSWORD: getOptionalEnvString(
+		"REDIS_PASSWORD",
+	),
 };
 
 export default config;

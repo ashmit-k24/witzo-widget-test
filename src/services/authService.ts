@@ -275,6 +275,8 @@ class AuthService {
 			}
 
 			const user = userResult.rows[0];
+			const isFirstTimeSignup =
+				!user.is_verified;
 
 			// Get the latest verification code
 			const codeResult =
@@ -479,6 +481,32 @@ class AuthService {
 			}
 
 			await client.query("COMMIT");
+
+			if (isFirstTimeSignup) {
+				emailService
+					.sendWelcomeEmail(normalizedEmail)
+					.then(() => {
+						logger.info(
+							"Welcome email flow completed",
+							{
+								email: normalizedEmail,
+								userId: user.id,
+							},
+						);
+					})
+					.catch((welcomeError) => {
+						const err =
+							welcomeError as Error;
+						logger.warn(
+							"Welcome email failed after signup",
+							{
+								email: normalizedEmail,
+								userId: user.id,
+								error: err.message,
+							},
+						);
+					});
+			}
 
 			logger.info("User verified and logged in", {
 				email: normalizedEmail,

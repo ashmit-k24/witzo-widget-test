@@ -70,10 +70,10 @@ jobs:
           DB_MAX_CONNECTIONS=${{ secrets.DB_MAX_CONNECTIONS }}
           EMAIL_HOST=${{ secrets.EMAIL_HOST }}
           EMAIL_PORT=${{ secrets.EMAIL_PORT }}
-          EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}
           EMAIL_USER=${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}
           EMAIL_FROM=${{ secrets.EMAIL_FROM }}
+          EMAIL_FROM_ADDRESS=${{ secrets.EMAIL_FROM_ADDRESS }}
           VERIFICATION_CODE_EXPIRY_MINUTES=${{ secrets.VERIFICATION_CODE_EXPIRY_MINUTES }}
           MAX_VERIFICATION_ATTEMPTS=${{ secrets.MAX_VERIFICATION_ATTEMPTS }}
           SESSION_EXPIRY_HOURS=${{ secrets.SESSION_EXPIRY_HOURS }}
