@@ -4,6 +4,7 @@ import {
 	Response,
 } from "express";
 import { chatService } from "../services/chatService";
+import { leadService } from "../services/leadService";
 import usageTrackingService from "../services/usageTrackingService";
 import widgetService from "../services/widgetService";
 import logger from "../utils/logger";
@@ -461,6 +462,23 @@ export const webhookChat = async (
 		await usageTrackingService.trackConversation(
 			userId,
 		);
+
+		// Fire-and-forget: extract lead info from conversation
+		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
+		chatService.getSession(result.sessionId).then((session) => {
+			if (session && session.messages.length >= 2) {
+				leadService.extractAndUpsertLead(
+					userId,
+					result.sessionId,
+					widget?.id ?? 0,
+					session.messages,
+					{
+						ipAddress: req.ip,
+						sourceUrl: referer,
+					},
+				).catch(() => {});
+			}
+		}).catch(() => {});
 
 		// Get updated usage stats
 		const usage =

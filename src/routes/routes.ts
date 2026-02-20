@@ -13,6 +13,7 @@ import * as overviewController from "../controllers/overviewController";
 import * as scraperController from "../controllers/scraperController";
 import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
+import * as leadController from "../controllers/leadController";
 import { authenticateToken } from "../middleware/auth";
 import {
 	setCsrfToken,
@@ -451,6 +452,36 @@ router.get(
 	"/widget/analytics",
 	authenticateToken,
 	widgetController.getWidgetAnalytics,
+);
+
+// ============================================
+// Leads Routes (Protected)
+// ============================================
+
+router.get(
+	"/leads",
+	authenticateToken,
+	leadController.listLeads,
+);
+
+router.get(
+	"/leads/:id",
+	authenticateToken,
+	leadController.getLead,
+);
+
+router.patch(
+	"/leads/:id/status",
+	verifyCsrfToken,
+	authenticateToken,
+	leadController.updateLeadStatus,
+);
+
+router.delete(
+	"/leads/:id",
+	verifyCsrfToken,
+	authenticateToken,
+	leadController.deleteLead,
 );
 
 export default router;

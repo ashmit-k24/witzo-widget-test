@@ -68,6 +68,12 @@ const migrations: Migration[] = [
 			"Backfill users pricing fields and defaults",
 		file: "20260217_009_users_backfill_defaults.sql",
 	},
+	{
+		id: "20260220_010_leads",
+		description:
+			"Create leads table for AI-extracted visitor contact info",
+		file: "20260220_010_leads.sql",
+	},
 ];
 
 const ensureMigrationTable = async (
