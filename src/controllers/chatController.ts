@@ -89,9 +89,11 @@ export const getUserChatSessions = async (
 ): Promise<void> => {
 	try {
 		const userId = (req.user as any)?.id;
+		const userPlanType =
+			(req.user as any)?.plan_type ??
+			(req.user as any)?.planType;
 		const planType =
-			(req.user as any)?.plan_type ===
-			"basic"
+			userPlanType === "basic"
 				? "basic"
 				: "free";
 		const maxVisibleSessions =

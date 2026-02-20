@@ -565,7 +565,7 @@ class AuthService {
 
 			// Check if session exists and is not revoked
 			const sessionResult = await pool.query(
-				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified
+				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified, u.plan_type
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1 AND s.user_id = $2 AND s.access_token = $3 AND s.is_revoked = FALSE`,
@@ -588,6 +588,7 @@ class AuthService {
 					id: session.user_id,
 					email: session.email,
 					isVerified: session.is_verified,
+					plan_type: session.plan_type,
 					sessionId,
 				},
 			};
@@ -654,9 +655,10 @@ class AuthService {
 				user_id: string;
 				email: string;
 				is_verified: boolean;
+				plan_type: "free" | "basic";
 				refresh_token_expires_at: Date;
 			}>(
-				`SELECT s.id, s.user_id, u.email, u.is_verified, s.refresh_token_expires_at
+				`SELECT s.id, s.user_id, u.email, u.is_verified, u.plan_type, s.refresh_token_expires_at
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1
@@ -735,6 +737,7 @@ class AuthService {
 					id: session.user_id,
 					email: session.email,
 					isVerified: session.is_verified,
+					plan_type: session.plan_type,
 					sessionId: session.id,
 				},
 			};

@@ -20,6 +20,7 @@ export interface UserResponse {
 	id: string;
 	email: string;
 	isVerified: boolean;
+	plan_type?: "free" | "basic";
 	sessionId?: number;
 }
 
