@@ -4,6 +4,7 @@ import nodemailer, {
 import { config } from "../config/env";
 import { buildVerificationEmailTemplate } from "../templates/email/verificationCodeTemplate";
 import { buildWelcomeEmailTemplate } from "../templates/email/welcomeTemplate";
+import { buildFollowUpEmailTemplate } from "../templates/email/followUpTemplate";
 import { EmailResult } from "../types";
 import logger from "../utils/logger";
 
@@ -88,6 +89,52 @@ class EmailService {
 			);
 			throw new Error(
 				"Failed to send verification email",
+			);
+		}
+	}
+
+	async sendFollowUpEmail(
+		visitorEmail: string,
+		visitorName?: string | null,
+		widgetOwnerName?: string | null,
+	): Promise<EmailResult> {
+		const emailTemplate = buildFollowUpEmailTemplate({
+			visitorName: visitorName ?? null,
+			widgetOwnerName: widgetOwnerName ?? null,
+		});
+
+		const mailOptions = {
+			from: config.EMAIL_FROM,
+			to: visitorEmail,
+			subject: emailTemplate.subject,
+			html: emailTemplate.html,
+			text: emailTemplate.text,
+		};
+
+		try {
+			const info =
+				await this.transporter.sendMail(
+					mailOptions,
+				);
+			logger.info("Follow-up email sent", {
+				visitorEmail,
+				messageId: info.messageId,
+			});
+			return {
+				success: true,
+				messageId: info.messageId,
+			};
+		} catch (error) {
+			const err = error as Error;
+			logger.error(
+				"Failed to send follow-up email",
+				{
+					visitorEmail,
+					error: err.message,
+				},
+			);
+			throw new Error(
+				"Failed to send follow-up email",
 			);
 		}
 	}

@@ -74,6 +74,12 @@ const migrations: Migration[] = [
 			"Create leads table for AI-extracted visitor contact info",
 		file: "20260220_010_leads.sql",
 	},
+	{
+		id: "20260220_011_ratings_and_followup",
+		description:
+			"Add follow_up_sent_at to leads and create chat_ratings table",
+		file: "20260220_011_ratings_and_followup.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

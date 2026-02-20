@@ -463,6 +463,12 @@ export const webhookChat = async (
 			userId,
 		);
 
+		// Get updated usage stats
+		const usage =
+			await usageTrackingService.getUserUsage(
+				userId,
+			);
+
 		// Fire-and-forget: extract lead info from conversation
 		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
 		chatService.getSession(result.sessionId).then((session) => {
@@ -476,15 +482,10 @@ export const webhookChat = async (
 						ipAddress: req.ip,
 						sourceUrl: referer,
 					},
+					usage.planType,
 				).catch(() => {});
 			}
 		}).catch(() => {});
-
-		// Get updated usage stats
-		const usage =
-			await usageTrackingService.getUserUsage(
-				userId,
-			);
 
 		logger.info("Widget conversation tracked", {
 			userId,
@@ -580,6 +581,7 @@ export const generateEmbedScript = async (
 		}
 
 		const config = widget.widget_config;
+		const planType = widget.plan_type ?? "free";
 		const apiUrl =
 			process.env.WIDGET_API_URL ||
 			"http://localhost:3008";
@@ -638,6 +640,8 @@ export const generateEmbedScript = async (
       widget.id = 'witzoChat';
       widget.setAttribute('api-url', '${apiUrl}/api/v1/webhook');
       widget.setAttribute('widget-key', '${widgetKey}');
+      widget.setAttribute('api-base-url', '${apiUrl}');
+      widget.setAttribute('plan-type', '${planType}');
 
       // Apply custom configuration
 ${configAttrs}

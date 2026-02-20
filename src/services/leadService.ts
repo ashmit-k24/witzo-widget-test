@@ -3,6 +3,7 @@ import pool from "../config/database";
 import { config } from "../config/env";
 import { ChatMessage } from "../types";
 import logger from "../utils/logger";
+import emailService from "./emailService";
 
 const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
@@ -22,6 +23,7 @@ export interface Lead {
 	source_url: string | null;
 	ip_address: string | null;
 	message_count: number;
+	follow_up_sent_at: Date | null;
 	created_at: Date;
 	updated_at: Date;
 }
@@ -119,6 +121,7 @@ ${conversation}`;
 			ipAddress?: string;
 			sourceUrl?: string;
 		},
+		planType?: "free" | "basic",
 	): Promise<void> {
 		try {
 			const userMessages = messages.filter(
@@ -177,6 +180,48 @@ ${conversation}`;
 				userId,
 				sessionId,
 			});
+
+			// Auto follow-up email — basic plan only, once per lead
+			if (planType === "basic" && extracted.email) {
+				try {
+					const checkResult = await pool.query(
+						`SELECT follow_up_sent_at, name FROM leads
+						 WHERE user_id = $1 AND session_id = $2`,
+						[userId, sessionId],
+					);
+					const leadRow = checkResult.rows[0];
+					if (leadRow && leadRow.follow_up_sent_at === null) {
+						const ownerResult = await pool.query(
+							`SELECT email FROM users WHERE id = $1`,
+							[userId],
+						);
+						const ownerEmail: string | null =
+							ownerResult.rows[0]?.email ?? null;
+
+						await emailService.sendFollowUpEmail(
+							extracted.email,
+							extracted.name ?? null,
+							ownerEmail,
+						);
+
+						await pool.query(
+							`UPDATE leads SET follow_up_sent_at = NOW()
+							 WHERE user_id = $1 AND session_id = $2`,
+							[userId, sessionId],
+						);
+
+						logger.info("Follow-up email sent for lead", {
+							userId,
+							sessionId,
+						});
+					}
+				} catch (emailErr) {
+					logger.error(
+						"Failed to send follow-up email for lead",
+						{ userId, sessionId, error: emailErr },
+					);
+				}
+			}
 		} catch (error) {
 			logger.error("Error upserting lead", {
 				error,
@@ -184,6 +229,48 @@ ${conversation}`;
 				sessionId,
 			});
 		}
+	}
+
+	async saveContactFormLead(
+		userId: string,
+		sessionId: string,
+		widgetKeyId: number,
+		data: {
+			name?: string | null;
+			email: string;
+			summary?: string | null;
+			ipAddress?: string;
+			sourceUrl?: string;
+		},
+	): Promise<void> {
+		await pool.query(
+			`INSERT INTO leads
+				(user_id, widget_key_id, session_id, name, email, chat_summary,
+				 raw_contact, ip_address, source_url, message_count, status)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 'new')
+			 ON CONFLICT (user_id, session_id) DO UPDATE SET
+				name         = COALESCE(EXCLUDED.name, leads.name),
+				email        = COALESCE(EXCLUDED.email, leads.email),
+				chat_summary = COALESCE(EXCLUDED.chat_summary, leads.chat_summary),
+				raw_contact  = EXCLUDED.raw_contact,
+				updated_at   = CURRENT_TIMESTAMP`,
+			[
+				userId,
+				widgetKeyId,
+				sessionId,
+				data.name ?? null,
+				data.email,
+				data.summary ?? null,
+				JSON.stringify({
+					name: data.name,
+					email: data.email,
+					message: data.summary,
+				}),
+				data.ipAddress ?? null,
+				data.sourceUrl ?? null,
+			],
+		);
+		logger.info("Contact form lead saved", { userId, sessionId });
 	}
 
 	async getLeads(

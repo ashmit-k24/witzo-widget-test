@@ -25,6 +25,7 @@ export interface WidgetKey {
 	updated_at: Date;
 	last_used_at: Date | null;
 	usage_count: number;
+	plan_type: "free" | "basic";
 }
 
 export interface WidgetConfig {
@@ -146,7 +147,10 @@ class WidgetService {
 			}
 
 			const result = await pool.query(
-				`SELECT * FROM widget_keys WHERE widget_key = $1`,
+				`SELECT wk.*, u.plan_type
+				 FROM widget_keys wk
+				 JOIN users u ON u.id = wk.user_id
+				 WHERE wk.widget_key = $1`,
 				[widgetKey],
 			);
 
@@ -745,6 +749,7 @@ class WidgetService {
 			updated_at: row.updated_at,
 			last_used_at: row.last_used_at,
 			usage_count: row.usage_count,
+			plan_type: row.plan_type ?? "free",
 		};
 	}
 }

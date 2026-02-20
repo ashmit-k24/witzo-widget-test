@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { chatRatingService } from "../services/chatRatingService";
 import { pineconeService } from "../services/pineconeService";
 import { chatService } from "../services/chatService";
 import usageTrackingService from "../services/usageTrackingService";
@@ -47,11 +48,15 @@ export const getOverviewAnalytics = async (
 			return;
 		}
 
-		const [usage, sessions, widgetEvents] =
+		const [usage, sessions, widgetEvents, ratings] =
 			await Promise.all([
 				usageTrackingService.getUserUsage(userId),
 				chatService.getUserChatSessions(userId),
 				widgetService.getWidgetAnalytics(
+					userId,
+					OVERVIEW_ANALYTICS_LIMIT,
+				),
+				chatRatingService.getRatingsForUser(
 					userId,
 					OVERVIEW_ANALYTICS_LIMIT,
 				),
@@ -152,6 +157,22 @@ export const getOverviewAnalytics = async (
 						).toFixed(1),
 				  )
 				: 0;
+		const thumbsUp = ratings.filter(
+			(rating) => rating.rating === "up",
+		).length;
+		const thumbsDown = ratings.filter(
+			(rating) => rating.rating === "down",
+		).length;
+		const totalRatings = thumbsUp + thumbsDown;
+		const positiveRate =
+			totalRatings > 0
+				? Number(
+						(
+							(thumbsUp / totalRatings) *
+							100
+						).toFixed(1),
+				  )
+				: 0;
 
 		const last7DaysKeys = getLastNDaysKeys(7);
 		const dailyEventCounts = new Map<string, number>();
@@ -226,6 +247,12 @@ export const getOverviewAnalytics = async (
 					bounceSessions,
 					bounceRate,
 					activeDaysLast7,
+				},
+				ratings: {
+					totalRatings,
+					thumbsUp,
+					thumbsDown,
+					positiveRate,
 				},
 				activityLast7Days,
 			},
