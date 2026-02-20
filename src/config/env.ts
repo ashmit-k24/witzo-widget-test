@@ -147,6 +147,10 @@ export const config: EnvConfig = {
 		"smtp.gmail.com",
 	),
 	EMAIL_PORT: getEnvNumber("EMAIL_PORT", 587),
+	EMAIL_SECURE: getEnvBoolean(
+		"EMAIL_SECURE",
+		false,
+	),
 
 	EMAIL_USER: getEnvString("EMAIL_USER", ""),
 	EMAIL_PASSWORD: getEnvString(

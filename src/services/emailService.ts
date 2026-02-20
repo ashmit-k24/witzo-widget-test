@@ -15,6 +15,7 @@ class EmailService {
 			{
 				host: config.EMAIL_HOST,
 				port: config.EMAIL_PORT,
+				secure: config.EMAIL_SECURE,
 
 				auth: {
 					user: config.EMAIL_USER,

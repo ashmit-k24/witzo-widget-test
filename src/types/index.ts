@@ -140,6 +140,7 @@ export interface EnvConfig {
 	DB_MIN_CONNECTIONS: number;
 	EMAIL_HOST: string;
 	EMAIL_PORT: number;
+	EMAIL_SECURE: boolean;
 	EMAIL_USER: string;
 	EMAIL_PASSWORD: string;
 	// Resolved from EMAIL_FROM or EMAIL_FROM_ADDRESS
