@@ -1,6 +1,5 @@
 import OpenAI from "openai";
 import crypto from "crypto";
-import { v4 as uuidv4 } from "uuid";
 import { config } from "../config/env";
 import pool from "../config/database";
 import { redisCache } from "../config/redis";
@@ -181,7 +180,7 @@ class ChatService {
 			`INSERT INTO chat_conversations (id, user_id)
 			 VALUES ($1, $2)
 			 RETURNING id, user_id, created_at, updated_at`,
-			[uuidv4(), userId],
+			[crypto.randomUUID(), userId],
 		);
 
 		return created.rows[0];

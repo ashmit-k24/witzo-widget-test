@@ -45,9 +45,6 @@ export const listLeads = async (
 						planLeadLimit === null
 							? total
 						: Math.min(total, planLeadLimit),
-				page: 1,
-				limit: planLeadLimit,
-				totalPages: 1,
 				planLeadLimit,
 				planType,
 			},

@@ -44,7 +44,10 @@ export const requestCode = async (
 				email,
 			);
 
-		res.status(200).json(result);
+		res.status(200).json({
+			success: result.success,
+			message: result.message,
+		});
 	} catch (error) {
 		next(error);
 	}
@@ -95,7 +98,6 @@ export const verifyCode = async (
 			res.status(200).json({
 				success: true,
 				message: result.message,
-				user: result.user,
 				expiresIn:
 					config.ACCESS_TOKEN_EXPIRY_MINUTES * 60, // in seconds
 			});
@@ -162,7 +164,6 @@ export const refreshToken = async (
 			res.status(200).json({
 				success: true,
 				message: result.message,
-				user: result.user,
 				expiresIn:
 					config.ACCESS_TOKEN_EXPIRY_MINUTES * 60, // in seconds
 			});
@@ -229,10 +230,7 @@ export const getCurrentUser = async (
 	req: Request,
 	res: Response,
 ): Promise<void> => {
-	res.status(200).json({
-		success: true,
-		user: req.user,
-	});
+	res.status(200).json({ user: req.user });
 };
 
 /**

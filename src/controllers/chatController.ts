@@ -157,10 +157,6 @@ export const chat = async (
 			success: false,
 			message:
 				"Internal server error while processing chat",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -207,10 +203,6 @@ export const getUserChatSessions = async (
 			meta: {
 				planType,
 				maxVisibleSessions,
-				totalAvailableSessions:
-					sessions.length,
-				returnedSessions:
-					limitedSessions.length,
 			},
 		});
 	} catch (error) {
@@ -222,10 +214,6 @@ export const getUserChatSessions = async (
 			success: false,
 			message:
 				"Internal server error while retrieving sessions",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -269,7 +257,6 @@ export const getChatSession = async (
 			success: true,
 			data: {
 				sessionId: session.sessionId,
-				userId: session.userId,
 				messageCount: session.messages.length,
 				createdAt: session.createdAt,
 				updatedAt: session.updatedAt,
@@ -284,10 +271,6 @@ export const getChatSession = async (
 			success: false,
 			message:
 				"Internal server error while retrieving session",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -349,10 +332,6 @@ export const clearChatSession = async (
 			success: false,
 			message:
 				"Internal server error while clearing session",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -388,10 +367,6 @@ export const clearUserSessions = async (
 			success: false,
 			message:
 				"Internal server error while clearing user sessions",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };

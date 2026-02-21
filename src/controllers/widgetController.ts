@@ -40,10 +40,10 @@ export const createWidgetKey = async (
 
 		res.status(201).json({
 			success: true,
-			message: "Widget key created successfully",
 			data: {
 				widgetKey: widgetKey.widget_key,
 				widgetName: widgetKey.widget_name,
+				isActive: widgetKey.is_active,
 				allowedDomains: widgetKey.allowed_domains,
 				widgetConfig: widgetKey.widget_config,
 				apiBaseUrl: publicUrls.apiUrl,
@@ -101,9 +101,6 @@ export const getWidgetKey = async (
 				isActive: widgetKey.is_active,
 				allowedDomains: widgetKey.allowed_domains,
 				widgetConfig: widgetKey.widget_config,
-				usageCount: widgetKey.usage_count,
-				lastUsedAt: widgetKey.last_used_at,
-				createdAt: widgetKey.created_at,
 				apiBaseUrl: publicUrls.apiUrl,
 				embedScriptUrl:
 					publicUrls.embedScriptUrl,
@@ -155,7 +152,6 @@ export const updateWidgetKey = async (
 
 		res.status(200).json({
 			success: true,
-			message: "Widget key updated successfully",
 			data: {
 				widgetKey: updatedWidget.widget_key,
 				widgetName: updatedWidget.widget_name,
@@ -202,10 +198,12 @@ export const regenerateWidgetKey = async (
 
 		res.status(200).json({
 			success: true,
-			message:
-				"Widget key regenerated successfully",
 			data: {
 				widgetKey: newWidget.widget_key,
+				widgetName: newWidget.widget_name,
+				isActive: newWidget.is_active,
+				allowedDomains: newWidget.allowed_domains,
+				widgetConfig: newWidget.widget_config,
 				apiBaseUrl: publicUrls.apiUrl,
 				embedScriptUrl:
 					publicUrls.embedScriptUrl,

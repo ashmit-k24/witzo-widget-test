@@ -348,7 +348,18 @@ ${conversation}`;
 		const [dataResult, countResult] =
 			await Promise.all([
 				pool.query(
-					`SELECT * FROM leads WHERE ${where}
+					`SELECT
+             id,
+             name,
+             email,
+             phone,
+             country,
+             company,
+             chat_summary,
+             status,
+             message_count,
+             created_at
+           FROM leads WHERE ${where}
 					 ORDER BY created_at DESC
 					 LIMIT $${idx} OFFSET $${idx + 1}`,
 					[...values, limit, offset],
@@ -370,7 +381,19 @@ ${conversation}`;
 		leadId: string,
 	): Promise<Lead | null> {
 		const result = await pool.query(
-			`SELECT * FROM leads WHERE id = $1 AND user_id = $2`,
+			`SELECT
+         id,
+         name,
+         email,
+         phone,
+         country,
+         company,
+         chat_summary,
+         status,
+         message_count,
+         created_at
+       FROM leads
+       WHERE id = $1 AND user_id = $2`,
 			[leadId, userId],
 		);
 		return result.rows[0] || null;
@@ -394,7 +417,17 @@ ${conversation}`;
 		const result = await pool.query(
 			`UPDATE leads SET status = $1, updated_at = CURRENT_TIMESTAMP
 			 WHERE id = $2 AND user_id = $3
-			 RETURNING *`,
+			 RETURNING
+         id,
+         name,
+         email,
+         phone,
+         country,
+         company,
+         chat_summary,
+         status,
+         message_count,
+         created_at`,
 			[status, leadId, userId],
 		);
 		return result.rows[0] || null;

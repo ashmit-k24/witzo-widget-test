@@ -56,7 +56,13 @@ export const createFeedback = async (
 
 		res.status(201).json({
 			success: true,
-			data: created,
+			data: {
+				id: created.id,
+				type: created.type,
+				title: created.title,
+				message: created.message,
+				created_at: created.created_at,
+			},
 		});
 	} catch (error) {
 		logger.error("Error creating feedback", {
@@ -103,7 +109,13 @@ export const listFeedback = async (
 
 		res.status(200).json({
 			success: true,
-			data: entries,
+			data: entries.map((entry) => ({
+				id: entry.id,
+				type: entry.type,
+				title: entry.title,
+				message: entry.message,
+				created_at: entry.created_at,
+			})),
 		});
 	} catch (error) {
 		logger.error("Error listing feedback", {

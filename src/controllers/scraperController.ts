@@ -126,40 +126,10 @@ export const scrapeWebsite = async (
 								effectiveMaxPages,
 						},
 					);
-				const updatedUsage =
-					await pineconeService.getScraperUsageStats(
-						userId,
-						planType,
-					);
-
 		res.status(result.success ? 200 : 500).json({
 			success: result.success,
 			message: result.message,
-			data: {
-				pagesScraped: result.pagesScraped,
-				scrapedPages: result.pages.map(
-					(page) => ({
-						url: page.url,
-						title: page.title,
-						contentLength: page.content.length,
-					}),
-				),
-					usage: {
-						pagesUsed:
-							updatedUsage.pagesUsed,
-						pagesLimit:
-							updatedUsage.pagesLimit,
-						pagesRemaining:
-							updatedUsage.pagesRemaining,
-						requestedMaxPages:
-							normalizedMaxPages,
-						effectiveMaxPages,
-						limitApplied:
-							effectiveMaxPages <
-							normalizedMaxPages,
-					},
-				},
-			});
+		});
 	} catch (error) {
 		logger.error(
 			"Error in scrapeWebsite controller",
@@ -169,10 +139,6 @@ export const scrapeWebsite = async (
 			success: false,
 			message:
 				"Internal server error while scraping website",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -236,10 +202,6 @@ export const queryDocuments = async (
 			success: false,
 			message:
 				"Internal server error while querying documents",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -293,10 +255,6 @@ export const deleteDocuments = async (
 			success: false,
 			message:
 				"Internal server error while deleting documents",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -348,10 +306,6 @@ export const deletePage = async (
 			success: false,
 			message:
 				"Internal server error while deleting page",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -392,10 +346,6 @@ export const deleteAllDocuments = async (
 			success: false,
 			message:
 				"Internal server error while deleting all documents",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -435,10 +385,6 @@ export const getStats = async (
 			success: false,
 			message:
 				"Internal server error while getting stats",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -483,7 +429,6 @@ export const getAllSources = async (
 
 		res.status(200).json({
 			success: true,
-			message: "Sources retrieved successfully",
 			data: {
 				documents: sources.documents,
 				websites: sources.websites,
@@ -536,8 +481,6 @@ export const getAllSources = async (
 			);
 			res.status(200).json({
 				success: true,
-				message:
-					"Sources temporarily unavailable; returning empty list",
 				data: {
 					documents: [],
 					websites: [],
@@ -570,10 +513,6 @@ export const getAllSources = async (
 			success: false,
 			message:
 				"Internal server error while fetching sources",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -681,40 +620,10 @@ export const retrainWebsite = async (
 					},
 				);
 
-			const updatedUsage =
-				await pineconeService.getScraperUsageStats(
-					userId,
-					planType,
-				);
-
 		res.status(result.success ? 200 : 500).json({
 			success: result.success,
 			message: `Website retrained successfully: ${result.message}`,
-			data: {
-				pagesScraped: result.pagesScraped,
-				scrapedPages: result.pages.map(
-					(page) => ({
-						url: page.url,
-						title: page.title,
-						contentLength: page.content.length,
-					}),
-					),
-					usage: {
-						pagesUsed:
-							updatedUsage.pagesUsed,
-						pagesLimit:
-							updatedUsage.pagesLimit,
-						pagesRemaining:
-							updatedUsage.pagesRemaining,
-						requestedMaxPages:
-							normalizedMaxPages,
-						effectiveMaxPages,
-						limitApplied:
-							effectiveMaxPages <
-							normalizedMaxPages,
-					},
-				},
-			});
+		});
 	} catch (error) {
 		logger.error(
 			"Error in retrainWebsite controller",
@@ -724,10 +633,6 @@ export const retrainWebsite = async (
 			success: false,
 			message:
 				"Internal server error while retraining website",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };

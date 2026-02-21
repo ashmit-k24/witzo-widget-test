@@ -1,8 +1,5 @@
 import { Request, Response } from "express";
-import {
-	coercePlanType,
-	isUnlimited,
-} from "../config/planConfig";
+import { coercePlanType } from "../config/planConfig";
 import { documentParserService } from "../services/documentParserService";
 import { pineconeService } from "../services/pineconeService";
 import logger from "../utils/logger";
@@ -159,10 +156,6 @@ export const uploadDocument = async (
 			success: false,
 			message:
 				"Internal server error while processing document",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -299,15 +292,6 @@ export const uploadMultipleDocuments = async (
 		const limitExceededCount = results.filter(
 			(r) => r.limitExceeded,
 		).length;
-			const finalDocumentsRemaining = isUnlimited(
-				documentsLimit,
-			)
-				? null
-				: Math.max(
-						0,
-						(documentsLimit ?? 0) -
-							documentsUsed,
-				  );
 		const limitExceededMessage =
 				limitExceededCount > 0
 					? ` ${limitExceededCount} file(s) were skipped because your ${planType} plan allows only ${documentsLimit ?? "unlimited"} documents.`
@@ -317,26 +301,7 @@ export const uploadMultipleDocuments = async (
 			success: true,
 			message: `Processed ${successCount} out of ${files.length} files successfully.${limitExceededMessage}`,
 			data: {
-				totalFiles: files.length,
 				successCount,
-				failedCount: files.length - successCount,
-				documentUsage: {
-					planType,
-					documentsUsed,
-					documentsLimit,
-					documentsRemaining:
-						finalDocumentsRemaining,
-						isAtLimit:
-							isUnlimited(documentsLimit)
-								? false
-								: documentsUsed >=
-								  (documentsLimit ?? 0),
-				},
-				upgradeUrl:
-					planType === "free" &&
-					limitExceededCount > 0
-						? "/api/auth/upgrade"
-						: undefined,
 				upgradeMessage:
 					planType === "free" &&
 					limitExceededCount > 0
@@ -354,10 +319,6 @@ export const uploadMultipleDocuments = async (
 			success: false,
 			message:
 				"Internal server error while processing documents",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };

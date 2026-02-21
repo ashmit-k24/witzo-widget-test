@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
 import {
 	coercePlanType,
 	PlanType,
@@ -62,7 +62,7 @@ class WidgetService {
 	 * Generate a unique widget key
 	 */
 	private generateWidgetKey(): string {
-		return `wk_${uuidv4().replace(/-/g, "")}`;
+		return `wk_${crypto.randomUUID().replace(/-/g, "")}`;
 	}
 
 	private getCacheKey(widgetKey: string): string {

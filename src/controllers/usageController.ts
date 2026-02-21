@@ -58,7 +58,6 @@ export const getUserUsage = async (
 		res.status(500).json({
 			success: false,
 			message: "Failed to get usage statistics",
-			error: err.message,
 		});
 	}
 };
@@ -118,7 +117,6 @@ export const checkUsage = async (
 		res.status(500).json({
 			success: false,
 			message: "Failed to check usage",
-			error: err.message,
 		});
 	}
 };

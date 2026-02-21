@@ -272,10 +272,6 @@ export const getOverviewAnalytics = async (
 			success: false,
 			message:
 				"Internal server error while getting overview analytics",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
