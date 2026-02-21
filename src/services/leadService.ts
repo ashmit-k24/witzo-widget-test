@@ -1,4 +1,8 @@
 import OpenAI from "openai";
+import {
+	getPlanCapabilities,
+	PlanType,
+} from "../config/planConfig";
 import pool from "../config/database";
 import { config } from "../config/env";
 import { ChatMessage } from "../types";
@@ -45,6 +49,32 @@ export interface LeadListOptions {
 }
 
 class LeadService {
+	private normalizeOptionalValue(
+		value: string | null | undefined,
+	): string | null {
+		if (typeof value !== "string") {
+			return null;
+		}
+		const normalized = value.trim();
+		return normalized.length > 0 ? normalized : null;
+	}
+
+	private hasConnectableChannel(
+		extracted: ExtractedContact,
+	): boolean {
+		const email = this.normalizeOptionalValue(
+			extracted.email,
+		);
+		const phone = this.normalizeOptionalValue(
+			extracted.phone,
+		);
+		const company = this.normalizeOptionalValue(
+			extracted.company,
+		);
+
+		return Boolean(email || phone || company);
+	}
+
 	private async extractContactFromMessages(
 		messages: ChatMessage[],
 	): Promise<ExtractedContact> {
@@ -121,7 +151,7 @@ ${conversation}`;
 			ipAddress?: string;
 			sourceUrl?: string;
 		},
-		planType?: "free" | "basic",
+		planType?: PlanType,
 	): Promise<void> {
 		try {
 			const userMessages = messages.filter(
@@ -134,15 +164,18 @@ ${conversation}`;
 					messages,
 				);
 
-			const hasAnyContact =
-				extracted.name ||
-				extracted.email ||
-				extracted.phone ||
-				extracted.country ||
-				extracted.company ||
-				extracted.summary;
-
-			if (!hasAnyContact) return;
+			// Only persist leads we can actually follow up with.
+			// Name-only or summary-only records are ignored.
+			if (!this.hasConnectableChannel(extracted)) {
+				logger.info(
+					"Skipping lead upsert: no connectable channel found",
+					{
+						userId,
+						sessionId,
+					},
+				);
+				return;
+			}
 
 			await pool.query(
 				`INSERT INTO leads
@@ -182,7 +215,13 @@ ${conversation}`;
 			});
 
 			// Auto follow-up email — basic plan only, once per lead
-			if (planType === "basic" && extracted.email) {
+			const capabilities = getPlanCapabilities(
+				planType || "free",
+			);
+			if (
+				capabilities.autoFollowUpEmail &&
+				extracted.email
+			) {
 				try {
 					const checkResult = await pool.query(
 						`SELECT follow_up_sent_at, name FROM leads

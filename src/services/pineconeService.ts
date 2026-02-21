@@ -2,8 +2,14 @@ import {
 	Pinecone,
 	PineconeRecord,
 } from "@pinecone-database/pinecone";
+import crypto from "crypto";
 import OpenAI from "openai";
+import {
+	coercePlanType,
+	PlanType,
+} from "../config/planConfig";
 import { config } from "../config/env";
+import { redisCache } from "../config/redis";
 import {
 	DocumentUsageStats,
 	DOCUMENT_LIMITS,
@@ -25,6 +31,10 @@ class PineconeService {
 	private pinecone: Pinecone;
 	private openai: OpenAI;
 	private indexName: string;
+	private namespaceIndexCache: Map<
+		string,
+		any
+	> = new Map();
 
 	constructor() {
 		this.pinecone = new Pinecone({
@@ -83,6 +93,26 @@ class PineconeService {
 		return `user_${userId}`;
 	}
 
+	private getNamespaceIndex(userId: string): any {
+		const namespace =
+			this.getUserNamespace(userId);
+		if (
+			this.namespaceIndexCache.has(namespace)
+		) {
+			return this.namespaceIndexCache.get(
+				namespace,
+			);
+		}
+		const index = this.pinecone
+			.index(this.indexName)
+			.namespace(namespace);
+		this.namespaceIndexCache.set(
+			namespace,
+			index,
+		);
+		return index;
+	}
+
 	private sanitizeId(text: string): string {
 		// Replace special characters with underscores and remove consecutive underscores
 		return text
@@ -95,6 +125,21 @@ class PineconeService {
 		text: string,
 	): Promise<number[]> {
 		try {
+			const normalized = text
+				.trim()
+				.toLowerCase()
+				.replace(/\s+/g, " ");
+			const digest = crypto
+				.createHash("sha1")
+				.update(normalized)
+				.digest("hex");
+			const cacheKey = `emb:${digest}`;
+			const cached =
+				await redisCache.get(cacheKey);
+			if (cached) {
+				return JSON.parse(cached) as number[];
+			}
+
 			// Use circuit breaker and retry logic for OpenAI embeddings API
 			const response =
 				await openAICircuitBreaker.execute(
@@ -112,7 +157,14 @@ class PineconeService {
 						);
 					},
 				);
-			return response.data[0].embedding;
+			const embedding =
+				response.data[0].embedding;
+			await redisCache.setex(
+				cacheKey,
+				300,
+				JSON.stringify(embedding),
+			);
+			return embedding;
 		} catch (error) {
 			logger.error("Error generating embedding", {
 				error,
@@ -164,11 +216,8 @@ class PineconeService {
 			>,
 		) => Promise<void> | void,
 	): Promise<void> {
-		const namespace =
-			this.getUserNamespace(userId);
-		const index = this.pinecone
-			.index(this.indexName)
-			.namespace(namespace);
+		const index =
+			this.getNamespaceIndex(userId);
 		let paginationToken: string | undefined;
 
 		do {
@@ -179,8 +228,10 @@ class PineconeService {
 				});
 			const ids =
 				listResponse.vectors
-					?.map((vector) => vector.id)
-					.filter((id): id is string =>
+					?.map(
+						(vector: any) => vector.id,
+					)
+					.filter((id: any): id is string =>
 						Boolean(id),
 					) ?? [];
 
@@ -301,11 +352,8 @@ class PineconeService {
 		topK: number = 10,
 	): Promise<any[]> {
 		try {
-			const namespace =
-				this.getUserNamespace(userId);
-			const index = this.pinecone
-				.index(this.indexName)
-				.namespace(namespace);
+			const index =
+				this.getNamespaceIndex(userId);
 			const queryEmbedding =
 				await this.generateEmbedding(query);
 
@@ -336,11 +384,8 @@ class PineconeService {
 		url: string,
 	): Promise<void> {
 		try {
-			const namespace =
-				this.getUserNamespace(userId);
-			const index = this.pinecone
-				.index(this.indexName)
-				.namespace(namespace);
+			const index =
+				this.getNamespaceIndex(userId);
 
 			let matchFn: (
 				recordUrl?: string,
@@ -928,29 +973,34 @@ class PineconeService {
 
 	async getScraperUsageStats(
 		userId: string,
-		planType: "free" | "basic",
+		planType: PlanType,
 	): Promise<ScraperUsageStats> {
+		const resolvedPlan =
+			coercePlanType(planType);
 		const pagesUsed =
 			await this.getScrapedWebsiteCount(userId);
 		const pagesLimit =
-			SCRAPER_PAGE_LIMITS[planType];
-		const pagesRemaining = Math.max(
-			0,
-			pagesLimit - pagesUsed,
-		);
+			SCRAPER_PAGE_LIMITS[resolvedPlan];
+		const pagesRemaining =
+			pagesLimit === null
+				? null
+				: Math.max(0, pagesLimit - pagesUsed);
 
 		return {
-			planType,
+			planType: resolvedPlan,
 			pagesUsed,
 			pagesLimit,
 			pagesRemaining,
-			isAtLimit: pagesUsed >= pagesLimit,
+			isAtLimit:
+				pagesLimit === null
+					? false
+					: pagesUsed >= pagesLimit,
 		};
 	}
 
 	async canUserScrape(
 		userId: string,
-		planType: "free" | "basic",
+		planType: PlanType,
 	): Promise<boolean> {
 		const usage = await this.getScraperUsageStats(
 			userId,
@@ -961,30 +1011,37 @@ class PineconeService {
 
 	async getDocumentUsageStats(
 		userId: string,
-		planType: "free" | "basic",
+		planType: PlanType,
 	): Promise<DocumentUsageStats> {
+		const resolvedPlan =
+			coercePlanType(planType);
 		const documentsUsed =
 			await this.getUploadedDocumentCount(userId);
 		const documentsLimit =
-			DOCUMENT_LIMITS[planType];
-		const documentsRemaining = Math.max(
-			0,
-			documentsLimit - documentsUsed,
-		);
+			DOCUMENT_LIMITS[resolvedPlan];
+		const documentsRemaining =
+			documentsLimit === null
+				? null
+				: Math.max(
+						0,
+						documentsLimit - documentsUsed,
+				  );
 
 		return {
-			planType,
+			planType: resolvedPlan,
 			documentsUsed,
 			documentsLimit,
 			documentsRemaining,
 			isAtLimit:
-				documentsUsed >= documentsLimit,
+				documentsLimit === null
+					? false
+					: documentsUsed >= documentsLimit,
 		};
 	}
 
 	async canUserUploadDocuments(
 		userId: string,
-		planType: "free" | "basic",
+		planType: PlanType,
 		newDocumentsCount: number = 1,
 	): Promise<boolean> {
 		const usage =
@@ -992,6 +1049,9 @@ class PineconeService {
 				userId,
 				planType,
 			);
+		if (usage.documentsLimit === null) {
+			return true;
+		}
 		return (
 			usage.documentsUsed + newDocumentsCount <=
 			usage.documentsLimit

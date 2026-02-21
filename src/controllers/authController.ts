@@ -15,6 +15,7 @@ import googleAuthService, {
 import sessionService from "../services/sessionService";
 import {
 	RequestCodeBody,
+	UpdateProfileBody,
 	VerifyCodeBody,
 } from "../types";
 import logger from "../utils/logger";
@@ -248,6 +249,71 @@ export const validateSession = async (
 		message: "Session is valid",
 		user: req.user,
 	});
+};
+
+/**
+ * @route   GET /api/auth/profile
+ * @desc    Get current user's profile completion status
+ * @access  Protected
+ */
+export const getProfileStatus = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = (req.user as any)?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const profile =
+			await authService.getProfileStatus(userId);
+		res.status(200).json({
+			success: true,
+			user: profile,
+		});
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   PUT /api/auth/profile
+ * @desc    Update required profile fields
+ * @access  Protected
+ */
+export const updateProfile = async (
+	req: Request<{}, {}, UpdateProfileBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = (req.user as any)?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const updated = await authService.updateUserProfile(
+			userId,
+			req.body,
+		);
+		res.status(200).json({
+			success: true,
+			message: "Profile updated successfully",
+			user: updated,
+		});
+	} catch (error) {
+		next(error);
+	}
 };
 
 /**

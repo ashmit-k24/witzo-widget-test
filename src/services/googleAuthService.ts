@@ -1,5 +1,6 @@
 import { PoolClient } from "pg";
 import pool from "../config/database";
+import { PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD } from "../constants";
 import { config } from "../config/env";
 import { User, UserResponse } from "../types";
 import logger from "../utils/logger";
@@ -30,11 +31,33 @@ class GoogleAuthService {
 	 */
 	private formatUserResponse(
 		user: User,
+		sessionId?: number,
 	): UserResponse {
+		const requiresProfileCompletion =
+			!user.profile_completed &&
+			user.login_count >
+				PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD;
+
 		return {
 			id: user.id,
 			email: user.email,
 			isVerified: user.is_verified,
+			plan_type: user.plan_type,
+			sessionId,
+			loginCount: user.login_count,
+			fullName: user.full_name,
+			companyName: user.company_name,
+			phoneNumber: user.phone_number,
+			country: user.country,
+			jobTitle: user.job_title,
+			industry: user.industry,
+			companyWebsite: user.company_website,
+			profileCompleted: user.profile_completed,
+			requiresProfileCompletion,
+			profilePromptRequiredAt:
+				user.profile_prompt_required_at,
+			profileCompletedAt:
+				user.profile_completed_at,
 		};
 	}
 
@@ -58,7 +81,7 @@ class GoogleAuthService {
 
 			// Check if user exists
 			let userResult = await client.query<User>(
-				"SELECT id, email, is_verified FROM users WHERE email = $1",
+				"SELECT * FROM users WHERE email = $1",
 				[normalizedEmail],
 			);
 
@@ -70,7 +93,7 @@ class GoogleAuthService {
 				const newUserId = uuidUtil.generateUuid();
 				const insertResult =
 					await client.query<User>(
-						"INSERT INTO users (id, email, is_verified) VALUES ($1, $2, $3) RETURNING id, email, is_verified",
+						"INSERT INTO users (id, email, is_verified) VALUES ($1, $2, $3) RETURNING *",
 						[
 							newUserId,
 							normalizedEmail,
@@ -111,11 +134,27 @@ class GoogleAuthService {
 				);
 			}
 
-			// Update last login
-			await client.query(
-				"UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1",
-				[userId],
-			);
+			// Update last login and increment login counter
+			const updatedUserResult =
+				await client.query<User>(
+					`UPDATE users
+					 SET last_login = CURRENT_TIMESTAMP,
+					     login_count = login_count + 1,
+					     profile_prompt_required_at = CASE
+					       WHEN (login_count + 1) > $2 AND profile_completed = FALSE
+					         THEN COALESCE(profile_prompt_required_at, CURRENT_TIMESTAMP)
+					       ELSE profile_prompt_required_at
+					     END
+					 WHERE id = $1
+					 RETURNING *`,
+					[
+						userId,
+						PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD,
+					],
+				);
+			const updatedUser =
+				updatedUserResult.rows[0] ??
+				userResult.rows[0];
 
 			// Revoke old sessions for this user
 			await client.query(
@@ -214,7 +253,7 @@ class GoogleAuthService {
 
 			await client.query("COMMIT");
 
-			const user = userResult.rows[0];
+			const user = updatedUser;
 			user.is_verified =
 				profile.verified_email ||
 				user.is_verified;
@@ -236,7 +275,10 @@ class GoogleAuthService {
 					: "Login successful",
 				accessToken,
 				refreshToken,
-				user: this.formatUserResponse(user),
+				user: this.formatUserResponse(
+					user,
+					sessionId,
+				),
 			};
 		} catch (error) {
 			await client.query("ROLLBACK");

@@ -1,0 +1,1 @@
+export const OVERVIEW_ANALYTICS_LIMIT = 1_000;

@@ -3,6 +3,7 @@ import {
 	Request,
 	Response,
 } from "express";
+import { coercePlanType } from "../config/planConfig";
 import { config } from "../config/env";
 import { redisCache } from "../config/redis";
 import logger from "../utils/logger";
@@ -136,6 +137,7 @@ export const createTieredRateLimiter = (options: {
 	windowMs: number;
 	freeMax: number;
 	basicMax: number;
+	enterpriseMax?: number;
 	message: string;
 	keyPrefix: string;
 }) => {
@@ -147,16 +149,21 @@ export const createTieredRateLimiter = (options: {
 		try {
 			const user = (req as any).user;
 			const userId = user?.id;
-			const planType = user?.plan_type || "free";
+			const planType = coercePlanType(
+				user?.plan_type,
+			);
 			const identifier =
 				userId || req.ip || "anonymous";
 			const key = `rate_limit:${options.keyPrefix}:${identifier}`;
 
 			// Determine max based on plan
 			const max =
-				planType === "basic"
-					? options.basicMax
-					: options.freeMax;
+				planType === "enterprise"
+					? options.enterpriseMax ??
+					  options.basicMax * 2
+					: planType === "basic"
+					  ? options.basicMax
+					  : options.freeMax;
 
 			// Get current count from Redis
 			const current = await redisCache.get(key);
@@ -237,6 +244,8 @@ export const globalRateLimiter =
 		windowMs: config.RATE_LIMIT_WINDOW_MS,
 		freeMax: config.RATE_LIMIT_MAX_REQUESTS,
 		basicMax: config.RATE_LIMIT_MAX_REQUESTS * 2, // 2x for paid users
+		enterpriseMax:
+			config.RATE_LIMIT_MAX_REQUESTS * 5,
 		message:
 			"Too many requests, please try again later.",
 		keyPrefix: "global",
@@ -269,6 +278,7 @@ export const chatRateLimiter =
 		windowMs: 60000, // 1 minute window
 		freeMax: 10, // 10 requests per minute for free
 		basicMax: 30, // 30 requests per minute for basic
+		enterpriseMax: 60, // 60 requests per minute for enterprise
 		message:
 			"Chat rate limit exceeded. Please slow down.",
 		keyPrefix: "chat",
@@ -280,6 +290,7 @@ export const scraperRateLimiter =
 		windowMs: 300000, // 5 minute window
 		freeMax: 5, // 5 scraping jobs per 5 minutes for free
 		basicMax: 20, // 20 scraping jobs per 5 minutes for basic
+		enterpriseMax: 60, // 60 scraping jobs per 5 minutes for enterprise
 		message:
 			"Scraping rate limit exceeded. Please try again later.",
 		keyPrefix: "scraper",

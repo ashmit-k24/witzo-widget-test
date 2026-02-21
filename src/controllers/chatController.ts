@@ -1,4 +1,8 @@
 import { Request, Response } from "express";
+import {
+	coercePlanType,
+	getPlanCapabilities,
+} from "../config/planConfig";
 import { chatService } from "../services/chatService";
 import { ChatRequest } from "../types";
 import logger from "../utils/logger";
@@ -34,6 +38,84 @@ export const chat = async (
 			sessionId,
 			messageLength: message.length,
 		});
+		const streamRequested =
+			req.query.stream === "1" ||
+			(req.get("accept") || "").includes(
+				"text/event-stream",
+			);
+
+		if (streamRequested) {
+			const usage = (res.locals as any).usage;
+			res.status(200);
+			res.setHeader(
+				"Content-Type",
+				"text/event-stream",
+			);
+			res.setHeader(
+				"Cache-Control",
+				"no-cache, no-transform",
+			);
+			res.setHeader(
+				"Connection",
+				"keep-alive",
+			);
+			res.flushHeaders?.();
+
+			const writeEvent = (
+				payload: Record<string, any>,
+			) => {
+				res.write(
+					`data: ${JSON.stringify(payload)}\n\n`,
+				);
+			};
+
+			try {
+				const result =
+					await chatService.chatStream(
+						userId,
+						message,
+						sessionId,
+						{
+							onToken: (token) =>
+								writeEvent({
+									type: "token",
+									token,
+								}),
+						},
+					);
+
+				writeEvent({
+					type: "done",
+					sessionId: result.sessionId,
+					usage: usage
+						? {
+								conversationsRemaining:
+									usage.conversationsRemaining,
+								resetDate:
+									usage.resetDate,
+						  }
+						: undefined,
+					warning:
+						usage?.isApproachingLimit
+							? "You're approaching your monthly conversation limit"
+							: undefined,
+				});
+				res.end();
+				return;
+			} catch (streamError) {
+				logger.error(
+					"Error in streaming chat controller",
+					{ streamError },
+				);
+				writeEvent({
+					type: "error",
+					message:
+						"Internal server error while processing chat",
+				});
+				res.end();
+				return;
+			}
+		}
 
 		const result = await chatService.chat(
 			userId,
@@ -93,11 +175,11 @@ export const getUserChatSessions = async (
 			(req.user as any)?.plan_type ??
 			(req.user as any)?.planType;
 		const planType =
-			userPlanType === "basic"
-				? "basic"
-				: "free";
+			coercePlanType(userPlanType);
+		const planCapabilities =
+			getPlanCapabilities(planType);
 		const maxVisibleSessions =
-			planType === "basic" ? 10 : 4;
+			planCapabilities.chatHistoryLimit;
 
 		if (!userId) {
 			res.status(401).json({
@@ -111,10 +193,13 @@ export const getUserChatSessions = async (
 			await chatService.getUserChatSessions(
 				userId,
 			);
-		const limitedSessions = sessions.slice(
-			0,
-			maxVisibleSessions,
-		);
+		const limitedSessions =
+			maxVisibleSessions === null
+				? sessions
+				: sessions.slice(
+						0,
+						maxVisibleSessions,
+				  );
 
 		res.status(200).json({
 			success: true,

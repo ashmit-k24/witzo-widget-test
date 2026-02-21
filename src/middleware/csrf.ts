@@ -5,15 +5,19 @@ import {
 	Response,
 } from "express";
 import { config } from "../config/env";
+import {
+	CSRF_COOKIE_NAME,
+	CSRF_HEADER_NAME,
+	CSRF_RESPONSE_HEADER_NAME,
+	CSRF_SAFE_METHODS,
+	CSRF_TOKEN_MAX_AGE_MS,
+} from "../constants";
 import logger from "../utils/logger";
 
 /**
  * CSRF Protection Middleware using Double Submit Cookie pattern
  * More suitable for cookie-based authentication with SPAs
  */
-
-const CSRF_COOKIE_NAME = "csrf_token";
-const CSRF_HEADER_NAME = "x-csrf-token";
 
 /**
  * Generate a cryptographically secure CSRF token
@@ -42,13 +46,13 @@ export const setCsrfToken = (
 			httpOnly: false, // Must be readable by JavaScript
 			secure: config.NODE_ENV === "production",
 			sameSite: "strict",
-			maxAge: 24 * 60 * 60 * 1000, // 24 hours
+			maxAge: CSRF_TOKEN_MAX_AGE_MS,
 			path: "/",
 		});
 	}
 
 	// Also send in response header for convenience
-	res.setHeader("X-CSRF-Token", csrfToken);
+	res.setHeader(CSRF_RESPONSE_HEADER_NAME, csrfToken);
 	next();
 };
 
@@ -63,7 +67,7 @@ export const verifyCsrfToken = (
 ): void => {
 	// Skip CSRF check for safe methods
 	if (
-		["GET", "HEAD", "OPTIONS"].includes(
+		(CSRF_SAFE_METHODS as readonly string[]).includes(
 			req.method,
 		)
 	) {

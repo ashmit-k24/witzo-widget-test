@@ -1,10 +1,10 @@
 import { Request, Response } from "express";
+import {
+	coercePlanType,
+} from "../config/planConfig";
 import { pineconeService } from "../services/pineconeService";
 import { scraperService } from "../services/scraperService";
-import {
-	SCRAPER_PAGE_LIMITS,
-	ScrapeRequest,
-} from "../types";
+import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
 export const scrapeWebsite = async (
@@ -18,11 +18,9 @@ export const scrapeWebsite = async (
 			maxPages = 100,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type ===
-			"basic"
-				? "basic"
-				: "free";
+		const planType = coercePlanType(
+			(req as any).user?.plan_type,
+		);
 
 		if (!userId) {
 			res.status(401).json({
@@ -62,10 +60,13 @@ export const scrapeWebsite = async (
 					userId,
 					planType,
 				);
-			if (scraperUsage.pagesRemaining <= 0) {
+			if (
+				scraperUsage.pagesRemaining !== null &&
+				scraperUsage.pagesRemaining <= 0
+			) {
 				res.status(403).json({
 					success: false,
-					message: `You've reached your website scraping limit. ${planType === "free" ? "Free" : "Basic"} plan allows ${scraperUsage.pagesLimit} pages.`,
+				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
 					data: {
 						planType:
 							scraperUsage.planType,
@@ -98,7 +99,8 @@ export const scrapeWebsite = async (
 			);
 			const effectiveMaxPages = Math.min(
 				normalizedMaxPages,
-				scraperUsage.pagesRemaining,
+				scraperUsage.pagesRemaining ??
+					normalizedMaxPages,
 			);
 
 			logger.info(
@@ -447,11 +449,9 @@ export const getAllSources = async (
 ): Promise<void> => {
 	try {
 			const userId = (req as any).user?.id;
-			const planType =
-				(req as any).user?.plan_type ===
-				"basic"
-					? "basic"
-					: "free";
+			const planType = coercePlanType(
+				(req as any).user?.plan_type,
+			);
 
 		if (!userId) {
 			res.status(401).json({
@@ -469,10 +469,11 @@ export const getAllSources = async (
 			await pineconeService.getAllUserSources(
 				userId,
 			);
-		const pagesLimit =
-			SCRAPER_PAGE_LIMITS[
-				planType as "free" | "basic"
-			];
+		const scraperUsage =
+			await pineconeService.getScraperUsageStats(
+				userId,
+				planType,
+			);
 
 		// Total individual pages across all websites
 		const pagesUsed = sources.websites.reduce(
@@ -496,26 +497,31 @@ export const getAllSources = async (
 				scraperUsage: {
 					planType,
 					pagesUsed,
-					pagesLimit,
-					pagesRemaining: Math.max(
-						0,
-						pagesLimit - pagesUsed,
-					),
-					isAtLimit: pagesUsed >= pagesLimit,
+					pagesLimit:
+						scraperUsage.pagesLimit,
+					pagesRemaining:
+						scraperUsage.pagesRemaining,
+					isAtLimit:
+						scraperUsage.isAtLimit,
 				},
 			},
 		});
 	} catch (error) {
 		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type ===
-			"basic"
-				? "basic"
-				: "free";
-		const pagesLimit =
-			SCRAPER_PAGE_LIMITS[
-				planType as "free" | "basic"
-			];
+		const planType = coercePlanType(
+			(req as any).user?.plan_type,
+		);
+		const scraperUsage =
+			userId
+				? await pineconeService.getScraperUsageStats(
+						userId,
+						planType,
+				  )
+				: {
+						pagesLimit: 0,
+						pagesRemaining: 0,
+						isAtLimit: false,
+				  };
 		const isPineconeConnectionError =
 			error &&
 			typeof error === "object" &&
@@ -544,9 +550,12 @@ export const getAllSources = async (
 					scraperUsage: {
 						planType,
 						pagesUsed: 0,
-						pagesLimit,
-						pagesRemaining: pagesLimit,
-						isAtLimit: false,
+						pagesLimit:
+							scraperUsage.pagesLimit,
+						pagesRemaining:
+							scraperUsage.pagesRemaining,
+						isAtLimit:
+							scraperUsage.isAtLimit,
 					},
 				},
 			});
@@ -580,8 +589,9 @@ export const retrainWebsite = async (
 			maxPages = 100,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type || "free";
+		const planType = coercePlanType(
+			(req as any).user?.plan_type,
+		);
 
 		if (!userId) {
 			res.status(401).json({
@@ -615,10 +625,13 @@ export const retrainWebsite = async (
 					userId,
 					planType,
 				);
-			if (scraperUsage.pagesRemaining <= 0) {
+			if (
+				scraperUsage.pagesRemaining !== null &&
+				scraperUsage.pagesRemaining <= 0
+			) {
 				res.status(403).json({
 					success: false,
-					message: `You've reached your website scraping limit. ${planType === "free" ? "Free" : "Basic"} plan allows ${scraperUsage.pagesLimit} pages.`,
+					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
 					data: {
 						planType:
 							scraperUsage.planType,
@@ -651,7 +664,8 @@ export const retrainWebsite = async (
 			);
 			const effectiveMaxPages = Math.min(
 				normalizedMaxPages,
-				scraperUsage.pagesRemaining,
+				scraperUsage.pagesRemaining ??
+					normalizedMaxPages,
 			);
 
 			// Re-scrape the website

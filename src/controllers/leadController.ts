@@ -1,11 +1,10 @@
 import { Request, Response } from "express";
+import {
+	coercePlanType,
+	getPlanCapabilities,
+} from "../config/planConfig";
 import { leadService } from "../services/leadService";
 import logger from "../utils/logger";
-
-const PLAN_LEAD_LIMITS: Record<"free" | "basic", number> = {
-	free: 3,
-	basic: 10,
-};
 
 export const listLeads = async (
 	req: Request,
@@ -21,22 +20,31 @@ export const listLeads = async (
 			return;
 		}
 
-		const planType = ((req.user as any)?.plan_type as "free" | "basic") ?? "free";
-		const planLeadLimit = PLAN_LEAD_LIMITS[planType] ?? 3;
+		const planType = coercePlanType(
+			(req.user as any)?.plan_type,
+		);
+		const planLeadLimit =
+			getPlanCapabilities(planType).leadStorageLimit;
 
 		const status = req.query.status as string | undefined;
 		const search = req.query.search as string | undefined;
 
-		const { leads, total } = await leadService.getLeads(
-			userId,
-			{ page: 1, limit: planLeadLimit, status, search },
-		);
+		const { leads, total } =
+			await leadService.getLeads(userId, {
+				page: 1,
+				limit: planLeadLimit ?? undefined,
+				status,
+				search,
+			});
 
 		res.status(200).json({
-			success: true,
-			data: leads,
-			meta: {
-				total: Math.min(total, planLeadLimit),
+				success: true,
+				data: leads,
+				meta: {
+					total:
+						planLeadLimit === null
+							? total
+						: Math.min(total, planLeadLimit),
 				page: 1,
 				limit: planLeadLimit,
 				totalPages: 1,

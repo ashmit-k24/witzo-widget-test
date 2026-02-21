@@ -1,17 +1,19 @@
 import { v4 as uuidv4 } from "uuid";
+import {
+	coercePlanType,
+	PlanType,
+} from "../config/planConfig";
 import pool from "../config/database";
-import { config } from "../config/env";
 import {
 	redisAnalytics,
 	redisCache,
 } from "../config/redis";
+import {
+	WIDGET_ANALYTICS_BATCH_SIZE,
+	WIDGET_ANALYTICS_BUFFER_KEY,
+	WIDGET_KEY_CACHE_TTL_SECONDS,
+} from "../constants";
 import logger from "../utils/logger";
-
-const WIDGET_KEY_CACHE_TTL = 3600; // 1 hour
-const ANALYTICS_BUFFER_KEY = "analytics:buffer";
-const ANALYTICS_BATCH_SIZE =
-	config.ANALYTICS_BUFFER_SIZE;
-// const ANALYTICS_FLUSH_INTERVAL_MS = config.ANALYTICS_FLUSH_INTERVAL_MS;
 
 export interface WidgetKey {
 	id: number;
@@ -25,7 +27,7 @@ export interface WidgetKey {
 	updated_at: Date;
 	last_used_at: Date | null;
 	usage_count: number;
-	plan_type: "free" | "basic";
+	plan_type: PlanType;
 }
 
 export interface WidgetConfig {
@@ -113,7 +115,7 @@ class WidgetService {
 			// Cache the new key
 			await redisCache.setex(
 				this.getCacheKey(widgetKey),
-				WIDGET_KEY_CACHE_TTL,
+				WIDGET_KEY_CACHE_TTL_SECONDS,
 				JSON.stringify(widget),
 			);
 
@@ -165,7 +167,7 @@ class WidgetService {
 			// Cache result
 			await redisCache.setex(
 				this.getCacheKey(widgetKey),
-				WIDGET_KEY_CACHE_TTL,
+				WIDGET_KEY_CACHE_TTL_SECONDS,
 				JSON.stringify(widget),
 			);
 
@@ -454,7 +456,7 @@ class WidgetService {
 
 			// Push to Redis Buffer
 			await redisAnalytics.lpush(
-				ANALYTICS_BUFFER_KEY,
+				WIDGET_ANALYTICS_BUFFER_KEY,
 				JSON.stringify(event),
 			);
 		} catch (error) {
@@ -473,7 +475,7 @@ class WidgetService {
 	async flushAnalytics(): Promise<void> {
 		try {
 			const len = await redisAnalytics.llen(
-				ANALYTICS_BUFFER_KEY,
+				WIDGET_ANALYTICS_BUFFER_KEY,
 			);
 
 			// Only flush if buffer has enough events or forced flush
@@ -481,10 +483,10 @@ class WidgetService {
 
 			const batchSize = Math.min(
 				len,
-				ANALYTICS_BATCH_SIZE,
+				WIDGET_ANALYTICS_BATCH_SIZE,
 			);
 			const eventsStr = await redisAnalytics.rpop(
-				ANALYTICS_BUFFER_KEY,
+				WIDGET_ANALYTICS_BUFFER_KEY,
 				batchSize,
 			);
 
@@ -570,7 +572,7 @@ class WidgetService {
 				try {
 					for (const event of events) {
 						await redisAnalytics.rpush(
-							ANALYTICS_BUFFER_KEY,
+							WIDGET_ANALYTICS_BUFFER_KEY,
 							JSON.stringify(event),
 						);
 					}
@@ -601,11 +603,11 @@ class WidgetService {
 	async checkAndFlushIfNeeded(): Promise<void> {
 		try {
 			const len = await redisAnalytics.llen(
-				ANALYTICS_BUFFER_KEY,
+				WIDGET_ANALYTICS_BUFFER_KEY,
 			);
 
 			// Force flush if buffer exceeds threshold
-			if (len >= ANALYTICS_BATCH_SIZE) {
+			if (len >= WIDGET_ANALYTICS_BATCH_SIZE) {
 				logger.info(
 					`Analytics buffer size ${len} exceeds threshold, forcing flush`,
 				);
@@ -749,7 +751,9 @@ class WidgetService {
 			updated_at: row.updated_at,
 			last_used_at: row.last_used_at,
 			usage_count: row.usage_count,
-			plan_type: row.plan_type ?? "free",
+			plan_type: coercePlanType(
+				row.plan_type,
+			),
 		};
 	}
 }

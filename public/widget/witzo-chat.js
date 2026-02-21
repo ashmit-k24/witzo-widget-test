@@ -713,14 +713,32 @@
                 sessionId: this.sessionId,
             };
 
-            const response = await fetch(this.apiUrl, {
+            const url = this.apiUrl.includes('?')
+                ? `${this.apiUrl}&stream=1`
+                : `${this.apiUrl}?stream=1`;
+
+            const response = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream, application/json'
+                },
                 body: JSON.stringify(body)
             });
 
-            const rawText = await response.text();
             let content = "Sorry, didn't get that.";
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+            if (response.ok && response.body && contentType.includes('text/event-stream')) {
+                const streamResult = await this.consumeStreamedResponse(response, typingWrapper);
+                if (streamResult && streamResult.completed) {
+                    this.successfulChatCount++;
+                    sessionStorage.setItem('witzo_chat_count', `${this.successfulChatCount}`);
+                }
+                return;
+            }
+
+            const rawText = await response.text();
 
             if (response.ok) {
                 try {
@@ -809,8 +827,90 @@
         if(bubble) {
             bubble.classList.remove('typing-indicator');
             bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
+        } else {
+            const bubbleNode = wrapper.querySelector('.chat-bubble-ai');
+            if (bubbleNode) {
+                bubbleNode.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
+            }
         }
         this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+    }
+
+    async consumeStreamedResponse(response, typingWrapper) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let assembled = '';
+        let donePayload = null;
+        let streamHadError = false;
+
+        const processEvent = (payload) => {
+            if (!payload || !payload.type) return;
+            if (payload.type === 'token' && typeof payload.token === 'string') {
+                assembled += payload.token;
+                this.updateTypingToMessage(typingWrapper, assembled);
+                return;
+            }
+            if (payload.type === 'done') {
+                donePayload = payload;
+                return;
+            }
+            if (payload.type === 'error') {
+                streamHadError = true;
+            }
+        };
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || '';
+
+            for (const rawEvent of events) {
+                const lines = rawEvent.split('\n');
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const jsonPart = line.slice(6).trim();
+                    if (!jsonPart) continue;
+                    try {
+                        processEvent(JSON.parse(jsonPart));
+                    } catch (_) {}
+                }
+            }
+        }
+
+        if (buffer.trim().startsWith('data:')) {
+            const jsonPart = buffer.replace(/^data:\s*/, '').trim();
+            if (jsonPart) {
+                try {
+                    processEvent(JSON.parse(jsonPart));
+                } catch (_) {}
+            }
+        }
+
+        if (streamHadError) {
+            this.updateTypingToMessage(typingWrapper, "Sorry, network error occurred.");
+            this.pendingEndIntentRating = false;
+            return { completed: false };
+        }
+
+        if (donePayload && donePayload.sessionId) {
+            this.sessionId = donePayload.sessionId;
+            sessionStorage.setItem('witzo_chat_session_token', donePayload.sessionId);
+            this.ratingShown = this.getRatingShownState();
+            this.ratingSubmitted = this.getRatingSubmittedState();
+        }
+
+        if (!assembled.trim()) {
+            this.updateTypingToMessage(typingWrapper, "Sorry, didn't get that.");
+            this.pendingEndIntentRating = false;
+            return { completed: false };
+        }
+
+        this.appendBotReply(typingWrapper, assembled);
+        return { completed: true };
     }
 
     appendBotReply(typingWrapper, text) {

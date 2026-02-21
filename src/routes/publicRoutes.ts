@@ -1,6 +1,14 @@
 import { Router, Request, Response } from "express";
+import {
+	coercePlanType,
+	getPlanCapabilities,
+} from "../config/planConfig";
 import * as widgetController from "../controllers/widgetController";
 import pool from "../config/database";
+import {
+	validate,
+	validationRules,
+} from "../middleware/validator";
 import widgetService from "../services/widgetService";
 import { chatRatingService } from "../services/chatRatingService";
 import { leadService } from "../services/leadService";
@@ -38,6 +46,8 @@ router.get(
  */
 router.post(
 	"/webhook",
+	validationRules.publicWebhook,
+	validate,
 	widgetController.webhookChat,
 );
 
@@ -86,25 +96,11 @@ router.get(
  */
 router.post(
 	"/widget/contact",
+	validationRules.publicWidgetContact,
+	validate,
 	async (req: Request, res: Response) => {
 		try {
 			const { widgetKey, sessionId, name, email, message } = req.body;
-
-			if (!widgetKey || !sessionId || !email) {
-				res.status(400).json({
-					success: false,
-					message: "widgetKey, sessionId, and email are required",
-				});
-				return;
-			}
-
-			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-				res.status(400).json({
-					success: false,
-					message: "Invalid email address",
-				});
-				return;
-			}
 
 			const referer =
 				req.get("referer") || req.get("origin") || "";
@@ -124,11 +120,19 @@ router.post(
 
 			const userId = verification.userId!;
 
-			const { rows } = await pool.query(
+				const { rows } = await pool.query<{
+					plan_type: string;
+				}>(
 				`SELECT plan_type FROM users WHERE id = $1`,
 				[userId],
 			);
-			if (!rows[0] || rows[0].plan_type !== "basic") {
+			const planType = coercePlanType(
+				rows[0]?.plan_type,
+			);
+			if (
+				!getPlanCapabilities(planType)
+					.fallbackLeadForm
+			) {
 				res.status(403).json({
 					success: false,
 					message: "Feature not available on your plan",
@@ -172,24 +176,11 @@ router.post(
  */
 router.post(
 	"/widget/rating",
+	validationRules.publicWidgetRating,
+	validate,
 	async (req: Request, res: Response) => {
 		try {
 			const { widgetKey, sessionId, rating } = req.body;
-
-			if (!widgetKey || !sessionId || !rating) {
-				res.status(400).json({
-					success: false,
-					message: "widgetKey, sessionId, and rating are required",
-				});
-				return;
-			}
-			if (rating !== "up" && rating !== "down") {
-				res.status(400).json({
-					success: false,
-					message: 'rating must be "up" or "down"',
-				});
-				return;
-			}
 
 			const referer =
 				req.get("referer") || req.get("origin") || "";
@@ -209,11 +200,18 @@ router.post(
 
 			const userId = verification.userId!;
 
-			const { rows } = await pool.query(
+			const { rows } = await pool.query<{
+				plan_type: string;
+			}>(
 				`SELECT plan_type FROM users WHERE id = $1`,
 				[userId],
 			);
-			if (!rows[0] || rows[0].plan_type !== "basic") {
+			const planType = coercePlanType(
+				rows[0]?.plan_type,
+			);
+			if (
+				!getPlanCapabilities(planType).chatRating
+			) {
 				res.status(403).json({
 					success: false,
 					message: "Feature not available on your plan",

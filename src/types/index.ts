@@ -1,3 +1,8 @@
+import {
+	PLAN_CAPABILITIES,
+	PlanType,
+} from "../config/planConfig";
+
 // User types
 export interface User {
 	id: string;
@@ -6,7 +11,7 @@ export interface User {
 	created_at: Date;
 	updated_at: Date;
 	last_login: Date | null;
-	plan_type: "free" | "basic";
+	plan_type: PlanType;
 	conversations_used: number;
 	conversations_limit: number;
 	plan_reset_date: Date;
@@ -14,14 +19,47 @@ export interface User {
 	stripe_customer_id: string | null;
 	subscription_id: string | null;
 	subscription_status: string | null;
+	login_count: number;
+	full_name: string | null;
+	company_name: string | null;
+	phone_number: string | null;
+	country: string | null;
+	job_title: string | null;
+	industry: string | null;
+	company_website: string | null;
+	profile_completed: boolean;
+	profile_prompt_required_at: Date | null;
+	profile_completed_at: Date | null;
 }
 
 export interface UserResponse {
 	id: string;
 	email: string;
 	isVerified: boolean;
-	plan_type?: "free" | "basic";
+	plan_type?: PlanType;
 	sessionId?: number;
+	loginCount?: number;
+	fullName?: string | null;
+	companyName?: string | null;
+	phoneNumber?: string | null;
+	country?: string | null;
+	jobTitle?: string | null;
+	industry?: string | null;
+	companyWebsite?: string | null;
+	profileCompleted?: boolean;
+	requiresProfileCompletion?: boolean;
+	profilePromptRequiredAt?: Date | null;
+	profileCompletedAt?: Date | null;
+}
+
+export interface UpdateProfileBody {
+	full_name: string;
+	company_name: string;
+	phone_number: string;
+	country: string;
+	job_title: string;
+	industry: string;
+	company_website: string;
 }
 
 // Verification Code types
@@ -299,7 +337,7 @@ export interface ParsedDocument {
 
 // Usage Tracking types
 export interface UsageStats {
-	planType: "free" | "basic";
+	planType: PlanType;
 	conversationsUsed: number;
 	conversationsLimit: number;
 	conversationsRemaining: number;
@@ -310,37 +348,41 @@ export interface UsageStats {
 
 // Scraper Page Limits by plan type
 export const SCRAPER_PAGE_LIMITS: Record<
-	"free" | "basic",
-	number
+	PlanType,
+	number | null
 > = {
-	free: 15,
-	basic: 30,
+	free: PLAN_CAPABILITIES.free.websitePagesLimit,
+	basic: PLAN_CAPABILITIES.basic.websitePagesLimit,
+	enterprise:
+		PLAN_CAPABILITIES.enterprise.websitePagesLimit,
 };
 
 // Document Limits by plan type
 export const DOCUMENT_LIMITS: Record<
-	"free" | "basic",
-	number
+	PlanType,
+	number | null
 > = {
-	free: 5,
-	basic: 10,
+	free: PLAN_CAPABILITIES.free.documentLimit,
+	basic: PLAN_CAPABILITIES.basic.documentLimit,
+	enterprise:
+		PLAN_CAPABILITIES.enterprise.documentLimit,
 };
 
 // Scraper Usage Stats
 export interface ScraperUsageStats {
-	planType: "free" | "basic";
+	planType: PlanType;
 	pagesUsed: number;
-	pagesLimit: number;
-	pagesRemaining: number;
+	pagesLimit: number | null;
+	pagesRemaining: number | null;
 	isAtLimit: boolean;
 }
 
 // Document Usage Stats
 export interface DocumentUsageStats {
-	planType: "free" | "basic";
+	planType: PlanType;
 	documentsUsed: number;
-	documentsLimit: number;
-	documentsRemaining: number;
+	documentsLimit: number | null;
+	documentsRemaining: number | null;
 	isAtLimit: boolean;
 }
 
@@ -350,7 +392,7 @@ export interface Subscription {
 	user_id: string;
 	stripe_subscription_id: string;
 	stripe_customer_id: string;
-	plan_type: "free" | "basic";
+	plan_type: PlanType;
 	status: string;
 	current_period_start: Date;
 	current_period_end: Date;
@@ -367,6 +409,6 @@ export interface PaymentHistory {
 	amount: number;
 	currency: string;
 	status: string;
-	plan_type: "free" | "basic";
+	plan_type: PlanType;
 	created_at: Date;
 }

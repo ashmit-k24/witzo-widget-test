@@ -2,6 +2,10 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { PoolClient } from "pg";
 import pool from "../config/database";
+import {
+	MIGRATION_LOCK_ID,
+	SQL_MIGRATIONS_SUBDIRECTORY,
+} from "../constants";
 import logger from "../utils/logger";
 
 type Migration = {
@@ -10,8 +14,10 @@ type Migration = {
 	file: string;
 };
 
-const MIGRATION_LOCK_ID = 982451653;
-const SQL_MIGRATIONS_DIR = path.join(__dirname, "sql");
+const SQL_MIGRATIONS_DIR = path.join(
+	__dirname,
+	SQL_MIGRATIONS_SUBDIRECTORY,
+);
 
 const migrations: Migration[] = [
 	{
@@ -79,6 +85,36 @@ const migrations: Migration[] = [
 		description:
 			"Add follow_up_sent_at to leads and create chat_ratings table",
 		file: "20260220_011_ratings_and_followup.sql",
+	},
+	{
+		id: "20260221_012_chat_storage",
+		description:
+			"Create scalable chat conversations/messages storage with partitioned messages",
+		file: "20260221_012_chat_storage.sql",
+	},
+	{
+		id: "20260221_013_partition_maintenance",
+		description:
+			"Add partition maintenance and analytics cleanup helper functions",
+		file: "20260221_013_partition_maintenance.sql",
+	},
+	{
+		id: "20260221_014_enterprise_plan_and_limits",
+		description:
+			"Add enterprise plan support and normalize plan conversation limits",
+		file: "20260221_014_enterprise_plan_and_limits.sql",
+	},
+	{
+		id: "20260221_015_user_profile_completion",
+		description:
+			"Add login tracking and required profile completion fields",
+		file: "20260221_015_user_profile_completion.sql",
+	},
+	{
+		id: "20260221_016_feedback_suggestions",
+		description:
+			"Create feedback_suggestions table for dashboard feedback/suggestion submissions",
+		file: "20260221_016_feedback_suggestions.sql",
 	},
 ];
 

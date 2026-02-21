@@ -1,0 +1,2 @@
+export const MIGRATION_LOCK_ID = 982_451_653;
+export const SQL_MIGRATIONS_SUBDIRECTORY = "sql";

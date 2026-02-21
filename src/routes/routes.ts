@@ -14,6 +14,7 @@ import * as scraperController from "../controllers/scraperController";
 import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
+import * as feedbackController from "../controllers/feedbackController";
 import { authenticateToken } from "../middleware/auth";
 import {
 	setCsrfToken,
@@ -120,6 +121,21 @@ router.get(
 	authController.validateSession,
 );
 
+router.get(
+	"/profile",
+	authenticateToken,
+	authController.getProfileStatus,
+);
+
+router.put(
+	"/profile",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.updateProfile,
+	validate,
+	authController.updateProfile,
+);
+
 // ============================================
 // Session Management Routes
 // ============================================
@@ -144,6 +160,8 @@ router.delete(
 	"/sessions/:sessionId",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.revokeSession,
+	validate,
 	authController.revokeSession,
 );
 
@@ -211,6 +229,8 @@ router.post(
 	"/scraper/scrape",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.urlWithOptions,
+	validate,
 	checkScraperLimit,
 	scraperController.scrapeWebsite,
 );
@@ -219,6 +239,8 @@ router.post(
 	"/scraper/query",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.queryDocuments,
+	validate,
 	scraperController.queryDocuments,
 );
 
@@ -226,6 +248,8 @@ router.delete(
 	"/scraper/delete",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.deleteByUrl,
+	validate,
 	scraperController.deleteDocuments,
 );
 
@@ -233,6 +257,8 @@ router.delete(
 	"/scraper/delete-page",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.deleteByUrl,
+	validate,
 	scraperController.deletePage,
 );
 
@@ -247,6 +273,8 @@ router.post(
 	"/scraper/retrain",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.urlWithOptions,
+	validate,
 	scraperController.retrainWebsite,
 );
 
@@ -273,6 +301,8 @@ router.get(
 router.post(
 	"/chat",
 	authenticateToken,
+	validationRules.chatRequest,
+	validate,
 	checkConversationLimit,
 	trackConversation,
 	addUsageToResponse,
@@ -309,6 +339,8 @@ router.get(
 router.delete(
 	"/chat/session/:sessionId",
 	authenticateToken,
+	validationRules.chatSessionParam,
+	validate,
 	chatController.clearChatSession,
 );
 
@@ -393,6 +425,8 @@ router.post(
 	"/widget/create",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.widgetCreate,
+	validate,
 	widgetController.createWidgetKey,
 );
 
@@ -416,6 +450,8 @@ router.put(
 	"/widget/update",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.widgetUpdate,
+	validate,
 	widgetController.updateWidgetKey,
 );
 
@@ -451,6 +487,8 @@ router.delete(
 router.get(
 	"/widget/analytics",
 	authenticateToken,
+	validationRules.widgetAnalyticsQuery,
+	validate,
 	widgetController.getWidgetAnalytics,
 );
 
@@ -474,6 +512,8 @@ router.patch(
 	"/leads/:id/status",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.leadUpdateStatus,
+	validate,
 	leadController.updateLeadStatus,
 );
 
@@ -481,7 +521,30 @@ router.delete(
 	"/leads/:id",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.leadDelete,
+	validate,
 	leadController.deleteLead,
+);
+
+// ============================================
+// Feedback/Suggestion Routes (Protected)
+// ============================================
+
+router.get(
+	"/feedback",
+	authenticateToken,
+	validationRules.feedbackList,
+	validate,
+	feedbackController.listFeedback,
+);
+
+router.post(
+	"/feedback",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.feedbackCreate,
+	validate,
+	feedbackController.createFeedback,
 );
 
 export default router;

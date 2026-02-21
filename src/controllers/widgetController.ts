@@ -362,6 +362,11 @@ export const webhookChat = async (
 	try {
 		const { widgetKey, message, sessionId } =
 			req.body;
+		const streamRequested =
+			req.query.stream === "1" ||
+			(req.get("accept") || "").includes(
+				"text/event-stream",
+			);
 
 		if (!widgetKey || !message) {
 			res.status(400).json({
@@ -396,16 +401,23 @@ export const webhookChat = async (
 		}
 
 		const userId = verification.userId!;
+		const trackMeta = {
+			ipAddress: req.ip,
+			userAgent: req.get("user-agent"),
+			refererUrl: referer,
+		};
 
-		// CRITICAL: Check conversation limit BEFORE processing
-		const canChat =
-			await usageTrackingService.canUserChat(
+		// Atomically check AND increment the conversation counter in one query,
+		// eliminating the TOCTOU race that existed with the old canUserChat() +
+		// trackConversation() two-step pattern.
+		const { allowed, usage } =
+			await usageTrackingService.checkAndTrackConversation(
 				userId,
 			);
 
-		if (!canChat) {
-			// Get usage stats to provide helpful info
-			const usage =
+		if (!allowed) {
+			// Fetch current stats (read-only, no increment) for the error body
+			const currentUsage =
 				await usageTrackingService.getUserUsage(
 					userId,
 				);
@@ -416,9 +428,9 @@ export const webhookChat = async (
 					userId,
 					widgetKey,
 					conversationsUsed:
-						usage.conversationsUsed,
+						currentUsage.conversationsUsed,
 					conversationsLimit:
-						usage.conversationsLimit,
+						currentUsage.conversationsLimit,
 				},
 			);
 
@@ -428,92 +440,187 @@ export const webhookChat = async (
 					"You've reached your conversation limit for this month. Please upgrade your plan to continue chatting.",
 				limitReached: true,
 				data: {
-					planType: usage.planType,
+					planType: currentUsage.planType,
 					conversationsUsed:
-						usage.conversationsUsed,
+						currentUsage.conversationsUsed,
 					conversationsLimit:
-						usage.conversationsLimit,
-					resetDate: usage.resetDate,
+						currentUsage.conversationsLimit,
+					resetDate: currentUsage.resetDate,
 				},
 			});
 			return;
 		}
 
-		// Track message event
-		await widgetService.trackWidgetEvent(
-			widgetKey,
-			"message_sent",
-			{ message: message.substring(0, 100) },
-			{
-				ipAddress: req.ip,
-				userAgent: req.get("user-agent"),
-				refererUrl: referer,
-			},
-		);
+		// Non-critical analytics write is intentionally decoupled from request latency.
+		void widgetService
+			.trackWidgetEvent(
+				widgetKey,
+				"message_sent",
+				{ message: message.substring(0, 100) },
+				trackMeta,
+			)
+			.catch(() => {});
 
-		// Use chat service to get response
+		if (streamRequested) {
+			res.status(200);
+			res.setHeader(
+				"Content-Type",
+				"text/event-stream",
+			);
+			res.setHeader(
+				"Cache-Control",
+				"no-cache, no-transform",
+			);
+			res.setHeader(
+				"Connection",
+				"keep-alive",
+			);
+			res.flushHeaders?.();
+
+			const writeEvent = (
+				payload: Record<string, any>,
+			) => {
+				res.write(
+					`data: ${JSON.stringify(payload)}\n\n`,
+				);
+			};
+
+			let result:
+				| Awaited<
+						ReturnType<
+							typeof chatService.chatStream
+						>
+				  >
+				| undefined;
+			try {
+				result = await chatService.chatStream(
+					userId,
+					message,
+					sessionId,
+					{
+						onToken: (token) =>
+							writeEvent({
+								type: "token",
+								token,
+							}),
+					},
+				);
+
+				// usage came from checkAndTrackConversation — no extra DB query needed
+				writeEvent({
+					type: "done",
+					sessionId: result.sessionId,
+					usage: {
+						conversationsRemaining:
+							usage!.conversationsRemaining,
+						resetDate: usage!.resetDate,
+					},
+				});
+			} catch (streamError) {
+				logger.error(
+					"Error in webhook stream chat",
+					{ streamError },
+				);
+				writeEvent({
+					type: "error",
+					message:
+						"Temporary issue while generating response",
+				});
+			} finally {
+				res.end();
+
+				if (result) {
+					void (async () => {
+						try {
+							const [widget, session] =
+								await Promise.all([
+									widgetService.getWidgetKeyByKey(
+										widgetKey,
+									),
+									chatService.getSession(
+										result!.sessionId,
+									),
+								]);
+							if (
+								session &&
+								session.messages.length >= 2
+							) {
+								await leadService.extractAndUpsertLead(
+									userId,
+									result!.sessionId,
+									widget?.id ?? 0,
+									session.messages,
+									{
+										ipAddress:
+											req.ip,
+										sourceUrl:
+											referer,
+									},
+									usage!.planType,
+								);
+							}
+						} catch {
+							// Non-critical side effects
+						}
+					})();
+				}
+			}
+			return;
+		}
+
 		const result = await chatService.chat(
 			userId,
 			message,
 			sessionId,
 		);
 
-		// CRITICAL: Track conversation AFTER successful response
-		await usageTrackingService.trackConversation(
-			userId,
-		);
-
-		// Get updated usage stats
-		const usage =
-			await usageTrackingService.getUserUsage(
-				userId,
-			);
-
-		// Fire-and-forget: extract lead info from conversation
-		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
-		chatService.getSession(result.sessionId).then((session) => {
-			if (session && session.messages.length >= 2) {
-				leadService.extractAndUpsertLead(
-					userId,
-					result.sessionId,
-					widget?.id ?? 0,
-					session.messages,
-					{
-						ipAddress: req.ip,
-						sourceUrl: referer,
-					},
-					usage.planType,
-				).catch(() => {});
+		// Queue non-critical writes out of request path
+		void (async () => {
+			try {
+				const [widget, session] =
+					await Promise.all([
+						widgetService.getWidgetKeyByKey(
+							widgetKey,
+						),
+						chatService.getSession(
+							result.sessionId,
+						),
+					]);
+				if (
+					session &&
+					session.messages.length >= 2
+				) {
+					await leadService.extractAndUpsertLead(
+						userId,
+						result.sessionId,
+						widget?.id ?? 0,
+						session.messages,
+						{
+							ipAddress: req.ip,
+							sourceUrl: referer,
+						},
+						usage!.planType,
+					);
+				}
+			} catch {
+				// Non-critical side effects
 			}
-		}).catch(() => {});
+		})();
 
-		logger.info("Widget conversation tracked", {
-			userId,
-			widgetKey,
-			conversationsUsed: usage.conversationsUsed,
-			conversationsRemaining:
-				usage.conversationsRemaining,
-		});
-
-		const responseData: any = {
+		// usage came from checkAndTrackConversation — no extra DB query needed
+		res.status(200).json({
 			success: true,
 			sessionId: result.sessionId,
 			response: result.response,
-			// sources: result.sources,
 			usage: {
 				conversationsRemaining:
-					usage.conversationsRemaining,
-				resetDate: usage.resetDate,
+					usage!.conversationsRemaining,
+				resetDate: usage!.resetDate,
 			},
-		};
-
-		// Add warning if approaching limit
-		if (usage.isApproachingLimit) {
-			responseData.warning =
-				"You're approaching your monthly conversation limit";
-		}
-
-		res.status(200).json(responseData);
+			warning: usage!.isApproachingLimit
+				? "You're approaching your monthly conversation limit"
+				: undefined,
+		});
 	} catch (error) {
 		logger.error("Error in webhook chat", {
 			error,

@@ -5,10 +5,19 @@ import express, {
 	Request,
 	Response,
 } from "express";
+import zlib from "zlib";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { Server } from "http";
 import { config } from "./config/env";
+import {
+	AUTH_CLEANUP_INTERVAL_MS,
+	RESPONSE_COMPRESSION_MIN_BYTES,
+	SERVER_HEADERS_TIMEOUT_MS,
+	SERVER_KEEP_ALIVE_TIMEOUT_MS,
+	SERVER_REQUEST_TIMEOUT_MS,
+	SHUTDOWN_FORCE_TIMEOUT_MS,
+} from "./constants";
 import passport, {
 	configurePassport,
 } from "./config/passport";
@@ -16,6 +25,7 @@ import {
 	errorHandler,
 	notFoundHandler,
 } from "./middleware/errorHandler";
+import { sanitizeRequestInput } from "./middleware/sanitizeInput";
 import publicRoutes from "./routes/publicRoutes";
 import authRoutes from "./routes/routes";
 import healthRoutes from "./routes/healthRoutes";
@@ -23,9 +33,11 @@ import authService from "./services/authService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
 import { createScraperWorker } from "./workers/scraperWorker";
+import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 
 // Start background workers
 createScraperWorker();
+createMaintenanceWorker();
 
 const app: Application = express();
 app.set("trust proxy", 1);
@@ -114,9 +126,72 @@ app.use(
 		limit: "10kb",
 	}),
 );
+app.use(sanitizeRequestInput);
 
 // Initialize Passport middleware
 app.use(passport.initialize());
+
+// Lightweight response compression for larger text/json payloads.
+app.use((req: Request, res: Response, next) => {
+	const acceptEncoding =
+		(req.headers["accept-encoding"] as
+			| string
+			| undefined) ?? "";
+
+	const originalSend = res.send.bind(res);
+	(res as any).send = (body: any) => {
+		if (
+			res.getHeader("Content-Encoding") ||
+			typeof body !== "string" ||
+			body.length <
+				RESPONSE_COMPRESSION_MIN_BYTES ||
+			res.getHeader("Content-Type") ===
+				"text/event-stream"
+		) {
+			return originalSend(body);
+		}
+
+		try {
+			const raw = Buffer.from(body);
+			let encoded: Buffer | null = null;
+
+			if (acceptEncoding.includes("br")) {
+				encoded =
+					zlib.brotliCompressSync(raw);
+				res.setHeader(
+					"Content-Encoding",
+					"br",
+				);
+			} else if (
+				acceptEncoding.includes("gzip")
+			) {
+				encoded = zlib.gzipSync(raw);
+				res.setHeader(
+					"Content-Encoding",
+					"gzip",
+				);
+			}
+
+			if (!encoded) {
+				return originalSend(body);
+			}
+
+			res.setHeader(
+				"Vary",
+				"Accept-Encoding",
+			);
+			res.setHeader(
+				"Content-Length",
+				String(encoded.length),
+			);
+			return res.end(encoded);
+		} catch {
+			return originalSend(body);
+		}
+	};
+
+	next();
+});
 
 // Global rate limiting
 const limiter = rateLimit({
@@ -166,7 +241,6 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Cleanup expired sessions and codes periodically
-const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
 setInterval(() => {
 	authService
 		.cleanupExpired()
@@ -175,7 +249,7 @@ setInterval(() => {
 				error: error.message,
 			});
 		});
-}, CLEANUP_INTERVAL);
+}, AUTH_CLEANUP_INTERVAL_MS);
 
 // Flush analytics buffer periodically (configurable for high-traffic scenarios)
 setInterval(() => {
@@ -204,7 +278,7 @@ const gracefulShutdown = (server: Server) => {
 	setTimeout(() => {
 		logger.error("Forced shutdown after timeout");
 		process.exit(1);
-	}, 10000);
+	}, SHUTDOWN_FORCE_TIMEOUT_MS);
 };
 
 // Start server
@@ -219,6 +293,9 @@ const server: Server = app.listen(
 		);
 	},
 );
+server.keepAliveTimeout = SERVER_KEEP_ALIVE_TIMEOUT_MS;
+server.headersTimeout = SERVER_HEADERS_TIMEOUT_MS;
+server.requestTimeout = SERVER_REQUEST_TIMEOUT_MS;
 
 // Handle graceful shutdown
 process.on("SIGTERM", () =>

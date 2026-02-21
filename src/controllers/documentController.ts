@@ -1,4 +1,8 @@
 import { Request, Response } from "express";
+import {
+	coercePlanType,
+	isUnlimited,
+} from "../config/planConfig";
 import { documentParserService } from "../services/documentParserService";
 import { pineconeService } from "../services/pineconeService";
 import logger from "../utils/logger";
@@ -9,11 +13,9 @@ export const uploadDocument = async (
 ): Promise<void> => {
 	try {
 		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type ===
-			"basic"
-				? "basic"
-				: "free";
+		const planType = coercePlanType(
+			(req as any).user?.plan_type,
+		);
 
 		if (!userId) {
 			res.status(401).json({
@@ -85,7 +87,7 @@ export const uploadDocument = async (
 			);
 			res.status(403).json({
 				success: false,
-				message: `You've reached your document training limit. ${planType === "free" ? "Free" : "Basic"} plan allows ${documentUsage.documentsLimit} documents.`,
+				message: `You've reached your document training limit. ${planType} plan allows ${documentUsage.documentsLimit ?? "unlimited"} documents.`,
 				data: {
 					planType:
 						documentUsage.planType,
@@ -172,10 +174,9 @@ export const uploadMultipleDocuments = async (
 	try {
 		const userId = (req as any).user?.id;
 		const planType =
-			(req as any).user?.plan_type ===
-			"basic"
-				? "basic"
-				: "free";
+			coercePlanType(
+				(req as any).user?.plan_type,
+			);
 
 		if (!userId) {
 			res.status(401).json({
@@ -251,7 +252,10 @@ export const uploadMultipleDocuments = async (
 					continue;
 				}
 
-				if (documentsUsed >= documentsLimit) {
+					if (
+						documentsLimit !== null &&
+						documentsUsed >= documentsLimit
+					) {
 					results.push({
 						filename: file.originalname,
 						success: false,
@@ -295,14 +299,19 @@ export const uploadMultipleDocuments = async (
 		const limitExceededCount = results.filter(
 			(r) => r.limitExceeded,
 		).length;
-		const finalDocumentsRemaining = Math.max(
-			0,
-			documentsLimit - documentsUsed,
-		);
+			const finalDocumentsRemaining = isUnlimited(
+				documentsLimit,
+			)
+				? null
+				: Math.max(
+						0,
+						(documentsLimit ?? 0) -
+							documentsUsed,
+				  );
 		const limitExceededMessage =
-			limitExceededCount > 0
-				? ` ${limitExceededCount} file(s) were skipped because your ${planType} plan allows only ${documentsLimit} documents.`
-				: "";
+				limitExceededCount > 0
+					? ` ${limitExceededCount} file(s) were skipped because your ${planType} plan allows only ${documentsLimit ?? "unlimited"} documents.`
+					: "";
 
 		res.status(200).json({
 			success: true,
@@ -317,9 +326,11 @@ export const uploadMultipleDocuments = async (
 					documentsLimit,
 					documentsRemaining:
 						finalDocumentsRemaining,
-					isAtLimit:
-						documentsUsed >=
-						documentsLimit,
+						isAtLimit:
+							isUnlimited(documentsLimit)
+								? false
+								: documentsUsed >=
+								  (documentsLimit ?? 0),
 				},
 				upgradeUrl:
 					planType === "free" &&

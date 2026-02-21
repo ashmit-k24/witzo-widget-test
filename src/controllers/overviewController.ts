@@ -1,4 +1,6 @@
 import { Request, Response } from "express";
+import { OVERVIEW_ANALYTICS_LIMIT } from "../constants";
+import { getPlanCapabilities } from "../config/planConfig";
 import { chatRatingService } from "../services/chatRatingService";
 import { pineconeService } from "../services/pineconeService";
 import { chatService } from "../services/chatService";
@@ -11,8 +13,6 @@ interface WidgetEvent {
 	ip_address?: string | null;
 	created_at?: string | Date;
 }
-
-const OVERVIEW_ANALYTICS_LIMIT = 1000;
 
 function toDateKey(value: string | Date): string {
 	const date = new Date(value);
@@ -234,6 +234,10 @@ export const getOverviewAnalytics = async (
 						usage.isApproachingLimit,
 					isAtLimit: usage.isAtLimit,
 					planType: usage.planType,
+					capabilities:
+						getPlanCapabilities(
+							usage.planType,
+						),
 					resetDate: usage.resetDate,
 				},
 				knowledgeBase: {

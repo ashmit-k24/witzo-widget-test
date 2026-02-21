@@ -1,6 +1,18 @@
 import pool from "../config/database";
+import {
+	coercePlanType,
+	PLAN_CONVERSATION_DEFAULT_LIMITS,
+} from "../config/planConfig";
+import {
+	USAGE_APPROACHING_LIMIT_THRESHOLD,
+	USAGE_CACHE_TTL_SECONDS,
+} from "../constants";
+import { redisCache } from "../config/redis";
 import logger from "../utils/logger";
 import { UsageStats } from "../types";
+
+const usageCacheKey = (userId: string) =>
+	`usage:stats:${userId}`;
 
 /**
  * Usage Tracking Service
@@ -8,12 +20,17 @@ import { UsageStats } from "../types";
  */
 class UsageTrackingService {
 	/**
-	 * Get user's current usage statistics
+	 * Get user's current usage statistics.
+	 * Result is cached in Redis for 60 seconds to reduce DB load.
 	 */
-	async getUserUsage(
-		userId: string,
-	): Promise<UsageStats> {
+	async getUserUsage(userId: string): Promise<UsageStats> {
 		try {
+			const cacheKey = usageCacheKey(userId);
+			const cached = await redisCache.get(cacheKey);
+			if (cached) {
+				return JSON.parse(cached) as UsageStats;
+			}
+
 			const result = await pool.query(
 				`SELECT
           plan_type,
@@ -31,31 +48,30 @@ class UsageTrackingService {
 
 			const user = result.rows[0];
 			const conversationsRemaining =
-				user.conversations_limit -
-				user.conversations_used;
+				user.conversations_limit - user.conversations_used;
 			const isAtLimit =
-				user.conversations_used >=
-				user.conversations_limit;
+				user.conversations_used >= user.conversations_limit;
 			const isApproachingLimit =
-				user.conversations_used /
-					user.conversations_limit >=
-				0.9;
+				user.conversations_used / user.conversations_limit >=
+				USAGE_APPROACHING_LIMIT_THRESHOLD;
 
-			return {
-				planType: user.plan_type,
-				conversationsUsed:
-					user.conversations_used,
-				conversationsLimit:
-					user.conversations_limit,
-				conversationsRemaining: Math.max(
-					0,
-					conversationsRemaining,
-				),
+			const stats: UsageStats = {
+				planType: coercePlanType(user.plan_type),
+				conversationsUsed: user.conversations_used,
+				conversationsLimit: user.conversations_limit,
+				conversationsRemaining: Math.max(0, conversationsRemaining),
 				resetDate: user.plan_reset_date,
-				isApproachingLimit:
-					isApproachingLimit && !isAtLimit,
+				isApproachingLimit: isApproachingLimit && !isAtLimit,
 				isAtLimit,
 			};
+
+			await redisCache.setex(
+				cacheKey,
+				USAGE_CACHE_TTL_SECONDS,
+				JSON.stringify(stats),
+			);
+
+			return stats;
 		} catch (error) {
 			const err = error as Error;
 			logger.error("Error getting user usage", {
@@ -67,11 +83,84 @@ class UsageTrackingService {
 	}
 
 	/**
-	 * Track a conversation (increment usage counter)
+	 * Atomically check the conversation limit AND increment the counter
+	 * in a single UPDATE statement, eliminating the TOCTOU race condition
+	 * that exists when check and increment are two separate queries.
+	 *
+	 * Returns { allowed: false } if the user is at their limit (0 rows updated).
+	 * Returns { allowed: true, usage } with the post-increment stats on success.
 	 */
-	async trackConversation(
-		userId: string,
-	): Promise<void> {
+	async checkAndTrackConversation(userId: string): Promise<{
+		allowed: boolean;
+		usage: UsageStats | null;
+	}> {
+		try {
+			const result = await pool.query<{
+				conversations_used: number;
+				conversations_limit: number;
+				plan_reset_date: Date;
+				plan_type: string;
+			}>(
+				`UPDATE users
+         SET conversations_used = conversations_used + 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+           AND conversations_used < conversations_limit
+         RETURNING conversations_used, conversations_limit, plan_reset_date, plan_type`,
+				[userId],
+			);
+
+			if ((result.rowCount ?? 0) === 0) {
+				return { allowed: false, usage: null };
+			}
+
+			const user = result.rows[0];
+			const conversationsRemaining =
+				user.conversations_limit - user.conversations_used;
+			const isAtLimit =
+				user.conversations_used >= user.conversations_limit;
+			const isApproachingLimit =
+				user.conversations_used / user.conversations_limit >=
+				USAGE_APPROACHING_LIMIT_THRESHOLD;
+
+			const usage: UsageStats = {
+				planType: coercePlanType(user.plan_type),
+				conversationsUsed: user.conversations_used,
+				conversationsLimit: user.conversations_limit,
+				conversationsRemaining: Math.max(0, conversationsRemaining),
+				resetDate: user.plan_reset_date,
+				isApproachingLimit: isApproachingLimit && !isAtLimit,
+				isAtLimit,
+			};
+
+			// Invalidate cached stats since the counter just changed
+			await redisCache.del(usageCacheKey(userId));
+
+			if (isApproachingLimit) {
+				logger.warn("User approaching conversation limit", {
+					userId,
+					conversationsRemaining: Math.max(0, conversationsRemaining),
+				});
+			}
+
+			logger.info("Conversation tracked", { userId });
+			return { allowed: true, usage };
+		} catch (error) {
+			const err = error as Error;
+			logger.error("Error in checkAndTrackConversation", {
+				userId,
+				error: err.message,
+			});
+			throw error;
+		}
+	}
+
+	/**
+	 * Track a conversation (increment usage counter).
+	 * Kept for any manual / non-request-lifecycle callers.
+	 * Invalidates the Redis cache after incrementing.
+	 */
+	async trackConversation(userId: string): Promise<void> {
 		try {
 			await pool.query(
 				`UPDATE users
@@ -81,18 +170,15 @@ class UsageTrackingService {
 				[userId],
 			);
 
-			logger.info("Conversation tracked", {
-				userId,
-			});
+			await redisCache.del(usageCacheKey(userId));
+
+			logger.info("Conversation tracked", { userId });
 		} catch (error) {
 			const err = error as Error;
-			logger.error(
-				"Error tracking conversation",
-				{
-					userId,
-					error: err.message,
-				},
-			);
+			logger.error("Error tracking conversation", {
+				userId,
+				error: err.message,
+			});
 			throw error;
 		}
 	}
@@ -100,9 +186,7 @@ class UsageTrackingService {
 	/**
 	 * Check if user can chat (has not reached limit)
 	 */
-	async canUserChat(
-		userId: string,
-	): Promise<boolean> {
+	async canUserChat(userId: string): Promise<boolean> {
 		try {
 			const result = await pool.query(
 				`SELECT conversations_used, conversations_limit
@@ -116,19 +200,13 @@ class UsageTrackingService {
 			}
 
 			const user = result.rows[0];
-			return (
-				user.conversations_used <
-				user.conversations_limit
-			);
+			return user.conversations_used < user.conversations_limit;
 		} catch (error) {
 			const err = error as Error;
-			logger.error(
-				"Error checking if user can chat",
-				{
-					userId,
-					error: err.message,
-				},
-			);
+			logger.error("Error checking if user can chat", {
+				userId,
+				error: err.message,
+			});
 			throw error;
 		}
 	}
@@ -136,9 +214,7 @@ class UsageTrackingService {
 	/**
 	 * Get remaining conversations for a user
 	 */
-	async getRemainingConversations(
-		userId: string,
-	): Promise<number> {
+	async getRemainingConversations(userId: string): Promise<number> {
 		try {
 			const result = await pool.query(
 				`SELECT conversations_used, conversations_limit
@@ -154,18 +230,14 @@ class UsageTrackingService {
 			const user = result.rows[0];
 			return Math.max(
 				0,
-				user.conversations_limit -
-					user.conversations_used,
+				user.conversations_limit - user.conversations_used,
 			);
 		} catch (error) {
 			const err = error as Error;
-			logger.error(
-				"Error getting remaining conversations",
-				{
-					userId,
-					error: err.message,
-				},
-			);
+			logger.error("Error getting remaining conversations", {
+				userId,
+				error: err.message,
+			});
 			throw error;
 		}
 	}
@@ -173,9 +245,7 @@ class UsageTrackingService {
 	/**
 	 * Check if user is approaching limit (>= 90%)
 	 */
-	async isApproachingLimit(
-		userId: string,
-	): Promise<boolean> {
+	async isApproachingLimit(userId: string): Promise<boolean> {
 		try {
 			const result = await pool.query(
 				`SELECT conversations_used, conversations_limit
@@ -190,29 +260,26 @@ class UsageTrackingService {
 
 			const user = result.rows[0];
 			const usagePercentage =
-				user.conversations_used /
-				user.conversations_limit;
+				user.conversations_used / user.conversations_limit;
 			return (
-				usagePercentage >= 0.9 &&
-				user.conversations_used <
-					user.conversations_limit
+				usagePercentage >=
+					USAGE_APPROACHING_LIMIT_THRESHOLD &&
+				user.conversations_used < user.conversations_limit
 			);
 		} catch (error) {
 			const err = error as Error;
-			logger.error(
-				"Error checking if approaching limit",
-				{
-					userId,
-					error: err.message,
-				},
-			);
+			logger.error("Error checking if approaching limit", {
+				userId,
+				error: err.message,
+			});
 			throw error;
 		}
 	}
 
 	/**
-	 * Reset monthly usage for all users
-	 * This should be run as a cron job on the 1st of every month
+	 * Reset monthly usage for all users whose reset date has passed.
+	 * This should be run as a cron job on the 1st of every month.
+	 * Invalidates Redis cache for all reset users.
 	 */
 	async resetMonthlyUsage(): Promise<void> {
 		try {
@@ -225,32 +292,34 @@ class UsageTrackingService {
         RETURNING id, email, plan_type`,
 			);
 
-			logger.info(
-				"Monthly usage reset completed",
-				{
-					usersReset: result.rowCount,
-					users: result.rows.map((u) => ({
-						id: u.id,
-						email: u.email,
-						plan: u.plan_type,
-					})),
-				},
-			);
+			if (result.rows.length > 0) {
+				const pipeline = redisCache.pipeline();
+				for (const user of result.rows) {
+					pipeline.del(usageCacheKey(user.id));
+				}
+				await pipeline.exec();
+			}
+
+			logger.info("Monthly usage reset completed", {
+				usersReset: result.rowCount,
+				users: result.rows.map((u) => ({
+					id: u.id,
+					email: u.email,
+					plan: u.plan_type,
+				})),
+			});
 		} catch (error) {
 			const err = error as Error;
-			logger.error(
-				"Error resetting monthly usage",
-				{
-					error: err.message,
-					stack: err.stack,
-				},
-			);
+			logger.error("Error resetting monthly usage", {
+				error: err.message,
+				stack: err.stack,
+			});
 			throw error;
 		}
 	}
 
 	/**
-	 * Upgrade user to basic plan
+	 * Upgrade user to basic plan. Invalidates Redis cache.
 	 */
 	async upgradeUserPlan(
 		userId: string,
@@ -261,7 +330,7 @@ class UsageTrackingService {
 			await pool.query(
 				`UPDATE users
         SET plan_type = 'basic',
-            conversations_limit = 500,
+            conversations_limit = $4,
             stripe_customer_id = $2,
             subscription_id = $3,
             subscription_status = 'active',
@@ -271,8 +340,11 @@ class UsageTrackingService {
 					userId,
 					stripeCustomerId,
 					subscriptionId,
+					PLAN_CONVERSATION_DEFAULT_LIMITS.basic,
 				],
 			);
+
+			await redisCache.del(usageCacheKey(userId));
 
 			logger.info("User upgraded to basic plan", {
 				userId,
@@ -290,35 +362,32 @@ class UsageTrackingService {
 	}
 
 	/**
-	 * Downgrade user to free plan
+	 * Downgrade user to free plan. Invalidates Redis cache.
 	 */
-	async downgradeUserPlan(
-		userId: string,
-	): Promise<void> {
+	async downgradeUserPlan(userId: string): Promise<void> {
 		try {
 			await pool.query(
 				`UPDATE users
         SET plan_type = 'free',
-            conversations_limit = 20,
+            conversations_limit = $2,
             subscription_status = 'canceled',
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $1`,
-				[userId],
+				[
+					userId,
+					PLAN_CONVERSATION_DEFAULT_LIMITS.free,
+				],
 			);
 
-			logger.info(
-				"User downgraded to free plan",
-				{ userId },
-			);
+			await redisCache.del(usageCacheKey(userId));
+
+			logger.info("User downgraded to free plan", { userId });
 		} catch (error) {
 			const err = error as Error;
-			logger.error(
-				"Error downgrading user plan",
-				{
-					userId,
-					error: err.message,
-				},
-			);
+			logger.error("Error downgrading user plan", {
+				userId,
+				error: err.message,
+			});
 			throw error;
 		}
 	}
@@ -345,13 +414,10 @@ class UsageTrackingService {
 			});
 		} catch (error) {
 			const err = error as Error;
-			logger.error(
-				"Error updating subscription status",
-				{
-					userId,
-					error: err.message,
-				},
-			);
+			logger.error("Error updating subscription status", {
+				userId,
+				error: err.message,
+			});
 			throw error;
 		}
 	}
