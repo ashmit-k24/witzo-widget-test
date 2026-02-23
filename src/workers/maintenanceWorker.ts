@@ -81,13 +81,17 @@ async function cleanupOldAnalytics(): Promise<void> {
 
 // ─── Worker entry point ─────────────────────────────────────────────────────
 
-export function createMaintenanceWorker(): void {
+export interface MaintenanceWorkerHandle {
+	close: () => Promise<void>;
+}
+
+export function createMaintenanceWorker(): MaintenanceWorkerHandle {
 	// Run immediately on startup so partitions exist from the first request
 	ensureUpcomingPartitions();
 	cleanupOldAnalytics();
 
 	// Then run on recurring intervals
-	setInterval(() => {
+	const partitionInterval = setInterval(() => {
 		ensureUpcomingPartitions().catch((error: Error) => {
 			logger.error("Partition maintenance interval failed", {
 				error: error.message,
@@ -95,7 +99,7 @@ export function createMaintenanceWorker(): void {
 		});
 	}, PARTITION_CHECK_INTERVAL_MS);
 
-	setInterval(() => {
+	const analyticsInterval = setInterval(() => {
 		cleanupOldAnalytics().catch((error: Error) => {
 			logger.error("Analytics cleanup interval failed", {
 				error: error.message,
@@ -109,4 +113,12 @@ export function createMaintenanceWorker(): void {
 			ANALYTICS_CLEANUP_INTERVAL_MS / 86_400_000,
 		analyticsRetentionDays: ANALYTICS_RETENTION_DAYS,
 	});
+
+	return {
+		close: async () => {
+			clearInterval(partitionInterval);
+			clearInterval(analyticsInterval);
+			logger.info("Maintenance worker stopped");
+		},
+	};
 }
