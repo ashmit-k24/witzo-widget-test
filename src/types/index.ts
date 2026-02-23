@@ -296,12 +296,14 @@ export interface ChatRequest {
 	userId?: string;
 	sessionId?: string;
 	message: string;
+	language?: string;
 }
 
 export interface ChatResponse {
 	success: boolean;
 	sessionId: string;
 	response: string;
+	language?: string;
 	sources?: Array<{
 		url: string;
 		title: string;

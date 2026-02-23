@@ -12,7 +12,11 @@ export const chat = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const { sessionId, message } =
+		const {
+			sessionId,
+			message,
+			language,
+		} =
 			req.body as ChatRequest;
 		const userId = (req.user as any)?.id;
 
@@ -36,6 +40,7 @@ export const chat = async (
 		logger.info("Processing chat request", {
 			userId,
 			sessionId,
+			language,
 			messageLength: message.length,
 		});
 		const streamRequested =
@@ -82,11 +87,13 @@ export const chat = async (
 									token,
 								}),
 						},
+						language,
 					);
 
 				writeEvent({
 					type: "done",
 					sessionId: result.sessionId,
+					language: result.language,
 					usage: usage
 						? {
 								conversationsRemaining:
@@ -121,6 +128,7 @@ export const chat = async (
 			userId,
 			message,
 			sessionId,
+			language,
 		);
 
 		// Add usage stats from middleware if available
@@ -130,6 +138,7 @@ export const chat = async (
 			success: true,
 			sessionId: result.sessionId,
 			response: result.response,
+			language: result.language,
 			// sources: result.sources,
 		};
 

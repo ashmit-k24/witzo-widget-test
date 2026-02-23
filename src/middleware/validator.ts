@@ -10,6 +10,7 @@ import {
 	ValidationChain,
 	validationResult,
 } from "express-validator";
+import { CHAT_SUPPORTED_LANGUAGE_CODES } from "../constants";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
@@ -19,6 +20,8 @@ const SESSION_STATUS_VALUES = [
 	"qualified",
 	"converted",
 ] as const;
+const SUPPORTED_LANGUAGE_LIST =
+	CHAT_SUPPORTED_LANGUAGE_CODES.join(", ");
 
 // Validation rules
 export const validationRules: Record<
@@ -155,6 +158,16 @@ export const validationRules: Record<
 			.optional({ values: "falsy" })
 			.isUUID()
 			.withMessage("sessionId must be a valid UUID"),
+		body("language")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("language must be a string")
+			.trim()
+			.toLowerCase()
+			.isIn([...CHAT_SUPPORTED_LANGUAGE_CODES])
+			.withMessage(
+				`language must be one of: ${SUPPORTED_LANGUAGE_LIST}`,
+			),
 	],
 
 	chatSessionParam: [
@@ -233,6 +246,53 @@ export const validationRules: Record<
 			.withMessage("id must be a valid UUID"),
 	],
 
+	leadWebhookUpsert: [
+		body("webhookUrl")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("webhookUrl must be a string")
+			.isLength({ max: 2048 })
+			.withMessage("webhookUrl must be <= 2048 characters")
+			.isURL({
+				protocols: ["http", "https"],
+				require_protocol: true,
+			})
+			.withMessage("webhookUrl must be a valid http/https URL"),
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("rotateSecret")
+			.optional()
+			.isBoolean()
+			.withMessage("rotateSecret must be boolean"),
+		body()
+			.custom((payload) => {
+				if (
+					payload?.isActive === true &&
+					!payload?.webhookUrl
+				) {
+					throw new Error(
+						"webhookUrl is required when isActive is true",
+					);
+				}
+				return true;
+			}),
+	],
+
+	leadWebhookEventsQuery: [
+		query("limit")
+			.optional()
+			.isInt({ min: 1, max: 100 })
+			.withMessage("limit must be between 1 and 100"),
+	],
+
+	leadWebhookEventParam: [
+		param("eventId")
+			.isUUID()
+			.withMessage("eventId must be a valid UUID"),
+	],
+
 	feedbackCreate: [
 		body("type")
 			.isIn(["feedback", "suggestion"])
@@ -274,6 +334,16 @@ export const validationRules: Record<
 			.optional({ values: "falsy" })
 			.isUUID()
 			.withMessage("sessionId must be a valid UUID"),
+		body("language")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("language must be a string")
+			.trim()
+			.toLowerCase()
+			.isIn([...CHAT_SUPPORTED_LANGUAGE_CODES])
+			.withMessage(
+				`language must be one of: ${SUPPORTED_LANGUAGE_LIST}`,
+			),
 	],
 
 	publicWidgetContact: [

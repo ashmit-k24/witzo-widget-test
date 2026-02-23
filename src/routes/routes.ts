@@ -14,6 +14,7 @@ import * as scraperController from "../controllers/scraperController";
 import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
+import * as leadWebhookController from "../controllers/leadWebhookController";
 import * as feedbackController from "../controllers/feedbackController";
 import { authenticateToken } from "../middleware/auth";
 import {
@@ -506,6 +507,44 @@ router.get(
 	"/leads",
 	authenticateToken,
 	leadController.listLeads,
+);
+router.get(
+	"/leads/webhook",
+	authenticateToken,
+	leadWebhookController.getLeadWebhookConfig,
+);
+
+router.put(
+	"/leads/webhook",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.leadWebhookUpsert,
+	validate,
+	leadWebhookController.upsertLeadWebhookConfig,
+);
+
+router.post(
+	"/leads/webhook/test",
+	verifyCsrfToken,
+	authenticateToken,
+	leadWebhookController.sendLeadWebhookTest,
+);
+
+router.get(
+	"/leads/webhook/events",
+	authenticateToken,
+	validationRules.leadWebhookEventsQuery,
+	validate,
+	leadWebhookController.listLeadWebhookEvents,
+);
+
+router.post(
+	"/leads/webhook/events/:eventId/retry",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.leadWebhookEventParam,
+	validate,
+	leadWebhookController.retryLeadWebhookEvent,
 );
 
 router.get(

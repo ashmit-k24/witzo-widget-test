@@ -17,6 +17,7 @@ import {
 	SERVER_KEEP_ALIVE_TIMEOUT_MS,
 	SERVER_REQUEST_TIMEOUT_MS,
 	SHUTDOWN_FORCE_TIMEOUT_MS,
+	WEBHOOK_PROCESS_INTERVAL_MS,
 } from "./constants";
 import passport, {
 	configurePassport,
@@ -31,6 +32,7 @@ import authRoutes from "./routes/routes";
 import healthRoutes from "./routes/healthRoutes";
 import authService from "./services/authService";
 import widgetService from "./services/widgetService";
+import { leadWebhookService } from "./services/leadWebhookService";
 import logger from "./utils/logger";
 import { createScraperWorker } from "./workers/scraperWorker";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
@@ -212,6 +214,18 @@ setInterval(() => {
 			);
 		});
 }, config.ANALYTICS_FLUSH_INTERVAL_MS);
+
+// Process pending enterprise lead webhook deliveries
+setInterval(() => {
+	leadWebhookService
+		.processPendingEvents()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled lead webhook processing failed",
+				{ error: error.message },
+			);
+		});
+}, WEBHOOK_PROCESS_INTERVAL_MS);
 
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {

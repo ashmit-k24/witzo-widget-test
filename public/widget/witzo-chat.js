@@ -38,10 +38,28 @@
       this.pendingEndIntentRating = false;
       this.ratingShown = false;
       this.ratingSubmitted = false;
+      this.selectedLanguage = 'en';
       this.date = new Date();
       this._cfBound = false;
 
       this.elements = {};
+      this.supportedLanguages = [
+        { code: 'en', label: 'English' },
+        { code: 'es', label: 'Spanish' },
+        { code: 'fr', label: 'French' },
+        { code: 'de', label: 'German' },
+        { code: 'hi', label: 'Hindi' },
+        { code: 'ar', label: 'Arabic' },
+        { code: 'pt', label: 'Portuguese' },
+        { code: 'ru', label: 'Russian' },
+        { code: 'ja', label: 'Japanese' },
+        { code: 'zh', label: 'Chinese' },
+        { code: 'it', label: 'Italian' },
+        { code: 'nl', label: 'Dutch' },
+        { code: 'ko', label: 'Korean' },
+        { code: 'tr', label: 'Turkish' },
+        { code: 'pl', label: 'Polish' },
+      ];
 
       // Configuration with defaults (matching text-widget types)
       this.config = {
@@ -61,7 +79,8 @@
         bannerTextParagraphColor: '',
         chatVoiceIconColor: '#7908FB',
         voiceSendButton: '#7908FB',
-        planType: 'free'
+        planType: 'free',
+        defaultLanguage: 'en'
       };
     }
 
@@ -80,7 +99,7 @@
         'auto-open', 'banner-text', 'banner-text-color', 'banner-color', 'user-chat-color',
         'close-button-color', 'logo-icon', 'banner-text-paragraph',
         'banner-text-paragraph-color', 'chat-voice-icon-color', 'voice-send-button',
-        'plan-type'
+        'plan-type', 'default-language'
       ];
 
       attrs.forEach(attr => {
@@ -93,6 +112,7 @@
         }
       });
 
+      this.initializeLanguagePreference();
       this.render();
       this.bindEvents();
 
@@ -169,6 +189,36 @@
     setRatingSubmittedState(value) {
         this.ratingSubmitted = value;
         sessionStorage.setItem(this.getRatingSubmittedKey(), value ? '1' : '0');
+    }
+
+    normalizeLanguageCode(value) {
+        if (typeof value !== 'string') return null;
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return null;
+        const isSupported = this.supportedLanguages.some((language) => language.code === normalized);
+        return isSupported ? normalized : null;
+    }
+
+    getLanguageStorageKey() {
+        return `witzo_chat_language_${this.widgetKey || 'default'}`;
+    }
+
+    initializeLanguagePreference() {
+        const configuredLanguage =
+            this.normalizeLanguageCode(this.config.defaultLanguage) || 'en';
+        const storageKey = this.getLanguageStorageKey();
+        const storedLanguage = this.normalizeLanguageCode(
+            sessionStorage.getItem(storageKey),
+        );
+        const hasConfiguredDefaultLanguageAttr =
+            this.getAttribute('default-language') !== null;
+
+        // Dashboard-configured default language should win on initial widget load.
+        this.selectedLanguage = hasConfiguredDefaultLanguageAttr
+            ? configuredLanguage
+            : (storedLanguage || configuredLanguage);
+        this.config.defaultLanguage = this.selectedLanguage;
+        sessionStorage.setItem(storageKey, this.selectedLanguage);
     }
 
     resetConversationRatingState() {
@@ -357,6 +407,31 @@
             flex-direction: column;
             align-items: center;
             gap: 0.75rem;
+          }
+          .chat-language-row {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.5rem;
+          }
+          .chat-language-label {
+            color: #64748b;
+            font-size: 0.72rem;
+            font-weight: 600;
+          }
+          .chat-language-select {
+            border: 1px solid #e2e8f0;
+            border-radius: 9999px;
+            font-size: 0.72rem;
+            padding: 0.35rem 0.75rem;
+            background: #fff;
+            color: #0f172a;
+            outline: none;
+            min-width: 120px;
+          }
+          .chat-language-select:focus {
+            border-color: ${this.config.sendColor || '#fc0e3f'};
           }
           .chat-title-paragraph{
             color: #999;
@@ -597,6 +672,16 @@
 
              <!-- Input Area -->
             <div class="chat-input">
+                <div class="chat-language-row">
+                    <label for="languageSelector" class="chat-language-label">Language</label>
+                    <select id="languageSelector" class="chat-language-select">
+                        ${this.supportedLanguages
+                            .map((language) =>
+                                `<option value="${language.code}" ${language.code === this.selectedLanguage ? "selected" : ""}>${language.label}</option>`,
+                            )
+                            .join("")}
+                    </select>
+                </div>
                 <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || '#999'}"></p>
                 <div class="chat-input-container">
                     <input id="textMessageInput" type="text" placeholder="Type your message..." class="chat-text-input" />
@@ -638,6 +723,7 @@
         messagesContainer: this.shadowRoot.getElementById('textMessagesArea'),
         input: this.shadowRoot.getElementById('textMessageInput'),
         sendBtn: this.shadowRoot.getElementById('textSendButton'),
+        languageSelector: this.shadowRoot.getElementById('languageSelector'),
         contactFormSlot: this.shadowRoot.getElementById('contactFormSlot'),
         cfName: this.shadowRoot.getElementById('cf-name'),
         cfEmail: this.shadowRoot.getElementById('cf-email'),
@@ -659,6 +745,14 @@
                 this.handleSend();
             }
         });
+        if (this.elements.languageSelector) {
+            this.elements.languageSelector.addEventListener('change', (event) => {
+                const nextLanguage = this.normalizeLanguageCode(event.target.value) || 'en';
+                this.selectedLanguage = nextLanguage;
+                this.config.defaultLanguage = nextLanguage;
+                sessionStorage.setItem(this.getLanguageStorageKey(), nextLanguage);
+            });
+        }
     }
 
     toggleChat() {
@@ -711,6 +805,7 @@
                 widgetKey: this.widgetKey,
                 message: text,
                 sessionId: this.sessionId,
+                language: this.selectedLanguage,
             };
 
             const url = this.apiUrl.includes('?')

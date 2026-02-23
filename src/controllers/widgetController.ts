@@ -358,7 +358,12 @@ export const webhookChat = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const { widgetKey, message, sessionId } =
+		const {
+			widgetKey,
+			message,
+			sessionId,
+			language,
+		} =
 			req.body;
 		const streamRequested =
 			req.query.stream === "1" ||
@@ -399,6 +404,30 @@ export const webhookChat = async (
 		}
 
 		const userId = verification.userId!;
+		const widget =
+			await widgetService.getWidgetKeyByKey(
+				widgetKey,
+			);
+		if (!widget) {
+			res.status(404).json({
+				success: false,
+				message: "Widget not found",
+			});
+			return;
+		}
+
+		const widgetDefaultLanguage =
+			typeof widget.widget_config
+				?.defaultLanguage ===
+			"string"
+				? widget.widget_config.defaultLanguage
+				: undefined;
+		const resolvedLanguage =
+			typeof language === "string" &&
+			language.trim()
+				? language
+				: widgetDefaultLanguage;
+
 		const trackMeta = {
 			ipAddress: req.ip,
 			userAgent: req.get("user-agent"),
@@ -502,12 +531,14 @@ export const webhookChat = async (
 								token,
 							}),
 					},
+					resolvedLanguage,
 				);
 
 				// usage came from checkAndTrackConversation — no extra DB query needed
 				writeEvent({
 					type: "done",
 					sessionId: result.sessionId,
+					language: result.language,
 					usage: {
 						conversationsRemaining:
 							usage!.conversationsRemaining,
@@ -530,15 +561,10 @@ export const webhookChat = async (
 				if (result) {
 					void (async () => {
 						try {
-							const [widget, session] =
-								await Promise.all([
-									widgetService.getWidgetKeyByKey(
-										widgetKey,
-									),
-									chatService.getSession(
-										result!.sessionId,
-									),
-								]);
+							const session =
+								await chatService.getSession(
+									result!.sessionId,
+								);
 							if (
 								session &&
 								session.messages.length >= 2
@@ -570,20 +596,16 @@ export const webhookChat = async (
 			userId,
 			message,
 			sessionId,
+			resolvedLanguage,
 		);
 
 		// Queue non-critical writes out of request path
 		void (async () => {
 			try {
-				const [widget, session] =
-					await Promise.all([
-						widgetService.getWidgetKeyByKey(
-							widgetKey,
-						),
-						chatService.getSession(
-							result.sessionId,
-						),
-					]);
+				const session =
+					await chatService.getSession(
+						result.sessionId,
+					);
 				if (
 					session &&
 					session.messages.length >= 2
@@ -610,6 +632,7 @@ export const webhookChat = async (
 			success: true,
 			sessionId: result.sessionId,
 			response: result.response,
+			language: result.language,
 			usage: {
 				conversationsRemaining:
 					usage!.conversationsRemaining,

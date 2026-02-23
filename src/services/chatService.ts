@@ -5,6 +5,7 @@ import pool from "../config/database";
 import { redisCache } from "../config/redis";
 import {
 	CHAT_COMPLETION_MAX_TOKENS,
+	CHAT_LANGUAGE_LABELS,
 	CHAT_COMPLETION_MODEL,
 	CHAT_COMPLETION_TEMPERATURE,
 	CHAT_DEFAULT_TIMEOUT_MS,
@@ -12,6 +13,7 @@ import {
 	CHAT_RETRIEVAL_CACHE_TTL_SECONDS,
 	CHAT_SESSION_CACHE_MESSAGE_LIMIT,
 	CHAT_SESSION_CACHE_TTL_SECONDS,
+	CHAT_SUPPORTED_LANGUAGE_SET,
 	UUID_V1_TO_V5_REGEX,
 } from "../constants";
 import { ChatMessage, ChatSession } from "../types";
@@ -137,6 +139,33 @@ class ChatService {
 		if (!value) return false;
 		return /\b(hi|hello|hey|good morning|good evening|thanks|thank you|bye)\b/.test(
 			value,
+		);
+	}
+
+	private normalizeLanguagePreference(
+		language?: string,
+	): string | undefined {
+		if (!language) return undefined;
+		const normalized = language
+			.trim()
+			.toLowerCase();
+		if (!normalized) return undefined;
+		if (!CHAT_SUPPORTED_LANGUAGE_SET.has(normalized)) {
+			return undefined;
+		}
+		return normalized;
+	}
+
+	private getLanguageLabel(
+		languageCode?: string,
+	): string {
+		if (!languageCode) {
+			return "the user's language";
+		}
+		return (
+			CHAT_LANGUAGE_LABELS[
+				languageCode as keyof typeof CHAT_LANGUAGE_LABELS
+			] ?? languageCode
 		);
 	}
 
@@ -334,7 +363,10 @@ class ChatService {
 	private buildConversationHistory(
 		context: string,
 		messages: ChatMessage[],
+		languageCode?: string,
 	): Array<any> {
+		const languageLabel =
+			this.getLanguageLabel(languageCode);
 		const conversationHistory: Array<any> = [
 			{
 				role: "system",
@@ -349,7 +381,8 @@ IMPORTANT RULES:
 3. **Out of Scope**: If the user asks for tasks outside the scope of the website context (e.g., "write an email", "explain quantum physics", "write code"), politely refuse. Say: "I am designed to answer questions about this website's content and cannot assist with that request."
 4. **Partial Answers**: If you find *some* relevant information (like project examples) but not a definitive "best" or complete list, SHARE what you found. Do NOT say "I don't have enough information" if you have at least one relevant example. Instead say: "Based on the available data, here are some projects..."
 5. **No Hallucinations**: Do not make up information not present in the context.
-6. **No Citations**: Do NOT mention the source, filename, or URL in your response. Provide the answer directly as if it is your own knowledge.`,
+6. **No Citations**: Do NOT mention the source, filename, or URL in your response. Provide the answer directly as if it is your own knowledge.
+7. **Language**: Respond in ${languageLabel}.`,
 						cache_control: {
 							type: "ephemeral",
 						},
@@ -414,9 +447,11 @@ IMPORTANT RULES:
 		userId: string,
 		message: string,
 		sessionId?: string,
+		language?: string,
 	): Promise<{
 		sessionId: string;
 		response: string;
+		language?: string;
 		sources: Array<{
 			url: string;
 			title: string;
@@ -425,6 +460,10 @@ IMPORTANT RULES:
 	}> {
 		try {
 			const startedAt = Date.now();
+			const resolvedLanguage =
+				this.normalizeLanguagePreference(
+					language,
+				);
 			const timing: ChatTiming = {
 				sessionMs: 0,
 				retrievalMs: 0,
@@ -443,6 +482,9 @@ IMPORTANT RULES:
 				userId,
 				"user",
 				message,
+				{
+					language: resolvedLanguage,
+				},
 			);
 			const userMessage: ChatMessage = {
 				role: "user",
@@ -464,6 +506,7 @@ IMPORTANT RULES:
 			const conversationHistory = this.buildConversationHistory(
 				context,
 				session.messages,
+				resolvedLanguage,
 			);
 
 			let assistantResponse = this.getFallbackResponse();
@@ -486,7 +529,10 @@ IMPORTANT RULES:
 				userId,
 				"assistant",
 				assistantResponse,
-				{ sourcesCount: sources.length },
+				{
+					sourcesCount: sources.length,
+					language: resolvedLanguage,
+				},
 			);
 			const assistantMessage: ChatMessage = {
 				role: "assistant",
@@ -503,6 +549,7 @@ IMPORTANT RULES:
 			logger.info("Chat response generated", {
 				userId,
 				sessionId: session.sessionId,
+				language: resolvedLanguage,
 				sourcesCount: sources.length,
 				timing,
 			});
@@ -510,6 +557,7 @@ IMPORTANT RULES:
 			return {
 				sessionId: session.sessionId,
 				response: assistantResponse,
+				language: resolvedLanguage,
 				sources,
 			};
 		} catch (error) {
@@ -529,9 +577,11 @@ IMPORTANT RULES:
 			timeoutMs?: number;
 			onToken?: (token: string) => void;
 		},
+		language?: string,
 	): Promise<{
 		sessionId: string;
 		response: string;
+		language?: string;
 		sources: Array<{
 			url: string;
 			title: string;
@@ -548,6 +598,10 @@ IMPORTANT RULES:
 			totalMs: 0,
 		};
 		const timeoutMs = options?.timeoutMs ?? CHAT_DEFAULT_TIMEOUT_MS;
+		const resolvedLanguage =
+			this.normalizeLanguagePreference(
+				language,
+			);
 
 		const sessionStart = Date.now();
 		const session = await this.getOrCreateSession(userId, sessionId);
@@ -559,6 +613,9 @@ IMPORTANT RULES:
 			userId,
 			"user",
 			message,
+			{
+				language: resolvedLanguage,
+			},
 		);
 		session.messages.push({
 			role: "user",
@@ -576,6 +633,7 @@ IMPORTANT RULES:
 		const conversationHistory = this.buildConversationHistory(
 			context,
 			session.messages,
+			resolvedLanguage,
 		);
 
 		let assistantResponse = "";
@@ -629,7 +687,10 @@ IMPORTANT RULES:
 			userId,
 			"assistant",
 			assistantResponse,
-			{ sourcesCount: sources.length },
+			{
+				sourcesCount: sources.length,
+				language: resolvedLanguage,
+			},
 		);
 		session.messages.push({
 			role: "assistant",
@@ -645,6 +706,7 @@ IMPORTANT RULES:
 		logger.info("Chat streaming response generated", {
 			userId,
 			sessionId: session.sessionId,
+			language: resolvedLanguage,
 			sourcesCount: sources.length,
 			timing,
 		});
@@ -652,6 +714,7 @@ IMPORTANT RULES:
 		return {
 			sessionId: session.sessionId,
 			response: assistantResponse,
+			language: resolvedLanguage,
 			sources,
 			timing,
 		};

@@ -116,6 +116,12 @@ const migrations: Migration[] = [
 			"Create feedback_suggestions table for dashboard feedback/suggestion submissions",
 		file: "20260221_016_feedback_suggestions.sql",
 	},
+	{
+		id: "20260223_017_enterprise_lead_webhooks",
+		description:
+			"Create enterprise lead webhook config/events tables for outbound CRM delivery",
+		file: "20260223_017_enterprise_lead_webhooks.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

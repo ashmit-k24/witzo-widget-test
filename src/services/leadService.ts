@@ -8,6 +8,7 @@ import { config } from "../config/env";
 import { ChatMessage } from "../types";
 import logger from "../utils/logger";
 import emailService from "./emailService";
+import { leadWebhookService } from "./leadWebhookService";
 
 const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
@@ -177,7 +178,10 @@ ${conversation}`;
 				return;
 			}
 
-			await pool.query(
+			const leadResult = await pool.query<{
+				id: string;
+				status: "new" | "contacted" | "qualified" | "converted";
+			}>(
 				`INSERT INTO leads
 					(user_id, widget_key_id, session_id, name, email, phone, country, company,
 					 chat_summary, raw_contact, ip_address, source_url, message_count)
@@ -191,7 +195,8 @@ ${conversation}`;
 					chat_summary  = EXCLUDED.chat_summary,
 					raw_contact   = EXCLUDED.raw_contact,
 					message_count = EXCLUDED.message_count,
-					updated_at    = CURRENT_TIMESTAMP`,
+					updated_at    = CURRENT_TIMESTAMP
+				 RETURNING id, status`,
 				[
 					userId,
 					widgetKeyId,
@@ -213,6 +218,40 @@ ${conversation}`;
 				userId,
 				sessionId,
 			});
+			const leadId = leadResult.rows[0]?.id;
+			if (leadId) {
+				void leadWebhookService
+					.queueLeadEvent(
+						userId,
+						"lead.upserted",
+						{
+							leadId,
+							sessionId,
+							widgetKeyId,
+							status:
+								leadResult.rows[0]?.status ?? "new",
+							contact: extracted,
+							metadata: {
+								ipAddress:
+									metadata?.ipAddress ?? null,
+								sourceUrl:
+									metadata?.sourceUrl ?? null,
+							},
+							messageCount: messages.length,
+						},
+						leadId,
+					)
+					.catch((error) => {
+						logger.error(
+							"Failed to queue webhook for upserted lead",
+							{
+								error,
+								userId,
+								sessionId,
+							},
+						);
+					});
+			}
 
 			// Auto follow-up email — basic plan only, once per lead
 			const capabilities = getPlanCapabilities(
@@ -282,7 +321,10 @@ ${conversation}`;
 			sourceUrl?: string;
 		},
 	): Promise<void> {
-		await pool.query(
+		const result = await pool.query<{
+			id: string;
+			status: "new" | "contacted" | "qualified" | "converted";
+		}>(
 			`INSERT INTO leads
 				(user_id, widget_key_id, session_id, name, email, chat_summary,
 				 raw_contact, ip_address, source_url, message_count, status)
@@ -292,7 +334,8 @@ ${conversation}`;
 				email        = COALESCE(EXCLUDED.email, leads.email),
 				chat_summary = COALESCE(EXCLUDED.chat_summary, leads.chat_summary),
 				raw_contact  = EXCLUDED.raw_contact,
-				updated_at   = CURRENT_TIMESTAMP`,
+				updated_at   = CURRENT_TIMESTAMP
+			 RETURNING id, status`,
 			[
 				userId,
 				widgetKeyId,
@@ -310,6 +353,43 @@ ${conversation}`;
 			],
 		);
 		logger.info("Contact form lead saved", { userId, sessionId });
+		const leadId = result.rows[0]?.id;
+		if (leadId) {
+			void leadWebhookService
+				.queueLeadEvent(
+					userId,
+					"lead.contact_form",
+					{
+						leadId,
+						sessionId,
+						widgetKeyId,
+						status:
+							result.rows[0]?.status ?? "new",
+						contact: {
+							name: data.name ?? null,
+							email: data.email,
+							summary: data.summary ?? null,
+						},
+						metadata: {
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
+						},
+					},
+					leadId,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue webhook for contact-form lead",
+						{
+							error,
+							userId,
+							sessionId,
+						},
+					);
+				});
+		}
 	}
 
 	async getLeads(
@@ -430,7 +510,30 @@ ${conversation}`;
          created_at`,
 			[status, leadId, userId],
 		);
-		return result.rows[0] || null;
+		const updatedLead = result.rows[0] || null;
+		if (updatedLead) {
+			void leadWebhookService
+				.queueLeadEvent(
+					userId,
+					"lead.status_updated",
+					{
+						leadId: updatedLead.id,
+						status: updatedLead.status,
+						name: updatedLead.name,
+						email: updatedLead.email,
+						company: updatedLead.company,
+						updatedAt: new Date().toISOString(),
+					},
+					updatedLead.id,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue webhook for lead status update",
+						{ error, userId, leadId },
+					);
+				});
+		}
+		return updatedLead;
 	}
 
 	async deleteLead(
