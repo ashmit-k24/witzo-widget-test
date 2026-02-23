@@ -3,22 +3,201 @@ import {
 	Request,
 	Response,
 } from "express";
+import crypto from "crypto";
+import passport from "../config/passport";
 import { config } from "../config/env";
 import {
 	clearCookies,
 	setCookies,
 } from "../middleware/auth";
 import authService from "../services/authService";
-import googleAuthService, {
-	GoogleProfile,
-} from "../services/googleAuthService";
+import { GoogleProfile } from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
 	RequestCodeBody,
 	UpdateProfileBody,
+	VerifyGoogleCodeBody,
 	VerifyCodeBody,
 } from "../types";
 import logger from "../utils/logger";
+
+const GOOGLE_OAUTH_CLIENT_STATE_COOKIE =
+	"google_oauth_client_state";
+const GOOGLE_OTP_PENDING_COOKIE =
+	"google_otp_pending";
+const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const GOOGLE_OTP_PENDING_TTL_MS = 10 * 60 * 1000;
+
+const getFrontendUrl = (): string =>
+	process.env.FRONTEND_URL ||
+	"http://localhost:3001";
+
+const isProduction =
+	process.env.NODE_ENV === "production";
+const authFlowCookieOptions = {
+	httpOnly: true,
+	secure: isProduction,
+	sameSite: "lax" as const,
+	path: "/api/auth/google",
+};
+
+interface GooglePendingPayload {
+	email: string;
+	exp: number;
+	iat: number;
+	nonce: string;
+}
+
+interface GoogleOAuthStatePayload {
+	clientState: string;
+	exp: number;
+	iat: number;
+	nonce: string;
+}
+
+const encodeBase64Url = (value: string): string =>
+	Buffer.from(value, "utf-8").toString("base64url");
+
+const decodeBase64Url = (value: string): string =>
+	Buffer.from(value, "base64url").toString("utf-8");
+
+const createGooglePendingToken = (
+	email: string,
+): string => {
+	const payload: GooglePendingPayload = {
+		email: email.toLowerCase().trim(),
+		iat: Date.now(),
+		exp: Date.now() + GOOGLE_OTP_PENDING_TTL_MS,
+		nonce: crypto
+			.randomBytes(16)
+			.toString("hex"),
+	};
+	const encodedPayload = encodeBase64Url(
+		JSON.stringify(payload),
+	);
+	const signature = crypto
+		.createHmac("sha256", config.COOKIE_SECRET)
+		.update(encodedPayload)
+		.digest("base64url");
+	return `${encodedPayload}.${signature}`;
+};
+
+const createGoogleOAuthStateToken = (
+	clientState: string,
+): string => {
+	const payload: GoogleOAuthStatePayload = {
+		clientState,
+		iat: Date.now(),
+		exp: Date.now() + GOOGLE_OAUTH_STATE_TTL_MS,
+		nonce: crypto
+			.randomBytes(16)
+			.toString("hex"),
+	};
+	const encodedPayload = encodeBase64Url(
+		JSON.stringify(payload),
+	);
+	const signature = crypto
+		.createHmac("sha256", config.COOKIE_SECRET)
+		.update(encodedPayload)
+		.digest("base64url");
+	return `${encodedPayload}.${signature}`;
+};
+
+const parseGoogleOAuthStateToken = (
+	token: string,
+): GoogleOAuthStatePayload | null => {
+	const parts = token.split(".");
+	if (parts.length !== 2) {
+		return null;
+	}
+
+	const [encodedPayload, signature] = parts;
+	const expectedSignature = crypto
+		.createHmac("sha256", config.COOKIE_SECRET)
+		.update(encodedPayload)
+		.digest("base64url");
+
+	let validSignature = false;
+	try {
+		validSignature = crypto.timingSafeEqual(
+			Buffer.from(signature, "utf-8"),
+			Buffer.from(expectedSignature, "utf-8"),
+		);
+	} catch {
+		validSignature = false;
+	}
+	if (!validSignature) {
+		return null;
+	}
+
+	try {
+		const payload = JSON.parse(
+			decodeBase64Url(encodedPayload),
+		) as GoogleOAuthStatePayload;
+		if (
+			typeof payload.clientState !== "string" ||
+			typeof payload.exp !== "number" ||
+			typeof payload.iat !== "number" ||
+			typeof payload.nonce !== "string"
+		) {
+			return null;
+		}
+		if (Date.now() > payload.exp) {
+			return null;
+		}
+		return payload;
+	} catch {
+		return null;
+	}
+};
+
+const parseGooglePendingToken = (
+	token: string,
+): GooglePendingPayload | null => {
+	const parts = token.split(".");
+	if (parts.length !== 2) {
+		return null;
+	}
+
+	const [encodedPayload, signature] = parts;
+	const expectedSignature = crypto
+		.createHmac("sha256", config.COOKIE_SECRET)
+		.update(encodedPayload)
+		.digest("base64url");
+
+	let validSignature = false;
+	try {
+		validSignature = crypto.timingSafeEqual(
+			Buffer.from(signature, "utf-8"),
+			Buffer.from(expectedSignature, "utf-8"),
+		);
+	} catch {
+		validSignature = false;
+	}
+	if (!validSignature) {
+		return null;
+	}
+
+	try {
+		const payload = JSON.parse(
+			decodeBase64Url(encodedPayload),
+		) as GooglePendingPayload;
+		if (
+			typeof payload.email !== "string" ||
+			typeof payload.exp !== "number" ||
+			typeof payload.iat !== "number" ||
+			typeof payload.nonce !== "string"
+		) {
+			return null;
+		}
+		if (Date.now() > payload.exp) {
+			return null;
+		}
+		return payload;
+	} catch {
+		return null;
+	}
+};
 
 /**
  * @route   POST /api/auth/request-code
@@ -442,9 +621,120 @@ export const logoutAll = async (
 	}
 };
 
+export const initiateGoogleAuth = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const queryClientState =
+			typeof req.query.clientState ===
+			"string"
+				? req.query.clientState.trim()
+				: "";
+		const clientState =
+			queryClientState.length >= 32
+				? queryClientState
+				: crypto
+						.randomBytes(32)
+						.toString("hex");
+		const state =
+			createGoogleOAuthStateToken(
+				clientState,
+			);
+		res.cookie(
+			GOOGLE_OAUTH_CLIENT_STATE_COOKIE,
+			clientState,
+			{
+				...authFlowCookieOptions,
+				maxAge: GOOGLE_OAUTH_STATE_TTL_MS,
+			},
+		);
+
+		passport.authenticate("google", {
+			session: false,
+			state,
+		})(req, res, next);
+	} catch (error) {
+		next(error);
+	}
+};
+
+export const validateGoogleOAuthState = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	const queryStateToken = String(
+		req.query.state || "",
+	);
+	const cookieClientState = String(
+		req.cookies?.[
+			GOOGLE_OAUTH_CLIENT_STATE_COOKIE
+		] || "",
+	);
+	const parsedState =
+		parseGoogleOAuthStateToken(
+			queryStateToken,
+		);
+
+	if (!parsedState || !cookieClientState) {
+		logger.warn("Missing Google OAuth state", {
+			ip: req.ip,
+		});
+		res.clearCookie(
+			GOOGLE_OAUTH_CLIENT_STATE_COOKIE,
+			{
+				...authFlowCookieOptions,
+			},
+		);
+		res.redirect(
+			`${getFrontendUrl()}/?error=invalid_oauth_state`,
+		);
+		return;
+	}
+
+	let stateMatches = false;
+	try {
+		stateMatches = crypto.timingSafeEqual(
+			Buffer.from(
+				parsedState.clientState,
+				"utf-8",
+			),
+			Buffer.from(cookieClientState, "utf-8"),
+		);
+	} catch {
+		stateMatches = false;
+	}
+
+	if (!stateMatches) {
+		logger.warn("Invalid Google OAuth state", {
+			ip: req.ip,
+		});
+		res.clearCookie(
+			GOOGLE_OAUTH_CLIENT_STATE_COOKIE,
+			{
+				...authFlowCookieOptions,
+			},
+		);
+		res.redirect(
+			`${getFrontendUrl()}/?error=invalid_oauth_state`,
+		);
+		return;
+	}
+
+	res.clearCookie(
+		GOOGLE_OAUTH_CLIENT_STATE_COOKIE,
+		{
+			...authFlowCookieOptions,
+		},
+	);
+	next();
+};
+
 /**
- * @route   POST /api/auth/google/callback
- * @desc    Handle Google OAuth callback and login user
+ * @route   GET /api/auth/google/callback
+ * @desc    Handle Google OAuth callback and trigger OTP verification
  * @access  Public
  */
 export const googleCallback = async (
@@ -454,32 +744,105 @@ export const googleCallback = async (
 ): Promise<void> => {
 	try {
 		const profile = req.user as GoogleProfile;
-		const ipAddress = req.ip;
-		const userAgent = req.get("user-agent");
 
 		if (!profile || !profile.email) {
-			// Redirect to frontend with error
-			const frontendUrl =
-				process.env.FRONTEND_URL ||
-				"http://localhost:3001";
 			res.redirect(
-				`${frontendUrl}/login?error=invalid_profile`,
+				`${getFrontendUrl()}/?error=invalid_profile`,
 			);
 			return;
 		}
 
 		logger.info("Google OAuth callback", {
 			email: profile.email,
-			ip: ipAddress,
-			userAgent,
+			ip: req.ip,
 		});
 
-		const result =
-			await googleAuthService.authenticateWithGoogle(
-				profile,
-				ipAddress,
-				userAgent,
+		const otpResult =
+			await authService.requestVerificationCode(
+				profile.email,
 			);
+		if (otpResult.success) {
+			const normalizedEmail = profile.email
+				.toLowerCase()
+				.trim();
+			const pendingToken =
+				createGooglePendingToken(
+					normalizedEmail,
+				);
+			res.cookie(
+				GOOGLE_OTP_PENDING_COOKIE,
+				pendingToken,
+				{
+					...authFlowCookieOptions,
+					maxAge: GOOGLE_OTP_PENDING_TTL_MS,
+				},
+			);
+			res.redirect(
+				`${getFrontendUrl()}/?auth=google_otp&email=${encodeURIComponent(normalizedEmail)}`,
+			);
+		} else {
+			const errorMessage = encodeURIComponent(
+				otpResult.message ||
+					"Failed to send verification code",
+			);
+			res.redirect(
+				`${getFrontendUrl()}/?error=${errorMessage}`,
+			);
+		}
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/google/verify
+ * @desc    Verify OTP issued after Google OAuth and complete login
+ * @access  Public
+ */
+export const verifyGoogleCode = async (
+	req: Request<{}, {}, VerifyGoogleCodeBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { code } = req.body;
+		const pendingToken =
+			req.cookies?.[
+				GOOGLE_OTP_PENDING_COOKIE
+			];
+
+		if (!pendingToken) {
+			res.status(401).json({
+				success: false,
+				message:
+					"Google verification session expired. Please sign in with Google again.",
+			});
+			return;
+		}
+
+		const pendingPayload =
+			parseGooglePendingToken(pendingToken);
+		if (!pendingPayload) {
+			res.clearCookie(
+				GOOGLE_OTP_PENDING_COOKIE,
+				{
+					...authFlowCookieOptions,
+				},
+			);
+			res.status(401).json({
+				success: false,
+				message:
+					"Google verification session expired. Please sign in with Google again.",
+			});
+			return;
+		}
+
+		const result = await authService.verifyCode(
+			pendingPayload.email,
+			code,
+			req.ip,
+			req.get("user-agent"),
+		);
 
 		if (
 			result.success &&
@@ -491,29 +854,28 @@ export const googleCallback = async (
 				result.accessToken,
 				result.refreshToken,
 			);
-
-			// Redirect to dashboard on success with expiry info in query param
-			const frontendUrl =
-				process.env.FRONTEND_URL ||
-				"http://localhost:3001";
-			const expiresIn =
-				config.ACCESS_TOKEN_EXPIRY_MINUTES * 60;
-			res.redirect(
-				`${frontendUrl}/dashboard?expiresIn=${expiresIn}`,
+			res.clearCookie(
+				GOOGLE_OTP_PENDING_COOKIE,
+				{
+					...authFlowCookieOptions,
+				},
 			);
-		} else {
-			// Redirect to login with error message
-			const frontendUrl =
-				process.env.FRONTEND_URL ||
-				"http://localhost:3001";
-			const errorMessage = encodeURIComponent(
-				result.message ||
-					"Google authentication failed",
-			);
-			res.redirect(
-				`${frontendUrl}/login?error=${errorMessage}`,
-			);
+			res.status(200).json({
+				success: true,
+				message: result.message,
+				expiresIn:
+					config.ACCESS_TOKEN_EXPIRY_MINUTES *
+					60,
+			});
+			return;
 		}
+
+		res.status(401).json({
+			success: false,
+			message: result.message,
+			remainingAttempts:
+				result.remainingAttempts,
+		});
 	} catch (error) {
 		next(error);
 	}

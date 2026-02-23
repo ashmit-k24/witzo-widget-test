@@ -368,9 +368,7 @@ router.post(
 router.get(
 	"/google",
 	authLimiter,
-	passport.authenticate("google", {
-		session: false,
-	}),
+	authController.initiateGoogleAuth,
 );
 
 /**
@@ -380,11 +378,21 @@ router.get(
  */
 router.get(
 	"/google/callback",
+	authController.validateGoogleOAuthState,
 	passport.authenticate("google", {
 		session: false,
-		failureRedirect: `${config.FRONTEND_URL}/login?error=google_auth_failed`,
+		failureRedirect: `${config.FRONTEND_URL}/?error=google_auth_failed`,
 	}),
 	authController.googleCallback,
+);
+
+router.post(
+	"/google/verify",
+	verifyCsrfToken,
+	verifyLimiter,
+	validationRules.verifyGoogleCode,
+	validate,
+	authController.verifyGoogleCode,
 );
 
 // ============================================

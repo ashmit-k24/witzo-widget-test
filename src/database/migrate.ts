@@ -122,6 +122,12 @@ const migrations: Migration[] = [
 			"Create enterprise lead webhook config/events tables for outbound CRM delivery",
 		file: "20260223_017_enterprise_lead_webhooks.sql",
 	},
+	{
+		id: "20260223_018_enterprise_unlimited_conversations",
+		description:
+			"Allow unlimited enterprise conversations by making conversations_limit nullable and setting enterprise to NULL",
+		file: "20260223_018_enterprise_unlimited_conversations.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

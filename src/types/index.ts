@@ -13,7 +13,7 @@ export interface User {
 	last_login: Date | null;
 	plan_type: PlanType;
 	conversations_used: number;
-	conversations_limit: number;
+	conversations_limit: number | null;
 	plan_reset_date: Date;
 	plan_expires_at: Date | null;
 	stripe_customer_id: string | null;
@@ -144,6 +144,10 @@ export interface RequestCodeBody {
 
 export interface VerifyCodeBody {
 	email: string;
+	code: string;
+}
+
+export interface VerifyGoogleCodeBody {
 	code: string;
 }
 
@@ -341,8 +345,8 @@ export interface ParsedDocument {
 export interface UsageStats {
 	planType: PlanType;
 	conversationsUsed: number;
-	conversationsLimit: number;
-	conversationsRemaining: number;
+	conversationsLimit: number | null;
+	conversationsRemaining: number | null;
 	resetDate: Date;
 	isApproachingLimit: boolean;
 	isAtLimit: boolean;

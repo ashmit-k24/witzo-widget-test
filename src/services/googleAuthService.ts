@@ -220,7 +220,9 @@ class GoogleAuthService {
 				sessionId,
 			});
 
-			// Hash refresh token for storage
+			// Hash both tokens for storage
+			const hashedAccessToken =
+				tokenUtil.hashToken(accessToken);
 			const hashedRefreshToken =
 				tokenUtil.hashToken(refreshToken);
 
@@ -234,7 +236,7 @@ class GoogleAuthService {
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $5`,
 				[
-					accessToken,
+					hashedAccessToken,
 					hashedRefreshToken,
 					accessTokenExpiresAt,
 					refreshTokenExpiresAt,

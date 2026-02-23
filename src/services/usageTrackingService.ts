@@ -19,6 +19,43 @@ const usageCacheKey = (userId: string) =>
  * Manages conversation limits and usage tracking for free and basic plans
  */
 class UsageTrackingService {
+	private buildUsageStats(user: {
+		plan_type: string;
+		conversations_used: number;
+		conversations_limit: number | null;
+		plan_reset_date: Date;
+	}): UsageStats {
+		const limit = user.conversations_limit;
+		const hasUnlimitedLimit = limit === null;
+		const conversationsRemaining =
+			hasUnlimitedLimit
+				? null
+				: Math.max(
+						0,
+						limit -
+							user.conversations_used,
+					);
+		const isAtLimit = hasUnlimitedLimit
+			? false
+			: user.conversations_used >= limit;
+		const isApproachingLimit = hasUnlimitedLimit
+			? false
+			: limit > 0 &&
+				user.conversations_used / limit >=
+					USAGE_APPROACHING_LIMIT_THRESHOLD;
+
+		return {
+			planType: coercePlanType(user.plan_type),
+			conversationsUsed: user.conversations_used,
+			conversationsLimit: limit,
+			conversationsRemaining,
+			resetDate: user.plan_reset_date,
+			isApproachingLimit:
+				isApproachingLimit && !isAtLimit,
+			isAtLimit,
+		};
+	}
+
 	/**
 	 * Get user's current usage statistics.
 	 * Result is cached in Redis for 60 seconds to reduce DB load.
@@ -47,23 +84,7 @@ class UsageTrackingService {
 			}
 
 			const user = result.rows[0];
-			const conversationsRemaining =
-				user.conversations_limit - user.conversations_used;
-			const isAtLimit =
-				user.conversations_used >= user.conversations_limit;
-			const isApproachingLimit =
-				user.conversations_used / user.conversations_limit >=
-				USAGE_APPROACHING_LIMIT_THRESHOLD;
-
-			const stats: UsageStats = {
-				planType: coercePlanType(user.plan_type),
-				conversationsUsed: user.conversations_used,
-				conversationsLimit: user.conversations_limit,
-				conversationsRemaining: Math.max(0, conversationsRemaining),
-				resetDate: user.plan_reset_date,
-				isApproachingLimit: isApproachingLimit && !isAtLimit,
-				isAtLimit,
-			};
+			const stats = this.buildUsageStats(user);
 
 			await redisCache.setex(
 				cacheKey,
@@ -97,7 +118,7 @@ class UsageTrackingService {
 		try {
 			const result = await pool.query<{
 				conversations_used: number;
-				conversations_limit: number;
+				conversations_limit: number | null;
 				plan_reset_date: Date;
 				plan_type: string;
 			}>(
@@ -105,7 +126,7 @@ class UsageTrackingService {
          SET conversations_used = conversations_used + 1,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $1
-           AND conversations_used < conversations_limit
+           AND (conversations_limit IS NULL OR conversations_used < conversations_limit)
          RETURNING conversations_used, conversations_limit, plan_reset_date, plan_type`,
 				[userId],
 			);
@@ -115,31 +136,16 @@ class UsageTrackingService {
 			}
 
 			const user = result.rows[0];
-			const conversationsRemaining =
-				user.conversations_limit - user.conversations_used;
-			const isAtLimit =
-				user.conversations_used >= user.conversations_limit;
-			const isApproachingLimit =
-				user.conversations_used / user.conversations_limit >=
-				USAGE_APPROACHING_LIMIT_THRESHOLD;
-
-			const usage: UsageStats = {
-				planType: coercePlanType(user.plan_type),
-				conversationsUsed: user.conversations_used,
-				conversationsLimit: user.conversations_limit,
-				conversationsRemaining: Math.max(0, conversationsRemaining),
-				resetDate: user.plan_reset_date,
-				isApproachingLimit: isApproachingLimit && !isAtLimit,
-				isAtLimit,
-			};
+			const usage = this.buildUsageStats(user);
 
 			// Invalidate cached stats since the counter just changed
 			await redisCache.del(usageCacheKey(userId));
 
-			if (isApproachingLimit) {
+			if (usage.isApproachingLimit) {
 				logger.warn("User approaching conversation limit", {
 					userId,
-					conversationsRemaining: Math.max(0, conversationsRemaining),
+					conversationsRemaining:
+						usage.conversationsRemaining,
 				});
 			}
 
@@ -200,7 +206,11 @@ class UsageTrackingService {
 			}
 
 			const user = result.rows[0];
-			return user.conversations_used < user.conversations_limit;
+			return (
+				user.conversations_limit === null ||
+				user.conversations_used <
+					user.conversations_limit
+			);
 		} catch (error) {
 			const err = error as Error;
 			logger.error("Error checking if user can chat", {
@@ -214,7 +224,9 @@ class UsageTrackingService {
 	/**
 	 * Get remaining conversations for a user
 	 */
-	async getRemainingConversations(userId: string): Promise<number> {
+	async getRemainingConversations(
+		userId: string,
+	): Promise<number | null> {
 		try {
 			const result = await pool.query(
 				`SELECT conversations_used, conversations_limit
@@ -228,9 +240,13 @@ class UsageTrackingService {
 			}
 
 			const user = result.rows[0];
+			if (user.conversations_limit === null) {
+				return null;
+			}
 			return Math.max(
 				0,
-				user.conversations_limit - user.conversations_used,
+				user.conversations_limit -
+					user.conversations_used,
 			);
 		} catch (error) {
 			const err = error as Error;
@@ -259,8 +275,15 @@ class UsageTrackingService {
 			}
 
 			const user = result.rows[0];
+			if (
+				user.conversations_limit === null ||
+				user.conversations_limit <= 0
+			) {
+				return false;
+			}
 			const usagePercentage =
-				user.conversations_used / user.conversations_limit;
+				user.conversations_used /
+				user.conversations_limit;
 			return (
 				usagePercentage >=
 					USAGE_APPROACHING_LIMIT_THRESHOLD &&
@@ -340,7 +363,8 @@ class UsageTrackingService {
 					userId,
 					stripeCustomerId,
 					subscriptionId,
-					PLAN_CONVERSATION_DEFAULT_LIMITS.basic,
+					PLAN_CONVERSATION_DEFAULT_LIMITS
+						.basic as number,
 				],
 			);
 
@@ -375,7 +399,8 @@ class UsageTrackingService {
         WHERE id = $1`,
 				[
 					userId,
-					PLAN_CONVERSATION_DEFAULT_LIMITS.free,
+					PLAN_CONVERSATION_DEFAULT_LIMITS
+						.free as number,
 				],
 			);
 

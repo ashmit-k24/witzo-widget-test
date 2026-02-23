@@ -64,11 +64,11 @@ export const PLAN_CAPABILITIES: Record<
 
 export const PLAN_CONVERSATION_DEFAULT_LIMITS: Record<
 	PlanType,
-	number
+	LimitValue
 > = {
 	free: 100,
 	basic: 1000,
-	enterprise: 1000,
+	enterprise: null,
 };
 
 export function coercePlanType(

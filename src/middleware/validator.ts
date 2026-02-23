@@ -56,6 +56,19 @@ export const validationRules: Record<
 			),
 	],
 
+	verifyGoogleCode: [
+		body("code")
+			.trim()
+			.isLength({ min: 6, max: 6 })
+			.withMessage(
+				"Verification code must be 6 digits",
+			)
+			.isNumeric()
+			.withMessage(
+				"Verification code must contain only numbers",
+			),
+	],
+
 	updateProfile: [
 		body("full_name")
 			.isString()
