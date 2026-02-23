@@ -1,5 +1,5 @@
-import cookieParser from "cookie-parser";
 import compression from "compression";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, {
 	Application,
@@ -10,6 +10,9 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { Server } from "http";
 import { config } from "./config/env";
+import passport, {
+	configurePassport,
+} from "./config/passport";
 import {
 	AUTH_CLEANUP_INTERVAL_MS,
 	RESPONSE_COMPRESSION_MIN_BYTES,
@@ -19,27 +22,25 @@ import {
 	SHUTDOWN_FORCE_TIMEOUT_MS,
 	WEBHOOK_PROCESS_INTERVAL_MS,
 } from "./constants";
-import passport, {
-	configurePassport,
-} from "./config/passport";
 import {
 	errorHandler,
 	notFoundHandler,
 } from "./middleware/errorHandler";
 import { sanitizeRequestInput } from "./middleware/sanitizeInput";
+import healthRoutes from "./routes/healthRoutes";
 import publicRoutes from "./routes/publicRoutes";
 import authRoutes from "./routes/routes";
-import healthRoutes from "./routes/healthRoutes";
 import authService from "./services/authService";
-import widgetService from "./services/widgetService";
 import { leadWebhookService } from "./services/leadWebhookService";
+import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
-import { createScraperWorker } from "./workers/scraperWorker";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
+import { createScraperWorker } from "./workers/scraperWorker";
 
 // Start background workers and keep references for graceful shutdown
 const scraperWorker = createScraperWorker();
-const maintenanceWorker = createMaintenanceWorker();
+const maintenanceWorker =
+	createMaintenanceWorker();
 
 const app: Application = express();
 app.set("trust proxy", 1);
@@ -134,16 +135,21 @@ app.use(sanitizeRequestInput);
 app.use(passport.initialize());
 
 // Response compression — handles gzip/deflate, skips SSE streams automatically
-app.use(compression({
-	filter: (req, res) => {
-		// Don't compress SSE streams
-		if (res.getHeader("Content-Type") === "text/event-stream") {
-			return false;
-		}
-		return compression.filter(req, res);
-	},
-	threshold: RESPONSE_COMPRESSION_MIN_BYTES,
-}));
+app.use(
+	compression({
+		filter: (req, res) => {
+			// Don't compress SSE streams
+			if (
+				res.getHeader("Content-Type") ===
+				"text/event-stream"
+			) {
+				return false;
+			}
+			return compression.filter(req, res);
+		},
+		threshold: RESPONSE_COMPRESSION_MIN_BYTES,
+	}),
+);
 
 // Global rate limiting
 const limiter = rateLimit({
@@ -241,7 +247,9 @@ const gracefulShutdown = (server: Server) => {
 	forceTimer.unref(); // Don't keep the process alive just for this timer
 
 	server.close(async () => {
-		logger.info("HTTP server closed, draining workers...");
+		logger.info(
+			"HTTP server closed, draining workers...",
+		);
 		try {
 			await Promise.all([
 				scraperWorker.close(),
@@ -249,7 +257,9 @@ const gracefulShutdown = (server: Server) => {
 			]);
 			logger.info("BullMQ workers closed");
 		} catch (err) {
-			logger.error("Error closing workers", { error: (err as Error).message });
+			logger.error("Error closing workers", {
+				error: (err as Error).message,
+			});
 		}
 		logger.info("Shutdown complete");
 		clearTimeout(forceTimer);
@@ -264,12 +274,13 @@ const server: Server = app.listen(
 		logger.info(
 			`Server running in ${config.NODE_ENV} mode on port ${config.PORT}`,
 		);
-		console.log(
+		logger.info(
 			`🚀 Server is running on http://localhost:${config.PORT}`,
 		);
 	},
 );
-server.keepAliveTimeout = SERVER_KEEP_ALIVE_TIMEOUT_MS;
+server.keepAliveTimeout =
+	SERVER_KEEP_ALIVE_TIMEOUT_MS;
 server.headersTimeout = SERVER_HEADERS_TIMEOUT_MS;
 server.requestTimeout = SERVER_REQUEST_TIMEOUT_MS;
 
@@ -293,12 +304,18 @@ process.on(
 );
 
 // Handle synchronous uncaught exceptions — log then exit so PM2 can restart
-process.on("uncaughtException", (error: Error) => {
-	logger.error("Uncaught Exception — process will exit", {
-		error: error.message,
-		stack: error.stack,
-	});
-	process.exit(1);
-});
+process.on(
+	"uncaughtException",
+	(error: Error) => {
+		logger.error(
+			"Uncaught Exception — process will exit",
+			{
+				error: error.message,
+				stack: error.stack,
+			},
+		);
+		process.exit(1);
+	},
+);
 
 export default app;

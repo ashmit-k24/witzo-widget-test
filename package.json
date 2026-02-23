@@ -6,8 +6,8 @@
 	"scripts": {
 		"build": "tsc",
 		"start": "node dist/server.js",
-		"dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-		"migrate": "ts-node src/database/migrate.ts",
+		"dev": "tsx watch src/server.ts",
+		"migrate": "tsx src/database/migrate.ts",
 		"lint": "eslint . --ext .ts",
 		"format": "prettier --write \"src/**/*.ts\"",
 		"clean": "rm -rf dist",
@@ -41,9 +41,9 @@
 		"compression": "^1.8.1",
 		"cookie-parser": "^1.4.7",
 		"cors": "^2.8.5",
-		"csurf": "^1.2.2",
 		"csv-parse": "^6.1.0",
 		"dotenv": "^16.3.1",
+		"exceljs": "^4.4.0",
 		"express": "^4.18.2",
 		"express-rate-limit": "^7.1.5",
 		"express-validator": "^7.0.1",
@@ -58,15 +58,13 @@
 		"passport-google-oauth20": "^2.0.0",
 		"pdf-parse": "^2.4.5",
 		"pg": "^8.11.3",
-		"winston": "^3.11.0",
-		"xlsx": "^0.18.5"
+		"winston": "^3.11.0"
 	},
 	"devDependencies": {
 		"@types/cheerio": "^0.22.35",
 		"@types/compression": "^1.8.1",
 		"@types/cookie-parser": "^1.4.10",
 		"@types/cors": "^2.8.17",
-		"@types/csurf": "^1.11.5",
 		"@types/express": "^4.17.21",
 		"@types/multer": "^2.0.0",
 		"@types/node": "^20.10.5",
@@ -74,13 +72,23 @@
 		"@types/papaparse": "^5.5.2",
 		"@types/pdf-parse": "^1.1.5",
 		"@types/pg": "^8.10.9",
-		"@typescript-eslint/eslint-plugin": "^6.15.0",
-		"@typescript-eslint/parser": "^6.15.0",
-		"eslint": "^8.56.0",
+		"@typescript-eslint/eslint-plugin": "^8.0.0",
+		"@typescript-eslint/parser": "^8.0.0",
+		"eslint": "^9.33.0",
 		"prettier": "^3.1.1",
 		"ts-node": "^10.9.2",
-		"ts-node-dev": "^2.0.0",
+		"tsx": "^4.19.4",
 		"typescript": "^5.3.3"
+	},
+	"pnpm": {
+		"overrides": {
+			"minimatch": "^10.2.1"
+		},
+		"auditConfig": {
+			"ignoreCves": [
+				"GHSA-3ppc-4f35-3m26"
+			]
+		}
 	},
 	"packageManager": "pnpm@9.7.0+sha512.dc09430156b427f5ecfc79888899e1c39d2d690f004be70e05230b72cb173d96839587545d09429b55ac3c429c801b4dc3c0e002f653830a420fa2dd4e3cf9cf"
 }

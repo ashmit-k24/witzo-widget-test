@@ -1,27 +1,33 @@
-FROM node:20-bullseye-slim AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Enable corepack and install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 # Copy package files first to leverage Docker cache for installs
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml ./
 
 # Install all dependencies (including dev) for build
-RUN npm install --no-audit --no-fund
+RUN pnpm install --frozen-lockfile --no-optional
 
 # Copy the rest of the source
 COPY . .
 
 # Build TypeScript -> dist
-RUN npm run build
+RUN pnpm run build
 
 # Remove dev dependencies so node_modules only contains production deps
-RUN npm prune --production
+RUN pnpm prune --prod
 
 # Final runtime image
-FROM node:20-bullseye-slim AS runner
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Enable corepack for pnpm in runtime image too
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Copy compiled output and production deps from builder
 COPY --from=builder /app/dist ./dist
@@ -31,8 +37,8 @@ COPY --from=builder /app/public ./public
 
 # Do NOT copy .env into the image — pass runtime config via --env-file or environment vars
 # Create non-root user for improved security
-RUN useradd --create-home --shell /bin/bash appuser \
-        && chown -R appuser:appuser /app
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+        && chown -R appuser:appgroup /app
 
 USER appuser
 
