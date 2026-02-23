@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import dotenv from "dotenv";
 import { EnvConfig } from "../types";
 
@@ -116,6 +117,27 @@ const getEnvBoolean = (
 	return defaultValue;
 };
 
+const getRequiredSecret = (key: string): string => {
+	const value = normalizeEnvString(process.env[key]);
+	if (value !== undefined && value !== "") {
+		return value;
+	}
+
+	if (process.env.NODE_ENV === "production") {
+		throw new Error(
+			`Missing required environment variable: ${key}`,
+		);
+	}
+
+	const generatedSecret = crypto
+		.randomBytes(48)
+		.toString("hex");
+	console.warn(
+		`[env] ${key} is not set. Using an ephemeral development secret. Sessions will reset on restart.`,
+	);
+	return generatedSecret;
+};
+
 export const config: EnvConfig = {
 	PORT: getEnvNumber("PORT", 3000),
 	NODE_ENV: getEnvString(
@@ -173,24 +195,17 @@ export const config: EnvConfig = {
 	),
 	ACCESS_TOKEN_EXPIRY_MINUTES: getEnvNumber(
 		"ACCESS_TOKEN_EXPIRY_MINUTES",
-		1440,
+		15,
 	),
 	REFRESH_TOKEN_EXPIRY_DAYS: getEnvNumber(
 		"REFRESH_TOKEN_EXPIRY_DAYS",
 		7,
 	),
-	JWT_SECRET: getEnvString(
-		"JWT_SECRET",
-		"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
-	),
-	JWT_REFRESH_SECRET: getEnvString(
+	JWT_SECRET: getRequiredSecret("JWT_SECRET"),
+	JWT_REFRESH_SECRET: getRequiredSecret(
 		"JWT_REFRESH_SECRET",
-		"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
 	),
-	COOKIE_SECRET: getEnvString(
-		"COOKIE_SECRET",
-		"dsfkljdshlj984392374kj23bjk2343209432^&(&^&&#jndkjsfnjdsb932nk",
-	),
+	COOKIE_SECRET: getRequiredSecret("COOKIE_SECRET"),
 
 	// Rate Limiting
 	RATE_LIMIT_WINDOW_MS: getEnvNumber(

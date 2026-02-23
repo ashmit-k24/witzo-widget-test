@@ -38,6 +38,7 @@
 		"axios": "^1.13.2",
 		"bullmq": "^5.66.4",
 		"cheerio": "^1.1.2",
+		"compression": "^1.8.1",
 		"cookie-parser": "^1.4.7",
 		"cors": "^2.8.5",
 		"csurf": "^1.2.2",
@@ -62,6 +63,7 @@
 	},
 	"devDependencies": {
 		"@types/cheerio": "^0.22.35",
+		"@types/compression": "^1.8.1",
 		"@types/cookie-parser": "^1.4.10",
 		"@types/cors": "^2.8.17",
 		"@types/csurf": "^1.11.5",

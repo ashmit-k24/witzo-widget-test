@@ -217,6 +217,7 @@ router.get(
  */
 router.post(
 	"/usage/check",
+	verifyCsrfToken,
 	authenticateToken,
 	usageController.checkUsage,
 );
@@ -300,6 +301,7 @@ router.get(
  */
 router.post(
 	"/chat",
+	verifyCsrfToken,
 	authenticateToken,
 	validationRules.chatRequest,
 	validate,
@@ -338,6 +340,7 @@ router.get(
  */
 router.delete(
 	"/chat/session/:sessionId",
+	verifyCsrfToken,
 	authenticateToken,
 	validationRules.chatSessionParam,
 	validate,
@@ -351,6 +354,7 @@ router.delete(
  */
 router.post(
 	"/chat/clear-user-sessions",
+	verifyCsrfToken,
 	authenticateToken,
 	chatController.clearUserSessions,
 );
@@ -394,6 +398,7 @@ router.get(
  */
 router.post(
 	"/documents/upload",
+	verifyCsrfToken,
 	authenticateToken,
 	upload.single("document"),
 	documentController.uploadDocument,
@@ -407,6 +412,7 @@ router.post(
  */
 router.post(
 	"/documents/upload-multiple",
+	verifyCsrfToken,
 	authenticateToken,
 	upload.array("documents", 10),
 	documentController.uploadMultipleDocuments,

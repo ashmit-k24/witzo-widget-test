@@ -8,6 +8,18 @@ import { pineconeService } from "../services/pineconeService";
 import usageTrackingService from "../services/usageTrackingService";
 import logger from "../utils/logger";
 
+const getScraperUpgradeMessage = (
+	planType: "free" | "basic" | "enterprise",
+): string => {
+	if (planType === "free") {
+		return "Upgrade to Basic plan for 30 website pages";
+	}
+	if (planType === "basic") {
+		return "Upgrade to Enterprise plan for up to 300 website pages";
+	}
+	return "You have reached the maximum limit for Enterprise plan (300 pages)";
+};
+
 /**
  * Middleware to atomically check the conversation limit AND increment the
  * usage counter in a single DB UPDATE.  This eliminates the TOCTOU race
@@ -198,13 +210,13 @@ export const checkScraperLimit = async (
 					pagesLimit: usage.pagesLimit,
 					pagesRemaining: usage.pagesRemaining,
 					upgradeUrl:
-						planType === "free"
+						planType !== "enterprise"
 							? "/api/auth/upgrade"
 							: undefined,
 					upgradeMessage:
-						planType === "free"
-							? "Upgrade to Basic plan for 30 website pages"
-							: "You have reached the maximum limit for Basic plan",
+						getScraperUpgradeMessage(
+							planType,
+						),
 				},
 			});
 			return;

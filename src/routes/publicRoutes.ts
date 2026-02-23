@@ -1,32 +1,16 @@
-import { Router, Request, Response } from "express";
-import {
-	coercePlanType,
-	getPlanCapabilities,
-} from "../config/planConfig";
+import { Router } from "express";
 import * as widgetController from "../controllers/widgetController";
-import pool from "../config/database";
+import * as publicWidgetController from "../controllers/publicWidgetController";
 import {
 	validate,
 	validationRules,
 } from "../middleware/validator";
-import widgetService from "../services/widgetService";
-import { chatRatingService } from "../services/chatRatingService";
-import { leadService } from "../services/leadService";
-import logger from "../utils/logger";
 
 const router: Router = Router();
 
-function extractDomain(url: string): string {
-	try {
-		return new URL(url).hostname.toLowerCase();
-	} catch {
-		return "";
-	}
-}
-
 /**
- * Public API routes for widget embedding
- * These routes don't require authentication but need valid widget keys
+ * Public API routes for widget embedding.
+ * These routes do not require user authentication but validate widget keys.
  */
 
 /**
@@ -57,17 +41,8 @@ router.post(
  * @access  Public
  */
 router.get("/widget/embed.js", (_req, res) => {
-	res.setHeader(
-		"Content-Type",
-		"application/javascript",
-	);
-	res.setHeader(
-		"Cache-Control",
-		"public, max-age=3600",
-	); // Cache for 1 hour
-
-	// Serve the widget embed script
-	// For now, we'll serve a placeholder that tells users to use their own widget
+	res.setHeader("Content-Type", "application/javascript");
+	res.setHeader("Cache-Control", "public, max-age=3600");
 	res.send(`
 // Witzo Chat Widget Embed Script
 console.log('Witzo Chat Widget: Use your own chat widget component with the widget-key attribute');
@@ -75,7 +50,7 @@ console.warn('This endpoint is for serving your custom widget JavaScript. Please
 
 // Example usage:
 // <witzo-chat widget-key="your-key" api-url="http://localhost:3008/api/v1/webhook"></witzo-chat>
-     `);
+	`);
 });
 
 /**
@@ -98,75 +73,7 @@ router.post(
 	"/widget/contact",
 	validationRules.publicWidgetContact,
 	validate,
-	async (req: Request, res: Response) => {
-		try {
-			const { widgetKey, sessionId, name, email, message } = req.body;
-
-			const referer =
-				req.get("referer") || req.get("origin") || "";
-			const refererDomain = extractDomain(referer);
-
-			const verification = await widgetService.verifyWidgetKey(
-				widgetKey,
-				refererDomain,
-			);
-			if (!verification.valid) {
-				res.status(403).json({
-					success: false,
-					message: "Invalid widget key",
-				});
-				return;
-			}
-
-			const userId = verification.userId!;
-
-				const { rows } = await pool.query<{
-					plan_type: string;
-				}>(
-				`SELECT plan_type FROM users WHERE id = $1`,
-				[userId],
-			);
-			const planType = coercePlanType(
-				rows[0]?.plan_type,
-			);
-			if (
-				!getPlanCapabilities(planType)
-					.fallbackLeadForm
-			) {
-				res.status(403).json({
-					success: false,
-					message: "Feature not available on your plan",
-				});
-				return;
-			}
-
-			const widget = await widgetService.getWidgetKeyByKey(widgetKey);
-
-			await leadService.saveContactFormLead(
-				userId,
-				sessionId,
-				widget?.id ?? 0,
-				{
-					name: name || null,
-					email,
-					summary: message || null,
-					ipAddress: req.ip,
-					sourceUrl: referer,
-				},
-			);
-
-			res.status(200).json({
-				success: true,
-				message: "Message received. We will be in touch!",
-			});
-		} catch (err) {
-			logger.error("Error saving contact form lead", { err });
-			res.status(500).json({
-				success: false,
-				message: "Something went wrong. Please try again.",
-			});
-		}
-	},
+	publicWidgetController.submitContactForm,
 );
 
 /**
@@ -178,65 +85,7 @@ router.post(
 	"/widget/rating",
 	validationRules.publicWidgetRating,
 	validate,
-	async (req: Request, res: Response) => {
-		try {
-			const { widgetKey, sessionId, rating } = req.body;
-
-			const referer =
-				req.get("referer") || req.get("origin") || "";
-			const refererDomain = extractDomain(referer);
-
-			const verification = await widgetService.verifyWidgetKey(
-				widgetKey,
-				refererDomain,
-			);
-			if (!verification.valid) {
-				res.status(403).json({
-					success: false,
-					message: "Invalid widget key",
-				});
-				return;
-			}
-
-			const userId = verification.userId!;
-
-			const { rows } = await pool.query<{
-				plan_type: string;
-			}>(
-				`SELECT plan_type FROM users WHERE id = $1`,
-				[userId],
-			);
-			const planType = coercePlanType(
-				rows[0]?.plan_type,
-			);
-			if (
-				!getPlanCapabilities(planType).chatRating
-			) {
-				res.status(403).json({
-					success: false,
-					message: "Feature not available on your plan",
-				});
-				return;
-			}
-
-			const widget = await widgetService.getWidgetKeyByKey(widgetKey);
-
-			await chatRatingService.upsertRating(
-				userId,
-				sessionId,
-				widget?.id ?? null,
-				rating as "up" | "down",
-			);
-
-			res.status(200).json({ success: true, message: "Rating recorded" });
-		} catch (err) {
-			logger.error("Error saving chat rating", { err });
-			res.status(500).json({
-				success: false,
-				message: "Failed to save rating",
-			});
-		}
-	},
+	publicWidgetController.submitChatRating,
 );
 
 export default router;

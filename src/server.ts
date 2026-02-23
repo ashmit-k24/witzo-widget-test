@@ -1,11 +1,11 @@
 import cookieParser from "cookie-parser";
+import compression from "compression";
 import cors from "cors";
 import express, {
 	Application,
 	Request,
 	Response,
 } from "express";
-import zlib from "zlib";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { Server } from "http";
@@ -35,9 +35,9 @@ import logger from "./utils/logger";
 import { createScraperWorker } from "./workers/scraperWorker";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 
-// Start background workers
-createScraperWorker();
-createMaintenanceWorker();
+// Start background workers and keep references for graceful shutdown
+const scraperWorker = createScraperWorker();
+const maintenanceWorker = createMaintenanceWorker();
 
 const app: Application = express();
 app.set("trust proxy", 1);
@@ -131,67 +131,17 @@ app.use(sanitizeRequestInput);
 // Initialize Passport middleware
 app.use(passport.initialize());
 
-// Lightweight response compression for larger text/json payloads.
-app.use((req: Request, res: Response, next) => {
-	const acceptEncoding =
-		(req.headers["accept-encoding"] as
-			| string
-			| undefined) ?? "";
-
-	const originalSend = res.send.bind(res);
-	(res as any).send = (body: any) => {
-		if (
-			res.getHeader("Content-Encoding") ||
-			typeof body !== "string" ||
-			body.length <
-				RESPONSE_COMPRESSION_MIN_BYTES ||
-			res.getHeader("Content-Type") ===
-				"text/event-stream"
-		) {
-			return originalSend(body);
+// Response compression — handles gzip/deflate, skips SSE streams automatically
+app.use(compression({
+	filter: (req, res) => {
+		// Don't compress SSE streams
+		if (res.getHeader("Content-Type") === "text/event-stream") {
+			return false;
 		}
-
-		try {
-			const raw = Buffer.from(body);
-			let encoded: Buffer | null = null;
-
-			if (acceptEncoding.includes("br")) {
-				encoded =
-					zlib.brotliCompressSync(raw);
-				res.setHeader(
-					"Content-Encoding",
-					"br",
-				);
-			} else if (
-				acceptEncoding.includes("gzip")
-			) {
-				encoded = zlib.gzipSync(raw);
-				res.setHeader(
-					"Content-Encoding",
-					"gzip",
-				);
-			}
-
-			if (!encoded) {
-				return originalSend(body);
-			}
-
-			res.setHeader(
-				"Vary",
-				"Accept-Encoding",
-			);
-			res.setHeader(
-				"Content-Length",
-				String(encoded.length),
-			);
-			return res.end(encoded);
-		} catch {
-			return originalSend(body);
-		}
-	};
-
-	next();
-});
+		return compression.filter(req, res);
+	},
+	threshold: RESPONSE_COMPRESSION_MIN_BYTES,
+}));
 
 // Global rate limiting
 const limiter = rateLimit({
@@ -269,16 +219,28 @@ const gracefulShutdown = (server: Server) => {
 		"Received shutdown signal, closing server gracefully...",
 	);
 
-	server.close(() => {
-		logger.info("Server closed");
-		process.exit(0);
-	});
-
-	// Force shutdown after 10 seconds
-	setTimeout(() => {
+	// Force shutdown after timeout if clean shutdown stalls
+	const forceTimer = setTimeout(() => {
 		logger.error("Forced shutdown after timeout");
 		process.exit(1);
 	}, SHUTDOWN_FORCE_TIMEOUT_MS);
+	forceTimer.unref(); // Don't keep the process alive just for this timer
+
+	server.close(async () => {
+		logger.info("HTTP server closed, draining workers...");
+		try {
+			await Promise.all([
+				scraperWorker.close(),
+				maintenanceWorker.close(),
+			]);
+			logger.info("BullMQ workers closed");
+		} catch (err) {
+			logger.error("Error closing workers", { error: (err as Error).message });
+		}
+		logger.info("Shutdown complete");
+		clearTimeout(forceTimer);
+		process.exit(0);
+	});
 };
 
 // Start server
@@ -315,5 +277,14 @@ process.on(
 		});
 	},
 );
+
+// Handle synchronous uncaught exceptions — log then exit so PM2 can restart
+process.on("uncaughtException", (error: Error) => {
+	logger.error("Uncaught Exception — process will exit", {
+		error: error.message,
+		stack: error.stack,
+	});
+	process.exit(1);
+});
 
 export default app;

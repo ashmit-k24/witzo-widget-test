@@ -45,7 +45,10 @@ export const setCsrfToken = (
 		res.cookie(CSRF_COOKIE_NAME, csrfToken, {
 			httpOnly: false, // Must be readable by JavaScript
 			secure: config.NODE_ENV === "production",
-			sameSite: "strict",
+			// "lax" (not "strict") allows the cookie to be sent on
+			// top-level cross-site navigations (e.g. OAuth redirects),
+			// which is required for the Google OAuth callback flow.
+			sameSite: "lax",
 			maxAge: CSRF_TOKEN_MAX_AGE_MS,
 			path: "/",
 		});

@@ -7,6 +7,22 @@ import { scraperService } from "../services/scraperService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
+const SCRAPER_DEFAULT_MAX_PAGES = 300;
+const SCRAPER_MAX_DEPTH = 10;
+const SCRAPER_MAX_PAGES = 300;
+
+const getScraperUpgradeMessage = (
+	planType: "free" | "basic" | "enterprise",
+): string => {
+	if (planType === "free") {
+		return "Upgrade to Basic plan for 30 website pages";
+	}
+	if (planType === "basic") {
+		return "Upgrade to Enterprise plan for up to 300 website pages";
+	}
+	return "You have reached the maximum limit for Enterprise plan (300 pages)";
+};
+
 export const scrapeWebsite = async (
 	req: Request,
 	res: Response,
@@ -15,7 +31,7 @@ export const scrapeWebsite = async (
 		const {
 			url,
 			maxDepth = 3,
-			maxPages = 100,
+			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType = coercePlanType(
@@ -77,13 +93,13 @@ export const scrapeWebsite = async (
 						pagesRemaining:
 							scraperUsage.pagesRemaining,
 						upgradeUrl:
-							planType === "free"
+							planType !== "enterprise"
 								? "/api/auth/upgrade"
 								: undefined,
 						upgradeMessage:
-							planType === "free"
-								? "Upgrade to Basic plan for 30 website pages"
-								: "You have reached the maximum limit for Basic plan",
+							getScraperUpgradeMessage(
+								planType,
+							),
 					},
 				});
 				return;
@@ -91,11 +107,18 @@ export const scrapeWebsite = async (
 
 			const normalizedMaxDepth = Math.max(
 				0,
-				Number(maxDepth) || 3,
+				Math.min(
+					SCRAPER_MAX_DEPTH,
+					Number(maxDepth) || 3,
+				),
 			);
 			const normalizedMaxPages = Math.max(
 				1,
-				Number(maxPages) || 100,
+				Math.min(
+					SCRAPER_MAX_PAGES,
+					Number(maxPages) ||
+						SCRAPER_DEFAULT_MAX_PAGES,
+				),
 			);
 			const effectiveMaxPages = Math.min(
 				normalizedMaxPages,
@@ -525,7 +548,7 @@ export const retrainWebsite = async (
 		const {
 			url,
 			maxDepth = 3,
-			maxPages = 100,
+			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType = coercePlanType(
@@ -581,13 +604,13 @@ export const retrainWebsite = async (
 						pagesRemaining:
 							scraperUsage.pagesRemaining,
 						upgradeUrl:
-							planType === "free"
+							planType !== "enterprise"
 								? "/api/auth/upgrade"
 								: undefined,
 						upgradeMessage:
-							planType === "free"
-								? "Upgrade to Basic plan for 30 website pages"
-								: "You have reached the maximum limit for Basic plan",
+							getScraperUpgradeMessage(
+								planType,
+							),
 					},
 				});
 				return;
@@ -595,11 +618,18 @@ export const retrainWebsite = async (
 
 			const normalizedMaxDepth = Math.max(
 				0,
-				Number(maxDepth) || 3,
+				Math.min(
+					SCRAPER_MAX_DEPTH,
+					Number(maxDepth) || 3,
+				),
 			);
 			const normalizedMaxPages = Math.max(
 				1,
-				Number(maxPages) || 100,
+				Math.min(
+					SCRAPER_MAX_PAGES,
+					Number(maxPages) ||
+						SCRAPER_DEFAULT_MAX_PAGES,
+				),
 			);
 			const effectiveMaxPages = Math.min(
 				normalizedMaxPages,

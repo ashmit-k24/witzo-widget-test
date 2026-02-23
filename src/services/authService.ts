@@ -432,11 +432,10 @@ class AuthService {
 			const updatedUser =
 				updatedUserResult.rows[0] ?? user;
 
-			// Revoke old sessions for this user (optional security measure)
-			await client.query(
-				"UPDATE sessions SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE",
-				[user.id],
-			);
+			// NOTE: We intentionally do NOT revoke other sessions on login.
+			// Users may be logged in on multiple devices simultaneously.
+			// They can revoke individual or all other sessions explicitly
+			// via the /sessions and /logout-all endpoints.
 
 			// Create new session first to get the actual session ID
 			const sessionResult = await client.query<{
@@ -496,7 +495,10 @@ class AuthService {
 				sessionId,
 			});
 
-			// Hash refresh token for storage
+			// Hash both tokens for storage — access token stored as hash so
+			// a DB compromise cannot be used to forge authenticated requests
+			const hashedAccessToken =
+				tokenUtil.hashToken(accessToken);
 			const hashedRefreshToken =
 				tokenUtil.hashToken(refreshToken);
 
@@ -510,7 +512,7 @@ class AuthService {
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $5`,
 				[
-					accessToken,
+					hashedAccessToken,
 					hashedRefreshToken,
 					accessTokenExpiresAt,
 					refreshTokenExpiresAt,
@@ -614,6 +616,9 @@ class AuthService {
 			const { userId, sessionId } =
 				verification.payload;
 
+			// Hash the incoming token before comparing with the stored hash
+			const hashedAccessToken = tokenUtil.hashToken(accessToken);
+
 			// Check if session exists and is not revoked
 			const sessionResult = await pool.query(
 				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified, u.plan_type,
@@ -623,7 +628,7 @@ class AuthService {
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1 AND s.user_id = $2 AND s.access_token = $3 AND s.is_revoked = FALSE`,
-				[sessionId, userId, accessToken],
+				[sessionId, userId, hashedAccessToken],
 			);
 
 			if (sessionResult.rows.length === 0) {
@@ -787,10 +792,12 @@ class AuthService {
 				sessionId: session.id,
 			});
 
+			const hashedNewAccessToken =
+				tokenUtil.hashToken(newAccessToken);
 			const hashedNewRefreshToken =
 				tokenUtil.hashToken(newRefreshToken);
 
-			// Update session with new tokens
+			// Update session with new hashed tokens
 			await client.query(
 				`UPDATE sessions
          SET access_token = $1,
@@ -800,7 +807,7 @@ class AuthService {
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $5`,
 				[
-					newAccessToken,
+					hashedNewAccessToken,
 					hashedNewRefreshToken,
 					accessTokenExpiresAt,
 					refreshTokenExpiresAt,

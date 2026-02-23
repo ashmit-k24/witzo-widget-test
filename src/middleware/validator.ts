@@ -113,13 +113,13 @@ export const validationRules: Record<
 			})
 			.withMessage("url must be a valid http/https URL"),
 		body("maxDepth")
-			.optional()
+			.optional({ values: "falsy" })
 			.isInt({ min: 0, max: 10 })
 			.withMessage("maxDepth must be between 0 and 10"),
 		body("maxPages")
-			.optional()
-			.isInt({ min: 1, max: 1000 })
-			.withMessage("maxPages must be between 1 and 1000"),
+			.optional({ values: "falsy" })
+			.isInt({ min: 1, max: 300 })
+			.withMessage("maxPages must be between 1 and 300"),
 	],
 
 	deleteByUrl: [

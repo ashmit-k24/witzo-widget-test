@@ -167,7 +167,7 @@ class ScraperService {
 		const rootUrl = this.normalizeUrl(url);
 		let rootTitle = "";
 		const maxDepth = options.maxDepth || 3;
-		const maxPages = options.maxPages || 100;
+		const maxPages = options.maxPages || 300;
 		const visitedUrls = new Set<string>();
 		const urlQueue: Array<{
 			url: string;
