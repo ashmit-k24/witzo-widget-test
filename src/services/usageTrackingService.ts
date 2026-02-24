@@ -19,6 +19,12 @@ const usageCacheKey = (userId: string) =>
  * Manages conversation limits and usage tracking for free and basic plans
  */
 class UsageTrackingService {
+	private getNextResetDate(lastResetDate: Date): Date {
+		const nextResetDate = new Date(lastResetDate);
+		nextResetDate.setMonth(nextResetDate.getMonth() + 1);
+		return nextResetDate;
+	}
+
 	private buildUsageStats(user: {
 		plan_type: string;
 		conversations_used: number;
@@ -49,7 +55,10 @@ class UsageTrackingService {
 			conversationsUsed: user.conversations_used,
 			conversationsLimit: limit,
 			conversationsRemaining,
-			resetDate: user.plan_reset_date,
+			// Expose next reset moment (last reset + 1 month), not last reset timestamp.
+			resetDate: this.getNextResetDate(
+				user.plan_reset_date,
+			),
 			isApproachingLimit:
 				isApproachingLimit && !isAtLimit,
 			isAtLimit,
