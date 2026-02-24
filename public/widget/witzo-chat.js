@@ -254,6 +254,9 @@
       // Use the CSS and HTML from template.ts
       this.shadowRoot.innerHTML = `
       <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap" rel="stylesheet">
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap');
           *,
@@ -262,7 +265,7 @@
             box-sizing: border-box;
           }
           :host {
-            font-family: 'Open Sans', sans-serif;
+            font-family: "Plus Jakarta Sans", sans-serif;
             display: block;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
           }
@@ -289,30 +292,94 @@
           .chat-widget {
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
             backdrop-filter: blur(10px);
-            transform: translateY(20px);
+            transform: scale(0.15) translateY(40px);
             opacity: 0;
-            animation: slideUp 0.4s ease-out forwards;
+            animation: slideUp 1s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            transform-origin: right bottom;
+            position: relative;
           }
           
           .hidden { display: none !important; }
 
           @keyframes slideUp {
-            to {
-              transform: translateY(0);
+            0% {
+              transform: scale(0.15) translateY(40px);
               opacity: 1;
+            }
+            70% {
+              transform: scale(1) translateY(0);
+            }
+            100% {
+              transform: scale(1) translateY(0);
+              opacity: 1;
+            }
+          }
+          @keyframes contentReveal {
+            0% {
+              background: #ffffff;
+            }
+            70% {
+              background: #ffffff;
+            }
+            100% {
+              background: #ffffff;
             }
           }
 
           .chat-widget.minimizing {
             opacity: 1;
-            transform: translateY(0px);
-            animation: slideDown 0.3s ease-in forwards;
+            transform: scale(1) translateY(0);
+            animation: slideDown 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
           }
 
           @keyframes slideDown {
-            to {
-              transform: translateY(20px);
+            0% {
+              transform: scale(1) translateY(0);
+              opacity: 1;
+            }
+            
+            100% {
+              transform: scale(0.15) translateY(40px);
               opacity: 0;
+            }
+          }
+
+          .chat-widget::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: #ffffff;
+            border-radius: 15px;
+            animation: overlayFade 1.2s ease-out forwards;
+            pointer-events: none;
+            z-index: 10;
+          }
+
+          .chat-widget.minimizing::before {
+            animation: overlayMinimize 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+          }
+
+          @keyframes overlayFade {
+            0% {
+              opacity: 1;
+            }
+            70% {
+              opacity: 1;
+            }
+            100% {
+              opacity: 0;
+              pointer-events: none;
+            }
+          }
+
+          @keyframes overlayMinimize {
+            0% {
+              opacity: 1;
+              pointer-events: auto;
+            }
+            100% {
+              opacity: 1;
+              pointer-events: auto;
             }
           }
 
@@ -326,6 +393,7 @@
             flex-shrink: 0;
             height: 60px; /* Fixed height for header */
             margin:10px;
+            margin-bottom:0;
             border-radius: 10px;
           }
           .chat-header-left {
@@ -343,27 +411,29 @@
             justify-content: center;
           }
           .bot-msg-chat-icon {
-            width: 36px;
-            height: 36px;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
             padding:4px;
             margin-right:6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0px 2.4px 4.8px 0px #00000033;
 
           }
             .bot-msg-chat-icon img{
               width: 100%;
               height: 100%;
               object-fit: contain;
+            box-shadow: 0px 2.4px 4.8px 0px #00000033;
+            border-radius: 50%;
+
+
             }
           .chat-title {
             color: #fff;
             font-size: 20px;
-            font-weight: 600;
-            letter-spacing: -0.14px;
+            font-weight: 500;
             margin: 0;
           }
           .chat-header-right {
@@ -659,25 +729,36 @@
             gap: 0.25rem;
           }
            .typing-container{
-              background: #ececec;
               border-radius: 50px;
               padding: 7px 15px;
               font-size: 14px;
               color: #666;
+              background: #ecececb6;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 4px;
+              position: relative;
+              height: 36px;
+
             }
+             
            .typing-dots-text  {
-            font-size: 1.5rem;
-            line-height: 0.5;
-            animation: fadeInOut 1.5s infinite;
+            font-size: 2rem;
+            line-height: 1;
+            animation: typingBounce 1.5s infinite;
             opacity: 0;
+            display: inline-block;
+            position: relative;
+            top: -9px;
           }
            .typing-dots-text:nth-child(1) { animation-delay: 0s; }
            .typing-dots-text:nth-child(2) { animation-delay: 0.5s; }
            .typing-dots-text:nth-child(3) { animation-delay: 1s; }
            
-           @keyframes fadeInOut {
-            0%, 100% { opacity: 0; }
-            50% { opacity: 1; }
+           @keyframes typingBounce {
+            0%, 100% { opacity: 0.5; transform: translateY(0); }
+            50% { opacity: 1; transform: translateY(-3px); }
           }
 
            #logoIcon{
@@ -766,15 +847,52 @@
             .rating-label { font-size: 0.7rem; color: #94a3b8; }
 
             /* Hope Banner */
+            @keyframes hopeBannerSlideIn {
+              0% {
+                opacity: 0;
+                transform: translateY(-15px) scaleY(0.95);
+              }
+              40% {
+                opacity: 1;
+              }
+              65% {
+                transform: translateY(0) scaleY(1);
+              }
+              85% {
+                transform: translateY(-1px) scaleY(0.99);
+              }
+              100% {
+                opacity: 1;
+                transform: translateY(0) scaleY(1);
+              }
+            }
+            @keyframes textFadeInExpand {
+              0% {
+                opacity: 0;
+                min-width: 0;
+                margin-right: 0;
+              }
+              30% {
+                opacity: 0;
+                min-width: 0;
+                margin-right: 0;
+              }
+              100% {
+                opacity: 1;
+                min-width: 115px;
+                margin-right: 20px;
+              }
+            }
             .hope-banner {
               display: flex;
               align-items: center;
               justify-content: center;
-              gap: 0.6rem;
+              gap: 8px;
+              width:fit-content;
               margin: 0 10px 6px 10px;
-              padding: 10px 18px;
-              border-radius: 9999px;
-              background: #faf8ff;
+              padding: 12px 30px;
+              border-radius: 0 0 25px 25px;
+              background: linear-gradient(135deg, ${this.config.bannerColor || '#120b14'}0a 0%, ${this.config.sendColor || '#350535'}20 100%);
               border: 1.5px solid transparent;
               background-clip: padding-box;
               box-shadow: inset 0 0 0 1.5px transparent;
@@ -783,14 +901,29 @@
               font-weight: 500;
               color: #1a1a2e;
               flex-shrink: 0;
+              margin:auto;
+              margin-top: -4px;
+              position: relative;
+              z-index: -1;
+              animation: hopeBannerSlideIn 2s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+            }
+            .hope-banner.hidden {
+              animation: none;
+            }
+
+            #hopeBannerUp, #hopeBannerDown {
+              transition: transform 0.8s ease;
+            }
+            #hopeBannerDown{
+              transform: translateY(2px);
             }
             .hope-banner::before {
               content: '';
               position: absolute;
               inset: 0;
-              border-radius: 9999px;
+              border-radius: 0 0 25px 25px;
               padding: 1.5px;
-              background: linear-gradient(135deg, #a855f7, #6366f1, #ec4899);
+              background: linear-gradient(135deg, ${this.config.bannerColor || '#120b14'} 0%, ${this.config.sendColor || '#350535'} 100%);
               -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
               -webkit-mask-composite: xor;
               mask-composite: exclude;
@@ -799,17 +932,21 @@
             .hope-banner-text {
               flex: 1;
               text-align: center;
+              animation: textFadeInExpand 1s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0.7s forwards;
+              overflow: hidden;
+              white-space: nowrap;
+              width: 0;
             }
             .hope-banner-btn {
               background: transparent;
               border: none;
               cursor: pointer;
-              font-size: 1.2rem;
+              font-size: 1.1rem;
               padding: 0 2px;
               line-height: 1;
               transition: transform 0.15s;
+              flex-shrink: 0;
             }
-            .hope-banner-btn:hover { transform: scale(1.25); }
             .hope-banner-btn.active { filter: drop-shadow(0 0 4px #6366f1); }
             .hope-banner.hidden { display: none; }
 
@@ -846,8 +983,16 @@
             <!-- Hope Banner (shown after first user message) -->
             <div id="hopeBanner" class="hope-banner hidden">
               <span class="hope-banner-text">Hope that helped!</span>
-              <button class="hope-banner-btn" id="hopeBannerUp" title="Thumbs up">&#128077;</button>
-              <button class="hope-banner-btn" id="hopeBannerDown" title="Thumbs down">&#128078;</button>
+              <button class="hope-banner-btn" id="hopeBannerUp" title="Thumbs up">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="16" viewBox="0 0 18 16" fill="none">
+                <path d="M16.9591 4.98816C16.7839 4.78957 16.5684 4.63054 16.3269 4.52162C16.0855 4.41271 15.8237 4.35641 15.5588 4.35647H11.2023V3.11176C11.2023 2.28647 10.8745 1.49498 10.2909 0.911414C9.70736 0.327846 8.91587 1.59557e-07 8.09058 1.59557e-07C7.97496 -8.26176e-05 7.86161 0.0320443 7.76322 0.0927784C7.66484 0.153513 7.58532 0.240453 7.53358 0.34385L4.59452 6.22353H1.24471C0.914589 6.22353 0.597993 6.35466 0.364566 6.58809C0.131138 6.82152 0 7.13811 0 7.46823V14.3141C0 14.6442 0.131138 14.9608 0.364566 15.1942C0.597993 15.4277 0.914589 15.5588 1.24471 15.5588H14.6253C15.0801 15.559 15.5194 15.3931 15.8606 15.0923C16.2018 14.7915 16.4215 14.3764 16.4783 13.9251L17.4119 6.45691C17.445 6.19398 17.4217 5.92702 17.3436 5.67378C17.2656 5.42054 17.1345 5.18682 16.9591 4.98816ZM1.24471 7.46823H4.35647V14.3141H1.24471V7.46823ZM16.1765 6.30132L15.243 13.7696C15.224 13.92 15.1508 14.0583 15.0371 14.1586C14.9233 14.2589 14.7769 14.3142 14.6253 14.3141H5.60117V6.99291L8.45699 1.28049C8.88026 1.3652 9.2611 1.59397 9.5347 1.92785C9.8083 2.26173 9.95776 2.6801 9.95764 3.11176V4.97882C9.95764 5.14388 10.0232 5.30218 10.1399 5.41889C10.2566 5.5356 10.4149 5.60117 10.58 5.60117H15.5588C15.6471 5.60114 15.7344 5.61991 15.8149 5.65622C15.8954 5.69254 15.9673 5.74557 16.0257 5.8118C16.0841 5.87802 16.1278 5.95593 16.1538 6.04033C16.1798 6.12473 16.1875 6.2137 16.1765 6.30132Z" fill="black"/>
+              </svg>
+              </button>
+              <button class="hope-banner-btn" id="hopeBannerDown" title="Thumbs down">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="16" viewBox="0 0 18 16" fill="none">
+                <path d="M17.4119 9.10191L16.4783 1.63368C16.4215 1.18238 16.2018 0.767359 15.8606 0.466553C15.5194 0.165746 15.0801 -0.000156023 14.6253 1.10104e-07H1.24471C0.914589 1.10104e-07 0.597993 0.131138 0.364566 0.364566C0.131138 0.597993 0 0.914589 0 1.24471V8.09058C0 8.4207 0.131138 8.7373 0.364566 8.97072C0.597993 9.20415 0.914589 9.33529 1.24471 9.33529H4.59452L7.53358 15.215C7.58532 15.3184 7.66484 15.4053 7.76322 15.466C7.86161 15.5268 7.97496 15.5589 8.09058 15.5588C8.91587 15.5588 9.70736 15.231 10.2909 14.6474C10.8745 14.0638 11.2023 13.2723 11.2023 12.4471V11.2023H15.5588C15.8238 11.2024 16.0857 11.1461 16.3272 11.0372C16.5687 10.9282 16.7843 10.7691 16.9595 10.5705C17.1348 10.3718 17.2658 10.1381 17.3438 9.88488C17.4218 9.63168 17.445 9.36477 17.4119 9.10191ZM4.35647 8.09058H1.24471V1.24471H4.35647V8.09058ZM16.0256 9.74682C15.9676 9.81354 15.8958 9.86692 15.8153 9.90331C15.7347 9.9397 15.6472 9.95823 15.5588 9.95764H10.58C10.4149 9.95764 10.2566 10.0232 10.1399 10.1399C10.0232 10.2566 9.95764 10.4149 9.95764 10.58V12.4471C9.95776 12.8787 9.8083 13.2971 9.5347 13.631C9.2611 13.9648 8.88026 14.1936 8.45699 14.2783L5.60117 8.5659V1.24471H14.6253C14.7769 1.24465 14.9233 1.29995 15.0371 1.40022C15.1508 1.50049 15.224 1.63883 15.243 1.78926L16.1765 9.25749C16.1882 9.34512 16.1807 9.43422 16.1547 9.51869C16.1286 9.60316 16.0846 9.68099 16.0256 9.74682Z" fill="black"/>
+              </svg>
+              </button>
             </div>
 
             <!-- Messages Area -->
