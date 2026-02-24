@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,40 +12,48 @@
             max-width: 1200px;
             margin: 0 auto;
         }
+
         h1 {
             color: #333;
         }
+
         .info {
             background: #f0f0f0;
             padding: 15px;
             border-radius: 8px;
             margin-bottom: 20px;
         }
+
         .info h2 {
             margin-top: 0;
         }
+
         .info code {
             background: #fff;
             padding: 2px 6px;
             border-radius: 3px;
             font-size: 14px;
         }
+
         .config-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
         }
+
         .config-table th,
         .config-table td {
             border: 1px solid #ddd;
             padding: 8px;
             text-align: left;
         }
+
         .config-table th {
             background-color: #f2f2f2;
         }
     </style>
 </head>
+
 <body>
     <h1>Witzo Chat Widget - Customization Test</h1>
 
@@ -141,25 +150,13 @@
     </div>
 
     <!-- Witzo Chat Widget with Full Customization -->
-    <witzo-chat
-        id="witzoChat"
-        api-url="http://localhost:3053/api/v1/webhook"
-        widget-key="your-widget-key-here"
+    <witzo-chat id="witzoChat" api-url="http://localhost:3053/api/v1/webhook" widget-key="your-widget-key-here"
         primary-text="**Hey there, I'm Merlin Chat**
-Got questions about Zycus? Ask me anything and I'll provide you with the info you're looking for."
-        bot-color="#ff6699"
-        send-color="#B82E12"
-        floating-btn="#B82E12"
-        chat-voice-icon-color="#7908FB"
-        voice-send-button="#7908FB"
-        auto-open="true"
-        banner-text="Merlin Chat"
-        banner-text-color="#1B73CC"
-        close-button-color="#F527EE"
-        logo-icon="https://www.zycus.com/wp-content/uploads/2025/01/zycus-new-logo-190x38.webp"
-        banner-color="#CDCFD1"
-        user-chat-color="#CDCFD1"
-    ></witzo-chat>
+Got questions about Zycus? Ask me anything and I'll provide you with the info you're looking for." bot-color="#ff6699"
+        send-color="#471791" floating-btn="#471791" chat-voice-icon-color="#7908FB" voice-send-button="#7908FB"
+        auto-open="true" banner-text="Chat With Witzo" banner-text-color="#ffffff" close-button-color="#ffffff"
+        logo-icon="https://www.zycus.com/wp-content/uploads/2025/01/zycus-new-logo-190x38.webp" banner-color="#212121"
+        user-chat-color="#CDCFD1"></witzo-chat>
 
     <!-- Load the Widget Script -->
     <script src="./witzo-chat.js"></script>
@@ -169,4 +166,5 @@ Got questions about Zycus? Ask me anything and I'll provide you with the info yo
         console.log('Make sure to replace "your-widget-key-here" with your actual widget key');
     </script>
 </body>
+
 </html>
