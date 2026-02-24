@@ -102,6 +102,13 @@ jobs:
           ANALYTICS_BUFFER_SIZE=${{ secrets.ANALYTICS_BUFFER_SIZE }}
           ANALYTICS_FLUSH_INTERVAL_MS=${{ secrets.ANALYTICS_FLUSH_INTERVAL_MS }}
           CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
+          
+          ADMIN_FRONTEND_URL=${{ secrets.ADMIN_FRONTEND_URL }}
+          ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+          ADMIN_JWT_SECRET=${{ secrets.ADMIN_JWT_SECRET }}
+          ADMIN_TOKEN_EXPIRY_HOURS=${{ secrets.ADMIN_TOKEN_EXPIRY_HOURS }}
+          
 
           EOF
 
