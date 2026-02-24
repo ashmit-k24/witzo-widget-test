@@ -28,6 +28,7 @@ import {
 } from "./middleware/errorHandler";
 import { sanitizeRequestInput } from "./middleware/sanitizeInput";
 import healthRoutes from "./routes/healthRoutes";
+import adminRoutes from "./routes/adminRoutes";
 import publicRoutes from "./routes/publicRoutes";
 import authRoutes from "./routes/routes";
 import authService from "./services/authService";
@@ -77,6 +78,7 @@ app.use(
 const configuredOrigins = [
 	config.CORS_ORIGIN,
 	config.FRONTEND_URL,
+	config.ADMIN_FRONTEND_URL,
 ]
 	.filter((value): value is string =>
 		Boolean(value),
@@ -188,6 +190,7 @@ app.use(healthRoutes);
 
 // API routes
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Public API routes (for widget embedding)
 app.use("/api/v1", publicRoutes);

@@ -2,253 +2,360 @@
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
-(function() {
-  'use strict';
+(function () {
+	"use strict";
 
-  // Helper: Sanitize URL
-  function sanitizeURL(url) {
-    if (!url) return '';
-    // Allow http, https, mailto, tel protocols
-    if (/^(https?|mailto|tel):/i.test(url)) return url;
-    return '';
-  }
+	// Helper: Sanitize URL
+	function sanitizeURL(url) {
+		if (!url) return "";
+		// Allow http, https, mailto, tel protocols
+		if (/^(https?|mailto|tel):/i.test(url))
+			return url;
+		return "";
+	}
 
-  // Helper: Sanitize HTML (simple version)
-  function sanitizeHTML(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
+	// Helper: Sanitize HTML (simple version)
+	function sanitizeHTML(str) {
+		const div = document.createElement("div");
+		div.textContent = str;
+		return div.innerHTML;
+	}
 
-  // Define the custom element
-  class WitzoChatWidget extends HTMLElement {
-    constructor() {
-      super();
-      this.attachShadow({ mode: 'open' });
+	// Define the custom element
+	class WitzoChatWidget extends HTMLElement {
+		constructor() {
+			super();
+			this.attachShadow({ mode: "open" });
 
-      // Properties
-      this.apiUrl = '';
-      this.apiBaseUrl = '';
-      this.widgetKey = '';
-      this.sessionId = '';
-      this.isOpen = false;
-      this.successfulChatCount = 0;
-      this.userMessageCount = 0;
-      this.botMessageCount = 0;
-      this.pendingEndIntentRating = false;
-      this.ratingShown = false;
-      this.ratingSubmitted = false;
-      this.selectedLanguage = 'en';
-      this.date = new Date();
-      this._cfBound = false;
+			// Properties
+			this.apiUrl = "";
+			this.apiBaseUrl = "";
+			this.widgetKey = "";
+			this.sessionId = "";
+			this.isOpen = false;
+			this.successfulChatCount = 0;
+			this.userMessageCount = 0;
+			this.botMessageCount = 0;
+			this.pendingEndIntentRating = false;
+			this.ratingShown = false;
+			this.ratingSubmitted = false;
+			this.selectedLanguage = "en";
+			this.maxMessageLength = 1000;
+			this.date = new Date();
+			this._cfBound = false;
 
-      this.elements = {};
-      this.supportedLanguages = [
-        { code: 'en', label: 'English' },
-        { code: 'es', label: 'Spanish' },
-        { code: 'fr', label: 'French' },
-        { code: 'de', label: 'German' },
-        { code: 'hi', label: 'Hindi' },
-        { code: 'ar', label: 'Arabic' },
-        { code: 'pt', label: 'Portuguese' },
-        { code: 'ru', label: 'Russian' },
-        { code: 'ja', label: 'Japanese' },
-        { code: 'zh', label: 'Chinese' },
-        { code: 'it', label: 'Italian' },
-        { code: 'nl', label: 'Dutch' },
-        { code: 'ko', label: 'Korean' },
-        { code: 'tr', label: 'Turkish' },
-        { code: 'pl', label: 'Polish' },
-      ];
+			this.elements = {};
+			this.supportedLanguages = [
+				{ code: "en", label: "English" },
+				{ code: "es", label: "Spanish" },
+				{ code: "fr", label: "French" },
+				{ code: "de", label: "German" },
+				{ code: "hi", label: "Hindi" },
+				{ code: "ar", label: "Arabic" },
+				{ code: "pt", label: "Portuguese" },
+				{ code: "ru", label: "Russian" },
+				{ code: "ja", label: "Japanese" },
+				{ code: "zh", label: "Chinese" },
+				{ code: "it", label: "Italian" },
+				{ code: "nl", label: "Dutch" },
+				{ code: "ko", label: "Korean" },
+				{ code: "tr", label: "Turkish" },
+				{ code: "pl", label: "Polish" },
+			];
 
-      // Configuration with defaults (matching text-widget types)
-      this.config = {
-        primaryText: null,
-        botColor: '#fc0e3f',
-        sendColor: '#fc0e3f',
-        floatingBtnColor: '#fc0e3f',
-        floatingBtn: '#fc0e3f',
-        autoOpen: false,
-        bannerText: 'Text Chat',
-        bannerTextColor: '',
-        bannerColor: '#120b14',
-        userChatColor: '#d01137ff',
-        closeButtonColor: '',
-        logoIcon: null,
-        // bannerTextParagraph: 'I am AI powered and learning',
-        bannerTextParagraphColor: '',
-        chatVoiceIconColor: '#7908FB',
-        voiceSendButton: '#7908FB',
-        planType: 'free',
-        defaultLanguage: 'en'
-      };
-    }
+			// Configuration with defaults (matching text-widget types)
+			this.config = {
+				primaryText: null,
+				botColor: "#fc0e3f",
+				sendColor: "#fc0e3f",
+				floatingBtnColor: "#fc0e3f",
+				floatingBtn: "#fc0e3f",
+				autoOpen: false,
+				bannerText: "Text Chat",
+				bannerTextColor: "",
+				bannerColor: "#120b14",
+				userChatColor: "#d01137ff",
+				closeButtonColor: "",
+				logoIcon: null,
+				// bannerTextParagraph: 'I am AI powered and learning',
+				bannerTextParagraphColor: "",
+				chatVoiceIconColor: "#7908FB",
+				voiceSendButton: "#7908FB",
+				planType: "free",
+				defaultLanguage: "en",
+			};
+		}
 
-    connectedCallback() {
-      // Initialize Session
-      this.initializeSession();
+		connectedCallback() {
+			// Initialize Session
+			this.initializeSession();
 
-      // Read attributes
-      this.apiUrl = this.getAttribute('api-url') || '';
-      this.apiBaseUrl = this.getAttribute('api-base-url') || this.apiUrl.replace('/api/v1/webhook', '');
-      this.widgetKey = this.getAttribute('widget-key') || '';
+			// Read attributes
+			this.apiUrl =
+				this.getAttribute("api-url") || "";
+			this.apiBaseUrl =
+				this.getAttribute("api-base-url") ||
+				this.apiUrl.replace(
+					"/api/v1/webhook",
+					"",
+				);
+			this.widgetKey =
+				this.getAttribute("widget-key") || "";
 
-      // Read configuration from attributes
-      const attrs = [
-        'primary-text', 'bot-color', 'send-color', 'floating-btn-color', 'floating-btn',
-        'auto-open', 'banner-text', 'banner-text-color', 'banner-color', 'user-chat-color',
-        'close-button-color', 'logo-icon', 'banner-text-paragraph',
-        'banner-text-paragraph-color', 'chat-voice-icon-color', 'voice-send-button',
-        'plan-type', 'default-language'
-      ];
+			// Read configuration from attributes
+			const attrs = [
+				"primary-text",
+				"bot-color",
+				"send-color",
+				"floating-btn-color",
+				"floating-btn",
+				"auto-open",
+				"banner-text",
+				"banner-text-color",
+				"banner-color",
+				"user-chat-color",
+				"close-button-color",
+				"logo-icon",
+				"banner-text-paragraph",
+				"banner-text-paragraph-color",
+				"chat-voice-icon-color",
+				"voice-send-button",
+				"plan-type",
+				"default-language",
+			];
 
-      attrs.forEach(attr => {
-        const value = this.getAttribute(attr);
-        if (value !== null) {
-          const key = attr.replace(/-([a-z])/g, g => g[1].toUpperCase());
-          if (value === 'true') this.config[key] = true;
-          else if (value === 'false') this.config[key] = false;
-          else this.config[key] = value;
-        }
-      });
+			attrs.forEach((attr) => {
+				const value = this.getAttribute(attr);
+				if (value !== null) {
+					const key = attr.replace(
+						/-([a-z])/g,
+						(g) => g[1].toUpperCase(),
+					);
+					if (value === "true")
+						this.config[key] = true;
+					else if (value === "false")
+						this.config[key] = false;
+					else this.config[key] = value;
+				}
+			});
 
-      this.initializeLanguagePreference();
-      this.render();
-      this.bindEvents();
+			const maxLenAttr = Number.parseInt(
+				this.getAttribute("max-message-length") ||
+					"",
+				10,
+			);
+			if (
+				Number.isFinite(maxLenAttr) &&
+				maxLenAttr > 0
+			) {
+				this.maxMessageLength = maxLenAttr;
+			}
 
-      // Process default message
-      if (this.config.primaryText) {
-        setTimeout(() => {
-          this.displayDefaultMessage();
-        }, 500);
-      }
+			this.initializeLanguagePreference();
+			this.render();
+			this.bindEvents();
 
-      // Auto-open if configured
-      if (this.config.autoOpen) {
-        setTimeout(() => {
-            if (!this.isOpen) this.toggleChat();
-        }, 5000);
-      }
+			// Process default message
+			if (this.config.primaryText) {
+				setTimeout(() => {
+					this.displayDefaultMessage();
+				}, 500);
+			}
 
-      // Show floating button after delay
-      setTimeout(() => {
-         if (this.elements.floatingBtn) this.elements.floatingBtn.classList.remove('hidden');
-      }, 2000);
-    }
-    
-    initializeSession() {
-        const date = sessionStorage.getItem('witzo_chat_date');
-        if (date) {
-            this.date = new Date(date);
-        } else {
-            sessionStorage.setItem('witzo_chat_date', new Date().toISOString());
-        }
+			// Auto-open if configured
+			if (this.config.autoOpen) {
+				setTimeout(() => {
+					if (!this.isOpen) this.toggleChat();
+				}, 5000);
+			}
 
-        const chatCount = sessionStorage.getItem('witzo_chat_count');
-        if (chatCount) this.successfulChatCount = Number(chatCount);
-        else sessionStorage.setItem('witzo_chat_count', `0`);
+			// Show floating button after delay
+			setTimeout(() => {
+				if (this.elements.floatingBtn)
+					this.elements.floatingBtn.classList.remove(
+						"hidden",
+					);
+			}, 2000);
+		}
 
-        // Session Token
-        const STORAGE_KEY = 'witzo_chat_session_token';
-        let session = sessionStorage.getItem(STORAGE_KEY);
-        if(!session){
-             // UUID Fallback
-             session = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-                const r = (Math.random() * 16) | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-            sessionStorage.setItem(STORAGE_KEY, session);
-        }
-        this.sessionId = session;
-        this.ratingShown = this.getRatingShownState();
-        this.ratingSubmitted = this.getRatingSubmittedState();
-    }
+		initializeSession() {
+			const date = sessionStorage.getItem(
+				"witzo_chat_date",
+			);
+			if (date) {
+				this.date = new Date(date);
+			} else {
+				sessionStorage.setItem(
+					"witzo_chat_date",
+					new Date().toISOString(),
+				);
+			}
 
-    getRatingShownKey() {
-        return `witzo_chat_rating_shown_${this.sessionId}`;
-    }
+			const chatCount = sessionStorage.getItem(
+				"witzo_chat_count",
+			);
+			if (chatCount)
+				this.successfulChatCount =
+					Number(chatCount);
+			else
+				sessionStorage.setItem(
+					"witzo_chat_count",
+					`0`,
+				);
 
-    getRatingSubmittedKey() {
-        return `witzo_chat_rating_submitted_${this.sessionId}`;
-    }
+			// Session Token
+			const STORAGE_KEY =
+				"witzo_chat_session_token";
+			let session =
+				sessionStorage.getItem(STORAGE_KEY);
+			if (!session) {
+				// UUID Fallback
+				session =
+					"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+						/[xy]/g,
+						(c) => {
+							const r = (Math.random() * 16) | 0;
+							const v =
+								c === "x" ? r : (r & 0x3) | 0x8;
+							return v.toString(16);
+						},
+					);
+				sessionStorage.setItem(
+					STORAGE_KEY,
+					session,
+				);
+			}
+			this.sessionId = session;
+			this.ratingShown =
+				this.getRatingShownState();
+			this.ratingSubmitted =
+				this.getRatingSubmittedState();
+		}
 
-    getRatingShownState() {
-        return sessionStorage.getItem(this.getRatingShownKey()) === '1';
-    }
+		getRatingShownKey() {
+			return `witzo_chat_rating_shown_${this.sessionId}`;
+		}
 
-    getRatingSubmittedState() {
-        return sessionStorage.getItem(this.getRatingSubmittedKey()) === '1';
-    }
+		getRatingSubmittedKey() {
+			return `witzo_chat_rating_submitted_${this.sessionId}`;
+		}
 
-    setRatingShownState(value) {
-        this.ratingShown = value;
-        sessionStorage.setItem(this.getRatingShownKey(), value ? '1' : '0');
-    }
+		getRatingShownState() {
+			return (
+				sessionStorage.getItem(
+					this.getRatingShownKey(),
+				) === "1"
+			);
+		}
 
-    setRatingSubmittedState(value) {
-        this.ratingSubmitted = value;
-        sessionStorage.setItem(this.getRatingSubmittedKey(), value ? '1' : '0');
-    }
+		getRatingSubmittedState() {
+			return (
+				sessionStorage.getItem(
+					this.getRatingSubmittedKey(),
+				) === "1"
+			);
+		}
 
-    normalizeLanguageCode(value) {
-        if (typeof value !== 'string') return null;
-        const normalized = value.trim().toLowerCase();
-        if (!normalized) return null;
-        const isSupported = this.supportedLanguages.some((language) => language.code === normalized);
-        return isSupported ? normalized : null;
-    }
+		setRatingShownState(value) {
+			this.ratingShown = value;
+			sessionStorage.setItem(
+				this.getRatingShownKey(),
+				value ? "1" : "0",
+			);
+		}
 
-    getLanguageStorageKey() {
-        return `witzo_chat_language_${this.widgetKey || 'default'}`;
-    }
+		setRatingSubmittedState(value) {
+			this.ratingSubmitted = value;
+			sessionStorage.setItem(
+				this.getRatingSubmittedKey(),
+				value ? "1" : "0",
+			);
+		}
 
-    initializeLanguagePreference() {
-        const configuredLanguage =
-            this.normalizeLanguageCode(this.config.defaultLanguage) || 'en';
-        const storageKey = this.getLanguageStorageKey();
-        const storedLanguage = this.normalizeLanguageCode(
-            sessionStorage.getItem(storageKey),
-        );
-        const hasConfiguredDefaultLanguageAttr =
-            this.getAttribute('default-language') !== null;
+		normalizeLanguageCode(value) {
+			if (typeof value !== "string") return null;
+			const normalized = value
+				.trim()
+				.toLowerCase();
+			if (!normalized) return null;
+			const isSupported =
+				this.supportedLanguages.some(
+					(language) =>
+						language.code === normalized,
+				);
+			return isSupported ? normalized : null;
+		}
 
-        // Dashboard-configured default language should win on initial widget load.
-        this.selectedLanguage = hasConfiguredDefaultLanguageAttr
-            ? configuredLanguage
-            : (storedLanguage || configuredLanguage);
-        this.config.defaultLanguage = this.selectedLanguage;
-        sessionStorage.setItem(storageKey, this.selectedLanguage);
-    }
+		getLanguageStorageKey() {
+			return `witzo_chat_language_${this.widgetKey || "default"}`;
+		}
 
-    resetConversationRatingState() {
-        this.pendingEndIntentRating = false;
-        this.setRatingShownState(false);
-        this.setRatingSubmittedState(false);
-        if (this.elements && this.elements.conversationRatingSlot) {
-            this.elements.conversationRatingSlot.innerHTML = '';
-            this.elements.conversationRatingSlot.classList.add('hidden');
-        }
-    }
+		initializeLanguagePreference() {
+			const configuredLanguage =
+				this.normalizeLanguageCode(
+					this.config.defaultLanguage,
+				) || "en";
+			const storageKey =
+				this.getLanguageStorageKey();
+			const storedLanguage =
+				this.normalizeLanguageCode(
+					sessionStorage.getItem(storageKey),
+				);
+			const hasConfiguredDefaultLanguageAttr =
+				this.getAttribute("default-language") !==
+				null;
 
-    isConversationEndMessage(text) {
-        if (!text) return false;
-        const normalized = String(text).toLowerCase().trim();
-        if (!normalized) return false;
+			// Dashboard-configured default language should win on initial widget load.
+			this.selectedLanguage =
+				hasConfiguredDefaultLanguageAttr
+					? configuredLanguage
+					: storedLanguage || configuredLanguage;
+			this.config.defaultLanguage =
+				this.selectedLanguage;
+			sessionStorage.setItem(
+				storageKey,
+				this.selectedLanguage,
+			);
+		}
 
-        const endPatterns = [
-            /\b(thanks|thank you|thankyou|thx)\b/,
-            /\b(bye|goodbye|see you|see ya|take care)\b/,
-            /\b(that'?s all|thats all|done|resolved|got it)\b/,
-            /\b(no thanks|no thank you|i'?m good|im good)\b/,
-        ];
+		resetConversationRatingState() {
+			this.pendingEndIntentRating = false;
+			this.setRatingShownState(false);
+			this.setRatingSubmittedState(false);
+			if (
+				this.elements &&
+				this.elements.conversationRatingSlot
+			) {
+				this.elements.conversationRatingSlot.innerHTML =
+					"";
+				this.elements.conversationRatingSlot.classList.add(
+					"hidden",
+				);
+			}
+		}
 
-        return endPatterns.some((pattern) => pattern.test(normalized));
-    }
+		isConversationEndMessage(text) {
+			if (!text) return false;
+			const normalized = String(text)
+				.toLowerCase()
+				.trim();
+			if (!normalized) return false;
 
-    render() {
-      // Use the CSS and HTML from template.ts
-      this.shadowRoot.innerHTML = `
+			const endPatterns = [
+				/\b(thanks|thank you|thankyou|thx)\b/,
+				/\b(bye|goodbye|see you|see ya|take care)\b/,
+				/\b(that'?s all|thats all|done|resolved|got it)\b/,
+				/\b(no thanks|no thank you|i'?m good|im good)\b/,
+			];
+
+			return endPatterns.some((pattern) =>
+				pattern.test(normalized),
+			);
+		}
+
+		render() {
+			// Use the CSS and HTML from template.ts
+			this.shadowRoot.innerHTML = `
       <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap');
@@ -311,7 +418,7 @@
 
           /* Header */
           .chat-header {
-            background: ${this.config.bannerColor || '#120b14'};
+            background: ${this.config.bannerColor || "#120b14"};
             padding: 0rem 1rem;
             display: flex;
             align-items: center;
@@ -381,7 +488,7 @@
             line-height: 1.3; 
           }
           .chat-bubble-user {
-            background: ${this.config.userChatColor || '#ffdde4'}; /* Default or Config */
+            background: ${this.config.userChatColor || "#ffdde4"}; /* Default or Config */
             color: #000;
             border-radius: 1rem;
             padding: 0.8rem 1rem;
@@ -431,7 +538,7 @@
             min-width: 120px;
           }
           .chat-language-select:focus {
-            border-color: ${this.config.sendColor || '#fc0e3f'};
+            border-color: ${this.config.sendColor || "#fc0e3f"};
           }
           .chat-title-paragraph{
             color: #999;
@@ -456,7 +563,7 @@
             font-size: 0.875rem;
             outline: none;
           }
-           .chat-send-btn {
+          .chat-send-btn {
             width: 3rem;
             height: 3rem;
             border: none;
@@ -469,6 +576,16 @@
             overflow: hidden;
             background: transparent;
             padding: 0;
+          }
+          .chat-input-error {
+            margin: 0.3rem 0 0;
+            color: #dc2626;
+            font-size: 0.76rem;
+            line-height: 1.2;
+            min-height: 0.9rem;
+          }
+          .chat-input-error.hidden {
+            display: none;
           }
           
           /* Footer */
@@ -503,7 +620,7 @@
           .floating-btn {
             cursor: pointer;
             align-items: center;
-            background: ${this.config.floatingBtn || this.config.floatingBtnColor || '#fc0e3f'};
+            background: ${this.config.floatingBtn || this.config.floatingBtnColor || "#fc0e3f"};
             border: 0;
             border-radius: 9999px;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
@@ -632,21 +749,22 @@
             <div id="chat-header" class="chat-header">
                 <div class="chat-header-left">
                      <div class="chat-icon">
-                        ${this.config.logoIcon 
-                            ? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
-                            : `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-                        }
+                        ${
+													this.config.logoIcon
+														? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
+														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+												}
                     </div>
                      <div class="online-ready">
                         <div class="online-ready-text">
-                        <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || '#fff'}">${this.config.bannerText}</h3>
+                        <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || "#fff"}">${this.config.bannerText}</h3>
                         </div>
                     </div>
                 </div>
                 <div class="chat-header-right">
                     <button id="closeTextChat" class="chat-action-btn">
                          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 18 18" fill="none">
-                            <path id="close-button-icon" fill="${this.config.closeButtonColor || 'white'}" d="M9.21387 0.125C11.5101 0.127425 13.7122 1.04041 15.3359 2.66406C16.9596 4.28776 17.8726 6.48988 17.875 8.78613C17.8749 10.4989 17.3676 12.1735 16.416 13.5977C15.4644 15.0219 14.1109 16.1316 12.5283 16.7871C10.9459 17.4425 9.20431 17.6144 7.52441 17.2803C5.84472 16.9461 4.3019 16.1211 3.09082 14.9102C1.87964 13.699 1.05392 12.1555 0.719727 10.4756C0.38557 8.79567 0.557473 7.05415 1.21289 5.47168C1.86833 3.88932 2.97833 2.5366 4.40234 1.58496C5.82644 0.633413 7.50114 0.125111 9.21387 0.125ZM12.1074 1.80176C10.7262 1.22963 9.20557 1.0804 7.73926 1.37207C6.27313 1.6638 4.92618 2.38339 3.86914 3.44043C2.8121 4.49747 2.09251 5.84442 1.80078 7.31055C1.50911 8.77686 1.65834 10.2975 2.23047 11.6787C2.8026 13.0599 3.7716 14.2407 5.01465 15.0713C6.25771 15.9019 7.71983 16.3447 9.21484 16.3447C11.2188 16.3424 13.1396 15.5449 14.5566 14.1279C15.9737 12.7109 16.7711 10.7901 16.7734 8.78613C16.7734 7.29112 16.3306 5.829 15.5 4.58594C14.6694 3.34289 13.4886 2.37389 12.1074 1.80176ZM11.918 5.53125C11.9903 5.53128 12.0621 5.54557 12.1289 5.57324C12.1957 5.60093 12.2565 5.64129 12.3076 5.69238C12.3587 5.74346 12.3991 5.80438 12.4268 5.87109C12.4544 5.93785 12.4687 6.00978 12.4688 6.08203C12.4687 6.15432 12.4544 6.22617 12.4268 6.29297C12.3991 6.35971 12.3587 6.42056 12.3076 6.47168L10.0811 8.69727L9.99316 8.78613L10.0811 8.87402L12.3076 11.0996C12.3587 11.1507 12.3991 11.2116 12.4268 11.2783C12.4544 11.3452 12.4688 11.4169 12.4688 11.4893C12.4687 11.5616 12.4544 11.6334 12.4268 11.7002C12.3991 11.767 12.3587 11.8278 12.3076 11.8789C12.2565 11.93 12.1957 11.9703 12.1289 11.998C12.0621 12.0257 11.9903 12.04 11.918 12.04C11.8456 12.04 11.7739 12.0257 11.707 11.998C11.6403 11.9704 11.5795 11.93 11.5283 11.8789L9.30273 9.65234L9.21484 9.56445L9.12598 9.65234L6.90039 11.8789C6.84927 11.9299 6.78842 11.9704 6.72168 11.998C6.65488 12.0257 6.58303 12.04 6.51074 12.04C6.43849 12.04 6.36656 12.0257 6.2998 11.998C6.23309 11.9704 6.17217 11.93 6.12109 11.8789C6.07 11.8278 6.02964 11.7669 6.00195 11.7002C5.97428 11.6334 5.95999 11.5616 5.95996 11.4893C5.95996 11.4169 5.9743 11.3451 6.00195 11.2783C6.0296 11.2116 6.07006 11.1507 6.12109 11.0996L8.34766 8.87402L8.43555 8.78613L8.34766 8.69727L6.12109 6.47168H6.12012C6.01729 6.36839 5.95996 6.22781 5.95996 6.08203C5.96006 5.93598 6.01782 5.79566 6.12109 5.69238C6.22437 5.5891 6.3647 5.53135 6.51074 5.53125C6.65675 5.53125 6.79706 5.58926 6.90039 5.69238L9.12598 7.91895L9.21484 8.00684L9.30273 7.91895L11.5283 5.69238C11.5794 5.64135 11.6403 5.60089 11.707 5.57324C11.7739 5.54559 11.8456 5.53125 11.918 5.53125Z"/>
+                            <path id="close-button-icon" fill="${this.config.closeButtonColor || "white"}" d="M9.21387 0.125C11.5101 0.127425 13.7122 1.04041 15.3359 2.66406C16.9596 4.28776 17.8726 6.48988 17.875 8.78613C17.8749 10.4989 17.3676 12.1735 16.416 13.5977C15.4644 15.0219 14.1109 16.1316 12.5283 16.7871C10.9459 17.4425 9.20431 17.6144 7.52441 17.2803C5.84472 16.9461 4.3019 16.1211 3.09082 14.9102C1.87964 13.699 1.05392 12.1555 0.719727 10.4756C0.38557 8.79567 0.557473 7.05415 1.21289 5.47168C1.86833 3.88932 2.97833 2.5366 4.40234 1.58496C5.82644 0.633413 7.50114 0.125111 9.21387 0.125ZM12.1074 1.80176C10.7262 1.22963 9.20557 1.0804 7.73926 1.37207C6.27313 1.6638 4.92618 2.38339 3.86914 3.44043C2.8121 4.49747 2.09251 5.84442 1.80078 7.31055C1.50911 8.77686 1.65834 10.2975 2.23047 11.6787C2.8026 13.0599 3.7716 14.2407 5.01465 15.0713C6.25771 15.9019 7.71983 16.3447 9.21484 16.3447C11.2188 16.3424 13.1396 15.5449 14.5566 14.1279C15.9737 12.7109 16.7711 10.7901 16.7734 8.78613C16.7734 7.29112 16.3306 5.829 15.5 4.58594C14.6694 3.34289 13.4886 2.37389 12.1074 1.80176ZM11.918 5.53125C11.9903 5.53128 12.0621 5.54557 12.1289 5.57324C12.1957 5.60093 12.2565 5.64129 12.3076 5.69238C12.3587 5.74346 12.3991 5.80438 12.4268 5.87109C12.4544 5.93785 12.4687 6.00978 12.4688 6.08203C12.4687 6.15432 12.4544 6.22617 12.4268 6.29297C12.3991 6.35971 12.3587 6.42056 12.3076 6.47168L10.0811 8.69727L9.99316 8.78613L10.0811 8.87402L12.3076 11.0996C12.3587 11.1507 12.3991 11.2116 12.4268 11.2783C12.4544 11.3452 12.4688 11.4169 12.4688 11.4893C12.4687 11.5616 12.4544 11.6334 12.4268 11.7002C12.3991 11.767 12.3587 11.8278 12.3076 11.8789C12.2565 11.93 12.1957 11.9703 12.1289 11.998C12.0621 12.0257 11.9903 12.04 11.918 12.04C11.8456 12.04 11.7739 12.0257 11.707 11.998C11.6403 11.9704 11.5795 11.93 11.5283 11.8789L9.30273 9.65234L9.21484 9.56445L9.12598 9.65234L6.90039 11.8789C6.84927 11.9299 6.78842 11.9704 6.72168 11.998C6.65488 12.0257 6.58303 12.04 6.51074 12.04C6.43849 12.04 6.36656 12.0257 6.2998 11.998C6.23309 11.9704 6.17217 11.93 6.12109 11.8789C6.07 11.8278 6.02964 11.7669 6.00195 11.7002C5.97428 11.6334 5.95999 11.5616 5.95996 11.4893C5.95996 11.4169 5.9743 11.3451 6.00195 11.2783C6.0296 11.2116 6.07006 11.1507 6.12109 11.0996L8.34766 8.87402L8.43555 8.78613L8.34766 8.69727L6.12109 6.47168H6.12012C6.01729 6.36839 5.95996 6.22781 5.95996 6.08203C5.96006 5.93598 6.01782 5.79566 6.12109 5.69238C6.22437 5.5891 6.3647 5.53135 6.51074 5.53125C6.65675 5.53125 6.79706 5.58926 6.90039 5.69238L9.12598 7.91895L9.21484 8.00684L9.30273 7.91895L11.5283 5.69238C11.5794 5.64135 11.6403 5.60089 11.707 5.57324C11.7739 5.54559 11.8456 5.53125 11.918 5.53125Z"/>
                         </svg>
                     </button>
                 </div>
@@ -676,15 +794,16 @@
                     <label for="languageSelector" class="chat-language-label">Language</label>
                     <select id="languageSelector" class="chat-language-select">
                         ${this.supportedLanguages
-                            .map((language) =>
-                                `<option value="${language.code}" ${language.code === this.selectedLanguage ? "selected" : ""}>${language.label}</option>`,
-                            )
-                            .join("")}
+													.map(
+														(language) =>
+															`<option value="${language.code}" ${language.code === this.selectedLanguage ? "selected" : ""}>${language.label}</option>`,
+													)
+													.join("")}
                     </select>
                 </div>
-                <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || '#999'}"></p>
+                <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || "#999"}"></p>
                 <div class="chat-input-container">
-                    <input id="textMessageInput" type="text" placeholder="Type your message..." class="chat-text-input" />
+                    <input id="textMessageInput" type="text" maxlength="${this.maxMessageLength}" placeholder="Type your message..." class="chat-text-input" />
                     <button class="chat-send-btn" id="textSendButton">
                          <!-- Send Icon with Color Mask Logic simulated with SVG fill -->
                         <svg width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -693,6 +812,7 @@
                         </svg>
                     </button>
                 </div>
+                <p id="chatInputError" class="chat-input-error hidden"></p>
             </div>
             
             <div class="chat-footer">
@@ -715,195 +835,368 @@
         </div>
       `;
 
-      // Cache elements
-      this.elements = {
-        widget: this.shadowRoot.getElementById('textChatWidget'),
-        floatingBtn: this.shadowRoot.getElementById('floating-btn'),
-        closeBtn: this.shadowRoot.getElementById('closeTextChat'),
-        messagesContainer: this.shadowRoot.getElementById('textMessagesArea'),
-        input: this.shadowRoot.getElementById('textMessageInput'),
-        sendBtn: this.shadowRoot.getElementById('textSendButton'),
-        languageSelector: this.shadowRoot.getElementById('languageSelector'),
-        contactFormSlot: this.shadowRoot.getElementById('contactFormSlot'),
-        cfName: this.shadowRoot.getElementById('cf-name'),
-        cfEmail: this.shadowRoot.getElementById('cf-email'),
-        cfMessage: this.shadowRoot.getElementById('cf-message'),
-        cfSubmit: this.shadowRoot.getElementById('cf-submit'),
-        chatInput: this.shadowRoot.querySelector('.chat-input'),
-        conversationRatingSlot: this.shadowRoot.getElementById('conversationRatingSlot'),
-      };
-    }
+			// Cache elements
+			this.elements = {
+				widget: this.shadowRoot.getElementById(
+					"textChatWidget",
+				),
+				floatingBtn:
+					this.shadowRoot.getElementById(
+						"floating-btn",
+					),
+				closeBtn: this.shadowRoot.getElementById(
+					"closeTextChat",
+				),
+				messagesContainer:
+					this.shadowRoot.getElementById(
+						"textMessagesArea",
+					),
+				input: this.shadowRoot.getElementById(
+					"textMessageInput",
+				),
+				inputError:
+					this.shadowRoot.getElementById(
+						"chatInputError",
+					),
+				sendBtn: this.shadowRoot.getElementById(
+					"textSendButton",
+				),
+				languageSelector:
+					this.shadowRoot.getElementById(
+						"languageSelector",
+					),
+				contactFormSlot:
+					this.shadowRoot.getElementById(
+						"contactFormSlot",
+					),
+				cfName:
+					this.shadowRoot.getElementById(
+						"cf-name",
+					),
+				cfEmail:
+					this.shadowRoot.getElementById(
+						"cf-email",
+					),
+				cfMessage:
+					this.shadowRoot.getElementById(
+						"cf-message",
+					),
+				cfSubmit:
+					this.shadowRoot.getElementById(
+						"cf-submit",
+					),
+				chatInput: this.shadowRoot.querySelector(
+					".chat-input",
+				),
+				conversationRatingSlot:
+					this.shadowRoot.getElementById(
+						"conversationRatingSlot",
+					),
+			};
+		}
 
-    bindEvents() {
-        this.elements.floatingBtn.addEventListener('click', () => this.toggleChat());
-        this.elements.closeBtn.addEventListener('click', () => this.toggleChat());
-        
-        this.elements.sendBtn.addEventListener('click', () => this.handleSend());
-        this.elements.input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.handleSend();
-            }
-        });
-        if (this.elements.languageSelector) {
-            this.elements.languageSelector.addEventListener('change', (event) => {
-                const nextLanguage = this.normalizeLanguageCode(event.target.value) || 'en';
-                this.selectedLanguage = nextLanguage;
-                this.config.defaultLanguage = nextLanguage;
-                sessionStorage.setItem(this.getLanguageStorageKey(), nextLanguage);
-            });
-        }
-    }
+		showInputError(message) {
+			if (!this.elements.inputError) return;
+			this.elements.inputError.textContent =
+				message || "";
+			this.elements.inputError.classList.remove(
+				"hidden",
+			);
+		}
 
-    toggleChat() {
-      if (!this.isOpen) {
-        // Open
-        this.isOpen = true;
-        this.elements.widget.classList.remove('hidden');
-        this.elements.widget.classList.remove('minimizing');
-        this.elements.floatingBtn.classList.add('hidden');
-        setTimeout(() => this.elements.input.focus(), 100);
-      } else {
-        // Close
-        this.isOpen = false;
-        this.elements.widget.classList.add('minimizing');
-        setTimeout(() => {
-            this.elements.widget.classList.add('hidden');
-            this.elements.floatingBtn.classList.remove('hidden');
-        }, 300);
-      }
-    }
+		clearInputError() {
+			if (!this.elements.inputError) return;
+			this.elements.inputError.textContent = "";
+			this.elements.inputError.classList.add(
+				"hidden",
+			);
+		}
 
-    async handleSend() {
-        const text = this.elements.input.value.trim();
-        if(!text) return;
+		bindEvents() {
+			this.elements.floatingBtn.addEventListener(
+				"click",
+				() => this.toggleChat(),
+			);
+			this.elements.closeBtn.addEventListener(
+				"click",
+				() => this.toggleChat(),
+			);
 
-        // Reset chat count if time gap large (simple version)
-        const gap = new Date().getTime() - this.date.getTime();
-        if (gap > 2 * 60 * 1000) {
-            this.successfulChatCount = 0;
-            this.date = new Date();
-            this.userMessageCount = 0;
-            this.botMessageCount = 0;
-            this.resetConversationRatingState();
-        }
+			this.elements.sendBtn.addEventListener(
+				"click",
+				() => this.handleSend(),
+			);
+			this.elements.input.addEventListener(
+				"input",
+				() => this.clearInputError(),
+			);
+			this.elements.input.addEventListener(
+				"keydown",
+				(e) => {
+					if (e.key === "Enter" && !e.shiftKey) {
+						e.preventDefault();
+						this.handleSend();
+					}
+				},
+			);
+			if (this.elements.languageSelector) {
+				this.elements.languageSelector.addEventListener(
+					"change",
+					(event) => {
+						const nextLanguage =
+							this.normalizeLanguageCode(
+								event.target.value,
+							) || "en";
+						this.selectedLanguage = nextLanguage;
+						this.config.defaultLanguage =
+							nextLanguage;
+						sessionStorage.setItem(
+							this.getLanguageStorageKey(),
+							nextLanguage,
+						);
+					},
+				);
+			}
+		}
 
-        // Add User Message
-        this.appendMessage(text, 'user');
-        this.userMessageCount += 1;
-        this.pendingEndIntentRating = this.config.planType === 'basic'
-            && this.isConversationEndMessage(text)
-            && !this.ratingShown
-            && !this.ratingSubmitted;
-        this.elements.input.value = '';
+		toggleChat() {
+			if (!this.isOpen) {
+				// Open
+				this.isOpen = true;
+				this.elements.widget.classList.remove(
+					"hidden",
+				);
+				this.elements.widget.classList.remove(
+					"minimizing",
+				);
+				this.elements.floatingBtn.classList.add(
+					"hidden",
+				);
+				setTimeout(
+					() => this.elements.input.focus(),
+					100,
+				);
+			} else {
+				// Close
+				this.isOpen = false;
+				this.elements.widget.classList.add(
+					"minimizing",
+				);
+				setTimeout(() => {
+					this.elements.widget.classList.add(
+						"hidden",
+					);
+					this.elements.floatingBtn.classList.remove(
+						"hidden",
+					);
+				}, 300);
+			}
+		}
 
-        // Show Typing Indicator
-        const typingWrapper = this.showTypingIndicator();
+		async handleSend() {
+			const rawText =
+				this.elements.input.value || "";
+			if (
+				rawText.length > this.maxMessageLength
+			) {
+				this.showInputError(
+					`Message is too long. Maximum ${this.maxMessageLength} characters.`,
+				);
+				return;
+			}
 
-        try {
-             const body = {
-                widgetKey: this.widgetKey,
-                message: text,
-                sessionId: this.sessionId,
-                language: this.selectedLanguage,
-            };
+			const text = rawText.trim();
+			if (!text) {
+				this.clearInputError();
+				return;
+			}
+			this.clearInputError();
 
-            const url = this.apiUrl.includes('?')
-                ? `${this.apiUrl}&stream=1`
-                : `${this.apiUrl}?stream=1`;
+			// Reset chat count if time gap large (simple version)
+			const gap =
+				new Date().getTime() -
+				this.date.getTime();
+			if (gap > 2 * 60 * 1000) {
+				this.successfulChatCount = 0;
+				this.date = new Date();
+				this.userMessageCount = 0;
+				this.botMessageCount = 0;
+				this.resetConversationRatingState();
+			}
 
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'text/event-stream, application/json'
-                },
-                body: JSON.stringify(body)
-            });
+			// Add User Message
+			this.appendMessage(text, "user");
+			this.userMessageCount += 1;
+			this.pendingEndIntentRating =
+				this.config.planType === "basic" &&
+				this.isConversationEndMessage(text) &&
+				!this.ratingShown &&
+				!this.ratingSubmitted;
+			this.elements.input.value = "";
 
-            let content = "Sorry, didn't get that.";
-            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+			// Show Typing Indicator
+			const typingWrapper =
+				this.showTypingIndicator();
 
-            if (response.ok && response.body && contentType.includes('text/event-stream')) {
-                const streamResult = await this.consumeStreamedResponse(response, typingWrapper);
-                if (streamResult && streamResult.completed) {
-                    this.successfulChatCount++;
-                    sessionStorage.setItem('witzo_chat_count', `${this.successfulChatCount}`);
-                }
-                return;
-            }
+			try {
+				const body = {
+					widgetKey: this.widgetKey,
+					message: text,
+					sessionId: this.sessionId,
+					language: this.selectedLanguage,
+				};
 
-            const rawText = await response.text();
+				const url = this.apiUrl.includes("?")
+					? `${this.apiUrl}&stream=1`
+					: `${this.apiUrl}?stream=1`;
 
-            if (response.ok) {
-                try {
-                    const result = JSON.parse(rawText);
-                    // Support both old and new response formats
-                    content = result.response || result.output || result.message || content;
+				const response = await fetch(url, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept:
+							"text/event-stream, application/json",
+					},
+					body: JSON.stringify(body),
+				});
 
-                    // Update sessionId if provided
-                    if (result.sessionId) {
-                        this.sessionId = result.sessionId;
-                        sessionStorage.setItem('witzo_chat_session_token', result.sessionId);
-                        this.ratingShown = this.getRatingShownState();
-                        this.ratingSubmitted = this.getRatingSubmittedState();
-                    }
-                } catch(e) {
-                    console.error('JSON Error', e);
-                }
-                this.successfulChatCount++;
-                sessionStorage.setItem('witzo_chat_count', `${this.successfulChatCount}`);
-                this.appendBotReply(typingWrapper, content);
-                return;
-            } else {
-                try {
-                    const err = JSON.parse(rawText);
-                    if (err.limitReached && err.data?.planType === 'basic') {
-                        this.updateTypingToMessage(typingWrapper,
-                            "You've reached the conversation limit. Please use the form below to get in touch."
-                        );
-                        this.pendingEndIntentRating = false;
-                        this.showContactForm();
-                        return;
-                    }
-                    content = err.message || content;
-                } catch(e){}
-            }
+				let content = "Sorry, didn't get that.";
+				const contentType = (
+					response.headers.get("content-type") ||
+					""
+				).toLowerCase();
 
-            // Replace typing indicator with response (error / free plan limit)
-            this.updateTypingToMessage(typingWrapper, content);
-            this.pendingEndIntentRating = false;
+				if (
+					response.ok &&
+					response.body &&
+					contentType.includes(
+						"text/event-stream",
+					)
+				) {
+					const streamResult =
+						await this.consumeStreamedResponse(
+							response,
+							typingWrapper,
+						);
+					if (
+						streamResult &&
+						streamResult.completed
+					) {
+						this.successfulChatCount++;
+						sessionStorage.setItem(
+							"witzo_chat_count",
+							`${this.successfulChatCount}`,
+						);
+					}
+					return;
+				}
 
-        } catch (error) {
-            console.error('Network Error', error);
-            this.updateTypingToMessage(typingWrapper, "Sorry, network error occurred.");
-            this.pendingEndIntentRating = false;
-        }
-    }
+				const rawText = await response.text();
 
-    appendMessage(text, type) {
-        const wrapper = document.createElement('div');
-        wrapper.className = `chat-message ${type === 'user' ? 'user' : ''}`;
+				if (response.ok) {
+					try {
+						const result = JSON.parse(rawText);
+						// Support both old and new response formats
+						content =
+							result.response ||
+							result.output ||
+							result.message ||
+							content;
 
-        const bubble = document.createElement('div');
-        // Type 'user' gets chat-bubble-user, bot gets chat-bubble-ai
-        bubble.className = type === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai';
-        
-        // Render content
-        bubble.innerHTML = `<div class="md-content"><p>${this.parseMarkdown(this.escapeHtml(text))}</p></div>`;
+						// Update sessionId if provided
+						if (result.sessionId) {
+							this.sessionId = result.sessionId;
+							sessionStorage.setItem(
+								"witzo_chat_session_token",
+								result.sessionId,
+							);
+							this.ratingShown =
+								this.getRatingShownState();
+							this.ratingSubmitted =
+								this.getRatingSubmittedState();
+						}
+					} catch (e) {
+						console.error("JSON Error", e);
+					}
+					this.successfulChatCount++;
+					sessionStorage.setItem(
+						"witzo_chat_count",
+						`${this.successfulChatCount}`,
+					);
+					this.appendBotReply(
+						typingWrapper,
+						content,
+					);
+					return;
+				} else {
+					try {
+						const err = JSON.parse(rawText);
+						if (
+							err.limitReached &&
+							err.data?.planType === "basic"
+						) {
+							this.updateTypingToMessage(
+								typingWrapper,
+								"You've reached the conversation limit. Please use the form below to get in touch.",
+							);
+							this.pendingEndIntentRating = false;
+							this.showContactForm();
+							return;
+						}
+						content = err.message || content;
+					} catch (e) {}
+				}
 
-        wrapper.appendChild(bubble);
-        this.elements.messagesContainer.appendChild(wrapper);
-        this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
-    }
+				// Replace typing indicator with response (error / free plan limit)
+				this.updateTypingToMessage(
+					typingWrapper,
+					content,
+				);
+				this.pendingEndIntentRating = false;
+			} catch (error) {
+				console.error("Network Error", error);
+				this.updateTypingToMessage(
+					typingWrapper,
+					"Sorry, network error occurred.",
+				);
+				this.pendingEndIntentRating = false;
+			}
+		}
 
-    showTypingIndicator() {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'chat-message';
+		appendMessage(text, type) {
+			const wrapper =
+				document.createElement("div");
+			wrapper.className = `chat-message ${type === "user" ? "user" : ""}`;
 
-        const bubble = document.createElement('div');
-        bubble.className = 'typing-indicator chat-bubble-ai'; // Borrow styles
-        bubble.innerHTML = `
+			const bubble =
+				document.createElement("div");
+			// Type 'user' gets chat-bubble-user, bot gets chat-bubble-ai
+			bubble.className =
+				type === "user"
+					? "chat-bubble-user"
+					: "chat-bubble-ai";
+
+			// Render content
+			bubble.innerHTML = `<div class="md-content"><p>${this.parseMarkdown(this.escapeHtml(text))}</p></div>`;
+
+			wrapper.appendChild(bubble);
+			this.elements.messagesContainer.appendChild(
+				wrapper,
+			);
+			this.elements.messagesContainer.scrollTop =
+				this.elements.messagesContainer.scrollHeight;
+		}
+
+		showTypingIndicator() {
+			const wrapper =
+				document.createElement("div");
+			wrapper.className = "chat-message";
+
+			const bubble =
+				document.createElement("div");
+			bubble.className =
+				"typing-indicator chat-bubble-ai"; // Borrow styles
+			bubble.innerHTML = `
             <div class="typing-container">
                 <span class="typing-dots-text">.</span>
                 <span class="typing-dots-text">.</span>
@@ -911,266 +1204,388 @@
             </div>
         `;
 
-        wrapper.appendChild(bubble);
-        this.elements.messagesContainer.appendChild(wrapper);
-        this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
-        return wrapper;
-    }
+			wrapper.appendChild(bubble);
+			this.elements.messagesContainer.appendChild(
+				wrapper,
+			);
+			this.elements.messagesContainer.scrollTop =
+				this.elements.messagesContainer.scrollHeight;
+			return wrapper;
+		}
 
-    updateTypingToMessage(wrapper, text) {
-        const bubble = wrapper.querySelector('.typing-indicator');
-        if(bubble) {
-            bubble.classList.remove('typing-indicator');
-            bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
-        } else {
-            const bubbleNode = wrapper.querySelector('.chat-bubble-ai');
-            if (bubbleNode) {
-                bubbleNode.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
-            }
-        }
-        this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
-    }
+		updateTypingToMessage(wrapper, text) {
+			const bubble = wrapper.querySelector(
+				".typing-indicator",
+			);
+			if (bubble) {
+				bubble.classList.remove(
+					"typing-indicator",
+				);
+				bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
+			} else {
+				const bubbleNode = wrapper.querySelector(
+					".chat-bubble-ai",
+				);
+				if (bubbleNode) {
+					bubbleNode.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
+				}
+			}
+			this.elements.messagesContainer.scrollTop =
+				this.elements.messagesContainer.scrollHeight;
+		}
 
-    async consumeStreamedResponse(response, typingWrapper) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let assembled = '';
-        let donePayload = null;
-        let streamHadError = false;
+		async consumeStreamedResponse(
+			response,
+			typingWrapper,
+		) {
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			let assembled = "";
+			let donePayload = null;
+			let streamHadError = false;
 
-        const processEvent = (payload) => {
-            if (!payload || !payload.type) return;
-            if (payload.type === 'token' && typeof payload.token === 'string') {
-                assembled += payload.token;
-                this.updateTypingToMessage(typingWrapper, assembled);
-                return;
-            }
-            if (payload.type === 'done') {
-                donePayload = payload;
-                return;
-            }
-            if (payload.type === 'error') {
-                streamHadError = true;
-            }
-        };
+			const processEvent = (payload) => {
+				if (!payload || !payload.type) return;
+				if (
+					payload.type === "token" &&
+					typeof payload.token === "string"
+				) {
+					assembled += payload.token;
+					this.updateTypingToMessage(
+						typingWrapper,
+						assembled,
+					);
+					return;
+				}
+				if (payload.type === "done") {
+					donePayload = payload;
+					return;
+				}
+				if (payload.type === "error") {
+					streamHadError = true;
+				}
+			};
 
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
+			while (true) {
+				const { value, done } =
+					await reader.read();
+				if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
-            const events = buffer.split('\n\n');
-            buffer = events.pop() || '';
+				buffer += decoder.decode(value, {
+					stream: true,
+				});
+				const events = buffer.split("\n\n");
+				buffer = events.pop() || "";
 
-            for (const rawEvent of events) {
-                const lines = rawEvent.split('\n');
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const jsonPart = line.slice(6).trim();
-                    if (!jsonPart) continue;
-                    try {
-                        processEvent(JSON.parse(jsonPart));
-                    } catch (_) {}
-                }
-            }
-        }
+				for (const rawEvent of events) {
+					const lines = rawEvent.split("\n");
+					for (const line of lines) {
+						if (!line.startsWith("data: "))
+							continue;
+						const jsonPart = line.slice(6).trim();
+						if (!jsonPart) continue;
+						try {
+							processEvent(JSON.parse(jsonPart));
+						} catch (_) {}
+					}
+				}
+			}
 
-        if (buffer.trim().startsWith('data:')) {
-            const jsonPart = buffer.replace(/^data:\s*/, '').trim();
-            if (jsonPart) {
-                try {
-                    processEvent(JSON.parse(jsonPart));
-                } catch (_) {}
-            }
-        }
+			if (buffer.trim().startsWith("data:")) {
+				const jsonPart = buffer
+					.replace(/^data:\s*/, "")
+					.trim();
+				if (jsonPart) {
+					try {
+						processEvent(JSON.parse(jsonPart));
+					} catch (_) {}
+				}
+			}
 
-        if (streamHadError) {
-            this.updateTypingToMessage(typingWrapper, "Sorry, network error occurred.");
-            this.pendingEndIntentRating = false;
-            return { completed: false };
-        }
+			if (streamHadError) {
+				this.updateTypingToMessage(
+					typingWrapper,
+					"Sorry, network error occurred.",
+				);
+				this.pendingEndIntentRating = false;
+				return { completed: false };
+			}
 
-        if (donePayload && donePayload.sessionId) {
-            this.sessionId = donePayload.sessionId;
-            sessionStorage.setItem('witzo_chat_session_token', donePayload.sessionId);
-            this.ratingShown = this.getRatingShownState();
-            this.ratingSubmitted = this.getRatingSubmittedState();
-        }
+			if (donePayload && donePayload.sessionId) {
+				this.sessionId = donePayload.sessionId;
+				sessionStorage.setItem(
+					"witzo_chat_session_token",
+					donePayload.sessionId,
+				);
+				this.ratingShown =
+					this.getRatingShownState();
+				this.ratingSubmitted =
+					this.getRatingSubmittedState();
+			}
 
-        if (!assembled.trim()) {
-            this.updateTypingToMessage(typingWrapper, "Sorry, didn't get that.");
-            this.pendingEndIntentRating = false;
-            return { completed: false };
-        }
+			if (!assembled.trim()) {
+				this.updateTypingToMessage(
+					typingWrapper,
+					"Sorry, didn't get that.",
+				);
+				this.pendingEndIntentRating = false;
+				return { completed: false };
+			}
 
-        this.appendBotReply(typingWrapper, assembled);
-        return { completed: true };
-    }
+			this.appendBotReply(
+				typingWrapper,
+				assembled,
+			);
+			return { completed: true };
+		}
 
-    appendBotReply(typingWrapper, text) {
-        this.updateTypingToMessage(typingWrapper, text);
-        this.botMessageCount += 1;
+		appendBotReply(typingWrapper, text) {
+			this.updateTypingToMessage(
+				typingWrapper,
+				text,
+			);
+			this.botMessageCount += 1;
 
-        // Show rating only once per session and only when conversation-end intent is detected.
-        const shouldShowConversationRating = this.config.planType === 'basic'
-            && this.pendingEndIntentRating
-            && !this.ratingShown
-            && !this.ratingSubmitted
-            && this.userMessageCount > 0
-            && this.botMessageCount > 0;
+			// Show rating only once per session and only when conversation-end intent is detected.
+			const shouldShowConversationRating =
+				this.config.planType === "basic" &&
+				this.pendingEndIntentRating &&
+				!this.ratingShown &&
+				!this.ratingSubmitted &&
+				this.userMessageCount > 0 &&
+				this.botMessageCount > 0;
 
-        if (shouldShowConversationRating) {
-            if (!this.elements.conversationRatingSlot) {
-                this.pendingEndIntentRating = false;
-                return;
-            }
-            const ratingRow = document.createElement('div');
-            ratingRow.className = 'rating-row';
-            ratingRow.innerHTML = `
+			if (shouldShowConversationRating) {
+				if (
+					!this.elements.conversationRatingSlot
+				) {
+					this.pendingEndIntentRating = false;
+					return;
+				}
+				const ratingRow =
+					document.createElement("div");
+				ratingRow.className = "rating-row";
+				ratingRow.innerHTML = `
                 <span class="rating-label">Rate this conversation</span>
                 <button class="rating-btn" data-rating="up" title="Thumbs up">&#128077;</button>
                 <button class="rating-btn" data-rating="down" title="Thumbs down">&#128078;</button>
             `;
-            ratingRow.querySelectorAll('.rating-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const chosen = e.currentTarget.dataset.rating;
-                    ratingRow.querySelectorAll('.rating-btn').forEach(b => b.classList.remove('active'));
-                    e.currentTarget.classList.add('active');
-                    if (this.elements.conversationRatingSlot) {
-                        this.elements.conversationRatingSlot.innerHTML = '';
-                        this.elements.conversationRatingSlot.classList.add('hidden');
-                    }
-                    this.submitRating(chosen);
-                });
-            });
-            this.elements.conversationRatingSlot.innerHTML = '';
-            this.elements.conversationRatingSlot.appendChild(ratingRow);
-            this.elements.conversationRatingSlot.classList.remove('hidden');
-            this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
-            this.setRatingShownState(true);
-        }
+				ratingRow
+					.querySelectorAll(".rating-btn")
+					.forEach((btn) => {
+						btn.addEventListener("click", (e) => {
+							const chosen =
+								e.currentTarget.dataset.rating;
+							ratingRow
+								.querySelectorAll(".rating-btn")
+								.forEach((b) =>
+									b.classList.remove("active"),
+								);
+							e.currentTarget.classList.add(
+								"active",
+							);
+							if (
+								this.elements
+									.conversationRatingSlot
+							) {
+								this.elements.conversationRatingSlot.innerHTML =
+									"";
+								this.elements.conversationRatingSlot.classList.add(
+									"hidden",
+								);
+							}
+							this.submitRating(chosen);
+						});
+					});
+				this.elements.conversationRatingSlot.innerHTML =
+					"";
+				this.elements.conversationRatingSlot.appendChild(
+					ratingRow,
+				);
+				this.elements.conversationRatingSlot.classList.remove(
+					"hidden",
+				);
+				this.elements.messagesContainer.scrollTop =
+					this.elements.messagesContainer.scrollHeight;
+				this.setRatingShownState(true);
+			}
 
-        this.pendingEndIntentRating = false;
-    }
+			this.pendingEndIntentRating = false;
+		}
 
-    async submitRating(rating) {
-        try {
-            await fetch(this.apiBaseUrl + '/api/v1/widget/rating', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    widgetKey: this.widgetKey,
-                    sessionId: this.sessionId,
-                    rating,
-                }),
-            });
-            this.setRatingSubmittedState(true);
-            if (this.elements.conversationRatingSlot) {
-                this.elements.conversationRatingSlot.innerHTML = '';
-                this.elements.conversationRatingSlot.classList.add('hidden');
-            }
-        } catch(e) {
-            // Non-fatal — silently ignore
-        }
-    }
+		async submitRating(rating) {
+			try {
+				await fetch(
+					this.apiBaseUrl +
+						"/api/v1/widget/rating",
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							widgetKey: this.widgetKey,
+							sessionId: this.sessionId,
+							rating,
+						}),
+					},
+				);
+				this.setRatingSubmittedState(true);
+				if (
+					this.elements.conversationRatingSlot
+				) {
+					this.elements.conversationRatingSlot.innerHTML =
+						"";
+					this.elements.conversationRatingSlot.classList.add(
+						"hidden",
+					);
+				}
+			} catch (e) {
+				// Non-fatal — silently ignore
+			}
+		}
 
-    showContactForm() {
-        if (!this.elements.contactFormSlot) return;
-        this.elements.messagesContainer.classList.add('hidden');
-        if (this.elements.chatInput) this.elements.chatInput.classList.add('hidden');
-        this.elements.contactFormSlot.classList.remove('hidden');
+		showContactForm() {
+			if (!this.elements.contactFormSlot) return;
+			this.elements.messagesContainer.classList.add(
+				"hidden",
+			);
+			if (this.elements.chatInput)
+				this.elements.chatInput.classList.add(
+					"hidden",
+				);
+			this.elements.contactFormSlot.classList.remove(
+				"hidden",
+			);
 
-        if (!this._cfBound) {
-            this._cfBound = true;
-            this.elements.cfSubmit.addEventListener('click', () => this.submitContactForm());
-        }
-    }
+			if (!this._cfBound) {
+				this._cfBound = true;
+				this.elements.cfSubmit.addEventListener(
+					"click",
+					() => this.submitContactForm(),
+				);
+			}
+		}
 
-    async submitContactForm() {
-        const email = this.elements.cfEmail ? this.elements.cfEmail.value.trim() : '';
-        if (!email) {
-            if (this.elements.cfEmail) this.elements.cfEmail.style.borderColor = '#ef4444';
-            return;
-        }
-        if (this.elements.cfSubmit) {
-            this.elements.cfSubmit.disabled = true;
-            this.elements.cfSubmit.textContent = 'Sending...';
-        }
-        try {
-            const resp = await fetch(this.apiBaseUrl + '/api/v1/widget/contact', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    widgetKey: this.widgetKey,
-                    sessionId: this.sessionId,
-                    name: this.elements.cfName ? this.elements.cfName.value.trim() || null : null,
-                    email,
-                    message: this.elements.cfMessage ? this.elements.cfMessage.value.trim() || null : null,
-                }),
-            });
-            if (resp.ok) {
-                this.elements.contactFormSlot.innerHTML =
-                    '<div class="contact-form-success">✓ Message sent! We\'ll be in touch soon.</div>';
-            } else {
-                if (this.elements.cfSubmit) {
-                    this.elements.cfSubmit.disabled = false;
-                    this.elements.cfSubmit.textContent = 'Send Message';
-                }
-            }
-        } catch(e) {
-            if (this.elements.cfSubmit) {
-                this.elements.cfSubmit.disabled = false;
-                this.elements.cfSubmit.textContent = 'Send Message';
-            }
-        }
-    }
+		async submitContactForm() {
+			const email = this.elements.cfEmail
+				? this.elements.cfEmail.value.trim()
+				: "";
+			if (!email) {
+				if (this.elements.cfEmail)
+					this.elements.cfEmail.style.borderColor =
+						"#ef4444";
+				return;
+			}
+			if (this.elements.cfSubmit) {
+				this.elements.cfSubmit.disabled = true;
+				this.elements.cfSubmit.textContent =
+					"Sending...";
+			}
+			try {
+				const resp = await fetch(
+					this.apiBaseUrl +
+						"/api/v1/widget/contact",
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							widgetKey: this.widgetKey,
+							sessionId: this.sessionId,
+							name: this.elements.cfName
+								? this.elements.cfName.value.trim() ||
+									null
+								: null,
+							email,
+							message: this.elements.cfMessage
+								? this.elements.cfMessage.value.trim() ||
+									null
+								: null,
+						}),
+					},
+				);
+				if (resp.ok) {
+					this.elements.contactFormSlot.innerHTML =
+						'<div class="contact-form-success">✓ Message sent! We\'ll be in touch soon.</div>';
+				} else {
+					if (this.elements.cfSubmit) {
+						this.elements.cfSubmit.disabled = false;
+						this.elements.cfSubmit.textContent =
+							"Send Message";
+					}
+				}
+			} catch (e) {
+				if (this.elements.cfSubmit) {
+					this.elements.cfSubmit.disabled = false;
+					this.elements.cfSubmit.textContent =
+						"Send Message";
+				}
+			}
+		}
 
-    displayDefaultMessage() {
-         const wrapper = document.createElement('div');
-         wrapper.className = 'chat-message';
-         const bubble = document.createElement('div');
-         bubble.className = 'chat-bubble-ai';
-         bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(this.config.primaryText)}</div>`;
-         wrapper.appendChild(bubble);
-         this.elements.messagesContainer.appendChild(wrapper);
-    }
+		displayDefaultMessage() {
+			const wrapper =
+				document.createElement("div");
+			wrapper.className = "chat-message";
+			const bubble =
+				document.createElement("div");
+			bubble.className = "chat-bubble-ai";
+			bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(this.config.primaryText)}</div>`;
+			wrapper.appendChild(bubble);
+			this.elements.messagesContainer.appendChild(
+				wrapper,
+			);
+		}
 
-    parseMarkdown(text) {
-      if(!text) return '';
-      // Simple markdown parsing to match text-widget capabilities
-      let html = text;
-      
-      // Bold **text**
-      html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-      
-      // Links [text](url)
-      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, txt, url) => {
-          return `<a href="${sanitizeURL(url)}" target="_blank" rel="noopener noreferrer">${txt}</a>`;
-      });
-      
-      // Newlines to br
-      html = html.replace(/\n/g, '<br>');
-      
-      return html;
-    }
-    
-    escapeHtml(text) {
-        return text.replace(/[&<>"']/g, function(m) {
-            return {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            }[m];
-        });
-    }
-  }
+		parseMarkdown(text) {
+			if (!text) return "";
+			// Simple markdown parsing to match text-widget capabilities
+			let html = text;
 
-  // Register the custom element
-  if (!customElements.get('witzo-chat')) {
-    customElements.define('witzo-chat', WitzoChatWidget);
-  }
+			// Bold **text**
+			html = html.replace(
+				/\*\*(.*?)\*\*/g,
+				"<strong>$1</strong>",
+			);
+
+			// Links [text](url)
+			html = html.replace(
+				/\[([^\]]+)\]\(([^)]+)\)/g,
+				(match, txt, url) => {
+					return `<a href="${sanitizeURL(url)}" target="_blank" rel="noopener noreferrer">${txt}</a>`;
+				},
+			);
+
+			// Newlines to br
+			html = html.replace(/\n/g, "<br>");
+
+			return html;
+		}
+
+		escapeHtml(text) {
+			return text.replace(
+				/[&<>"']/g,
+				function (m) {
+					return {
+						"&": "&amp;",
+						"<": "&lt;",
+						">": "&gt;",
+						'"': "&quot;",
+						"'": "&#039;",
+					}[m];
+				},
+			);
+		}
+	}
+
+	// Register the custom element
+	if (!customElements.get("witzo-chat")) {
+		customElements.define(
+			"witzo-chat",
+			WitzoChatWidget,
+		);
+	}
 })();
-

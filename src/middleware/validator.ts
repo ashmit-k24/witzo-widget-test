@@ -10,7 +10,10 @@ import {
 	ValidationChain,
 	validationResult,
 } from "express-validator";
-import { CHAT_SUPPORTED_LANGUAGE_CODES } from "../constants";
+import {
+	CHAT_MAX_USER_MESSAGE_CHARS,
+	CHAT_SUPPORTED_LANGUAGE_CODES,
+} from "../constants";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
@@ -66,6 +69,38 @@ export const validationRules: Record<
 			.isNumeric()
 			.withMessage(
 				"Verification code must contain only numbers",
+			),
+	],
+
+	adminLogin: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid admin email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+		body("password")
+			.isString()
+			.isLength({ min: 8, max: 256 })
+			.withMessage(
+				"password must be 8-256 characters",
+			),
+	],
+
+	adminUserAction: [
+		body("userId")
+			.isUUID()
+			.withMessage("userId must be a valid UUID"),
+	],
+
+	adminSetPlanAction: [
+		body("userId")
+			.isUUID()
+			.withMessage("userId must be a valid UUID"),
+		body("planType")
+			.isIn(["free", "basic", "enterprise"])
+			.withMessage(
+				"planType must be free, basic, or enterprise",
 			),
 	],
 
@@ -165,8 +200,14 @@ export const validationRules: Record<
 	chatRequest: [
 		body("message")
 			.isString()
-			.isLength({ min: 1, max: 4000 })
-			.withMessage("message must be 1-4000 characters"),
+			.trim()
+			.isLength({
+				min: 1,
+				max: CHAT_MAX_USER_MESSAGE_CHARS,
+			})
+			.withMessage(
+				`message must be 1-${CHAT_MAX_USER_MESSAGE_CHARS} characters`,
+			),
 		body("sessionId")
 			.optional({ values: "falsy" })
 			.isUUID()
@@ -341,8 +382,14 @@ export const validationRules: Record<
 			.withMessage("widgetKey is invalid"),
 		body("message")
 			.isString()
-			.isLength({ min: 1, max: 4000 })
-			.withMessage("message must be 1-4000 characters"),
+			.trim()
+			.isLength({
+				min: 1,
+				max: CHAT_MAX_USER_MESSAGE_CHARS,
+			})
+			.withMessage(
+				`message must be 1-${CHAT_MAX_USER_MESSAGE_CHARS} characters`,
+			),
 		body("sessionId")
 			.optional({ values: "falsy" })
 			.isUUID()

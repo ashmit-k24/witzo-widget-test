@@ -202,11 +202,16 @@ export interface EnvConfig {
 	GOOGLE_CLIENT_SECRET: string;
 	GOOGLE_CALLBACK_URL: string;
 	FRONTEND_URL: string;
+	ADMIN_FRONTEND_URL: string;
 	PINECONE_API_KEY: string;
 	PINECONE_ENVIRONMENT: string;
 	PINECONE_INDEX_NAME: string;
 	OPENAI_API_KEY: string;
 	OPENAI_MODEL: string;
+	ADMIN_EMAIL: string;
+	ADMIN_PASSWORD: string;
+	ADMIN_JWT_SECRET: string;
+	ADMIN_TOKEN_EXPIRY_HOURS: number;
 
 	// Redis
 	REDIS_HOST: string;
