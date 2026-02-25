@@ -21,7 +21,6 @@ const poolConfig: PoolConfig = {
 };
 
 const pool = new Pool(poolConfig);
-console.log(pool, "pool");
 
 // Handle pool errors
 pool.on("error", (err: Error) => {

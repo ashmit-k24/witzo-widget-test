@@ -1,18 +1,16 @@
 import OpenAI from "openai";
-import pool from "../config/database";
-import { config } from "../config/env";
 import {
 	getPlanCapabilities,
 	PlanType,
 } from "../config/planConfig";
+import pool from "../config/database";
+import { config } from "../config/env";
 import { ChatMessage } from "../types";
 import logger from "../utils/logger";
 import emailService from "./emailService";
 import { leadWebhookService } from "./leadWebhookService";
 
-const openai = new OpenAI({
-	apiKey: config.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
 export interface Lead {
 	id: string;
@@ -26,11 +24,7 @@ export interface Lead {
 	company: string | null;
 	chat_summary: string | null;
 	raw_contact: Record<string, any>;
-	status:
-		| "new"
-		| "contacted"
-		| "qualified"
-		| "converted";
+	status: "new" | "contacted" | "qualified" | "converted";
 	source_url: string | null;
 	ip_address: string | null;
 	message_count: number;
@@ -63,9 +57,7 @@ class LeadService {
 			return null;
 		}
 		const normalized = value.trim();
-		return normalized.length > 0
-			? normalized
-			: null;
+		return normalized.length > 0 ? normalized : null;
 	}
 
 	private hasConnectableChannel(
@@ -113,15 +105,13 @@ ${conversation}`;
 		try {
 			const completion =
 				await openai.chat.completions.create({
-					model: "gpt-4.1-mini",
+					model: "gpt-4o",
 					messages: [
 						{ role: "user", content: prompt },
 					],
 					temperature: 0,
 					max_tokens: 300,
-					response_format: {
-						type: "json_object",
-					},
+					response_format: { type: "json_object" },
 				});
 
 			const raw =
@@ -177,9 +167,7 @@ ${conversation}`;
 
 			// Only persist leads we can actually follow up with.
 			// Name-only or summary-only records are ignored.
-			if (
-				!this.hasConnectableChannel(extracted)
-			) {
+			if (!this.hasConnectableChannel(extracted)) {
 				logger.info(
 					"Skipping lead upsert: no connectable channel found",
 					{
@@ -192,11 +180,7 @@ ${conversation}`;
 
 			const leadResult = await pool.query<{
 				id: string;
-				status:
-					| "new"
-					| "contacted"
-					| "qualified"
-					| "converted";
+				status: "new" | "contacted" | "qualified" | "converted";
 			}>(
 				`INSERT INTO leads
 					(user_id, widget_key_id, session_id, name, email, phone, country, company,
@@ -245,8 +229,7 @@ ${conversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ??
-								"new",
+								leadResult.rows[0]?.status ?? "new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -285,10 +268,7 @@ ${conversation}`;
 						[userId, sessionId],
 					);
 					const leadRow = checkResult.rows[0];
-					if (
-						leadRow &&
-						leadRow.follow_up_sent_at === null
-					) {
+					if (leadRow && leadRow.follow_up_sent_at === null) {
 						const ownerResult = await pool.query(
 							`SELECT email FROM users WHERE id = $1`,
 							[userId],
@@ -308,22 +288,15 @@ ${conversation}`;
 							[userId, sessionId],
 						);
 
-						logger.info(
-							"Follow-up email sent for lead",
-							{
-								userId,
-								sessionId,
-							},
-						);
+						logger.info("Follow-up email sent for lead", {
+							userId,
+							sessionId,
+						});
 					}
 				} catch (emailErr) {
 					logger.error(
 						"Failed to send follow-up email for lead",
-						{
-							userId,
-							sessionId,
-							error: emailErr,
-						},
+						{ userId, sessionId, error: emailErr },
 					);
 				}
 			}
@@ -350,11 +323,7 @@ ${conversation}`;
 	): Promise<void> {
 		const result = await pool.query<{
 			id: string;
-			status:
-				| "new"
-				| "contacted"
-				| "qualified"
-				| "converted";
+			status: "new" | "contacted" | "qualified" | "converted";
 		}>(
 			`INSERT INTO leads
 				(user_id, widget_key_id, session_id, name, email, chat_summary,
@@ -383,10 +352,7 @@ ${conversation}`;
 				data.sourceUrl ?? null,
 			],
 		);
-		logger.info("Contact form lead saved", {
-			userId,
-			sessionId,
-		});
+		logger.info("Contact form lead saved", { userId, sessionId });
 		const leadId = result.rows[0]?.id;
 		if (leadId) {
 			void leadWebhookService
@@ -405,8 +371,10 @@ ${conversation}`;
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress: data.ipAddress ?? null,
-							sourceUrl: data.sourceUrl ?? null,
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -436,7 +404,9 @@ ${conversation}`;
 		} = options;
 		const offset = (page - 1) * limit;
 
-		const conditions: string[] = ["user_id = $1"];
+		const conditions: string[] = [
+			"user_id = $1",
+		];
 		const values: any[] = [userId];
 		let idx = 2;
 

@@ -295,10 +295,6 @@ export const config: EnvConfig = {
 		"FRONTEND_URL",
 		"http://localhost:3001",
 	),
-	ADMIN_FRONTEND_URL: getEnvString(
-		"ADMIN_FRONTEND_URL",
-		"http://localhost:3010",
-	),
 
 	// Pinecone
 	PINECONE_API_KEY: getEnvString(
@@ -322,21 +318,6 @@ export const config: EnvConfig = {
 	OPENAI_MODEL: getEnvString(
 		"OPENAI_MODEL",
 		"text-embedding-3-small",
-	),
-	ADMIN_EMAIL: getEnvString(
-		"ADMIN_EMAIL",
-		"admin@witzo.local",
-	),
-	ADMIN_PASSWORD: getEnvString(
-		"ADMIN_PASSWORD",
-		"change-me-admin-password",
-	),
-	ADMIN_JWT_SECRET: getRequiredSecret(
-		"ADMIN_JWT_SECRET",
-	),
-	ADMIN_TOKEN_EXPIRY_HOURS: getEnvNumber(
-		"ADMIN_TOKEN_EXPIRY_HOURS",
-		24,
 	),
 
 	// Redis
