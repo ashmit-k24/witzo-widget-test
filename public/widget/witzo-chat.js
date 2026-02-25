@@ -336,7 +336,7 @@
 				return `
           <button class="floating-launcher floating-launcher-compact hidden" id="floating-btn" aria-label="Open chat">
             ${iconMarkup}
-            <span class="floating-compact-label">Need Assistance ?</span>
+            <span class="floating-compact-label">Need<br/> Assistance ?</span>
           </button>
         `;
 			}
@@ -892,30 +892,6 @@
             outline-offset: 2px;
           }
 
-          .floating-orb {
-            width: 54px;
-            height: 54px;
-            border-radius: 9999px;
-            background: linear-gradient(135deg, ${this.config.sendColor || "#fc0e3f"} 0%, #7c3aed 100%);
-            padding: 3px;
-            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
-            flex-shrink: 0;
-            display: flex;
-          }
-          .floating-orb-inner {
-            width: 100%;
-            height: 100%;
-            border-radius: inherit;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #111827;
-          }
-          .floating-orb-inner svg {
-            width: 28px;
-            height: 28px;
-          }
-
           .floating-launcher-small {
             background: transparent;
             padding: 0;
@@ -970,24 +946,32 @@
           }
           .floating-full-cta {
             flex: 1;
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
             border-radius: 10px;
             padding: 10px 14px;
-            background: linear-gradient(90deg, #6d28d9 0%, ${this.config.sendColor || "#fc0e3f"} 100%);
+            
             color: #ffffff;
             font-size: 14px;
             font-weight: 700;
             letter-spacing: 0.2px;
           }
+          .floating-full-cta svg {
+            width: 20px;
+            height: 19px;
+            flex-shrink: 0;
+          }
 
           .floating-launcher.entering {
-            animation: floatingBtnIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+            animation: floatingBtnIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
           }
 
           @keyframes floatingBtnIn {
             0% { opacity: 0; transform: scale(0.3); }
-            60% { opacity: 1; transform: scale(1.18); }
-            80% { transform: scale(0.95); }
+            55% { opacity: 1; transform: scale(1.12); }
+            75% { transform: scale(0.96); }
             100% { opacity: 1; transform: scale(1); }
           }
 

@@ -25,7 +25,7 @@ export const floatingCSS = `
     width: 54px;
     height: 54px;
     border-radius: 9999px;
-    background: linear-gradient(135deg, var(--color-floating-btn, #fc0e3f) 0%, #7c3aed 100%);
+    background: linear-gradient(135deg, var(--color-send, #fc0e3f) 0%, var(--color-banner, #120b14) 100%);
     padding: 3px;
     box-shadow: 0 10px 24px rgba(0,0,0,0.22);
     flex-shrink: 0;
@@ -52,37 +52,37 @@ export const floatingCSS = `
 
   .floating-launcher-compact {
     align-items: center;
-    gap: 12px;
+    gap: 16px;
     border-radius: 9999px;
     background: #fff;
     color: #111827;
     box-shadow: 0 14px 34px rgba(0,0,0,0.2);
-    padding: 7px 16px 7px 7px;
+    padding: 4px 20px 4px 4px;
   }
   .floating-compact-label {
-    font-size: 16px;
+    font-size: 14px;
     line-height: 1.1;
-    font-weight: 700;
+    font-weight: 600;
     white-space: nowrap;
     text-align: left;
   }
 
   .floating-launcher-full {
-    width: 270px;
-    border-radius: 18px;
+    width: 214px;
+    border-radius: 17px;
     background: #fff;
     box-shadow: 0 18px 40px rgba(0,0,0,0.24);
     padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 18px;
     text-align: left;
   }
   .floating-full-message {
     color: #0f172a;
-    font-size: 18px;
+    font-size: 14px;
     font-weight: 600;
-    line-height: 1.25;
+    line-height: 141%;
   }
   .floating-full-row {
     display: flex;
@@ -90,8 +90,8 @@ export const floatingCSS = `
     gap: 10px;
   }
   .floating-full-row .floating-orb {
-    width: 46px;
-    height: 46px;
+    width: 34px;
+    height: 34px;
   }
   .floating-full-row .floating-orb-inner svg {
     width: 24px;
@@ -99,18 +99,27 @@ export const floatingCSS = `
   }
   .floating-full-cta {
     flex: 1;
-    text-align: center;
-    border-radius: 10px;
-    padding: 10px 14px;
-    background: linear-gradient(90deg, #6d28d9 0%, var(--color-floating-btn, #fc0e3f) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 7px;
+    padding: 10px 26px;
+    background: linear-gradient(135deg, var(--color-send, #fc0e3f) 0%, var(--color-banner, #120b14) 100%);
     color: #fff;
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: 0.2px;
+    text-wrap: nowrap;
+  }
+  .floating-full-cta svg {
+    width: 18px;
+    height: 17px;
+    flex-shrink: 0;
   }
 
   .floating-launcher.entering {
-    animation: floatingBtnIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+    animation: floatingBtnIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
   }
 
   @media (max-width: 640px) {

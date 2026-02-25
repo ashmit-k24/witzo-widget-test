@@ -10,8 +10,8 @@ export const animationsCSS = `
   }
   @keyframes floatingBtnIn {
     0%   { opacity: 0; transform: scale(0.3); }
-    60%  { opacity: 1; transform: scale(1.18); }
-    80%  { transform: scale(0.95); }
+    55%  { opacity: 1; transform: scale(1.12); }
+    75%  { transform: scale(0.96); }
     100% { opacity: 1; transform: scale(1); }
   }
   @keyframes float {
