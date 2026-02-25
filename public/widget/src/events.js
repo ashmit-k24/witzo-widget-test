@@ -70,8 +70,11 @@ export function toggleChat(widget) {
     widget.elements.widget.classList.add('minimizing');
     setTimeout(() => {
       widget.elements.widget.classList.add('hidden');
-      widget.elements.floatingBtn.classList.remove('hidden');
-    }, 300);
+      const btn = widget.elements.floatingBtn;
+      btn.classList.remove('hidden');
+      btn.classList.add('entering');
+      setTimeout(() => btn.classList.remove('entering'), 550);
+    }, 480);
   }
 }
 

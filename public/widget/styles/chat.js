@@ -18,7 +18,6 @@ export const chatCSS = `
   }
 
   .bot-message-row { display: flex; flex-direction: row; align-items: flex-start; gap: 0.5rem; }
-  .bot-message-row .bot-msg-chat-icon { flex-shrink: 0; }
 
   .md-content p { margin: 0; }
   .md-content ul, .md-content ol { padding-left: 20px; margin: 5px 0; }
@@ -26,16 +25,14 @@ export const chatCSS = `
   .md-content a:hover { text-decoration: underline; }
 
   .typing-container {
-    border-radius: 50px; padding: 7px 15px; height: 36px;
-    font-size: 14px; color: #666; background: #ecececb6;
-    display: flex; align-items: center; justify-content: center; gap: 4px;
+    display: flex; align-items: center; gap: 5px; padding: 10px 2px;
   }
-  .typing-dots-text {
-    font-size: 2rem; line-height: 1; opacity: 0;
-    animation: typingBounce 1.5s infinite;
-    display: inline-block; position: relative; top: -9px;
+  .typing-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #94a3b8; display: inline-block;
+    animation: typingBounce 1.4s ease-in-out infinite;
   }
-  .typing-dots-text:nth-child(1) { animation-delay: 0s; }
-  .typing-dots-text:nth-child(2) { animation-delay: 0.5s; }
-  .typing-dots-text:nth-child(3) { animation-delay: 1s; }
+  .typing-dot:nth-child(1) { animation-delay: 0s; }
+  .typing-dot:nth-child(2) { animation-delay: 0.18s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.36s; }
 `;

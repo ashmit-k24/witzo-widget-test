@@ -48,16 +48,19 @@ export function appendMessage(text, type, container) {
 }
 
 /** Create and return a typing indicator element (not yet appended) */
-export function createTypingIndicator() {
+export function createTypingIndicator(logoIcon) {
   const wrapper = document.createElement('div');
   wrapper.className = 'chat-message';
   const bubble = document.createElement('div');
   bubble.className = 'typing-indicator chat-bubble-ai';
   bubble.innerHTML = `
-    <div class="typing-container">
-      <span class="typing-dots-text">.</span>
-      <span class="typing-dots-text">.</span>
-      <span class="typing-dots-text">.</span>
+    <div class="bot-message-row">
+      ${getBotIconHtml(logoIcon)}
+      <div class="typing-container">
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
     </div>`;
   wrapper.appendChild(bubble);
   return wrapper;

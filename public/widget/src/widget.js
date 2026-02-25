@@ -79,6 +79,11 @@ export class WitzoChatWidget extends HTMLElement {
     if (!this.config.logoIcon) {
       this.config.logoIcon = `${this.apiBaseUrl}/assets/images/witzo.png`;
     }
+    // Preload bot icon so it's cached before first message typing indicator
+    if (this.config.logoIcon) {
+      const _preload = new Image();
+      _preload.src = this.config.logoIcon;
+    }
 
     // 4. Load Plus Jakarta Sans into the document head (fonts are shared into shadow DOM)
     if (!document.getElementById('witzo-font-pjs')) {
@@ -136,8 +141,14 @@ export class WitzoChatWidget extends HTMLElement {
       this._autoOpenTimer = setTimeout(() => { if (!this.isOpen) this.toggleChat(); }, 5000);
     }
 
-    // 9. Reveal floating button after 2 s
-    setTimeout(() => this.elements.floatingBtn?.classList.remove('hidden'), 2000);
+    // 9. Reveal floating button after 2 s with entrance animation
+    setTimeout(() => {
+      const btn = this.elements.floatingBtn;
+      if (!btn) return;
+      btn.classList.remove('hidden');
+      btn.classList.add('entering');
+      setTimeout(() => btn.classList.remove('entering'), 550);
+    }, 2000);
   }
 
   // ── Delegated to events.js ──────────────────────────────────────
@@ -178,7 +189,7 @@ export class WitzoChatWidget extends HTMLElement {
     this.elements.input.value = '';
 
     // Show typing indicator
-    const typingEl = msg.createTypingIndicator();
+    const typingEl = msg.createTypingIndicator(this.config.logoIcon);
     this.elements.messagesContainer.appendChild(typingEl);
     this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
 

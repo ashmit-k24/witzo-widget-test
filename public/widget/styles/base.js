@@ -17,23 +17,14 @@ export const baseCSS = `
 
   .chat-widget {
     box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-    backdrop-filter: blur(10px);
-    transform: scale(0.15) translateY(40px); opacity: 0;
-    animation: slideUp 1s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    opacity: 0;
+    transform: scale(0.08) translateY(16px);
+    animation: widgetOpen 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     transform-origin: right bottom;
     position: relative;
   }
   .chat-widget.minimizing {
     opacity: 1; transform: scale(1) translateY(0);
-    animation: slideDown 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-  }
-  .chat-widget::before {
-    content: ''; position: absolute; inset: 0;
-    background: #fff; border-radius: 15px;
-    animation: overlayFade 1.2s ease-out forwards;
-    pointer-events: none; z-index: 10;
-  }
-  .chat-widget.minimizing::before {
-    animation: overlayMinimize 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+    animation: widgetClose 0.45s cubic-bezier(0.4, 0, 0.6, 0) forwards;
   }
 `;
