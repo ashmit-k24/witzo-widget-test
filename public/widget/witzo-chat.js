@@ -396,7 +396,7 @@
             margin-bottom:0;
             border-radius: 10px;
             position: relative;
-            z-index: 10;
+            z-index: 1;
           }
           .chat-header-left {
             display: flex;
