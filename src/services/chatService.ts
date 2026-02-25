@@ -52,6 +52,11 @@ type MessageRow = {
 	created_at: Date;
 };
 
+type UserBrandRow = {
+	company_name: string | null;
+	company_website: string | null;
+};
+
 class ChatService {
 	private openai: OpenAI;
 
@@ -132,6 +137,417 @@ class ChatService {
 
 	private getFallbackResponse(): string {
 		return "I'm sorry, I'm facing a temporary delay. Please try again in a moment.";
+	}
+
+	private toDisplayBrandName(raw: string): string {
+		const normalized = raw
+			.replace(/[-_]+/g, " ")
+			.replace(/\s+/g, " ")
+			.trim();
+		if (!normalized) return "";
+		return normalized
+			.split(" ")
+			.map((part) =>
+				part.length > 1
+					? part.charAt(0).toUpperCase() + part.slice(1)
+					: part.toUpperCase(),
+			)
+			.join(" ");
+	}
+
+	private extractBrandFromUrl(url?: string | null): string | null {
+		if (!url) return null;
+		const raw = url.trim();
+		if (!raw) return null;
+
+		try {
+			const withProtocol = /^https?:\/\//i.test(raw)
+				? raw
+				: `https://${raw}`;
+			const hostname = new URL(withProtocol).hostname
+				.toLowerCase()
+				.replace(/^www\./, "");
+			if (!hostname) return null;
+
+			const parts = hostname
+				.split(".")
+				.filter(Boolean);
+			if (parts.length === 0) return null;
+
+			const secondLevelSuffixes = new Set([
+				"co",
+				"com",
+				"org",
+				"net",
+				"gov",
+				"edu",
+				"ac",
+			]);
+
+			let root = parts[0];
+			if (parts.length >= 2) {
+				root = parts[parts.length - 2];
+			}
+			if (
+				parts.length >= 3 &&
+				secondLevelSuffixes.has(parts[parts.length - 2])
+			) {
+				root = parts[parts.length - 3];
+			}
+
+			const display = this.toDisplayBrandName(root);
+			return display || null;
+		} catch {
+			return null;
+		}
+	}
+
+	private getWebsiteReference(websiteName: string): string {
+		const normalized = websiteName.trim();
+		if (!normalized || normalized.toLowerCase() === "this website") {
+			return "this website";
+		}
+		if (/\bwebsite\b/i.test(normalized)) {
+			return normalized;
+		}
+		return `the ${normalized} website`;
+	}
+
+	private async resolveWebsiteName(
+		userId: string,
+		sources: Array<{
+			url: string;
+			title: string;
+			relevanceScore: number;
+		}>,
+	): Promise<string> {
+		for (const source of sources) {
+			const fromSource = this.extractBrandFromUrl(source.url);
+			if (fromSource) {
+				return fromSource;
+			}
+		}
+
+		try {
+			const result = await pool.query<UserBrandRow>(
+				`SELECT company_name, company_website
+				 FROM users
+				 WHERE id = $1
+				 LIMIT 1`,
+				[userId],
+			);
+			const row = result.rows[0];
+			const companyName = (row?.company_name || "").trim();
+			if (companyName) {
+				return this.toDisplayBrandName(companyName);
+			}
+			const fromWebsite = this.extractBrandFromUrl(
+				row?.company_website,
+			);
+			if (fromWebsite) {
+				return fromWebsite;
+			}
+		} catch (error) {
+			logger.warn("Unable to resolve website name for chat", {
+				error,
+				userId,
+			});
+		}
+
+		return "this website";
+	}
+
+	private isMoreInfoRequest(message: string): boolean {
+		const normalized = message.toLowerCase();
+		return /\b(more|more info|more information|details|detailed|explain|elaborate|in depth|deep dive|tell me more)\b/.test(
+			normalized,
+		);
+	}
+
+	private limitWords(text: string, maxWords: number): string {
+		const words = text.trim().split(/\s+/).filter(Boolean);
+		if (words.length <= maxWords) return text.trim();
+		const truncated = words.slice(0, maxWords).join(" ").trim();
+		return /[.!?]$/.test(truncated) ? truncated : `${truncated}...`;
+	}
+
+	private enforceResponseLength(
+		response: string,
+		userMessage: string,
+	): string {
+		const wantsMore = this.isMoreInfoRequest(userMessage);
+		const maxParagraphs = wantsMore ? 2 : 1;
+		const maxWords = wantsMore ? 170 : 95;
+
+		const normalized = response
+			.replace(/\r\n/g, "\n")
+			.trim();
+		if (!normalized) return normalized;
+
+		const paragraphs = normalized
+			.split(/\n\s*\n+/)
+			.map((part) => part.trim())
+			.filter(Boolean)
+			.slice(0, maxParagraphs);
+
+		const limitedParagraphs = paragraphs.length
+			? paragraphs
+			: [normalized];
+		return this.limitWords(
+			limitedParagraphs.join("\n\n"),
+			maxWords,
+		);
+	}
+
+	private highlightKeywordTerms(text: string): string {
+		const keywords = [
+			"full name",
+			"work email",
+			"phone number",
+			"case studies",
+			"products",
+			"services",
+			"pricing",
+			"support",
+			"policies",
+			"features",
+			"solutions",
+			"integrations",
+			"contact",
+			"demo",
+			"trial",
+		];
+
+		let result = text;
+		for (const keyword of keywords) {
+			const escaped = keyword
+				.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+				.replace(/\s+/g, "\\s+");
+			const regex = new RegExp(`\\b(${escaped})\\b`, "gi");
+			result = result.replace(
+				regex,
+				(match: string, _group: string, offset: number, source: string) => {
+					const before = source.slice(
+						Math.max(0, offset - 2),
+						offset,
+					);
+					const after = source.slice(
+						offset + match.length,
+						offset + match.length + 2,
+					);
+					if (before === "**" && after === "**") {
+						return match;
+					}
+					return `**${match}**`;
+				},
+			);
+		}
+		return result;
+	}
+
+	private ensureAtLeastOneHighlight(text: string): string {
+		if (/\*\*[^*]+\*\*/.test(text)) return text;
+		const firstPhrase = text.match(
+			/[A-Za-z][A-Za-z0-9/-]*(?:\s+[A-Za-z][A-Za-z0-9/-]*){0,2}/,
+		);
+		if (!firstPhrase) return text;
+		return text.replace(
+			firstPhrase[0],
+			`**${firstPhrase[0]}**`,
+		);
+	}
+
+	private formatAssistantResponse(
+		response: string,
+		userMessage: string,
+		websiteName: string = "this website",
+	): string {
+		const websiteRef =
+			this.getWebsiteReference(websiteName);
+		const withWebsiteName =
+			websiteRef === "this website"
+				? response
+				: response
+						.replace(
+							/this website'?s content/gi,
+							websiteRef,
+						)
+						.replace(
+							/\bthis website\b/gi,
+							websiteRef,
+						);
+		const withLengthLimit = this.enforceResponseLength(
+			withWebsiteName,
+			userMessage,
+		);
+		const withHighlights =
+			this.highlightKeywordTerms(withLengthLimit);
+		const withMinimumHighlight =
+			this.ensureAtLeastOneHighlight(withHighlights).trim();
+		return this.finalizeResponseEnding(withMinimumHighlight);
+	}
+
+	private finalizeResponseEnding(text: string): string {
+		let output = text.trim();
+		if (!output) return output;
+
+		const boldMarkerCount = (output.match(/\*\*/g) || []).length;
+		if (boldMarkerCount % 2 !== 0) {
+			output = output.replace(/\*\*([^*]*)$/g, "$1");
+		}
+
+		if (/[,:;]$/.test(output)) {
+			output = `${output.slice(0, -1).trim()}.`;
+		}
+		return output;
+	}
+
+	private escapeRegex(value: string): string {
+		return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	}
+
+	private normalizePersonName(raw: string): string | null {
+		const cleaned = raw
+			.trim()
+			.replace(/[.,!?;:]+$/g, "")
+			.replace(/\s+/g, " ");
+		if (!cleaned) return null;
+
+		const words = cleaned.split(" ");
+		if (words.length < 1 || words.length > 4) {
+			return null;
+		}
+
+		const stopWords = new Set([
+			"looking",
+			"interested",
+			"searching",
+			"need",
+			"want",
+			"asking",
+			"here",
+			"there",
+			"from",
+			"for",
+			"about",
+			"pricing",
+			"product",
+			"products",
+			"service",
+			"services",
+			"support",
+			"help",
+			"details",
+			"information",
+			"more",
+			"real-time",
+			"spend",
+			"visibility",
+			"procurement",
+			"solution",
+			"solutions",
+			"feature",
+			"features",
+			"platform",
+		]);
+
+		for (const word of words) {
+			if (!/^[A-Za-z][A-Za-z'-]{0,24}$/.test(word)) {
+				return null;
+			}
+			if (stopWords.has(word.toLowerCase())) {
+				return null;
+			}
+		}
+
+		return words
+			.map((word) =>
+				word.length > 1
+					? word.charAt(0).toUpperCase() +
+					  word.slice(1).toLowerCase()
+					: word.toUpperCase(),
+			)
+			.join(" ");
+	}
+
+	private extractNameFromUserMessage(
+		message: string,
+	): string | null {
+		const text = message.trim();
+		if (!text) return null;
+
+		const patterns = [
+			/^\s*my name is\s+([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})\s*$/i,
+			/^\s*this is\s+([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})\s*$/i,
+			/^\s*i am\s+([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})\s*$/i,
+			/^\s*i['’]m\s+([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})\s*$/i,
+			/^\s*(?:my\s+)?(?:full\s+name|name)\s*[:=-]\s*([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})\s*$/i,
+		];
+
+		for (const pattern of patterns) {
+			const match = text.match(pattern);
+			if (!match || !match[1]) continue;
+			const normalized = this.normalizePersonName(match[1]);
+			if (normalized) return normalized;
+		}
+
+		return null;
+	}
+
+	private getKnownUserName(messages: ChatMessage[]): string | null {
+		let latest: string | null = null;
+		for (const msg of messages) {
+			if (msg.role !== "user") continue;
+			const extracted = this.extractNameFromUserMessage(
+				msg.content || "",
+			);
+			if (extracted) {
+				latest = extracted;
+			}
+		}
+		return latest;
+	}
+
+	private isNameRecallQuery(message: string): boolean {
+		const text = message.toLowerCase().trim();
+		if (!text) return false;
+		return (
+			/\b(what(?:'s| is)|tell me|remember|recall|know)\b.*\bmy name\b/.test(
+				text,
+			) ||
+			/\bmy name\??$/.test(text) ||
+			/\bwho am i\b/.test(text)
+		);
+	}
+
+	private applyNameRecallOverride(
+		response: string,
+		userMessage: string,
+		knownUserName: string | null,
+		websiteName: string,
+	): string {
+		if (!this.isNameRecallQuery(userMessage)) {
+			return response;
+		}
+
+		const websiteRef =
+			this.getWebsiteReference(websiteName);
+		if (!knownUserName) {
+			return `I do not have your **name** yet in this chat window. Please share your **full name**, and I will remember it for this conversation.`;
+		}
+		const deniesPersonalInfo = /don't have access to your personal information|do not have access to your personal information|cannot access your personal information|don't know your name|do not know your name/i.test(
+			response,
+		);
+		const mentionsKnownName = new RegExp(
+			`\\b${this.escapeRegex(knownUserName)}\\b`,
+			"i",
+		).test(response);
+
+		if (deniesPersonalInfo || !mentionsKnownName) {
+			return `You shared your **name** as **${knownUserName}** earlier in this chat. How can I help you next with **${websiteRef}**?`;
+		}
+
+		return response;
 	}
 
 	private isLikelySmallTalk(message: string): boolean {
@@ -364,25 +780,33 @@ class ChatService {
 		context: string,
 		messages: ChatMessage[],
 		languageCode?: string,
+		websiteName: string = "this website",
+		knownUserName: string | null = null,
 	): Array<any> {
 		const languageLabel =
 			this.getLanguageLabel(languageCode);
+		const websiteRef =
+			this.getWebsiteReference(websiteName);
 		const conversationHistory: Array<any> = [
 			{
 				role: "system",
 				content: [
 					{
 						type: "text",
-						text: `You are a helpful AI assistant representing a brand/website. You answer questions based on the provided context from the user's scraped website data.
+						text: `You are a helpful AI assistant representing ${websiteRef}. You answer questions based on the provided context from the user's scraped website data.
 
 IMPORTANT RULES:
 1. **Greetings & Chit-chat**: If the user says "hey", "hello", "hi", "how are you?", etc., reply politely and professionally as an AI assistant. do NOT say "I don't have data". Be helpful and ask how you can assist them regarding the website content.
 2. **Context-Based Answers**: For specific questions, answer ONLY using the provided context.
-3. **Out of Scope**: If the user asks for tasks outside the scope of the website context (e.g., "write an email", "explain quantum physics", "write code"), politely refuse. Say: "I am designed to answer questions about this website's content and cannot assist with that request."
+3. **Out of Scope**: If the user asks for tasks outside the scope of the website context (e.g., "write an email", "explain quantum physics", "write code"), politely refuse. Say: "I am designed to answer questions about ${websiteRef} and cannot assist with that request."
 4. **Partial Answers**: If you find *some* relevant information (like project examples) but not a definitive "best" or complete list, SHARE what you found. Do NOT say "I don't have enough information" if you have at least one relevant example. Instead say: "Based on the available data, here are some projects..."
 5. **No Hallucinations**: Do not make up information not present in the context.
 6. **No Citations**: Do NOT mention the source, filename, or URL in your response. Provide the answer directly as if it is your own knowledge.
-7. **Language**: Respond in ${languageLabel}.`,
+7. **Highlighting**: Highlight important terms using Markdown bold, for example **products**, **pricing**, **support**, **full name**, **work email**.
+8. **Length**: Keep responses concise. Default to **one paragraph**. Use **two paragraphs maximum** only when user explicitly asks for more details. Never exceed two paragraphs.
+9. **Brand Mention**: Avoid generic wording like "this website's content" when a website name is available. Mention ${websiteRef} directly.
+10. **Memory**: Use details provided by the user earlier in this chat window. If user asks "what is my name?" and a name is available in known details, answer with that name.
+11. **Language**: Respond in ${languageLabel}.`,
 						cache_control: {
 							type: "ephemeral",
 						},
@@ -390,6 +814,13 @@ IMPORTANT RULES:
 					{
 						type: "text",
 						text: `\n\nContext from scraped websites:\n${context || "No relevant context found."}`,
+						cache_control: {
+							type: "ephemeral",
+						},
+					},
+					{
+						type: "text",
+						text: `\n\nKnown details from this chat window:\n- Name: ${knownUserName ?? "Not provided"}`,
 						cache_control: {
 							type: "ephemeral",
 						},
@@ -502,11 +933,20 @@ IMPORTANT RULES:
 				  }
 				: await this.retrieveRelevantContext(userId, message, session.sessionId);
 			timing.retrievalMs = Date.now() - retrievalStart;
+			const websiteName = await this.resolveWebsiteName(
+				userId,
+				sources,
+			);
+			const knownUserName = this.getKnownUserName(
+				session.messages,
+			);
 
 			const conversationHistory = this.buildConversationHistory(
 				context,
 				session.messages,
 				resolvedLanguage,
+				websiteName,
+				knownUserName,
 			);
 
 			let assistantResponse = this.getFallbackResponse();
@@ -522,6 +962,17 @@ IMPORTANT RULES:
 					userId,
 				});
 			}
+			assistantResponse = this.formatAssistantResponse(
+				assistantResponse,
+				message,
+				websiteName,
+			);
+			assistantResponse = this.applyNameRecallOverride(
+				assistantResponse,
+				message,
+				knownUserName,
+				websiteName,
+			);
 			timing.llmMs = Date.now() - llmStart;
 
 			const assistantTimestamp = await this.persistMessage(
@@ -629,11 +1080,20 @@ IMPORTANT RULES:
 			? { context: "", sources: [] }
 			: await this.retrieveRelevantContext(userId, message, session.sessionId);
 		timing.retrievalMs = Date.now() - retrievalStart;
+		const websiteName = await this.resolveWebsiteName(
+			userId,
+			sources,
+		);
+		const knownUserName = this.getKnownUserName(
+			session.messages,
+		);
 
 		const conversationHistory = this.buildConversationHistory(
 			context,
 			session.messages,
 			resolvedLanguage,
+			websiteName,
+			knownUserName,
 		);
 
 		let assistantResponse = "";
@@ -663,7 +1123,6 @@ IMPORTANT RULES:
 				const token = chunk.choices?.[0]?.delta?.content ?? "";
 				if (!token) continue;
 				assistantResponse += token;
-				options?.onToken?.(token);
 			}
 		} catch (error) {
 			logger.error("Streaming chat failed, falling back", {
@@ -681,6 +1140,18 @@ IMPORTANT RULES:
 		if (!assistantResponse.trim()) {
 			assistantResponse = this.getFallbackResponse();
 		}
+		assistantResponse = this.formatAssistantResponse(
+			assistantResponse,
+			message,
+			websiteName,
+		);
+		assistantResponse = this.applyNameRecallOverride(
+			assistantResponse,
+			message,
+			knownUserName,
+			websiteName,
+		);
+		options?.onToken?.(assistantResponse);
 
 		const assistantTimestamp = await this.persistMessage(
 			session.sessionId,

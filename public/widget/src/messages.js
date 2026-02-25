@@ -66,14 +66,58 @@ export function createTypingIndicator(logoIcon) {
   return wrapper;
 }
 
+function queueScrollToBottom(wrapper) {
+  const container = wrapper.parentElement;
+  if (!container) return;
+  if (wrapper.__scrollQueued) return;
+  wrapper.__scrollQueued = true;
+  requestAnimationFrame(() => {
+    container.scrollTop = container.scrollHeight;
+    wrapper.__scrollQueued = false;
+  });
+}
+
+function normalizeStreamingMarkdown(text) {
+  if (!text) return '';
+  let normalized = text;
+  const boldMarkerCount = (normalized.match(/\*\*/g) || []).length;
+  if (boldMarkerCount % 2 !== 0) {
+    const lastBoldMarkerIndex = normalized.lastIndexOf('**');
+    if (lastBoldMarkerIndex >= 0) {
+      normalized =
+        normalized.slice(0, lastBoldMarkerIndex) +
+        normalized.slice(lastBoldMarkerIndex + 2);
+    }
+  }
+  return normalized;
+}
+
+/** Smooth streaming update: mutate text node only (no full HTML re-render). */
+export function updateStreamingBubble(wrapper, text, logoIcon) {
+  const bubble = wrapper.querySelector('.typing-indicator') || wrapper.querySelector('.chat-bubble-ai');
+  if (!bubble) return;
+
+  let streamTextNode = bubble.querySelector('.streaming-text');
+  if (!streamTextNode) {
+    bubble.classList.remove('typing-indicator');
+    bubble.innerHTML = `<div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content"><p class="streaming-text"></p></div></div>`;
+    streamTextNode = bubble.querySelector('.streaming-text');
+  }
+
+  if (streamTextNode) {
+    const normalizedText = normalizeStreamingMarkdown(text || '');
+    streamTextNode.innerHTML = parseMarkdown(escapeHtml(normalizedText));
+  }
+  queueScrollToBottom(wrapper);
+}
+
 /** Replace a typing indicator (or existing bubble) with bot reply content */
 export function updateBubble(wrapper, text, logoIcon) {
   const bubble = wrapper.querySelector('.typing-indicator') || wrapper.querySelector('.chat-bubble-ai');
   if (!bubble) return;
   bubble.classList.remove('typing-indicator');
   bubble.innerHTML = `<div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content">${parseMarkdown(text)}</div></div>`;
-  const container = wrapper.parentElement;
-  if (container) container.scrollTop = container.scrollHeight;
+  queueScrollToBottom(wrapper);
 }
 
 /** Check if user message signals end of conversation (for rating prompt) */

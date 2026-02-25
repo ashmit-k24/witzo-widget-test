@@ -1879,6 +1879,70 @@
                     </div>`;
 		}
 
+		queueScrollToBottom() {
+			if (this._scrollFrameQueued) return;
+			this._scrollFrameQueued = true;
+			requestAnimationFrame(() => {
+				if (this.elements?.messagesContainer) {
+					this.elements.messagesContainer.scrollTop =
+						this.elements.messagesContainer.scrollHeight;
+				}
+				this._scrollFrameQueued = false;
+			});
+		}
+
+		updateTypingStreaming(wrapper, text) {
+			const bubble = wrapper.querySelector(
+				".typing-indicator, .chat-bubble-ai",
+			);
+			if (!bubble) return;
+
+			let streamingTextNode = bubble.querySelector(
+				".streaming-text",
+			);
+			if (!streamingTextNode) {
+				bubble.classList.remove("typing-indicator");
+				bubble.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content"><p class="streaming-text"></p></div></div>`;
+				streamingTextNode = bubble.querySelector(
+					".streaming-text",
+				);
+			}
+			if (streamingTextNode) {
+				const normalizedText =
+					this.normalizeStreamingMarkdown(
+						text || "",
+					);
+				streamingTextNode.innerHTML =
+					this.parseMarkdown(
+						this.escapeHtml(normalizedText),
+					);
+			}
+			this.queueScrollToBottom();
+		}
+
+		normalizeStreamingMarkdown(text) {
+			if (!text) return "";
+			let normalized = text;
+			const boldMarkerCount = (
+				normalized.match(/\*\*/g) || []
+			).length;
+			if (boldMarkerCount % 2 !== 0) {
+				const lastBoldMarkerIndex =
+					normalized.lastIndexOf("**");
+				if (lastBoldMarkerIndex >= 0) {
+					normalized =
+						normalized.slice(
+							0,
+							lastBoldMarkerIndex,
+						) +
+						normalized.slice(
+							lastBoldMarkerIndex + 2,
+						);
+				}
+			}
+			return normalized;
+		}
+
 		updateTypingToMessage(wrapper, text) {
 			const bubble = wrapper.querySelector(
 				".typing-indicator",
@@ -1896,20 +1960,55 @@
 					bubbleNode.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>`;
 				}
 			}
-			this.elements.messagesContainer.scrollTop =
-				this.elements.messagesContainer.scrollHeight;
+			this.queueScrollToBottom();
 		}
 
 		async consumeStreamedResponse(
 			response,
 			typingWrapper,
 		) {
+			const TYPING_TICK_MS = 20;
+			const BASE_CHARS_PER_TICK = 6;
+			const getCharsPerTick = (pendingLen) => {
+				if (pendingLen > 240) return 16;
+				if (pendingLen > 120) return 12;
+				if (pendingLen > 60) return 9;
+				return BASE_CHARS_PER_TICK;
+			};
+			const sleep = (ms) =>
+				new Promise((resolve) =>
+					setTimeout(resolve, ms),
+				);
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
 			let assembled = "";
 			let donePayload = null;
 			let streamHadError = false;
+			let rendered = "";
+			let pending = "";
+			let isPumping = false;
+
+			const pump = async () => {
+				if (isPumping) return;
+				isPumping = true;
+				while (pending.length > 0) {
+					const charsPerTick = getCharsPerTick(
+						pending.length,
+					);
+					rendered += pending.slice(
+						0,
+						charsPerTick,
+					);
+					pending = pending.slice(charsPerTick);
+					this.updateTypingStreaming(
+						typingWrapper,
+						rendered,
+					);
+					await sleep(TYPING_TICK_MS);
+				}
+				isPumping = false;
+			};
 
 			const processEvent = (payload) => {
 				if (!payload || !payload.type) return;
@@ -1918,10 +2017,8 @@
 					typeof payload.token === "string"
 				) {
 					assembled += payload.token;
-					this.updateTypingToMessage(
-						typingWrapper,
-						assembled,
-					);
+					pending += payload.token;
+					void pump();
 					return;
 				}
 				if (payload.type === "done") {
@@ -1967,6 +2064,21 @@
 						processEvent(JSON.parse(jsonPart));
 					} catch (_) {}
 				}
+			}
+
+			while (isPumping || pending.length > 0) {
+				if (!isPumping && pending.length > 0) {
+					await pump();
+					continue;
+				}
+				await sleep(TYPING_TICK_MS);
+			}
+
+			if (rendered !== assembled) {
+				this.updateTypingStreaming(
+					typingWrapper,
+					assembled,
+				);
 			}
 
 			if (streamHadError) {

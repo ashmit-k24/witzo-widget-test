@@ -212,7 +212,7 @@ export class WitzoChatWidget extends HTMLElement {
       // — Streaming (SSE) path —
       if (response.ok && response.body && contentType.includes('text/event-stream')) {
         const result = await stream.consumeStream(response, (assembled) => {
-          msg.updateBubble(typingEl, assembled, this.config.logoIcon);
+          msg.updateStreamingBubble(typingEl, assembled, this.config.logoIcon);
         });
 
         if (result.hadError) {
