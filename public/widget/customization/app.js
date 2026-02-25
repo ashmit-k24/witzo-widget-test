@@ -22,6 +22,7 @@ function getFormConfig() {
     bannerTextParagraphColor:  document.getElementById('bannerTextParagraphColor').value,
     sendColor:                 document.getElementById('sendColor').value,
     floatingBtn:               document.getElementById('floatingBtn').value,
+    floatingType:              document.getElementById('floatingType').value,
     userChatColor:             document.getElementById('userChatColor').value,
     closeButtonColor:          document.getElementById('closeButtonColor').value,
     logoIcon:                  document.getElementById('logoIcon').value || null,

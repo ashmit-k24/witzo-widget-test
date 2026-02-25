@@ -7,6 +7,13 @@ import * as events   from './events.js';
 import { buildTemplate } from './template.js';
 import { buildCSS }      from '../styles/index.js';
 
+function normalizeFloatingType(value) {
+  const normalized = String(value || 'small').trim().toLowerCase();
+  if (normalized === 'full' || normalized === 'full-size' || normalized === 'full size' || normalized === 'fullsize') return 'full';
+  if (normalized === 'compact') return 'compact';
+  return 'small';
+}
+
 export class WitzoChatWidget extends HTMLElement {
   constructor() {
     super();
@@ -58,6 +65,7 @@ export class WitzoChatWidget extends HTMLElement {
       const key = attr.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
       this.config[key] = val === 'true' ? true : val === 'false' ? false : val;
     });
+    this.config.floatingType = normalizeFloatingType(this.config.floatingType);
 
     // 2. Init session
     const sess = session.initSession();

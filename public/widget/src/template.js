@@ -17,6 +17,28 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
       </svg>
     </div>`).join('');
 
+  const floatingType = config.floatingType || 'small';
+  const floatingIcon = `<span class="floating-orb"><span class="floating-orb-inner">${FLOATING_BTN_SVG}</span></span>`;
+  const floatingMarkup = floatingType === 'full'
+    ? `
+      <button class="floating-launcher floating-launcher-full hidden" id="floating-btn" aria-label="Open chat">
+        <span class="floating-full-message">Hey there! 😊 What brings you here today?</span>
+        <span class="floating-full-row">
+          ${floatingIcon}
+          <span class="floating-full-cta">Let&apos;s Chat</span>
+        </span>
+      </button>`
+    : floatingType === 'compact'
+      ? `
+      <button class="floating-launcher floating-launcher-compact hidden" id="floating-btn" aria-label="Open chat">
+        ${floatingIcon}
+        <span class="floating-compact-label">Need Assistance ?</span>
+      </button>`
+      : `
+      <button class="floating-launcher floating-launcher-small hidden" id="floating-btn" aria-label="Open chat">
+        ${floatingIcon}
+      </button>`;
+
   return `
     <!-- ── Chat Window ── -->
     <div id="textChatWidget" class="chat-widget hidden">
@@ -87,7 +109,7 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
     </div>
 
     <!-- ── Floating Button ── -->
-    <div id="floatingBtn">
-      <button class="floating-btn hidden" id="floating-btn">${FLOATING_BTN_SVG}</button>
+    <div id="floatingBtn" class="floating-${floatingType}">
+      ${floatingMarkup}
     </div>`;
 }

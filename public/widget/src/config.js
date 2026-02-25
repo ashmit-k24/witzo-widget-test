@@ -4,6 +4,7 @@ export const DEFAULT_CONFIG = {
   sendColor:        '#fc0e3f',
   floatingBtnColor: '#fc0e3f',
   floatingBtn:      '#fc0e3f',
+  floatingType:     'small',
   autoOpen:         false,
   bannerText:       'Text Chat',
   bannerTextColor:  '',
@@ -37,6 +38,7 @@ export const SUPPORTED_LANGUAGES = [
 /** HTML attribute names that map to config keys (hyphen-case → camelCase) */
 export const ATTR_LIST = [
   'primary-text', 'send-color', 'floating-btn-color', 'floating-btn',
+  'floating-type',
   'auto-open', 'banner-text', 'banner-text-color', 'banner-color', 'user-chat-color',
   'close-button-color', 'logo-icon', 'plan-type', 'default-language',
 ];

@@ -68,6 +68,7 @@ body {
 
 .form-group input[type="text"],
 .form-group input[type="url"],
+.form-group select,
 .form-group textarea {
   padding: 9px 12px;
   border: 2px solid #e0e0e0;
@@ -77,6 +78,7 @@ body {
   transition: border-color 0.25s;
 }
 .form-group input:focus,
+.form-group select:focus,
 .form-group textarea:focus { outline: none; border-color: #667eea; }
 .form-group textarea { resize: vertical; min-height: 80px; }
 
