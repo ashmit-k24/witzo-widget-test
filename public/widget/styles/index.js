@@ -17,6 +17,8 @@ export function buildCSS(config) {
       --color-banner-bg:    ${config.bannerColor     || '#120b14'};
       --color-user-bubble:  ${config.userChatColor   || '#ffdde4'};
       --color-floating-btn: ${config.floatingBtn || config.floatingBtnColor || '#fc0e3f'};
+      --color-send:         ${config.sendColor      || '#fc0e3f'};
+      --color-banner:       ${config.bannerColor     || '#120b14'};
     }
   `;
   return vars + animationsCSS + baseCSS + headerCSS + chatCSS + inputCSS + formsCSS + floatingCSS;
