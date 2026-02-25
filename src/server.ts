@@ -56,10 +56,10 @@ app.use(
 			directives: {
 				defaultSrc: ["'self'"],
 				scriptSrc: ["'self'", "'unsafe-inline'"],
-				styleSrc: ["'self'", "'unsafe-inline'"],
+				styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
 				imgSrc: ["'self'", "data:", "https:"],
 				connectSrc: ["'self'"],
-				fontSrc: ["'self'", "data:"],
+				fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
 				objectSrc: ["'none'"],
 				mediaSrc: ["'self'"],
 				frameSrc: ["'self'"],
@@ -151,7 +151,7 @@ app.use(
 	}),
 );
 
-// Global rate limiting
+// Global rate limiting — only applies to /api routes; static files are excluded
 const limiter = rateLimit({
 	windowMs: config.RATE_LIMIT_WINDOW_MS,
 	max: config.RATE_LIMIT_MAX_REQUESTS,
@@ -162,6 +162,7 @@ const limiter = rateLimit({
 	},
 	standardHeaders: true,
 	legacyHeaders: false,
+	skip: (req: Request) => !req.path.startsWith("/api"),
 });
 
 app.use(limiter);
@@ -181,6 +182,12 @@ app.use((req: Request, _res: Response, next) => {
 app.use(
 	"/widget",
 	express.static("public/widget"),
+);
+
+// Serve shared assets (images, etc.)
+app.use(
+	"/assets",
+	express.static("public/assets"),
 );
 
 // Health check routes (no rate limiting for health checks)

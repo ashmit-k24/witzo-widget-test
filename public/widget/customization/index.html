@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Widget Customization Dashboard</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <header class="page-header">
+      <h1>Widget Customization Dashboard</h1>
+      <p>Customize your Witzo Chat Widget — all changes saved via API</p>
+    </header>
+
+    <div class="preview-note">
+      <strong>Note:</strong> This is a UI example. Connect it to your backend API to persist customizations.
+    </div>
+
+    <!-- ── Appearance Form ── -->
+    <section class="card">
+      <h2>Widget Appearance</h2>
+      <form id="widgetConfigForm">
+
+        <h3 class="section-label">Text Content</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Primary Welcome Message <span class="hint">(supports **markdown**)</span></label>
+            <textarea id="primaryText" placeholder="**Hey there!** Ask me anything…">**Hey there, I'm Merlin Chat**
+Got questions about Zycus? Ask me anything and I'll provide you with the info you're looking for.</textarea>
+          </div>
+          <div class="form-group">
+            <label>Banner Text (Header Title)</label>
+            <input type="text" id="bannerText" value="Merlin Chat" placeholder="Chat Widget">
+          </div>
+          <div class="form-group">
+            <label>Footer Text (Input Area)</label>
+            <input type="text" id="bannerTextParagraph" value="I am AI powered and learning" placeholder="Powered by AI">
+          </div>
+        </div>
+
+        <h3 class="section-label">Colors</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Header Background</label>
+            <div class="color-row">
+              <input type="color" id="bannerColorPicker" value="#CDCFD1">
+              <input type="text"  id="bannerColor"       value="#CDCFD1">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Header Text</label>
+            <div class="color-row">
+              <input type="color" id="bannerTextColorPicker" value="#1B73CC">
+              <input type="text"  id="bannerTextColor"       value="#1B73CC">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Send Button</label>
+            <div class="color-row">
+              <input type="color" id="sendColorPicker" value="#B82E12">
+              <input type="text"  id="sendColor"       value="#B82E12">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Floating Button</label>
+            <div class="color-row">
+              <input type="color" id="floatingBtnPicker" value="#B82E12">
+              <input type="text"  id="floatingBtn"       value="#B82E12">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>User Message Bubble</label>
+            <div class="color-row">
+              <input type="color" id="userChatColorPicker" value="#CDCFD1">
+              <input type="text"  id="userChatColor"       value="#CDCFD1">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Close Button Icon</label>
+            <div class="color-row">
+              <input type="color" id="closeButtonColorPicker" value="#F527EE">
+              <input type="text"  id="closeButtonColor"       value="#F527EE">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Footer Text</label>
+            <div class="color-row">
+              <input type="color" id="bannerTextParagraphColorPicker" value="#999999">
+              <input type="text"  id="bannerTextParagraphColor"       value="#999999">
+            </div>
+          </div>
+        </div>
+
+        <h3 class="section-label">Advanced</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Logo Icon URL <span class="hint">(optional)</span></label>
+            <input type="url" id="logoIcon" placeholder="https://example.com/logo.png"
+              value="https://www.zycus.com/wp-content/uploads/2025/01/zycus-new-logo-190x38.webp">
+          </div>
+          <div class="form-group">
+            <label>Widget Name <span class="hint">(for your reference)</span></label>
+            <input type="text" id="widgetName" value="My Chat Widget">
+          </div>
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="autoOpen" checked>
+          Auto-open widget after 5 seconds
+        </label>
+
+        <div class="btn-group">
+          <button type="button" class="btn btn-primary"   onclick="saveConfiguration()">Save Configuration</button>
+          <button type="button" class="btn btn-secondary" onclick="generateEmbedCode()">Generate Embed Code</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ── Embed Code ── -->
+    <section class="card">
+      <h2>Your Embed Code</h2>
+      <p class="muted">Copy this and paste it before the closing <code>&lt;/body&gt;</code> tag on your website.</p>
+      <div class="code-block" id="embedCodeBlock">&lt;script src="http://localhost:3053/api/v1/embed/wk_YOUR_WIDGET_KEY.js"&gt;&lt;/script&gt;</div>
+      <button class="btn btn-primary copy-btn" onclick="copyEmbedCode()">Copy to Clipboard</button>
+
+      <div class="info-box">
+        <h4>How to Get Your Widget Key</h4>
+        <p>
+          1. Call <code>POST /api/auth/widget/create</code> with your config<br>
+          2. Receive a unique key like <code>wk_abc123…</code><br>
+          3. Update any time with <code>PUT /api/auth/widget/update</code>
+        </p>
+      </div>
+    </section>
+
+    <!-- ── API Example ── -->
+    <section class="card">
+      <h2>API Request Example</h2>
+      <p class="muted">Use this to create or update your widget configuration:</p>
+      <pre class="code-block" id="apiRequestExample">
+// Create widget
+const response = await fetch('http://localhost:3053/api/auth/widget/create', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ widgetName: 'My Chat Widget', widgetConfig: { /* ... */ } })
+});
+const data = await response.json();
+console.log('Embed Code:', data.data.embedCode);
+      </pre>
+    </section>
+
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
