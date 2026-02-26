@@ -79,7 +79,7 @@
 				closeButtonColor: "",
 				logoIcon: null,
 				bubbleIcon: null,
-				introTitle: "Good to see you!",
+				introTitle: "👋Good to see you!",
 				introMessage:
 					"We're ready to help. Ask anything, from quick questions to complex topics.",
 				introPrimaryButtonText:
@@ -737,12 +737,16 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            margin-left: 0.5rem;
+            margin-left: 0.7rem;
             padding: 0;
           }
           .chat-action-btn.back-btn {
             margin-left: 0;
             margin-right: 0.25rem;
+          }
+		.chat-action-btn.back-btn svg{
+            width: 30px;
+			height: 30px;
           }
           .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, white); }
           
@@ -1036,22 +1040,32 @@
             border-radius: 12px;
             border: 1px solid var(--color-intro-secondary-btn, #d1d5db);
             background: var(--color-intro-secondary-btn, #f3f4f6);
-            color: #4b5563;
+            color: #3d434c;
             font-size: 16px;
-            font-weight: 700;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
+			box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
           }
 
-          .intro-action-btn:hover {
-            filter: brightness(0.98);
-          }
+          
 
           .intro-action-btn.primary {
             border-color: var(--color-intro-primary-btn, #111827);
             background: var(--color-intro-primary-btn, #111827);
             color: #fff;
           }
+
+		  .intro-action-icon{
+			 padding-right: 4px;
+			 position: relative;
+			 top: 2px; 
+		  }
+		.intro-action-icon.second{
+			 padding-right: 3px;
+			 position: relative;
+			 top: 2px; 
+		  }
           
           /* Floating Button */
           #floatingBtn {
@@ -1470,11 +1484,10 @@
                 
                 <div class="chat-header-left">
                      <div class="chat-icon">
-                        ${
-													this.config.logoIcon
-														? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
-														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-												}
+                        ${this.config.logoIcon
+					? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
                     </div>
                      <div class="online-ready">
                         <div class="online-ready-text">
@@ -1484,8 +1497,8 @@
                 </div>
                 <div class="chat-header-right">
                     <button id="backToIntroBtn" class="chat-action-btn back-btn hidden" aria-label="Back to intro">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
-                            <path d="M12.9 3.45a1 1 0 0 1 0 1.42L7.78 10l5.12 5.13a1 1 0 0 1-1.42 1.41l-5.83-5.83a1 1 0 0 1 0-1.41l5.83-5.83a1 1 0 0 1 1.42 0Z"/>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="22" viewBox="0 0 20 20" fill="none">
+                            <path d="M12.9 3.45a1 1 0 0 1 0 1.42L7.78 10l5.12 5.13a1 1 0 0 1-1.42 1.41l-5.83-5.83a1 1 0 0 1 0-1.41l5.83-5.83a1 1 0 0 1 1.42 0Z" stroke="${this.config.bannerColor || "white"}" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                     </button>
                     <button id="closeTextChat" class="chat-action-btn">
@@ -1516,15 +1529,28 @@
 
             <div id="introScreen" class="intro-screen">
               <div class="intro-message-card">
-                <strong id="introTitle">${sanitizeHTML(this.config.introTitle || "Good to see you!")}</strong><br/>
+                <strong id="introTitle">${sanitizeHTML(this.config.introTitle || "👋Good to see you!")}</strong><br/>
                 <span id="introMessage">${sanitizeHTML(
-									this.config.introMessage ||
-										"We're ready to help. Ask anything, from quick questions to complex topics.",
-								)}</span>
+					this.config.introMessage ||
+					"We're ready to help. Ask anything, from quick questions to complex topics.",
+				)}</span>
               </div>
               <div class="intro-actions">
-                <button id="introStartBtn" class="intro-action-btn primary">${sanitizeHTML(this.config.introPrimaryButtonText || "Let's Chat!")}</button>
-                <button id="introBrowseBtn" class="intro-action-btn">${sanitizeHTML(this.config.introSecondaryButtonText || "Just browsing")}</button>
+                <button id="introStartBtn" class="intro-action-btn primary">
+				<span class="intro-action-icon">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          				<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        			</svg>
+				</span>
+				${sanitizeHTML(this.config.introPrimaryButtonText || "Let's Chat!")}
+				
+				</button>
+                <button id="introBrowseBtn" class="intro-action-btn">
+				<span class="intro-action-icon second">
+					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-globe-icon lucide-globe"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+				</span>
+				${sanitizeHTML(this.config.introSecondaryButtonText || "Just browsing")}
+				</button>
               </div>
             </div>
 
@@ -1561,15 +1587,15 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-													.map(
-														(language) => `
+					.map(
+						(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-													)
-													.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton">
@@ -2206,7 +2232,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) {}
+					} catch (e) { }
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -2277,11 +2303,10 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${
-													this.config.logoIcon
-														? `<img src="${this.config.logoIcon}" alt="Logo" />`
-														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-												}
+                        ${this.config.logoIcon
+					? `<img src="${this.config.logoIcon}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
                     </div>`;
 		}
 
@@ -2457,7 +2482,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) {}
+						} catch (_) { }
 					}
 				}
 			}
@@ -2469,7 +2494,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) {}
+					} catch (_) { }
 				}
 			}
 
@@ -2617,7 +2642,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+					"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: {
@@ -2685,7 +2710,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+					"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: {
@@ -2696,12 +2721,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-									null
+								null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-									null
+								null
 								: null,
 						}),
 					},
