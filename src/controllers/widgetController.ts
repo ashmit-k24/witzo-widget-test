@@ -721,25 +721,37 @@ export const generateEmbedScript = async (
 		// primaryColor fans out to three attributes (banner-color, floating-btn, user-chat-color).
 		const WIDGET_ATTR_MAP: Record<string, string | string[]> = {
 			// Content / text
-			headerTitle:              "banner-text",
-			welcomeMessage:           "primary-text",
-			placeholderText:          "placeholder-text",
-			logoIcon:                 "logo-icon",
-			bannerTextParagraph:      "banner-text-paragraph",
+			headerTitle:               "header-title",
+			welcomeMessage:            "welcome-message",
+			placeholderText:           "input-placeholder",
+			logoIcon:                  "header-logo-url",
+			bubbleIcon:                "launcher-icon-url",
+			introTitle:                "intro-title",
+			introMessage:              "intro-message",
+			introPrimaryButtonText:    "intro-primary-button-text",
+			introSecondaryButtonText:  "intro-secondary-button-text",
 			// Colors
-			primaryColor:             ["banner-color", "floating-btn", "user-chat-color"],
-			accentColor:              "send-color",
-			bannerTextColor:          "banner-text-color",
-			closeButtonColor:         "close-button-color",
-			botColor:                 "bot-color",
-			chatVoiceIconColor:       "chat-voice-icon-color",
-			voiceSendButton:          "voice-send-button",
-			bannerTextParagraphColor: "banner-text-paragraph-color",
-			// Layout / behaviour
-			floatingType:             "floating-type",
-			autoOpen:                 "auto-open",
+			primaryColor:              ["header-background-color", "user-message-color"],
+			bannerColor:               "header-background-color",
+			userChatColor:             "user-message-color",
+			accentColor:               "send-button-color",
+			sendColor:                 "send-button-color",
+			floatingBtnColor:          "launcher-color",
+			floatingBtn:               "launcher-color",
+			bannerTextColor:           "header-title-color",
+			closeButtonColor:          "close-button-color",
+			botColor:                  "bot-color",
+			introPrimaryButtonColor:   "intro-primary-button-background-color",
+			introSecondaryButtonColor: "intro-secondary-button-background-color",
+			introPrimaryButtonBackgroundColor:
+				"intro-primary-button-background-color",
+			introSecondaryButtonBackgroundColor:
+				"intro-secondary-button-background-color",
+			// Layout / behavior
+			floatingType:              "launcher-type",
+			autoOpen:                  "auto-open",
 			// Language
-			defaultLanguage:          "default-language",
+			defaultLanguage:           "default-language",
 		};
 
 		// Build config attributes for the widget element
@@ -794,7 +806,7 @@ export const generateEmbedScript = async (
       widget.setAttribute('api-url', '${apiUrl}/api/v1/webhook');
       widget.setAttribute('widget-key', '${widgetKey}');
       widget.setAttribute('api-base-url', '${apiUrl}');
-      widget.setAttribute('plan-type', '${planType}');
+      widget.__witzoPlanType = '${planType}';
 
       // Apply custom configuration
 ${configAttrs}
@@ -879,24 +891,75 @@ function generateEmbedCode(
 	const { apiUrl, widgetScriptUrl } =
 		getWidgetPublicUrls(widgetKey);
 
-	// Build config attributes
-	const configAttrs = Object.entries(config)
-		.map(([key, value]) => {
-			// Convert camelCase to kebab-case
-			const kebabKey = key
-				.replace(/([A-Z])/g, "-$1")
-				.toLowerCase();
+	const MANUAL_ATTR_MAP: Record<
+		string,
+		string | string[]
+	> = {
+		headerTitle:               "header-title",
+		welcomeMessage:            "welcome-message",
+		placeholderText:           "input-placeholder",
+		logoIcon:                  "header-logo-url",
+		bubbleIcon:                "launcher-icon-url",
+		introTitle:                "intro-title",
+		introMessage:              "intro-message",
+		introPrimaryButtonText:    "intro-primary-button-text",
+		introSecondaryButtonText:  "intro-secondary-button-text",
+		primaryColor:              ["header-background-color", "user-message-color"],
+		bannerColor:               "header-background-color",
+		userChatColor:             "user-message-color",
+		accentColor:               "send-button-color",
+		sendColor:                 "send-button-color",
+		floatingBtnColor:          "launcher-color",
+		floatingBtn:               "launcher-color",
+		bannerTextColor:           "header-title-color",
+		closeButtonColor:          "close-button-color",
+		botColor:                  "bot-color",
+		introPrimaryButtonColor:   "intro-primary-button-background-color",
+		introSecondaryButtonColor: "intro-secondary-button-background-color",
+		introPrimaryButtonBackgroundColor:
+			"intro-primary-button-background-color",
+		introSecondaryButtonBackgroundColor:
+			"intro-secondary-button-background-color",
+		floatingType:              "launcher-type",
+		autoOpen:                  "auto-open",
+		defaultLanguage:           "default-language",
+	};
 
+	const configLines: string[] = [];
+	Object.entries(config || {}).forEach(
+		([key, value]) => {
+			const mapping = MANUAL_ATTR_MAP[key];
+			if (!mapping) return;
+
+			let attrValue: string | null = null;
 			if (typeof value === "boolean") {
-				return `${kebabKey}="${value}"`;
+				attrValue = String(value);
+			} else if (
+				typeof value === "string" &&
+				value
+			) {
+				attrValue = value.replace(
+					/"/g,
+					"&quot;",
+				);
+			} else if (typeof value === "number") {
+				attrValue = String(value);
 			}
-			if (typeof value === "string") {
-				return `${kebabKey}="${value.replace(/"/g, "&quot;")}"`;
-			}
-			return "";
-		})
-		.filter(Boolean)
-		.join("\n      ");
+			if (!attrValue) return;
+
+			const attrs = Array.isArray(mapping)
+				? mapping
+				: [mapping];
+			attrs.forEach((attr) => {
+				configLines.push(
+					`${attr}="${attrValue}"`,
+				);
+			});
+		},
+	);
+	const configAttrs = configLines.join(
+		"\n      ",
+	);
 
 	// Return both options: single-script and manual embed
 	return `<!-- Witzo Chat Widget - Single Script (Recommended) -->

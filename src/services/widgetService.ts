@@ -41,12 +41,18 @@ export interface WidgetConfig {
 	autoOpen?: boolean;
 	bannerText?: string;
 	bannerTextColor?: string;
-	bannerTextParagraph?: string;
-	bannerTextParagraphColor?: string;
 	closeButtonColor?: string;
 	logoIcon?: string;
 	bannerColor?: string;
 	userChatColor?: string;
+	introTitle?: string;
+	introMessage?: string;
+	introPrimaryButtonText?: string;
+	introSecondaryButtonText?: string;
+	introPrimaryButtonColor?: string;
+	introSecondaryButtonColor?: string;
+	introPrimaryButtonBackgroundColor?: string;
+	introSecondaryButtonBackgroundColor?: string;
 	[key: string]: any;
 }
 

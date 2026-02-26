@@ -61,13 +61,28 @@
 				'floatingBtnColor',
 				'botColor',
 				'closeButtonColor',
+				'introPrimaryButtonColor',
+				'introSecondaryButtonColor',
+				'introPrimaryButtonBackgroundColor',
+				'introSecondaryButtonBackgroundColor',
 			]);
 
 			/**
 			 * Keys that can be patched by directly mutating shadow DOM nodes.
 			 * No widget recreation needed for these either.
 			 */
-			var TEXT_PATCH_KEYS = new Set(['bannerText', 'logoIcon', 'placeholderText', 'bannerTextParagraph', 'bannerTextParagraphColor', 'bannerTextColor', 'autoOpen', 'primaryText']);
+			var TEXT_PATCH_KEYS = new Set([
+				'bannerText',
+				'logoIcon',
+				'placeholderText',
+				'bannerTextColor',
+				'autoOpen',
+				'primaryText',
+				'introTitle',
+				'introMessage',
+				'introPrimaryButtonText',
+				'introSecondaryButtonText',
+			]);
 
 			/**
 			 * Keys that can be patched by updating the floating button DOM directly.
@@ -89,31 +104,40 @@
 				floatingBtnColor: '--color-floating-btn',
 				botColor:         '--color-bot-icon',
 				closeButtonColor: '--color-close-btn',
+				introPrimaryButtonColor:   '--color-intro-primary-btn',
+				introSecondaryButtonColor: '--color-intro-secondary-btn',
+				introPrimaryButtonBackgroundColor:   '--color-intro-primary-btn',
+				introSecondaryButtonBackgroundColor: '--color-intro-secondary-btn',
 			};
 
 			/** Maps JS config keys → <witzo-chat> HTML attribute names */
 			var ATTR_MAP = {
 				apiUrl:                   'api-url',
 				widgetKey:                'widget-key',
-				primaryText:              'primary-text',
-				sendColor:                'send-color',
-				floatingBtnColor:         'floating-btn-color',
-				floatingBtn:              'floating-btn',
-				floatingType:             'floating-type',
+				primaryText:              'welcome-message',
+				sendColor:                'send-button-color',
+				floatingBtnColor:         'launcher-color',
+				floatingBtn:              'launcher-color',
+				floatingType:             'launcher-type',
 				autoOpen:                 'auto-open',
-				bannerText:               'banner-text',
-				bannerTextColor:          'banner-text-color',
-				bannerColor:              'banner-color',
-				userChatColor:            'user-chat-color',
+				bannerText:               'header-title',
+				bannerTextColor:          'header-title-color',
+				bannerColor:              'header-background-color',
+				userChatColor:            'user-message-color',
 				closeButtonColor:         'close-button-color',
-				logoIcon:                 'logo-icon',
-				bubbleIcon:               'bubble-icon',
-				planType:                 'plan-type',
+				logoIcon:                 'header-logo-url',
+				bubbleIcon:               'launcher-icon-url',
 				defaultLanguage:          'default-language',
-				placeholderText:          'placeholder-text',
+				placeholderText:          'input-placeholder',
 				botColor:                 'bot-color',
-				bannerTextParagraph:      'banner-text-paragraph',
-				bannerTextParagraphColor: 'banner-text-paragraph-color',
+				introTitle:               'intro-title',
+				introMessage:             'intro-message',
+				introPrimaryButtonText:   'intro-primary-button-text',
+				introSecondaryButtonText: 'intro-secondary-button-text',
+				introPrimaryButtonColor:  'intro-primary-button-background-color',
+				introSecondaryButtonColor:'intro-secondary-button-background-color',
+				introPrimaryButtonBackgroundColor:  'intro-primary-button-background-color',
+				introSecondaryButtonBackgroundColor:'intro-secondary-button-background-color',
 			};
 
 			var currentConfig = {};
@@ -210,19 +234,29 @@
 					if (inputEl) inputEl.placeholder = patch.placeholderText || 'Type your message...';
 				}
 
-				if (patch.bannerTextParagraph != null) {
-					var paraEl = widget.shadowRoot.getElementById('banner-text-paragraph');
-					if (paraEl) paraEl.textContent = patch.bannerTextParagraph || '';
-				}
-
-				if (patch.bannerTextParagraphColor != null) {
-					var paraEl2 = widget.shadowRoot.getElementById('banner-text-paragraph');
-					if (paraEl2) paraEl2.style.color = patch.bannerTextParagraphColor || '#999';
-				}
-
 				if (patch.bannerTextColor != null) {
 					var titleEl = widget.shadowRoot.getElementById('banner-text');
 					if (titleEl) titleEl.style.color = patch.bannerTextColor || '#fff';
+				}
+
+				if (patch.introTitle != null) {
+					var introTitleEl = widget.shadowRoot.getElementById('introTitle');
+					if (introTitleEl) introTitleEl.textContent = patch.introTitle || 'Good to see you!';
+				}
+
+				if (patch.introMessage != null) {
+					var introMessageEl = widget.shadowRoot.getElementById('introMessage');
+					if (introMessageEl) introMessageEl.textContent = patch.introMessage || '';
+				}
+
+				if (patch.introPrimaryButtonText != null) {
+					var introPrimaryBtn = widget.shadowRoot.getElementById('introStartBtn');
+					if (introPrimaryBtn) introPrimaryBtn.textContent = patch.introPrimaryButtonText || "Let's Chat!";
+				}
+
+				if (patch.introSecondaryButtonText != null) {
+					var introSecondaryBtn = widget.shadowRoot.getElementById('introBrowseBtn');
+					if (introSecondaryBtn) introSecondaryBtn.textContent = patch.introSecondaryButtonText || 'Just browsing';
 				}
 
 				if (patch.primaryText != null) {

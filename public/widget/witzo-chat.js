@@ -79,8 +79,19 @@
 				closeButtonColor: "",
 				logoIcon: null,
 				bubbleIcon: null,
-				// bannerTextParagraph: 'I am AI powered and learning',
-				bannerTextParagraphColor: "",
+				introTitle: "Good to see you!",
+				introMessage:
+					"We're ready to help. Ask anything, from quick questions to complex topics.",
+				introPrimaryButtonText:
+					"Let's Chat!",
+				introSecondaryButtonText:
+					"Just browsing",
+				introPrimaryButtonColor: "#111827",
+				introSecondaryButtonColor: "#f3f4f6",
+				introPrimaryButtonBackgroundColor:
+					"#111827",
+				introSecondaryButtonBackgroundColor:
+					"#f3f4f6",
 				planType: "free",
 				defaultLanguage: "en",
 				placeholderText: null,
@@ -103,43 +114,89 @@
 			this.widgetKey =
 				this.getAttribute("widget-key") || "";
 
-			// Read configuration from attributes
-			const attrs = [
-				"primary-text",
-				"bot-color",
-				"send-color",
-				"floating-btn-color",
-				"floating-btn",
-				"floating-type",
-				"auto-open",
-				"banner-text",
-				"banner-text-color",
-				"banner-color",
-				"user-chat-color",
-				"close-button-color",
-				"logo-icon",
-				"banner-text-paragraph",
-				"banner-text-paragraph-color",
-				"bubble-icon",
-				"plan-type",
-				"default-language",
-				"placeholder-text",
+			// Read configuration from attributes (supports legacy + friendly aliases)
+			const ATTR_TO_CONFIG_KEY = [
+				["primary-text", "primaryText"],
+				["welcome-message", "primaryText"],
+				["bot-color", "botColor"],
+				["send-color", "sendColor"],
+				["send-button-color", "sendColor"],
+				["floating-btn-color", "floatingBtnColor"],
+				["floating-btn", "floatingBtn"],
+				["launcher-color", "floatingBtn"],
+				["floating-type", "floatingType"],
+				["launcher-type", "floatingType"],
+				["auto-open", "autoOpen"],
+				["banner-text", "bannerText"],
+				["header-title", "bannerText"],
+				["banner-text-color", "bannerTextColor"],
+				["header-title-color", "bannerTextColor"],
+				["banner-color", "bannerColor"],
+				[
+					"header-background-color",
+					"bannerColor",
+				],
+				["user-chat-color", "userChatColor"],
+				["user-message-color", "userChatColor"],
+				[
+					"close-button-color",
+					"closeButtonColor",
+				],
+				["logo-icon", "logoIcon"],
+				["header-logo-url", "logoIcon"],
+				["bubble-icon", "bubbleIcon"],
+				["launcher-icon-url", "bubbleIcon"],
+				["plan-type", "planType"],
+				["default-language", "defaultLanguage"],
+				["placeholder-text", "placeholderText"],
+				["input-placeholder", "placeholderText"],
+				["intro-title", "introTitle"],
+				["intro-message", "introMessage"],
+				[
+					"intro-primary-button-text",
+					"introPrimaryButtonText",
+				],
+				[
+					"intro-secondary-button-text",
+					"introSecondaryButtonText",
+				],
+				[
+					"intro-primary-button-color",
+					"introPrimaryButtonColor",
+				],
+				[
+					"intro-secondary-button-color",
+					"introSecondaryButtonColor",
+				],
+				[
+					"intro-primary-button-background-color",
+					"introPrimaryButtonBackgroundColor",
+				],
+				[
+					"intro-secondary-button-background-color",
+					"introSecondaryButtonBackgroundColor",
+				],
 			];
 
-			attrs.forEach((attr) => {
-				const value = this.getAttribute(attr);
-				if (value !== null) {
-					const key = attr.replace(
-						/-([a-z])/g,
-						(g) => g[1].toUpperCase(),
-					);
+			ATTR_TO_CONFIG_KEY.forEach(
+				([attr, configKey]) => {
+					const value = this.getAttribute(attr);
+					if (value === null) return;
 					if (value === "true")
-						this.config[key] = true;
+						this.config[configKey] = true;
 					else if (value === "false")
-						this.config[key] = false;
-					else this.config[key] = value;
-				}
-			});
+						this.config[configKey] = false;
+					else this.config[configKey] = value;
+				},
+			);
+			if (
+				!this.getAttribute("plan-type") &&
+				typeof this.__witzoPlanType === "string" &&
+				this.__witzoPlanType
+			) {
+				this.config.planType =
+					this.__witzoPlanType;
+			}
 
 			this.config.floatingType =
 				this.normalizeFloatingType(
@@ -475,6 +532,8 @@
             --color-floating-btn: ${this.config.floatingBtn || this.config.floatingBtnColor || "#fc0e3f"};
             --color-bot-icon:     ${this.config.botColor || "#f1f5f9"};
             --color-close-btn:    ${this.config.closeButtonColor || "white"};
+            --color-intro-primary-btn: ${this.config.introPrimaryButtonBackgroundColor || this.config.introPrimaryButtonColor || "#111827"};
+            --color-intro-secondary-btn: ${this.config.introSecondaryButtonBackgroundColor || this.config.introSecondaryButtonColor || "#f3f4f6"};
             font-family: "Plus Jakarta Sans", sans-serif;
             display: block;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
@@ -855,13 +914,6 @@
           .chat-text-input {
             padding-right: 65px !important;
           }
-          .chat-title-paragraph{
-            color: #999;
-            font-size: 10px;
-            font-weight: 600;
-            margin: 0;
-            align-self: flex-start;
-          }
           .chat-input-container{
             display: flex;
             width: 100%;
@@ -982,8 +1034,8 @@
           .intro-action-btn {
             height: 44px;
             border-radius: 12px;
-            border: 1px solid #d1d5db;
-            background: #f3f4f6;
+            border: 1px solid var(--color-intro-secondary-btn, #d1d5db);
+            background: var(--color-intro-secondary-btn, #f3f4f6);
             color: #4b5563;
             font-size: 16px;
             font-weight: 700;
@@ -996,8 +1048,8 @@
           }
 
           .intro-action-btn.primary {
-            border-color: #111827;
-            background: #111827;
+            border-color: var(--color-intro-primary-btn, #111827);
+            background: var(--color-intro-primary-btn, #111827);
             color: #fff;
           }
           
@@ -1464,12 +1516,15 @@
 
             <div id="introScreen" class="intro-screen">
               <div class="intro-message-card">
-                <strong>Good to see you!</strong><br/>
-                We're ready to help. Ask anything, from quick questions to complex topics.
+                <strong id="introTitle">${sanitizeHTML(this.config.introTitle || "Good to see you!")}</strong><br/>
+                <span id="introMessage">${sanitizeHTML(
+									this.config.introMessage ||
+										"We're ready to help. Ask anything, from quick questions to complex topics.",
+								)}</span>
               </div>
               <div class="intro-actions">
-                <button id="introStartBtn" class="intro-action-btn primary">Let's Chat!</button>
-                <button id="introBrowseBtn" class="intro-action-btn">Just browsing</button>
+                <button id="introStartBtn" class="intro-action-btn primary">${sanitizeHTML(this.config.introPrimaryButtonText || "Let's Chat!")}</button>
+                <button id="introBrowseBtn" class="intro-action-btn">${sanitizeHTML(this.config.introSecondaryButtonText || "Just browsing")}</button>
               </div>
             </div>
 
@@ -1494,7 +1549,6 @@
 
              <!-- Input Area -->
             <div class="chat-input">
-                <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || "#999"}"></p>
                 <div class="chat-input-container">
                     <input id="textMessageInput" type="text" placeholder="${this.config.placeholderText || "Type your message..."}" class="chat-text-input" />
                     <!-- Language Pill -->
