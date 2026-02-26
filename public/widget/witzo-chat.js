@@ -33,6 +33,7 @@
 			this.widgetKey = "";
 			this.sessionId = "";
 			this.isOpen = false;
+			this.hasStartedChat = false;
 			this.successfulChatCount = 0;
 			this.userMessageCount = 0;
 			this.botMessageCount = 0;
@@ -70,7 +71,7 @@
 				floatingBtnColor: "#fc0e3f",
 				floatingBtn: "#fc0e3f",
 				floatingType: "small",
-				autoOpen: false,
+				autoOpen: true,
 				bannerText: "Text Chat",
 				bannerTextColor: "",
 				bannerColor: "#120b14",
@@ -148,6 +149,7 @@
 			this.initializeLanguagePreference();
 			this.render();
 			this.bindEvents();
+			this.showIntroScreen(!this.hasStartedChat);
 
 			// Process default message
 			if (this.config.primaryText) {
@@ -160,12 +162,15 @@
 			if (this.config.autoOpen) {
 				setTimeout(() => {
 					if (!this.isOpen) this.toggleChat();
-				}, 5000);
+				}, 700);
 			}
 
 			// Show floating button after delay
 			setTimeout(() => {
-				if (this.elements.floatingBtn) {
+				if (
+					this.elements.floatingBtn &&
+					!this.isOpen
+				) {
 					this.elements.floatingBtn.classList.remove(
 						"hidden",
 					);
@@ -300,7 +305,8 @@
 				normalized === "full size" ||
 				normalized === "fullsize"
 			) {
-				return "full";
+				// Backward compatibility: older "full" values now map to compact.
+				return "compact";
 			}
 			if (normalized === "compact") {
 				return "compact";
@@ -903,6 +909,60 @@
              text-decoration: none;
              cursor: pointer;
           }
+
+          .chat-main-view {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+          }
+
+          .intro-screen {
+            padding: 16px;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            flex: 1;
+          }
+
+          .intro-message-card {
+            border-radius: 14px;
+            border: 1px solid #e5e7eb;
+            background: #f3f4f6;
+            color: #111827;
+            padding: 14px 16px;
+            font-size: 15px;
+            line-height: 1.5;
+          }
+
+          .intro-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          }
+
+          .intro-action-btn {
+            height: 44px;
+            border-radius: 12px;
+            border: 1px solid #d1d5db;
+            background: #f3f4f6;
+            color: #4b5563;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+          }
+
+          .intro-action-btn:hover {
+            filter: brightness(0.98);
+          }
+
+          .intro-action-btn.primary {
+            border-color: #111827;
+            background: #111827;
+            color: #fff;
+          }
           
           /* Floating Button */
           #floatingBtn {
@@ -1354,6 +1414,18 @@
               </button>
             </div>
 
+            <div id="introScreen" class="intro-screen">
+              <div class="intro-message-card">
+                <strong>Good to see you!</strong><br/>
+                We're ready to help. Ask anything, from quick questions to complex topics.
+              </div>
+              <div class="intro-actions">
+                <button id="introStartBtn" class="intro-action-btn primary">Let's Chat!</button>
+                <button id="introBrowseBtn" class="intro-action-btn">Just browsing</button>
+              </div>
+            </div>
+
+            <div id="chatMainView" class="chat-main-view hidden">
             <!-- Messages Area -->
             <div id="textMessagesArea" class="chat-messages">
                 <!-- Messages will be appended here -->
@@ -1416,6 +1488,7 @@
                 </a>
                 </h3>
             </div>
+            </div>
         </div>
 
         <!-- Floating Chat Button -->
@@ -1436,6 +1509,20 @@
 				closeBtn: this.shadowRoot.getElementById(
 					"closeTextChat",
 				),
+				introScreen: this.shadowRoot.getElementById(
+					"introScreen",
+				),
+				chatMainView: this.shadowRoot.getElementById(
+					"chatMainView",
+				),
+				introStartBtn:
+					this.shadowRoot.getElementById(
+						"introStartBtn",
+					),
+				introBrowseBtn:
+					this.shadowRoot.getElementById(
+						"introBrowseBtn",
+					),
 				messagesContainer:
 					this.shadowRoot.getElementById(
 						"textMessagesArea",
@@ -1513,6 +1600,21 @@
 				"click",
 				() => this.toggleChat(),
 			);
+			if (this.elements.introStartBtn) {
+				this.elements.introStartBtn.addEventListener(
+					"click",
+					() => this.startChatFromIntro(),
+				);
+			}
+			if (this.elements.introBrowseBtn) {
+				this.elements.introBrowseBtn.addEventListener(
+					"click",
+					() => {
+						this.hasStartedChat = false;
+						if (this.isOpen) this.toggleChat();
+					},
+				);
+			}
 
 			this.elements.sendBtn.addEventListener(
 				"click",
@@ -1664,20 +1766,70 @@
 			}
 		}
 
+		showIntroScreen(visible) {
+			if (
+				!this.elements.introScreen ||
+				!this.elements.chatMainView
+			) {
+				return;
+			}
+
+			if (visible) {
+				this.elements.introScreen.classList.remove(
+					"hidden",
+				);
+				this.elements.chatMainView.classList.add(
+					"hidden",
+				);
+				return;
+			}
+
+			this.elements.introScreen.classList.add(
+				"hidden",
+			);
+			this.elements.chatMainView.classList.remove(
+				"hidden",
+			);
+		}
+
+		startChatFromIntro() {
+			this.hasStartedChat = true;
+			this.showIntroScreen(false);
+			setTimeout(() => {
+				if (this.elements.input) {
+					this.elements.input.focus();
+				}
+			}, 120);
+		}
+
 		toggleChat() {
 			if (!this.isOpen) {
 				// Open
 				this.isOpen = true;
+				if (this.elements.floatingBtn) {
+					this.elements.floatingBtn.classList.add(
+						"hidden",
+					);
+					this.elements.floatingBtn.classList.remove(
+						"entering",
+					);
+				}
 				this.elements.widget.classList.remove(
 					"hidden",
 				);
 				this.elements.widget.classList.remove(
 					"minimizing",
 				);
-				setTimeout(
-					() => this.elements.input.focus(),
-					100,
-				);
+				const shouldShowIntro =
+					!this.hasStartedChat;
+				this.showIntroScreen(shouldShowIntro);
+				if (!shouldShowIntro) {
+					setTimeout(() => {
+						if (this.elements.input) {
+							this.elements.input.focus();
+						}
+					}, 100);
+				}
 			} else {
 				// Close
 				this.isOpen = false;
@@ -1688,6 +1840,19 @@
 					this.elements.widget.classList.add(
 						"hidden",
 					);
+					if (this.elements.floatingBtn) {
+						this.elements.floatingBtn.classList.remove(
+							"hidden",
+						);
+						this.elements.floatingBtn.classList.add(
+							"entering",
+						);
+						setTimeout(() => {
+							this.elements.floatingBtn?.classList.remove(
+								"entering",
+							);
+						}, 550);
+					}
 				}, 300);
 			}
 		}

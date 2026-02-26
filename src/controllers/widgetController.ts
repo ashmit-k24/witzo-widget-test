@@ -798,6 +798,8 @@ export const generateEmbedScript = async (
 
       // Apply custom configuration
 ${configAttrs}
+      // Always open widget to show the intro screen first
+      widget.setAttribute('auto-open', 'true');
 
       // Append to body
       document.body.appendChild(widget);
