@@ -337,7 +337,7 @@
 				return `
           <button class="floating-launcher floating-launcher-compact hidden" id="floating-btn" aria-label="Open chat">
             ${iconMarkup}
-            <span class="floating-compact-label">Need Assistance ?</span>
+            <span class="floating-compact-label">Need<br/> Assistance ?</span>
           </button>
         `;
 			}
@@ -350,16 +350,30 @@
 		}
 
 		updateFloatingType(newType) {
-			var normalizedType = this.normalizeFloatingType(newType);
+			var normalizedType =
+				this.normalizeFloatingType(newType);
 			this.config.floatingType = normalizedType;
-			var floatingBtnDiv = this.shadowRoot.getElementById('floatingBtn');
+			var floatingBtnDiv =
+				this.shadowRoot.getElementById(
+					"floatingBtn",
+				);
 			if (!floatingBtnDiv) return;
-			floatingBtnDiv.className = 'floating floating-' + normalizedType;
-			floatingBtnDiv.innerHTML = this.getFloatingTriggerMarkup();
-			this.elements.floatingBtn = this.shadowRoot.getElementById('floating-btn');
+			floatingBtnDiv.className =
+				"floating floating-" + normalizedType;
+			floatingBtnDiv.innerHTML =
+				this.getFloatingTriggerMarkup();
+			this.elements.floatingBtn =
+				this.shadowRoot.getElementById(
+					"floating-btn",
+				);
 			if (!this.elements.floatingBtn) return;
-			this.elements.floatingBtn.classList.remove('hidden');
-			this.elements.floatingBtn.addEventListener('click', () => this.toggleChat());
+			this.elements.floatingBtn.classList.remove(
+				"hidden",
+			);
+			this.elements.floatingBtn.addEventListener(
+				"click",
+				() => this.toggleChat(),
+			);
 		}
 
 		getLanguageStorageKey() {
@@ -449,12 +463,12 @@
             box-sizing: border-box;
           }
           :host {
-            --color-primary:      ${this.config.sendColor      || '#fc0e3f'};
-            --color-banner-bg:    ${this.config.bannerColor    || '#120b14'};
-            --color-user-bubble:  ${this.config.userChatColor  || '#ffdde4'};
-            --color-floating-btn: ${this.config.floatingBtn || this.config.floatingBtnColor || '#fc0e3f'};
-            --color-bot-icon:     ${this.config.botColor       || '#f1f5f9'};
-            --color-close-btn:    ${this.config.closeButtonColor || 'white'};
+            --color-primary:      ${this.config.sendColor || "#fc0e3f"};
+            --color-banner-bg:    ${this.config.bannerColor || "#120b14"};
+            --color-user-bubble:  ${this.config.userChatColor || "#ffdde4"};
+            --color-floating-btn: ${this.config.floatingBtn || this.config.floatingBtnColor || "#fc0e3f"};
+            --color-bot-icon:     ${this.config.botColor || "#f1f5f9"};
+            --color-close-btn:    ${this.config.closeButtonColor || "white"};
             font-family: "Plus Jakarta Sans", sans-serif;
             display: block;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
@@ -991,7 +1005,10 @@
           }
           .floating-full-cta {
             flex: 1;
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
             border-radius: 10px;
             padding: 10px 14px;
             background: linear-gradient(90deg, #6d28d9 0%, var(--color-floating-btn, #fc0e3f) 100%);
@@ -1000,15 +1017,20 @@
             font-weight: 700;
             letter-spacing: 0.2px;
           }
+          .floating-full-cta svg {
+            width: 20px;
+            height: 19px;
+            flex-shrink: 0;
+          }
 
           .floating-launcher.entering {
-            animation: floatingBtnIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+            animation: floatingBtnIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
           }
 
           @keyframes floatingBtnIn {
             0% { opacity: 0; transform: scale(0.3); }
-            60% { opacity: 1; transform: scale(1.18); }
-            80% { transform: scale(0.95); }
+            55% { opacity: 1; transform: scale(1.12); }
+            75% { transform: scale(0.96); }
             100% { opacity: 1; transform: scale(1); }
           }
 
@@ -1354,7 +1376,7 @@
             <div class="chat-input">
                 <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || "#999"}"></p>
                 <div class="chat-input-container">
-                    <input id="textMessageInput" type="text" placeholder="${this.config.placeholderText || 'Type your message...'}" class="chat-text-input" />
+                    <input id="textMessageInput" type="text" placeholder="${this.config.placeholderText || "Type your message..."}" class="chat-text-input" />
                     <!-- Language Pill -->
                     <div class="lang-pill" id="langPillBtn">
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
