@@ -739,15 +739,20 @@
             cursor: pointer;
             margin-left: 0.7rem;
             padding: 0;
+			transition: all 0.4s ease-in;
           }
           .chat-action-btn.back-btn {
             margin-left: 0;
             margin-right: 0.25rem;
           }
-		.chat-action-btn.back-btn svg{
+			.chat-action-btn.back-btn svg{
             width: 30px;
 			height: 30px;
           }
+			.chat-action-btn:hover svg{
+				transform: scale(1.08);
+			}
+
           .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, white); }
           
           /* Messages Area */
@@ -1021,7 +1026,6 @@
 
           .intro-message-card {
             border-radius: 14px;
-            border: 1px solid #e5e7eb;
             background: #f3f4f6;
             color: #111827;
             padding: 14px 16px;
