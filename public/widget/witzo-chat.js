@@ -485,15 +485,33 @@
             right: 2em;
             z-index: 9999;
             width: 27rem;
-            height: 100%;
+            height: 70vh;
             max-width: 90vw;
             max-height: 70vh;
+            min-height: 460px;
             display: flex;
             flex-direction: column;
             border-radius: 15px;
             overflow: hidden;
-            transition: width 0.4s ease-in-out, max-width 0.4s ease-in-out, max-height 0.4s ease-in-out;
+            transition:
+              width 0.62s cubic-bezier(0.22, 1, 0.36, 1),
+              height 0.62s cubic-bezier(0.22, 1, 0.36, 1),
+              max-height 0.62s cubic-bezier(0.22, 1, 0.36, 1),
+              min-height 0.62s cubic-bezier(0.22, 1, 0.36, 1),
+              max-width 0.62s cubic-bezier(0.22, 1, 0.36, 1);
             background: #fff; /* Ensure background is white */
+          }
+          #textChatWidget.intro-mode {
+            width: 25.5rem;
+            height: 430px;
+            min-height: 430px;
+            max-height: 430px;
+          }
+          #textChatWidget.intro-mode .intro-screen {
+            flex: 0 0 auto;
+          }
+          #textChatWidget.intro-mode .chat-header {
+            margin-bottom: 8px;
           }
             .flex{
               display: flex;
@@ -662,6 +680,10 @@
             cursor: pointer;
             margin-left: 0.5rem;
             padding: 0;
+          }
+          .chat-action-btn.back-btn {
+            margin-left: 0;
+            margin-right: 0.25rem;
           }
           .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, white); }
           
@@ -915,6 +937,9 @@
             flex-direction: column;
             flex: 1;
             min-height: 0;
+            opacity: 1;
+            transform: none;
+            transition: opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1);
           }
 
           .intro-screen {
@@ -924,6 +949,18 @@
             flex-direction: column;
             gap: 14px;
             flex: 1;
+            opacity: 1;
+            transform: none;
+            transition: opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1);
+          }
+          .view-fade-in {
+            opacity: 1;
+            transform: none;
+          }
+          .view-fade-out {
+            opacity: 0;
+            transform: none;
+            pointer-events: none;
           }
 
           .intro-message-card {
@@ -1098,6 +1135,12 @@
             #floatingBtn {
               right: 14px;
               bottom: 14px;
+            }
+            #textChatWidget.intro-mode {
+              width: min(92vw, 25.5rem);
+              height: min(380px, 62vh);
+              min-height: min(380px, 62vh);
+              max-height: min(380px, 62vh);
             }
             .floating-launcher-full {
               width: 230px;
@@ -1388,6 +1431,11 @@
                     </div>
                 </div>
                 <div class="chat-header-right">
+                    <button id="backToIntroBtn" class="chat-action-btn back-btn hidden" aria-label="Back to intro">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+                            <path d="M12.9 3.45a1 1 0 0 1 0 1.42L7.78 10l5.12 5.13a1 1 0 0 1-1.42 1.41l-5.83-5.83a1 1 0 0 1 0-1.41l5.83-5.83a1 1 0 0 1 1.42 0Z"/>
+                        </svg>
+                    </button>
                     <button id="closeTextChat" class="chat-action-btn">
                          
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="${this.config.closeButtonColor || "white"}" style="&#10;">
@@ -1509,6 +1557,9 @@
 				closeBtn: this.shadowRoot.getElementById(
 					"closeTextChat",
 				),
+				backBtn: this.shadowRoot.getElementById(
+					"backToIntroBtn",
+				),
 				introScreen: this.shadowRoot.getElementById(
 					"introScreen",
 				),
@@ -1600,6 +1651,15 @@
 				"click",
 				() => this.toggleChat(),
 			);
+			if (this.elements.backBtn) {
+				this.elements.backBtn.addEventListener(
+					"click",
+					() => {
+						this.hasStartedChat = false;
+						this.showIntroScreen(true);
+					},
+				);
+			}
 			if (this.elements.introStartBtn) {
 				this.elements.introStartBtn.addEventListener(
 					"click",
@@ -1766,29 +1826,127 @@
 			}
 		}
 
-		showIntroScreen(visible) {
+		showIntroScreen(visible, animate = false) {
 			if (
 				!this.elements.introScreen ||
 				!this.elements.chatMainView
 			) {
 				return;
 			}
+			if (this._viewTransitionTimer) {
+				clearTimeout(this._viewTransitionTimer);
+				this._viewTransitionTimer = null;
+			}
+			const introScreen = this.elements.introScreen;
+			const chatMainView =
+				this.elements.chatMainView;
+
+			if (!animate) {
+				introScreen.classList.remove(
+					"view-fade-in",
+					"view-fade-out",
+				);
+				chatMainView.classList.remove(
+					"view-fade-in",
+					"view-fade-out",
+				);
+				if (visible) {
+					if (this.elements.widget) {
+						this.elements.widget.classList.add(
+							"intro-mode",
+						);
+					}
+					if (this.elements.backBtn) {
+						this.elements.backBtn.classList.add(
+							"hidden",
+						);
+					}
+					introScreen.classList.remove("hidden");
+					chatMainView.classList.add("hidden");
+					return;
+				}
+				if (this.elements.widget) {
+					this.elements.widget.classList.remove(
+						"intro-mode",
+					);
+				}
+				if (this.elements.backBtn) {
+					this.elements.backBtn.classList.remove(
+						"hidden",
+					);
+				}
+				introScreen.classList.add("hidden");
+				chatMainView.classList.remove("hidden");
+				return;
+			}
+
+			const transitionMs = 560;
 
 			if (visible) {
-				this.elements.introScreen.classList.remove(
-					"hidden",
+				if (this.elements.widget) {
+					this.elements.widget.classList.add(
+						"intro-mode",
+					);
+				}
+				if (this.elements.backBtn) {
+					this.elements.backBtn.classList.add(
+						"hidden",
+					);
+				}
+				introScreen.classList.remove("hidden");
+				chatMainView.classList.remove("hidden");
+				introScreen.classList.remove(
+					"view-fade-out",
 				);
-				this.elements.chatMainView.classList.add(
-					"hidden",
+				introScreen.classList.add("view-fade-in");
+				chatMainView.classList.remove(
+					"view-fade-in",
+				);
+				chatMainView.classList.add(
+					"view-fade-out",
+				);
+				this._viewTransitionTimer = setTimeout(
+					() => {
+						chatMainView.classList.add("hidden");
+						introScreen.classList.remove(
+							"view-fade-in",
+						);
+						chatMainView.classList.remove(
+							"view-fade-out",
+						);
+					},
+					transitionMs,
 				);
 				return;
 			}
 
-			this.elements.introScreen.classList.add(
-				"hidden",
-			);
-			this.elements.chatMainView.classList.remove(
-				"hidden",
+			if (this.elements.widget) {
+				this.elements.widget.classList.remove(
+					"intro-mode",
+				);
+			}
+			if (this.elements.backBtn) {
+				this.elements.backBtn.classList.remove(
+					"hidden",
+				);
+			}
+			introScreen.classList.remove("hidden");
+			chatMainView.classList.remove("hidden");
+			chatMainView.classList.remove("view-fade-out");
+			chatMainView.classList.add("view-fade-in");
+			introScreen.classList.remove("view-fade-in");
+			introScreen.classList.add("view-fade-out");
+			this._viewTransitionTimer = setTimeout(
+				() => {
+					introScreen.classList.add("hidden");
+					chatMainView.classList.remove(
+						"view-fade-in",
+					);
+					introScreen.classList.remove(
+						"view-fade-out",
+					);
+				},
+				transitionMs,
 			);
 		}
 
