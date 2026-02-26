@@ -717,31 +717,56 @@ export const generateEmbedScript = async (
 			process.env.WIDGET_SCRIPT_URL ||
 			`${apiUrl}/widget/witzo-chat.js`;
 
-		// Build config attributes for the widget element
-		const configAttrs = Object.entries(config)
-			.map(([key, value]) => {
-				// Convert camelCase to kebab-case
-				const kebabKey = key
-					.replace(/([A-Z])/g, "-$1")
-					.toLowerCase();
+		// Explicit mapping from WidgetConfig camelCase keys → witzo-chat HTML attribute names.
+		// primaryColor fans out to three attributes (banner-color, floating-btn, user-chat-color).
+		const WIDGET_ATTR_MAP: Record<string, string | string[]> = {
+			// Content / text
+			headerTitle:              "banner-text",
+			welcomeMessage:           "primary-text",
+			placeholderText:          "placeholder-text",
+			logoIcon:                 "logo-icon",
+			bannerTextParagraph:      "banner-text-paragraph",
+			// Colors
+			primaryColor:             ["banner-color", "floating-btn", "user-chat-color"],
+			accentColor:              "send-color",
+			bannerTextColor:          "banner-text-color",
+			closeButtonColor:         "close-button-color",
+			botColor:                 "bot-color",
+			chatVoiceIconColor:       "chat-voice-icon-color",
+			voiceSendButton:          "voice-send-button",
+			bannerTextParagraphColor: "banner-text-paragraph-color",
+			// Layout / behaviour
+			floatingType:             "floating-type",
+			autoOpen:                 "auto-open",
+			// Language
+			defaultLanguage:          "default-language",
+		};
 
-				if (typeof value === "boolean") {
-					return `  widget.setAttribute('${kebabKey}', '${value}');`;
-				}
-				if (typeof value === "string") {
-					// Escape quotes and newlines
-					const escapedValue = value
-						.replace(/'/g, "\\'")
-						.replace(/\n/g, "\\n");
-					return `  widget.setAttribute('${kebabKey}', '${escapedValue}');`;
-				}
-				if (typeof value === "number") {
-					return `  widget.setAttribute('${kebabKey}', '${value}');`;
-				}
-				return "";
-			})
-			.filter(Boolean)
-			.join("\n");
+		// Build config attributes for the widget element
+		const configLines: string[] = [];
+		Object.entries(config).forEach(([key, value]) => {
+			const mapping = WIDGET_ATTR_MAP[key];
+			if (!mapping) return;
+
+			let attrValue: string;
+			if (typeof value === "boolean") {
+				attrValue = String(value);
+			} else if (typeof value === "string" && value) {
+				attrValue = value
+					.replace(/'/g, "\\'")
+					.replace(/\n/g, "\\n");
+			} else if (typeof value === "number") {
+				attrValue = String(value);
+			} else {
+				return;
+			}
+
+			const attrNames = Array.isArray(mapping) ? mapping : [mapping];
+			attrNames.forEach((attr) => {
+				configLines.push(`  widget.setAttribute('${attr}', '${attrValue}');`);
+			});
+		});
+		const configAttrs = configLines.join("\n");
 
 		// Generate the embed script
 		const script = `

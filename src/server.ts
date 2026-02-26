@@ -63,6 +63,7 @@ app.use(
 				objectSrc: ["'none'"],
 				mediaSrc: ["'self'"],
 				frameSrc: ["'self'"],
+				frameAncestors: ["'self'", "http://localhost:*", "https://witzo.ai", "https://*.witzo.ai"],
 			},
 		},
 		crossOriginEmbedderPolicy: false,

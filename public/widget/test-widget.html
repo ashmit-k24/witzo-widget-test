@@ -18,28 +18,31 @@
 			api-url="http://localhost:3008/api/v1/webhook"
 			widget-key="wk_ef2acb9e494e45d7a21c3096b5319747"
 			primary-text="**Hello! To assist you better**, may i have your full name ?"
-			bot-color="#ff6699"
-			send-color="#471791"
-			floating-btn="#471791"
-			floating-type="small"
-			chat-voice-icon-color="#7908FB"
-			voice-send-button="#7908FB"
-			auto-open="true"
 			banner-text="Text Support"
 			banner-text-color="#ffffff"
-			close-button-color="#ffffff"
 			banner-color="#212121"
+			banner-text-paragraph="We typically reply in a few minutes"
+			banner-text-paragraph-color="#aaaaaa"
+			send-color="#471791"
 			user-chat-color="#212121"
+			close-button-color="#ffffff"
+			bot-color="#ff6699"
+			floating-btn="#471791"
+			floating-btn-color="#471791"
+			floating-type="full"
+			bubble-icon=""
+			logo-icon=""
+			placeholder-text="Type your message..."
+			default-language="en"
+			auto-open="false"
+			plan-type="free"
 		></witzo-chat>
 
 		<!--
       Dev  → modular ES module source:  src/index.js
       Prod → single-file IIFE bundle:   witzo-chat.js
     -->
-		<script
-			type="module"
-			src="./src/index.js"
-		></script>
+		<script src="./witzo-chat.js"></script>
 
 		<script>
 			console.log(

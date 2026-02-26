@@ -77,12 +77,12 @@
 				userChatColor: "#d01137ff",
 				closeButtonColor: "",
 				logoIcon: null,
+				bubbleIcon: null,
 				// bannerTextParagraph: 'I am AI powered and learning',
 				bannerTextParagraphColor: "",
-				chatVoiceIconColor: "#7908FB",
-				voiceSendButton: "#7908FB",
 				planType: "free",
 				defaultLanguage: "en",
+				placeholderText: null,
 			};
 		}
 
@@ -119,10 +119,10 @@
 				"logo-icon",
 				"banner-text-paragraph",
 				"banner-text-paragraph-color",
-				"chat-voice-icon-color",
-				"voice-send-button",
+				"bubble-icon",
 				"plan-type",
 				"default-language",
+				"placeholder-text",
 			];
 
 			attrs.forEach((attr) => {
@@ -290,9 +290,7 @@
 		}
 
 		normalizeFloatingType(value) {
-			const normalized = String(
-				value || "small",
-			)
+			const normalized = String(value || "small")
 				.trim()
 				.toLowerCase();
 
@@ -311,6 +309,9 @@
 		}
 
 		getFloatingIconSvg() {
+			if (this.config.bubbleIcon) {
+				return `<img src="${this.config.bubbleIcon}" alt="icon" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`;
+			}
 			return `<svg width="32" height="32" viewBox="0 0 32 26" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path fill-rule="evenodd" clip-rule="evenodd" d="M0.375 6.3125C0.375 3.27493 2.83743 0.8125 5.875 0.8125H25.8125C28.8501 0.8125 31.3125 3.27493 31.3125 6.3125V15.1743L27.5114 13.7677C27.411 13.7306 27.3319 13.6515 27.2948 13.5511L25.4689 8.6168C25.3507 8.29761 24.8993 8.29761 24.7811 8.6168L22.9552 13.5511C22.9181 13.6515 22.839 13.7306 22.7386 13.7677L17.8043 15.5936C17.4851 15.7118 17.4851 16.1632 17.8043 16.2814L22.7386 18.1073C22.839 18.1444 22.9181 18.2235 22.9552 18.3239L24.3618 22.125H18.9339C18.9202 22.1484 18.9049 22.1714 18.888 22.1939L16.3936 25.5174C16.1186 25.8838 15.5689 25.8838 15.2939 25.5174L12.7994 22.1939C12.7826 22.1714 12.7673 22.1484 12.7536 22.125H5.875C2.83743 22.125 0.375 19.6626 0.375 16.625V6.3125ZM19.1094 8.15215C19.0504 7.99255 18.8246 7.99255 18.7656 8.15215L18.4097 9.11387C18.3911 9.16405 18.3516 9.20363 18.3014 9.2222L17.3397 9.57808C17.1801 9.6371 17.1801 9.8629 17.3397 9.92192L18.3014 10.2778C18.3516 10.2964 18.3911 10.3359 18.4097 10.3861L18.7656 11.3478C18.8246 11.5074 19.0504 11.5074 19.1094 11.3478L19.4653 10.3861C19.4839 10.3359 19.5234 10.2964 19.5736 10.2778L20.5353 9.92192C20.6949 9.8629 20.6949 9.6371 20.5353 9.57808L19.5736 9.2222C19.5234 9.20363 19.4839 9.16405 19.4653 9.11387L19.1094 8.15215Z" fill="white"/>
                   </svg>`;
@@ -346,6 +347,19 @@
           ${iconMarkup}
         </button>
       `;
+		}
+
+		updateFloatingType(newType) {
+			var normalizedType = this.normalizeFloatingType(newType);
+			this.config.floatingType = normalizedType;
+			var floatingBtnDiv = this.shadowRoot.getElementById('floatingBtn');
+			if (!floatingBtnDiv) return;
+			floatingBtnDiv.className = 'floating floating-' + normalizedType;
+			floatingBtnDiv.innerHTML = this.getFloatingTriggerMarkup();
+			this.elements.floatingBtn = this.shadowRoot.getElementById('floating-btn');
+			if (!this.elements.floatingBtn) return;
+			this.elements.floatingBtn.classList.remove('hidden');
+			this.elements.floatingBtn.addEventListener('click', () => this.toggleChat());
 		}
 
 		getLanguageStorageKey() {
@@ -435,6 +449,12 @@
             box-sizing: border-box;
           }
           :host {
+            --color-primary:      ${this.config.sendColor      || '#fc0e3f'};
+            --color-banner-bg:    ${this.config.bannerColor    || '#120b14'};
+            --color-user-bubble:  ${this.config.userChatColor  || '#ffdde4'};
+            --color-floating-btn: ${this.config.floatingBtn || this.config.floatingBtnColor || '#fc0e3f'};
+            --color-bot-icon:     ${this.config.botColor       || '#f1f5f9'};
+            --color-close-btn:    ${this.config.closeButtonColor || 'white'};
             font-family: "Plus Jakarta Sans", sans-serif;
             display: block;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
@@ -555,7 +575,7 @@
 
           /* Header */
           .chat-header {
-            background: ${this.config.bannerColor || "#120b14"};
+            background: var(--color-banner-bg, #120b14);
             padding: 0rem 1rem;
             display: flex;
             align-items: center;
@@ -591,7 +611,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-
+            background: var(--color-bot-icon, #f1f5f9);
           }
             .bot-msg-chat-icon img{
               width: 100%;
@@ -623,6 +643,7 @@
             margin-left: 0.5rem;
             padding: 0;
           }
+          .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, white); }
           
           /* Messages Area */
           .chat-messages {
@@ -652,7 +673,7 @@
             line-height: 1.3; 
           }
           .chat-bubble-user {
-            background: ${this.config.userChatColor || "#ffdde4"}; /* Default or Config */
+            background: var(--color-user-bubble, #ffdde4); /* Default or Config */
             color: #ffffff;
             border-radius: 11px 0 11px 11px;
             padding: 10px 22px;
@@ -686,7 +707,7 @@
           }
           .lang-pill {
             position: absolute;
-            right: 5%;
+            right: 15%;
             top: 50%;
             transform: translateY(-50%);
             display: flex;
@@ -748,13 +769,13 @@
             background: #f1f5f9;
           }
           .lang-dropdown-item.active {
-            color: ${this.config.sendColor || "#fc0e3f"};
+            color: var(--color-primary, #fc0e3f);
             background: #f8fafc;
           }
           .lang-check {
             width: 14px;
             height: 14px;
-            color: ${this.config.sendColor || "#fc0e3f"};
+            color: var(--color-primary, #fc0e3f);
             opacity: 0;
           }
           .lang-dropdown-item.active .lang-check {
@@ -846,9 +867,9 @@
             align-items: center;
             justify-content: center;
             border-radius: 0.75rem;
-            background: ${this.config.sendColor};
+            background: var(--color-primary, #fc0e3f);
           }
-          
+
           /* Footer */
           .chat-footer {
             padding-bottom: 10px;
@@ -888,7 +909,7 @@
             transform: translateY(-2px);
           }
           .floating-launcher:focus-visible {
-            outline: 2px solid ${this.config.sendColor || "#fc0e3f"};
+            outline: 2px solid var(--color-primary, #fc0e3f);
             outline-offset: 2px;
           }
 
@@ -896,7 +917,7 @@
             width: 54px;
             height: 54px;
             border-radius: 9999px;
-            background: linear-gradient(135deg, ${this.config.sendColor || "#fc0e3f"} 0%, #7c3aed 100%);
+            background: linear-gradient(135deg, var(--color-floating-btn, #fc0e3f) 0%, #7c3aed 100%);
             padding: 3px;
             box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
             flex-shrink: 0;
@@ -973,7 +994,7 @@
             text-align: center;
             border-radius: 10px;
             padding: 10px 14px;
-            background: linear-gradient(90deg, #6d28d9 0%, ${this.config.sendColor || "#fc0e3f"} 100%);
+            background: linear-gradient(90deg, #6d28d9 0%, var(--color-floating-btn, #fc0e3f) 100%);
             color: #ffffff;
             font-size: 14px;
             font-weight: 700;
@@ -1193,7 +1214,7 @@
               right: 0;
               padding: 12px 24px;
               border-radius: 0 0 25px 25px;
-              background: linear-gradient(135deg, color-mix(in srgb, ${this.config.bannerColor || "#120b14"} 5%, white) 0%, color-mix(in srgb, ${this.config.sendColor || "#350535"} 15%, white) 100%);
+              background: linear-gradient(135deg, color-mix(in srgb, var(--color-banner-bg, #120b14) 5%, white) 0%, color-mix(in srgb, var(--color-primary, #350535) 15%, white) 100%);
               border: 1.5px solid transparent;
               background-clip: padding-box;
               box-shadow: inset 0 0 0 1.5px transparent;
@@ -1227,7 +1248,7 @@
               inset: 0;
               border-radius: 0 0 25px 25px;
               padding: 1.5px;
-              background: linear-gradient(135deg, ${this.config.bannerColor || "#120b14"} 0%, ${this.config.sendColor || "#350535"} 100%);
+              background: linear-gradient(135deg, var(--color-banner-bg, #120b14) 0%, var(--color-primary, #350535) 100%);
               -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
               -webkit-mask-composite: xor;
               mask-composite: exclude;
@@ -1258,9 +1279,9 @@
             }
 
             .hope-banner-btn:hover {
-             drop-shadow(0 0 4px ${this.config.sendColor || "#350535"});
+             drop-shadow(0 0 4px var(--color-primary, #350535));
             }
-            .hope-banner-btn.active { filter: drop-shadow(0 0 4px ${this.config.sendColor || "#350535"}); }
+            .hope-banner-btn.active { filter: drop-shadow(0 0 4px var(--color-primary, #350535)); }
             .hope-banner.hidden { display: none; }
 
       </style>
@@ -1333,7 +1354,7 @@
             <div class="chat-input">
                 <p id="banner-text-paragraph" class="chat-title-paragraph" style="color: ${this.config.bannerTextParagraphColor || "#999"}"></p>
                 <div class="chat-input-container">
-                    <input id="textMessageInput" type="text" placeholder="Type your message..." class="chat-text-input" />
+                    <input id="textMessageInput" type="text" placeholder="${this.config.placeholderText || 'Type your message...'}" class="chat-text-input" />
                     <!-- Language Pill -->
                     <div class="lang-pill" id="langPillBtn">
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -1631,9 +1652,6 @@
 				this.elements.widget.classList.remove(
 					"minimizing",
 				);
-				this.elements.floatingBtn.classList.add(
-					"hidden",
-				);
 				setTimeout(
 					() => this.elements.input.focus(),
 					100,
@@ -1648,17 +1666,6 @@
 					this.elements.widget.classList.add(
 						"hidden",
 					);
-					this.elements.floatingBtn.classList.remove(
-						"hidden",
-					);
-					this.elements.floatingBtn.classList.add(
-						"entering",
-					);
-					setTimeout(() => {
-						this.elements.floatingBtn?.classList.remove(
-							"entering",
-						);
-					}, 550);
 				}, 300);
 			}
 		}
@@ -1897,11 +1904,12 @@
 			);
 			if (!bubble) return;
 
-			let streamingTextNode = bubble.querySelector(
-				".streaming-text",
-			);
+			let streamingTextNode =
+				bubble.querySelector(".streaming-text");
 			if (!streamingTextNode) {
-				bubble.classList.remove("typing-indicator");
+				bubble.classList.remove(
+					"typing-indicator",
+				);
 				bubble.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content"><p class="streaming-text"></p></div></div>`;
 				streamingTextNode = bubble.querySelector(
 					".streaming-text",
