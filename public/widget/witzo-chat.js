@@ -1507,25 +1507,25 @@
               border-radius: 50px;
               padding: 7px 15px;
               font-size: 14px;
-              color: #666;
-              background: #ecececb6;
+              color: #4b4b4b;
               display: flex;
               align-items: center;
               justify-content: center;
-              gap: 4px;
+              gap: 3px;
               position: relative;
               height: 36px;
 
             }
              
            .typing-dots-text  {
-            font-size: 2rem;
+            font-size: 2.5rem;
             line-height: 1;
-            animation: typingBounce 1.5s infinite;
+            animation: typingBounce 2.2s infinite;
             opacity: 0;
             display: inline-block;
             position: relative;
             top: -9px;
+			border-radius: 50%;
           }
            .typing-dots-text:nth-child(1) { animation-delay: 0s; }
            .typing-dots-text:nth-child(2) { animation-delay: 0.5s; }
