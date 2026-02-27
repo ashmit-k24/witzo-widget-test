@@ -384,8 +384,8 @@ export const logout = async (
 		}
 
 		logger.info("Logout requested", {
-			userId: (req.user as any)?.id,
-			email: (req.user as any)?.email,
+			userId: req.user?.id,
+			email: req.user?.email,
 		});
 
 		const result =
@@ -439,7 +439,7 @@ export const getProfileStatus = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 		if (!userId) {
 			res.status(401).json({
 				success: false,
@@ -470,7 +470,7 @@ export const updateProfile = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 		if (!userId) {
 			res.status(401).json({
 				success: false,
@@ -504,12 +504,12 @@ export const getSessions = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const user = req.user as any;
+		const user = req.user;
 		const currentSessionId = user?.sessionId;
 
 		const result =
 			await sessionService.getUserSessions(
-				user.id,
+				user?.id ?? "",
 				currentSessionId,
 			);
 
@@ -530,7 +530,7 @@ export const revokeSession = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const user = req.user as any;
+		const user = req.user;
 		const sessionIdToRevoke = parseInt(
 			req.params.sessionId,
 			10,
@@ -547,7 +547,7 @@ export const revokeSession = async (
 
 		const result =
 			await sessionService.revokeSession(
-				user.id,
+				user?.id ?? "",
 				sessionIdToRevoke,
 				currentSessionId,
 			);
@@ -571,7 +571,7 @@ export const revokeAllOtherSessions = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const user = req.user as any;
+		const user = req.user;
 		const currentSessionId = user?.sessionId;
 
 		if (!currentSessionId) {
@@ -584,7 +584,7 @@ export const revokeAllOtherSessions = async (
 
 		const result =
 			await sessionService.revokeAllOtherSessions(
-				user.id,
+				user?.id ?? "",
 				currentSessionId,
 			);
 
@@ -605,11 +605,9 @@ export const logoutAll = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const user = req.user as any;
-
 		const result =
 			await sessionService.revokeAllSessions(
-				user.id,
+				req.user?.id ?? "",
 			);
 
 		// Clear cookies for current session
@@ -743,7 +741,7 @@ export const googleCallback = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const profile = req.user as GoogleProfile;
+		const profile = req.user as unknown as GoogleProfile;
 
 		if (!profile || !profile.email) {
 			res.redirect(

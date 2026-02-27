@@ -11,7 +11,7 @@ export const listLeads = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 		if (!userId) {
 			res.status(401).json({
 				success: false,
@@ -21,7 +21,7 @@ export const listLeads = async (
 		}
 
 		const planType = coercePlanType(
-			(req.user as any)?.plan_type,
+			req.user?.plan_type,
 		);
 		const planLeadLimit =
 			getPlanCapabilities(planType).leadStorageLimit;
@@ -63,7 +63,7 @@ export const getLead = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 		const { id } = req.params;
 
 		if (!userId) {
@@ -102,7 +102,7 @@ export const updateLeadStatus = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 		const { id } = req.params;
 		const { status } = req.body;
 
@@ -162,7 +162,7 @@ export const deleteLead = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 		const { id } = req.params;
 
 		if (!userId) {

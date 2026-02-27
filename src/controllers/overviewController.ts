@@ -38,7 +38,7 @@ export const getOverviewAnalytics = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!userId) {
 			res.status(401).json({

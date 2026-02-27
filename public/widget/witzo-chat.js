@@ -43,6 +43,7 @@
 			this.selectedLanguage = "en";
 			this.date = new Date();
 			this._cfBound = false;
+			this.isEmbeddedPreview = false;
 
 			this.elements = {};
 			this.supportedLanguages = [
@@ -113,6 +114,9 @@
 				);
 			this.widgetKey =
 				this.getAttribute("widget-key") || "";
+			this.isEmbeddedPreview =
+				this.getAttribute("preview-mode") ===
+				"embedded";
 
 			// Read configuration from attributes (supports legacy + friendly aliases)
 			const ATTR_TO_CONFIG_KEY = [
@@ -216,10 +220,13 @@
 			}
 
 			// Auto-open if configured
-			if (this.config.autoOpen) {
+			if (
+				this.config.autoOpen ||
+				this.isEmbeddedPreview
+			) {
 				setTimeout(() => {
 					if (!this.isOpen) this.toggleChat();
-				}, 700);
+				}, this.isEmbeddedPreview ? 120 : 700);
 			}
 
 			// Show floating button after delay
@@ -240,7 +247,7 @@
 						);
 					}, 550);
 				}
-			}, 2000);
+			}, this.isEmbeddedPreview ? 0 : 2000);
 		}
 
 		initializeSession() {
@@ -538,6 +545,12 @@
             display: block;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
           }
+          :host([preview-mode="embedded"]) {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+          }
           #textChatWidget {
             position: fixed;
             bottom: 6em;
@@ -560,11 +573,23 @@
               max-width 0.62s cubic-bezier(0.22, 1, 0.36, 1);
             background: #fff; /* Ensure background is white */
           }
+          :host([preview-mode="embedded"]) #textChatWidget {
+            position: absolute;
+            right: 16px;
+            bottom: 16px;
+            width: min(27rem, calc(100% - 32px));
+            max-width: calc(100% - 32px);
+            max-height: calc(100% - 32px);
+            min-height: 420px;
+          }
           #textChatWidget.intro-mode {
             width: 25.5rem;
             height: 430px;
             min-height: 430px;
             max-height: 430px;
+          }
+          :host([preview-mode="embedded"]) #textChatWidget.intro-mode {
+            width: min(25.5rem, calc(100% - 32px));
           }
           #textChatWidget.intro-mode .intro-screen {
             flex: 0 0 auto;
@@ -584,6 +609,14 @@
             animation: slideUp 1s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
             transform-origin: right bottom;
             position: relative;
+          }
+          :host([preview-mode="embedded"]) .chat-widget {
+            animation: none;
+            transform: none;
+            opacity: 1;
+          }
+          :host([preview-mode="embedded"]) .chat-widget::before {
+            display: none;
           }
           
           .hidden { display: none !important; }
@@ -1060,6 +1093,12 @@
             right: 24px;
             z-index: 9999;
             animation: float 3s ease-in-out infinite;
+          }
+          :host([preview-mode="embedded"]) #floatingBtn {
+            position: absolute;
+            right: 16px;
+            bottom: 16px;
+            z-index: 3;
           }
           .floating-launcher {
             font-family: inherit;

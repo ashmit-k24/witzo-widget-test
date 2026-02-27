@@ -3,7 +3,7 @@ import { leadWebhookService } from "../services/leadWebhookService";
 import logger from "../utils/logger";
 
 function getUserId(req: Request): string | null {
-	return (req.user as any)?.id ?? null;
+	return req.user?.id ?? null;
 }
 
 function handleControllerError(

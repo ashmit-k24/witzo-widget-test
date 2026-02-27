@@ -156,11 +156,11 @@ export const config: EnvConfig = {
 	),
 	DB_MAX_CONNECTIONS: getEnvNumber(
 		"DB_MAX_CONNECTIONS",
-		100,
+		20,
 	),
 	DB_MIN_CONNECTIONS: getEnvNumber(
 		"DB_MIN_CONNECTIONS",
-		10,
+		2,
 	),
 
 	// Email
@@ -329,6 +329,13 @@ export const config: EnvConfig = {
 	REDIS_PASSWORD: getOptionalEnvString(
 		"REDIS_PASSWORD",
 	),
+
+	// Admin
+	ADMIN_EMAIL: getEnvString("ADMIN_EMAIL", "admin@witzo.local"),
+	ADMIN_PASSWORD: getEnvString("ADMIN_PASSWORD", ""),
+	ADMIN_JWT_SECRET: getRequiredSecret("ADMIN_JWT_SECRET"),
+	ADMIN_TOKEN_EXPIRY_HOURS: getEnvNumber("ADMIN_TOKEN_EXPIRY_HOURS", 24),
+	ADMIN_FRONTEND_URL: getOptionalEnvString("ADMIN_FRONTEND_URL"),
 };
 
 export default config;

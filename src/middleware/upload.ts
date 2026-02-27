@@ -1,6 +1,7 @@
+import { Request } from "express";
+import fs from "fs";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
 import logger from "../utils/logger";
 
 const uploadDir = path.join(
@@ -31,7 +32,7 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (
-	_req: any,
+	_req: Request,
 	file: Express.Multer.File,
 	cb: multer.FileFilterCallback,
 ) => {

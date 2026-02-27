@@ -18,7 +18,7 @@ export const chat = async (
 			language,
 		} =
 			req.body as ChatRequest;
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!userId) {
 			res.status(401).json({
@@ -175,10 +175,9 @@ export const getUserChatSessions = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 		const userPlanType =
-			(req.user as any)?.plan_type ??
-			(req.user as any)?.planType;
+			req.user?.plan_type;
 		const planType =
 			coercePlanType(userPlanType);
 		const planCapabilities =
@@ -233,7 +232,7 @@ export const getChatSession = async (
 ): Promise<void> => {
 	try {
 		const { sessionId } = req.params;
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!sessionId) {
 			res.status(400).json({
@@ -290,7 +289,7 @@ export const clearChatSession = async (
 ): Promise<void> => {
 	try {
 		const { sessionId } = req.params;
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!sessionId) {
 			res.status(400).json({
@@ -350,7 +349,7 @@ export const clearUserSessions = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!userId) {
 			res.status(401).json({

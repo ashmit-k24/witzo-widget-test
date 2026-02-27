@@ -20,7 +20,11 @@ export const createWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 		const {
 			widgetName,
 			allowedDomains,
@@ -73,7 +77,11 @@ export const getWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 
 		const widgetKey =
 			await widgetService.getUserWidgetKey(
@@ -128,7 +136,11 @@ export const updateWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 		const {
 			widgetName,
 			isActive,
@@ -186,7 +198,11 @@ export const regenerateWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 
 		const newWidget =
 			await widgetService.regenerateWidgetKey(
@@ -231,7 +247,11 @@ export const deleteWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 
 		await widgetService.deleteWidgetKey(userId);
 
@@ -255,7 +275,11 @@ export const getWidgetAnalytics = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 		const limit =
 			parseInt(req.query.limit as string) || 100;
 
