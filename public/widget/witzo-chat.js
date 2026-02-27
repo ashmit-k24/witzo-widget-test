@@ -723,10 +723,23 @@
             line-height: 1;
           }
           .header-online-dot {
-            width: 8px;
-            height: 8px;
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             background: #10b981;
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+            animation: onlineDotGlow 1.8s ease-out infinite;
+          }
+          @keyframes onlineDotGlow {
+            0% {
+              box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
+            }
+            70% {
+              box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+            }
+            100% {
+              box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
           }
           .chat-icon {
             width: auto;
@@ -806,7 +819,19 @@
             border-radius: 16px;
             box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
             overflow: hidden;
-            z-index: 5;
+            z-index: 0;
+            transform-origin: right top;
+            animation: headerMenuIn 0.3s ease-out;
+          }
+          @keyframes headerMenuIn {
+            0% {
+              opacity: 0;
+              transform: scale(0.7);
+            }
+            100% {
+              opacity: 1;
+              transform: scale(1);
+            }
           }
           .chat-header-menu .chat-menu-item {
             width: 100%;
@@ -941,9 +966,9 @@
             padding: 0.5rem;
             z-index: 1000;
             opacity: 0;
-            transform: translateY(10px) scale(0.95);
+            transform: translateY(10px) scale(0.9);
             pointer-events: none;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             transform-origin: bottom right;
             max-height: 300px;
             overflow-y: auto;
