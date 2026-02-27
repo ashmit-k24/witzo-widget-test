@@ -44,6 +44,7 @@
 			this.isExpanded = false;
 			this.date = new Date();
 			this._cfBound = false;
+			this._introAnimResetTimer = null;
 
 			this.elements = {};
 			this.supportedLanguages = [
@@ -580,6 +581,70 @@
           #textChatWidget.intro-mode .chat-header-identity {
             justify-content: flex-start;
             width: auto;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim] {
+            opacity: 0;
+            animation-duration: 0.55s;
+            animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+            animation-fill-mode: forwards;
+            animation-delay: calc(var(--fade-order, 0) * 80ms);
+            will-change: transform, opacity;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim="fade-up"] {
+            transform: translateY(14px);
+            animation-name: introAnimFadeUp;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim="fade"] {
+            transform: translateY(0);
+            animation-name: introAnimFade;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim="scale"] {
+            transform: scale(0.965);
+            transform-origin: center;
+            animation-name: introAnimScale;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim="soft"] {
+            transform: translateY(8px) scale(0.985);
+            transform-origin: center;
+            animation-name: introAnimSoft;
+          }
+          @keyframes introAnimFadeUp {
+            0% {
+              opacity: 0;
+              transform: translateY(14px);
+            }
+            100% {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+          @keyframes introAnimFade {
+            0% {
+              opacity: 0;
+            }
+            100% {
+              opacity: 1;
+            }
+          }
+          @keyframes introAnimScale {
+            0% {
+              opacity: 0;
+              transform: scale(0.965);
+            }
+            100% {
+              opacity: 1;
+              transform: scale(1);
+            }
+          }
+          @keyframes introAnimSoft {
+            0% {
+              opacity: 0;
+              transform: translateY(8px) scale(0.985);
+            }
+            100% {
+              opacity: 1;
+              transform: translateY(0) scale(1);
+            }
           }
             .flex{
               display: flex;
@@ -1778,7 +1843,7 @@
             <!-- Header -->
             <div id="chat-header" class="chat-header">
                 
-                <div class="chat-header-left">
+                <div class="chat-header-left" data-intro-anim="fade" style="--fade-order:0">
                     <button id="backToIntroBtn" class="chat-action-btn back-btn hidden icon-stroke" aria-label="Back to intro">
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left h-5 w-5" aria-hidden="true"><path d="m15 18-6-6 6-6"></path>
 						</svg>
@@ -1857,8 +1922,8 @@
             </div>
 
             <div id="introScreen" class="intro-screen">
-              	<div class="intro-top-section">
-			  		<div class="intro-message-card-wrapper">
+              	<div class="intro-top-section" data-intro-anim="fade-up" style="--fade-order:1">
+			  		<div class="intro-message-card-wrapper" data-intro-anim="soft" style="--fade-order:2">
 
 						<div class="img-container">
 							<img src="${this.config.logoIcon || "https://leaderedutech.com/wp-content/uploads/2026/02/zycus-logo.png"}" alt="Intro Image" class="intro-image">
@@ -1877,11 +1942,11 @@
               			</div>
 					</div>
 
-					<div class="feature-pills">
+					<div class="feature-pills" data-intro-anim="fade" style="--fade-order:3">
 
 					</div>
-              		<div class="intro-actions">
-              		  <button id="introStartBtn" class="intro-action-btn primary">
+              		<div class="intro-actions" data-intro-anim="fade-up" style="--fade-order:4">
+              		  <button id="introStartBtn" class="intro-action-btn primary" data-intro-anim="scale" style="--fade-order:5">
 						<span class="intro-action-icon">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
           						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -1890,7 +1955,7 @@
 						${sanitizeHTML(this.config.introPrimaryButtonText || "Let's Chat!")}
 
 						</button>
-              		  <button id="introBrowseBtn" class="intro-action-btn">
+              		  <button id="introBrowseBtn" class="intro-action-btn" data-intro-anim="scale" style="--fade-order:6">
 						<span class="intro-action-icon second">
 							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-globe-icon lucide-globe"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
 						</span>
@@ -1899,8 +1964,8 @@
               		</div>
 			  	</div>
 				
-				<div class="help-links-list">
-					<div class="help-link-item">
+				<div class="help-links-list" data-intro-anim="fade-up" style="--fade-order:7">
+					<div class="help-link-item" data-intro-anim="soft" style="--fade-order:8">
 						<div class="help-link-content">
 							<span class="help-link-icon">💡</span>
 							<span class="help-link-text">How Witzo works</span>
@@ -1909,7 +1974,7 @@
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
 						</span>
 					</div>
-					<div class="help-link-item">
+					<div class="help-link-item" data-intro-anim="soft" style="--fade-order:9">
 						<div class="help-link-content">
 							<span class="help-link-icon">🚀</span>
 							<span class="help-link-text">Explore AI features</span>
@@ -2400,6 +2465,7 @@
 					if (this.elements.navHome) this.elements.navHome.classList.add("active");
 					if (this.elements.navChat) this.elements.navChat.classList.remove("active");
 					introScreen.classList.remove("hidden");
+					this.playIntroAnimations();
 					chatMainView.classList.add("hidden");
 					return;
 				}
@@ -2415,6 +2481,7 @@
 				}
 				if (this.elements.navHome) this.elements.navHome.classList.remove("active");
 				if (this.elements.navChat) this.elements.navChat.classList.add("active");
+				introScreen.classList.remove("play-intro-anim");
 				introScreen.classList.add("hidden");
 				chatMainView.classList.remove("hidden");
 				return;
@@ -2436,6 +2503,7 @@
 				if (this.elements.navHome) this.elements.navHome.classList.add("active");
 				if (this.elements.navChat) this.elements.navChat.classList.remove("active");
 				introScreen.classList.remove("hidden");
+				this.playIntroAnimations();
 				chatMainView.classList.remove("hidden");
 				introScreen.classList.remove(
 					"view-fade-out",
@@ -2474,6 +2542,7 @@
 			}
 			if (this.elements.navHome) this.elements.navHome.classList.remove("active");
 			if (this.elements.navChat) this.elements.navChat.classList.add("active");
+			introScreen.classList.remove("play-intro-anim");
 			introScreen.classList.remove("hidden");
 			chatMainView.classList.remove("hidden");
 			chatMainView.classList.remove("view-fade-out");
@@ -2492,6 +2561,21 @@
 				},
 				transitionMs,
 			);
+		}
+
+		playIntroAnimations() {
+			const introScreen = this.elements?.introScreen;
+			if (!introScreen) return;
+			introScreen.classList.remove("play-intro-anim");
+			// Force reflow so animation restarts every time intro is shown.
+			void introScreen.offsetWidth;
+			introScreen.classList.add("play-intro-anim");
+			if (this._introAnimResetTimer) {
+				clearTimeout(this._introAnimResetTimer);
+			}
+			this._introAnimResetTimer = setTimeout(() => {
+				introScreen.classList.remove("play-intro-anim");
+			}, 1600);
 		}
 
 		startChatFromIntro() {
