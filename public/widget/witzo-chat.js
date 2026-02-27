@@ -676,9 +676,8 @@
             justify-content: space-between;
             flex-shrink: 0;
             height: 60px; /* Fixed height for header */
-            margin:10px;
-            margin-bottom:0;
-            border-radius: 10px;
+            
+            border-radius: 10px 10px 0 0;
             position: relative;
             z-index: 1;
           }
@@ -1040,6 +1039,7 @@
 			padding:20px;
 			border-radius: 16px;
 			border: 1px solid #eaeaea;
+			background: #fff;
 		  }
 
 		  .status-pill {
@@ -2057,20 +2057,9 @@
 			}
 
 			// Bottom Nav Events
-			if (this.elements.navHome) {
-				this.elements.navHome.addEventListener("click", () => {
-					this.hasStartedChat = false;
-					this.showIntroScreen(true, true);
-					this.elements.navHome.classList.add("active");
-					this.elements.navChat.classList.remove("active");
-				});
-			}
 			if (this.elements.navChat) {
 				this.elements.navChat.addEventListener("click", () => {
-					this.hasStartedChat = true;
-					this.showIntroScreen(false, true);
-					this.elements.navChat.classList.add("active");
-					this.elements.navHome.classList.remove("active");
+					this.startChatFromIntro();
 				});
 			}
 		}
