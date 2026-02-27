@@ -41,6 +41,7 @@
 			this.ratingShown = false;
 			this.ratingSubmitted = false;
 			this.selectedLanguage = "en";
+			this.isExpanded = false;
 			this.date = new Date();
 			this._cfBound = false;
 
@@ -89,7 +90,7 @@
 				introPrimaryButtonColor: "#111827",
 				introSecondaryButtonColor: "#f3f4f6",
 				introPrimaryButtonBackgroundColor:
-					"#111827",
+					"#121212",
 				introSecondaryButtonBackgroundColor:
 					"#f3f4f6",
 				planType: "free",
@@ -561,13 +562,24 @@
             background: #fff; /* Ensure background is white */
           }
           #textChatWidget.intro-mode {
-            
+            background:#FEFEFE;
           }
           #textChatWidget.intro-mode .intro-screen {
             flex: 0 0 auto;
           }
           #textChatWidget.intro-mode .chat-header {
             margin-bottom: 8px;
+          }
+          #textChatWidget.intro-mode #backToIntroBtn,
+          #textChatWidget.intro-mode #expandChatBtn,
+          #textChatWidget.intro-mode #headerMenuBtn,
+          #textChatWidget.intro-mode #headerMenuDropdown,
+          #textChatWidget.intro-mode .header-online-status {
+            display: none !important;
+          }
+          #textChatWidget.intro-mode .chat-header-identity {
+            justify-content: flex-start;
+            width: auto;
           }
             .flex{
               display: flex;
@@ -684,9 +696,37 @@
           .chat-header-left {
             display: flex;
             width: auto;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
             gap: 0.75rem;
+            flex: 1;
+            min-width: 0;
+          }
+          .chat-header-identity {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            justify-content: center;
+            width: 100%;
+          }
+          .online-ready-text {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+          }
+          .header-online-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #888;
+            font-size: 11px;
+            line-height: 1;
+          }
+          .header-online-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
           }
           .chat-icon {
             width: auto;
@@ -717,13 +757,14 @@
             }
           .chat-title {
             color: #fff;
-            font-size: 20px;
+            font-size: 14px;
             font-weight: 500;
             margin: 0;
           }
           .chat-header-right {
             display: flex;
             align-items: center;
+            position: relative;
           }
           .chat-action-btn {
             border: none;
@@ -736,20 +777,75 @@
             margin-left: 0.7rem;
             padding: 0;
 			transition: all 0.4s ease-in;
+			color:white;
           }
           .chat-action-btn.back-btn {
             margin-left: 0;
-            margin-right: 0.25rem;
+            margin-right: 0.1rem;
           }
 			.chat-action-btn.back-btn svg{
-            width: 30px;
-			height: 30px;
+            width: 24px;
+			height: 24px;
           }
 			.chat-action-btn:hover svg{
 				transform: scale(1.08);
 			}
 
           .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, white); }
+          .chat-action-btn.icon-stroke svg path {
+            fill: none;
+            stroke: var(--color-close-btn, white);
+          }
+          .chat-header-menu {
+            position: absolute;
+            top: 52px;
+            right: 0;
+            min-width: 220px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            box-shadow: rgba(149, 157, 165, 0.2) 0px 8px 24px;
+            overflow: hidden;
+            z-index: 5;
+          }
+          .chat-header-menu .chat-menu-item {
+            width: 100%;
+            border: none;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px;
+            cursor: pointer;
+            text-align: left;
+            font-size: 1.05rem;
+            color: #1f2937;
+          }
+          .chat-header-menu .chat-menu-item:hover {
+            background: #f9fafb;
+          }
+          .chat-header-menu .chat-menu-item + .chat-menu-item {
+            border-top: 1px solid #f1f5f9;
+          }
+          .chat-header-menu .chat-menu-item svg path {
+            fill: #6b7280;
+          }
+          .chat-widget.expanded {
+            width: min(96vw, 37rem) !important;
+            max-width: min(96vw, 44rem) !important;
+          
+          }
+
+		  .chat-widget.expanded .chat-bubble-ai,
+		  .chat-widget.expanded .chat-bubble-user
+		  {
+		 	 max-width:430px;
+		  }
+
+		  .chat-widget.expanded.intro-mode{
+		  width: 27rem !important;
+		  }
+
           
           /* Messages Area */
           .chat-messages {
@@ -813,7 +909,7 @@
           }
           .lang-pill {
             position: absolute;
-            right: 15%;
+            right: 57px;
             top: 50%;
             transform: translateY(-50%);
             display: flex;
@@ -1035,10 +1131,10 @@
 			z-index: 1;
 		  }
 		  .intro-top-section{
-			box-shadow: rgba(0, 0, 0, 0.06) 0px 4px 24px;
+			box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
 			padding:20px;
 			border-radius: 16px;
-			border: 1px solid #eaeaea;
+			border: 1px solid #d8d8d8;
 			background: #fff;
 		  }
 
@@ -1047,7 +1143,7 @@
 			align-items: center;
 			gap: 6px;
 			background: #f5f5f786;
-			border: 1px solid #eaeaea;
+			border: 1px solid #d8d8d8;
 			border-radius: 9999px;
 			padding: 6px 12px;
 
@@ -1071,7 +1167,7 @@
 		  }
 		  .status-secondary-text {
 			font-size: 12px;
-			color: #6b7280;
+			color: black;
 			font-weight: 400;
 		  }
 
@@ -1085,14 +1181,13 @@
           .intro-action-btn {
             height: 44px;
             border-radius: 12px;
-            border: 1px solid var(--color-intro-secondary-btn, #d1d5db);
-            background: var(--color-intro-secondary-btn, #f3f4f6);
+            border: 1px solid var(--color-intro-secondary-btn, rgb(159, 163, 169));
+            background: var(--color-intro-secondary-btn, #F5F5F7);
             color: #3d434c;
             font-size: 16px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.3s ease;
-			box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
           }
 
 		  #introTitle{
@@ -1102,14 +1197,14 @@
 		  }
 			#introMessage{
 				font-size: 13px;
-				font-weight: 400;
-				color: #888;
+				font-weight: 500;
+				color: #737373;
 			}
           
 
           .intro-action-btn.primary {
-            border-color: var(--color-intro-primary-btn, #111827);
-            background: var(--color-intro-primary-btn, #111827);
+            border-color: var(--color-intro-primary-btn, #121212);
+            background: var(--color-intro-primary-btn, #121212);
             color: #fff;
           }
 
@@ -1124,7 +1219,7 @@
 			justify-content: space-between;
 			padding: 12px 0;
 			cursor: pointer;
-			border-bottom: 1px solid #f3f4f6;
+			border-bottom: 1px solid #d8d8d8;
 		  }
 		  .help-link-item:last-child {
 			border-bottom: none;
@@ -1137,7 +1232,7 @@
             border-top: 1px solid #f1f5f9;
             flex-direction: column;
             align-items: center;
-            gap: 8px;
+            gap: 12px;
           }
           .bottom-nav {
             display: none;
@@ -1148,6 +1243,8 @@
           .chat-widget.intro-mode .bottom-nav {
             display: flex;
           }
+			.chat-widget.intro-mode .hope-banner{
+				display: none;}
           .nav-item {
             display: flex;
             flex-direction: column;
@@ -1175,12 +1272,12 @@
           .powered-by {
             margin: 0;
             font-size: 11px;
-            color: #cbd5e1;
+            color: #767676;
             font-weight: 400;
             letter-spacing: 0.01em;
           }
           .powered-by-brand {
-            color: #94a3b8;
+            color: #3e2f5a;
             text-decoration: none;
             font-weight: 500;
           }
@@ -1191,16 +1288,37 @@
 		  }
 		  .help-link-icon {
 			font-size: 16px;
+			opacity: 0.9;
+			transition: opacity 0.3s ease;
 		  }
 		  .help-link-text {
-			font-size: 13px;
+			font-size: 14px;
 			font-weight: 500;
 			color: #111;
 		  }
+
+		  .help-link-item:hover .help-link-arrow{
+		 	color:black ;
+			border:1px solid black;
+		  }
 		  .help-link-arrow {
-			color: #9ca3af;
+			color: #a6abb4;
 			display: flex;
 			align-items: center;
+			transition: transform 0.3s ease;
+			border:1px solid #a6abb4;
+			padding: 5px;
+			border-radius: 50%;
+			margin-right:2px;
+			transition: all 0.3s ease;
+
+
+		  }
+		  .help-link-item:hover .help-link-icon {
+			opacity: 1;
+		  }
+		  .help-link-item:hover .help-link-arrow {
+			transform: translateX(-3px);
 		  }
 
 		  .intro-action-icon{
@@ -1357,6 +1475,14 @@
             }
             .floating-launcher-full {
               width: 230px;
+            }
+            .chat-widget.expanded {
+              width: 96vw !important;
+              max-width: 96vw !important;
+              height: 92vh !important;
+              max-height: 92vh !important;
+              right: 2vw !important;
+              bottom: 2vh !important;
             }
             .floating-full-message {
               font-size: 16px;
@@ -1565,7 +1691,7 @@
               animation: hopeBannerSlideIn 1.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
               animation-delay: 0.3s;
               opacity: 0;
-              top: 68px;
+              top: 56px;
               margin: 0 auto;
               z-index: 0;
             }
@@ -1630,30 +1756,66 @@
             <div id="chat-header" class="chat-header">
                 
                 <div class="chat-header-left">
-                     <div class="chat-icon">
-                        ${this.config.logoIcon
+                    <button id="backToIntroBtn" class="chat-action-btn back-btn hidden icon-stroke" aria-label="Back to intro">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left h-5 w-5" aria-hidden="true"><path d="m15 18-6-6 6-6"></path>
+						</svg>
+                    </button>
+                    <div class="chat-header-identity">
+                      <div class="chat-icon">
+                          ${this.config.logoIcon
 					? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
 					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
 				}
-                    </div>
-                     <div class="online-ready">
+                      </div>
+                      <div class="online-ready">
                         <div class="online-ready-text">
                         <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || "#fff"}">${this.config.bannerText}</h3>
+                        <div class="header-online-status">
+                          <span class="header-online-dot"></span>
+                          <span>Online</span>
                         </div>
+                        </div>
+                      </div>
                     </div>
                 </div>
                 <div class="chat-header-right">
-                    <button id="backToIntroBtn" class="chat-action-btn back-btn hidden" aria-label="Back to intro">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="22" viewBox="0 0 20 20" fill="none">
-                            <path d="M12.9 3.45a1 1 0 0 1 0 1.42L7.78 10l5.12 5.13a1 1 0 0 1-1.42 1.41l-5.83-5.83a1 1 0 0 1 0-1.41l5.83-5.83a1 1 0 0 1 1.42 0Z" stroke="${this.config.bannerColor || "white"}" stroke-width="0.3" stroke-linecap="round" stroke-linejoin="round"/>
+                    <button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
+                        <!-- Expand Icon -->
+                        <svg class="expand-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M15 3h6v6"></path>
+                            <path d="m21 3-7 7"></path>
+                            <path d="m3 21 7-7"></path>
+                            <path d="M9 21H3v-6"></path>
                         </svg>
+                        <!-- Collapse Icon -->
+                        <svg class="collapse-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                            <path d="m14 10 7-7"></path>
+                            <path d="M20 10h-6V4"></path>
+                            <path d="m3 21 7-7"></path>
+                            <path d="M4 14h6v6"></path>
+                        </svg>
+                    </button>
+                    <button id="headerMenuBtn" class="chat-action-btn icon-stroke" aria-label="Header options">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis h-5 w-5" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
                     </button>
                     <button id="closeTextChat" class="chat-action-btn">
                          
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="${this.config.closeButtonColor || "white"}" style="&#10;">
-                            <path d="M19.707 18.292C19.7999 18.3849 19.8736 18.4952 19.9238 18.6166C19.9741 18.738 20 18.8681 20 18.9995C20 19.1309 19.9741 19.261 19.9238 19.3824C19.8736 19.5038 19.7999 19.6141 19.707 19.707C19.6141 19.7999 19.5038 19.8736 19.3824 19.9238C19.261 19.9741 19.1309 20 18.9995 20C18.8681 20 18.738 19.9741 18.6166 19.9238C18.4952 19.8736 18.3849 19.7999 18.292 19.707L10 11.4137L1.70796 19.707C1.52033 19.8946 1.26585 20 1.0005 20C0.735151 20 0.48067 19.8946 0.29304 19.707C0.105409 19.5193 5.23067e-09 19.2648 0 18.9995C-5.23067e-09 18.7341 0.105409 18.4797 0.29304 18.292L8.58633 10L0.29304 1.70796C0.105409 1.52033 0 1.26585 0 1.0005C0 0.735151 0.105409 0.48067 0.29304 0.29304C0.48067 0.105409 0.735151 0 1.0005 0C1.26585 0 1.52033 0.105409 1.70796 0.29304L10 8.58633L18.292 0.29304C18.4797 0.105409 18.7341 -5.23067e-09 18.9995 0C19.2648 5.23067e-09 19.5193 0.105409 19.707 0.29304C19.8946 0.48067 20 0.735151 20 1.0005C20 1.26585 19.8946 1.52033 19.707 1.70796L11.4137 10L19.707 18.292Z" fill="${this.config.closeButtonColor || "white"}"/>
-                        </svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x h-5 w-5" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
                     </button>
+                    <div id="headerMenuDropdown" class="chat-header-menu hidden">
+                      <button id="downloadTranscriptBtn" class="chat-menu-item" type="button">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                          <path d="M12 3v10m0 0 4-4m-4 4-4-4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" stroke="#6B7280" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span>Download transcript</span>
+                      </button>
+                      <button id="clearConversationBtn" class="chat-menu-item" type="button">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                          <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m-1 0v13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6m3 4v7m4-7v7" stroke="#6B7280" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span>Clear conversation</span>
+                      </button>
+                    </div>
                 </div>
             </div>
 
@@ -1911,6 +2073,26 @@
 					this.shadowRoot.querySelectorAll(
 						".lang-dropdown-item",
 					),
+				expandChatBtn:
+					this.shadowRoot.getElementById(
+						"expandChatBtn",
+					),
+				headerMenuBtn:
+					this.shadowRoot.getElementById(
+						"headerMenuBtn",
+					),
+				headerMenuDropdown:
+					this.shadowRoot.getElementById(
+						"headerMenuDropdown",
+					),
+				downloadTranscriptBtn:
+					this.shadowRoot.getElementById(
+						"downloadTranscriptBtn",
+					),
+				clearConversationBtn:
+					this.shadowRoot.getElementById(
+						"clearConversationBtn",
+					),
 				navHome: this.shadowRoot.getElementById("navHome"),
 				navChat: this.shadowRoot.getElementById("navChat"),
 			};
@@ -1976,6 +2158,54 @@
 					},
 				);
 			}
+			if (this.elements.expandChatBtn) {
+				this.elements.expandChatBtn.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						this.toggleExpandedView();
+					},
+				);
+			}
+			if (this.elements.headerMenuBtn) {
+				this.elements.headerMenuBtn.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						this.elements.headerMenuDropdown?.classList.toggle(
+							"hidden",
+						);
+					},
+				);
+			}
+			if (this.elements.headerMenuDropdown) {
+				this.elements.headerMenuDropdown.addEventListener(
+					"click",
+					(e) => e.stopPropagation(),
+				);
+			}
+			if (this.elements.downloadTranscriptBtn) {
+				this.elements.downloadTranscriptBtn.addEventListener(
+					"click",
+					() => {
+						this.downloadTranscript();
+						this.elements.headerMenuDropdown?.classList.add(
+							"hidden",
+						);
+					},
+				);
+			}
+			if (this.elements.clearConversationBtn) {
+				this.elements.clearConversationBtn.addEventListener(
+					"click",
+					() => {
+						this.clearConversation();
+						this.elements.headerMenuDropdown?.classList.add(
+							"hidden",
+						);
+					},
+				);
+			}
 
 			this.elements.langItems.forEach((item) => {
 				item.addEventListener("click", (e) => {
@@ -1993,6 +2223,11 @@
 					if (this.elements.langDropdown) {
 						this.elements.langDropdown.classList.remove(
 							"show",
+						);
+					}
+					if (this.elements.headerMenuDropdown) {
+						this.elements.headerMenuDropdown.classList.add(
+							"hidden",
 						);
 					}
 				},
@@ -2247,6 +2482,107 @@
 					this.elements.input.focus();
 				}
 			}, 120);
+		}
+
+		toggleExpandedView() {
+			this.isExpanded = !this.isExpanded;
+			if (this.elements.widget) {
+				this.elements.widget.classList.toggle(
+					"expanded",
+					this.isExpanded,
+				);
+			}
+			if (this.elements.expandChatBtn) {
+				this.elements.expandChatBtn.setAttribute(
+					"aria-label",
+					this.isExpanded
+						? "Collapse chat"
+						: "Expand chat",
+				);
+				// Toggle icon visibility
+				const expandIcon = this.elements.expandChatBtn.querySelector(".expand-icon");
+				const collapseIcon = this.elements.expandChatBtn.querySelector(".collapse-icon");
+				if (expandIcon && collapseIcon) {
+					expandIcon.style.display = this.isExpanded ? "none" : "block";
+					collapseIcon.style.display = this.isExpanded ? "block" : "none";
+				}
+			}
+		}
+
+		downloadTranscript() {
+			if (!this.elements.messagesContainer) return;
+			const chatRows = Array.from(
+				this.elements.messagesContainer.querySelectorAll(
+					".chat-message",
+				),
+			);
+			const lines = [
+				`Witzo transcript (${new Date().toLocaleString()})`,
+				"",
+			];
+			chatRows.forEach((row) => {
+				const isUser = row.classList.contains("user");
+				const textNode = row.querySelector(
+					".md-content",
+				);
+				const text =
+					(textNode?.innerText || "").trim();
+				if (!text) return;
+				lines.push(
+					`${isUser ? "You" : "Witzo AI"}: ${text}`,
+				);
+			});
+			const blob = new Blob(
+				[lines.join("\n\n")],
+				{ type: "text/plain;charset=utf-8" },
+			);
+			const link = document.createElement("a");
+			link.href = URL.createObjectURL(blob);
+			link.download = `witzo-transcript-${Date.now()}.txt`;
+			link.click();
+			URL.revokeObjectURL(link.href);
+		}
+
+		clearConversation() {
+			if (this.elements.messagesContainer) {
+				this.elements.messagesContainer.innerHTML =
+					"";
+			}
+			this.userMessageCount = 0;
+			this.botMessageCount = 0;
+			this.pendingEndIntentRating = false;
+			this.resetConversationRatingState();
+			if (this.elements.hopeBanner) {
+				this.elements.hopeBanner.classList.add(
+					"hidden",
+				);
+			}
+			if (this.elements.hopeBannerUp) {
+				this.elements.hopeBannerUp.classList.remove(
+					"active",
+				);
+			}
+			if (this.elements.hopeBannerDown) {
+				this.elements.hopeBannerDown.classList.remove(
+					"active",
+				);
+			}
+			if (this.elements.contactFormSlot) {
+				this.elements.contactFormSlot.classList.add(
+					"hidden",
+				);
+			}
+			if (this.elements.chatInput) {
+				this.elements.chatInput.classList.remove(
+					"hidden",
+				);
+			}
+			if (this.config.primaryText) {
+				this.displayDefaultMessage();
+			}
+			if (this.elements.input) {
+				this.elements.input.focus();
+			}
 		}
 
 		toggleChat() {
