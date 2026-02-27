@@ -232,6 +232,13 @@ export interface EnvConfig {
 	// Analytics Configuration
 	ANALYTICS_BUFFER_SIZE: number;
 	ANALYTICS_FLUSH_INTERVAL_MS: number;
+
+	// Admin
+	ADMIN_EMAIL: string;
+	ADMIN_PASSWORD: string;
+	ADMIN_JWT_SECRET: string;
+	ADMIN_TOKEN_EXPIRY_HOURS: number;
+	ADMIN_FRONTEND_URL?: string;
 }
 
 // Web Scraper types

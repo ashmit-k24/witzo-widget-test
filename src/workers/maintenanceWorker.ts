@@ -1,8 +1,12 @@
+import fs from "fs";
+import path from "path";
 import pool from "../config/database";
 import {
 	ANALYTICS_CLEANUP_INTERVAL_MS,
 	ANALYTICS_RETENTION_DAYS,
 	PARTITION_CHECK_INTERVAL_MS,
+	UPLOAD_CLEANUP_INTERVAL_MS,
+	UPLOAD_MAX_AGE_HOURS,
 } from "../constants";
 import logger from "../utils/logger";
 
@@ -79,6 +83,73 @@ async function cleanupOldAnalytics(): Promise<void> {
 	}
 }
 
+// ─── Upload directory cleanup ────────────────────────────────────────────────
+//
+// Uploaded files (PDFs, docs, etc.) are processed and stored in Pinecone.
+// The local copies are no longer needed after processing.  Files older than
+// UPLOAD_MAX_AGE_HOURS are deleted daily to prevent unbounded disk growth.
+
+async function cleanupUploadedFiles(): Promise<void> {
+	const uploadDir = path.join(
+		__dirname,
+		"../../uploads",
+	);
+
+	if (!fs.existsSync(uploadDir)) {
+		return;
+	}
+
+	const maxAgeMs =
+		UPLOAD_MAX_AGE_HOURS * 60 * 60 * 1000;
+	const cutoff = Date.now() - maxAgeMs;
+	let deleted = 0;
+	let errors = 0;
+
+	try {
+		const entries = fs.readdirSync(uploadDir);
+		for (const entry of entries) {
+			const filePath = path.join(
+				uploadDir,
+				entry,
+			);
+			try {
+				const stat = fs.statSync(filePath);
+				if (
+					stat.isFile() &&
+					stat.mtimeMs < cutoff
+				) {
+					fs.unlinkSync(filePath);
+					deleted++;
+				}
+			} catch (err) {
+				errors++;
+				logger.warn(
+					"Upload cleanup: failed to delete file",
+					{
+						file: entry,
+						error: (err as Error).message,
+					},
+				);
+			}
+		}
+
+		logger.info(
+			"Upload cleanup: stale files removed",
+			{
+				deleted,
+				errors,
+				maxAgeHours: UPLOAD_MAX_AGE_HOURS,
+			},
+		);
+	} catch (error) {
+		const err = error as Error;
+		logger.error(
+			"Upload cleanup: failed to read uploads directory",
+			{ error: err.message },
+		);
+	}
+}
+
 // ─── Worker entry point ─────────────────────────────────────────────────────
 
 export interface MaintenanceWorkerHandle {
@@ -89,6 +160,7 @@ export function createMaintenanceWorker(): MaintenanceWorkerHandle {
 	// Run immediately on startup so partitions exist from the first request
 	ensureUpcomingPartitions();
 	cleanupOldAnalytics();
+	cleanupUploadedFiles();
 
 	// Then run on recurring intervals
 	const partitionInterval = setInterval(() => {
@@ -107,17 +179,27 @@ export function createMaintenanceWorker(): MaintenanceWorkerHandle {
 		});
 	}, ANALYTICS_CLEANUP_INTERVAL_MS);
 
+	const uploadCleanupInterval = setInterval(() => {
+		cleanupUploadedFiles().catch((error: Error) => {
+			logger.error("Upload cleanup interval failed", {
+				error: error.message,
+			});
+		});
+	}, UPLOAD_CLEANUP_INTERVAL_MS);
+
 	logger.info("Maintenance worker started", {
 		partitionCheckIntervalHours: PARTITION_CHECK_INTERVAL_MS / 3_600_000,
 		analyticsCleanupIntervalDays:
 			ANALYTICS_CLEANUP_INTERVAL_MS / 86_400_000,
 		analyticsRetentionDays: ANALYTICS_RETENTION_DAYS,
+		uploadMaxAgeHours: UPLOAD_MAX_AGE_HOURS,
 	});
 
 	return {
 		close: async () => {
 			clearInterval(partitionInterval);
 			clearInterval(analyticsInterval);
+			clearInterval(uploadCleanupInterval);
 			logger.info("Maintenance worker stopped");
 		},
 	};

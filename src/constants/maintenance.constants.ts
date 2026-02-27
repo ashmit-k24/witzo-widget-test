@@ -1,3 +1,5 @@
 export const PARTITION_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export const ANALYTICS_CLEANUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 export const ANALYTICS_RETENTION_DAYS = 90;
+export const UPLOAD_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+export const UPLOAD_MAX_AGE_HOURS = 24;
