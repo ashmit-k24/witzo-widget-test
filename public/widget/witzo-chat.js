@@ -41,8 +41,10 @@
 			this.ratingShown = false;
 			this.ratingSubmitted = false;
 			this.selectedLanguage = "en";
+			this.isExpanded = false;
 			this.date = new Date();
 			this._cfBound = false;
+			this._introAnimResetTimer = null;
 			this.isEmbeddedPreview = false;
 
 			this.elements = {};
@@ -80,7 +82,7 @@
 				closeButtonColor: "",
 				logoIcon: null,
 				bubbleIcon: null,
-				introTitle: "Good to see you!",
+				introTitle: "👋Good to see you!",
 				introMessage:
 					"We're ready to help. Ask anything, from quick questions to complex topics.",
 				introPrimaryButtonText:
@@ -90,7 +92,7 @@
 				introPrimaryButtonColor: "#111827",
 				introSecondaryButtonColor: "#f3f4f6",
 				introPrimaryButtonBackgroundColor:
-					"#111827",
+					"#121212",
 				introSecondaryButtonBackgroundColor:
 					"#f3f4f6",
 				planType: "free",
@@ -557,9 +559,9 @@
             right: 2em;
             z-index: 9999;
             width: 27rem;
-            height: 70vh;
+            height: 80vh;
             max-width: 90vw;
-            max-height: 70vh;
+            max-height: 80vh;
             min-height: 460px;
             display: flex;
             flex-direction: column;
@@ -583,10 +585,7 @@
             min-height: 420px;
           }
           #textChatWidget.intro-mode {
-            width: 25.5rem;
-            height: 430px;
-            min-height: 430px;
-            max-height: 430px;
+            background:#FEFEFE;
           }
           :host([preview-mode="embedded"]) #textChatWidget.intro-mode {
             width: min(25.5rem, calc(100% - 32px));
@@ -596,6 +595,81 @@
           }
           #textChatWidget.intro-mode .chat-header {
             margin-bottom: 8px;
+          }
+          #textChatWidget.intro-mode #backToIntroBtn,
+          #textChatWidget.intro-mode #expandChatBtn,
+          #textChatWidget.intro-mode #headerMenuBtn,
+          #textChatWidget.intro-mode #headerMenuDropdown,
+          #textChatWidget.intro-mode .header-online-status {
+            display: none !important;
+          }
+          #textChatWidget.intro-mode .chat-header-identity {
+            justify-content: flex-start;
+            width: auto;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim] {
+            opacity: 0;
+            animation-duration: 0.55s;
+            animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+            animation-fill-mode: forwards;
+            animation-delay: calc(var(--fade-order, 0) * 80ms);
+            will-change: transform, opacity;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim="fade-up"] {
+            transform: translateY(14px);
+            animation-name: introAnimFadeUp;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim="fade"] {
+            transform: translateY(0);
+            animation-name: introAnimFade;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim="scale"] {
+            transform: scale(0.965);
+            transform-origin: center;
+            animation-name: introAnimScale;
+          }
+          #textChatWidget.intro-mode .intro-screen.play-intro-anim [data-intro-anim="soft"] {
+            transform: translateY(8px) scale(0.985);
+            transform-origin: center;
+            animation-name: introAnimSoft;
+          }
+          @keyframes introAnimFadeUp {
+            0% {
+              opacity: 0;
+              transform: translateY(14px);
+            }
+            100% {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+          @keyframes introAnimFade {
+            0% {
+              opacity: 0;
+            }
+            100% {
+              opacity: 1;
+            }
+          }
+          @keyframes introAnimScale {
+            0% {
+              opacity: 0;
+              transform: scale(0.965);
+            }
+            100% {
+              opacity: 1;
+              transform: scale(1);
+            }
+          }
+          @keyframes introAnimSoft {
+            0% {
+              opacity: 0;
+              transform: translateY(8px) scale(0.985);
+            }
+            100% {
+              opacity: 1;
+              transform: translateY(0) scale(1);
+            }
           }
             .flex{
               display: flex;
@@ -712,18 +786,58 @@
             justify-content: space-between;
             flex-shrink: 0;
             height: 60px; /* Fixed height for header */
-            margin:10px;
-            margin-bottom:0;
-            border-radius: 10px;
+            
+            border-radius: 10px 10px 0 0;
             position: relative;
             z-index: 1;
           }
           .chat-header-left {
             display: flex;
             width: auto;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
             gap: 0.75rem;
+            flex: 1;
+            min-width: 0;
+          }
+          .chat-header-identity {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            justify-content: center;
+            width: 100%;
+          }
+          .online-ready-text {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+          }
+          .header-online-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #888;
+            font-size: 11px;
+            line-height: 1;
+          }
+          .header-online-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+            animation: onlineDotGlow 1.8s ease-out infinite;
+          }
+          @keyframes onlineDotGlow {
+            0% {
+              box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
+            }
+            70% {
+              box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+            }
+            100% {
+              box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
           }
           .chat-icon {
             width: auto;
@@ -754,13 +868,14 @@
             }
           .chat-title {
             color: #fff;
-            font-size: 20px;
+            font-size: 14px;
             font-weight: 500;
             margin: 0;
           }
           .chat-header-right {
             display: flex;
             align-items: center;
+            position: relative;
           }
           .chat-action-btn {
             border: none;
@@ -770,14 +885,88 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            margin-left: 0.5rem;
+            margin-left: 0.7rem;
             padding: 0;
+			transition: all 0.4s ease-in;
+			color:white;
           }
           .chat-action-btn.back-btn {
             margin-left: 0;
-            margin-right: 0.25rem;
+            margin-right: 0.1rem;
           }
+			.chat-action-btn.back-btn svg{
+            width: 24px;
+			height: 24px;
+          }
+			.chat-action-btn:hover svg{
+				transform: scale(1.08);
+			}
+
           .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, white); }
+          .chat-action-btn.icon-stroke svg path {
+            fill: none;
+            stroke: var(--color-close-btn, white);
+          }
+          .chat-header-menu {
+            position: absolute;
+            top: 42px;
+            right: 0;
+            min-width: 220px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+            overflow: hidden;
+            z-index: 0;
+            transform-origin: right top;
+            animation: headerMenuIn 0.3s ease-out;
+          }
+          @keyframes headerMenuIn {
+            0% {
+              opacity: 0;
+              transform: scale(0.7);
+            }
+            100% {
+              opacity: 1;
+              transform: scale(1);
+            }
+          }
+          .chat-header-menu .chat-menu-item {
+            width: 100%;
+            border: none;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            cursor: pointer;
+            text-align: left;
+            font-size: 14px;
+            color: #1f2937;
+          }
+          .chat-header-menu .chat-menu-item:hover {
+            background: #f9fafb;
+          }
+          .chat-header-menu .chat-menu-item + .chat-menu-item {
+            border-top: 1px solid #f1f5f9;
+          }
+          
+          .chat-widget.expanded {
+            width: min(96vw, 37rem) !important;
+            max-width: min(96vw, 44rem) !important;
+          
+          }
+
+		  .chat-widget.expanded .chat-bubble-ai,
+		  .chat-widget.expanded .chat-bubble-user
+		  {
+		 	 max-width:430px;
+		  }
+
+		  .chat-widget.expanded.intro-mode{
+		  width: 27rem !important;
+		  }
+
           
           /* Messages Area */
           .chat-messages {
@@ -841,7 +1030,7 @@
           }
           .lang-pill {
             position: absolute;
-            right: 15%;
+            right: 57px;
             top: 50%;
             transform: translateY(-50%);
             display: flex;
@@ -875,9 +1064,9 @@
             padding: 0.5rem;
             z-index: 1000;
             opacity: 0;
-            transform: translateY(10px) scale(0.95);
+            transform: translateY(10px) scale(0.9);
             pointer-events: none;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             transform-origin: bottom right;
             max-height: 300px;
             overflow-y: auto;
@@ -997,25 +1186,6 @@
             background: var(--color-primary, #fc0e3f);
           }
 
-          /* Footer */
-          .chat-footer {
-            padding-bottom: 10px;
-          }
-          .powered-by {
-            text-align: center;
-            font-size: 10px;
-            font-weight: 500;
-            color: #999;
-            margin: 6px 0 0 0;
-            padding: 0;
-            opacity: 0.7;
-          }
-          .powered-by-brand {
-             font-weight: 700;
-             color: #666;
-             text-decoration: none;
-             cursor: pointer;
-          }
 
           .chat-main-view {
             display: flex;
@@ -1032,7 +1202,6 @@
             background: #fff;
             display: flex;
             flex-direction: column;
-            gap: 14px;
             flex: 1;
             opacity: 1;
             transform: none;
@@ -1050,41 +1219,239 @@
 
           .intro-message-card {
             border-radius: 14px;
-            border: 1px solid #e5e7eb;
-            background: #f3f4f6;
             color: #111827;
-            padding: 14px 16px;
             font-size: 15px;
             line-height: 1.5;
           }
+		  .intro-message-card-wrapper{
+			display: flex;
+			align-items: start;
+			gap: 10px;
+		  }
+		  .intro-message-card-wrapper .img-container {
+			position: relative;
+			width: 40px;
+			height: 40px;
+			flex-shrink: 0;
+		  }
+		  .intro-message-card-wrapper .img-container img{
+			width: 40px;
+			height: 40px;
+			border-radius: 50%;
+			object-fit: cover;
+		  }
+		  .intro-message-card-wrapper .img-container .online-status-dot {
+			position: absolute;
+			bottom: 1.5px;
+			right: 1.5px;
+			width: 10px;
+			height: 10px;
+			background: #10b981;
+			border: 2px solid #fff;
+			border-radius: 50%;
+			z-index: 1;
+		  }
+		  .intro-top-section{
+			box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+			padding:20px;
+			border-radius: 16px;
+			border: 1px solid #d8d8d8;
+			background: #fff;
+		  }
+
+		  .status-pill {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			background: #f5f5f786;
+			border: 1px solid #d8d8d8;
+			border-radius: 9999px;
+			padding: 6px 12px;
+
+		  }
+		  .status-pill-dot {
+			width: 6px;
+			height: 6px;
+			background: #10b981;
+			border-radius: 50%;
+		  }
+		  .status-pill-text {
+			font-size: 12px;
+			font-weight: 500;
+			color: #111;
+		  }
+		  .status-indicators-row {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			margin-top: 10px;
+		  }
+		  .status-secondary-text {
+			font-size: 12px;
+			color: black;
+			font-weight: 400;
+		  }
 
           .intro-actions {
             display: flex;
             flex-direction: column;
             gap: 10px;
+			margin-top:16px;
           }
 
           .intro-action-btn {
             height: 44px;
             border-radius: 12px;
-            border: 1px solid var(--color-intro-secondary-btn, #d1d5db);
-            background: var(--color-intro-secondary-btn, #f3f4f6);
-            color: #4b5563;
+            border: 1px solid var(--color-intro-secondary-btn, rgb(159, 163, 169));
+            background: var(--color-intro-secondary-btn, #F5F5F7);
+            color: #3d434c;
             font-size: 16px;
-            font-weight: 700;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
           }
 
-          .intro-action-btn:hover {
-            filter: brightness(0.98);
-          }
+		  #introTitle{
+			font-size: 13px;
+			font-weight: 600;
+			color: #111;
+		  }
+			#introMessage{
+				font-size: 13px;
+				font-weight: 500;
+				color: #737373;
+			}
+          
 
           .intro-action-btn.primary {
-            border-color: var(--color-intro-primary-btn, #111827);
-            background: var(--color-intro-primary-btn, #111827);
+            border-color: var(--color-intro-primary-btn, #121212);
+            background: var(--color-intro-primary-btn, #121212);
             color: #fff;
           }
+
+		  .help-links-list {
+			margin-top: 20px;
+			display: flex;
+			flex-direction: column;
+		  }
+		  .help-link-item {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 12px 0;
+			cursor: pointer;
+			border-bottom: 1px solid #d8d8d8;
+		  }
+		  .help-link-item:last-child {
+			border-bottom: none;
+		  }
+
+          .chat-footer {
+            display: flex;
+            padding: 12px 16px 16px;
+            background: #fff;
+            border-top: 1px solid #f1f5f9;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+          }
+          .bottom-nav {
+            display: none;
+            justify-content: center;
+            gap: 48px;
+            width: 100%;
+          }
+          .chat-widget.intro-mode .bottom-nav {
+            display: flex;
+          }
+			.chat-widget.intro-mode .hope-banner{
+				display: none;}
+          .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            color: #94a3b8;
+            transition: all 0.2s;
+            text-decoration: none;
+          }
+          .nav-item.active {
+            color: #000;
+          }
+          .nav-item svg {
+            width: 22px;
+            height: 22px;
+          }
+          .nav-label {
+            font-size: 13px;
+            font-weight: 500;
+          }
+          .nav-item.active .nav-label {
+            font-weight: 600;
+          }
+          .powered-by {
+            margin: 0;
+            font-size: 11px;
+            color: #767676;
+            font-weight: 400;
+            letter-spacing: 0.01em;
+          }
+          .powered-by-brand {
+            color: #3e2f5a;
+            text-decoration: none;
+            font-weight: 500;
+          }
+		  .help-link-content {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+		  }
+		  .help-link-icon {
+			font-size: 16px;
+			opacity: 0.9;
+			transition: opacity 0.3s ease;
+		  }
+		  .help-link-text {
+			font-size: 14px;
+			font-weight: 500;
+			color: #111;
+		  }
+
+		  .help-link-item:hover .help-link-arrow{
+		 	color:black ;
+			border:1px solid black;
+		  }
+		  .help-link-arrow {
+			color: #a6abb4;
+			display: flex;
+			align-items: center;
+			transition: transform 0.3s ease;
+			border:1px solid #a6abb4;
+			padding: 5px;
+			border-radius: 50%;
+			margin-right:2px;
+			transition: all 0.3s ease;
+
+
+		  }
+		  .help-link-item:hover .help-link-icon {
+			opacity: 1;
+		  }
+		  .help-link-item:hover .help-link-arrow {
+			transform: translateX(-3px);
+		  }
+
+		  .intro-action-icon{
+			 padding-right: 4px;
+			 position: relative;
+			 top: 2px; 
+		  }
+		.intro-action-icon.second{
+			 padding-right: 3px;
+			 position: relative;
+			 top: 2px; 
+		  }
           
           /* Floating Button */
           #floatingBtn {
@@ -1236,6 +1603,14 @@
             .floating-launcher-full {
               width: 230px;
             }
+            .chat-widget.expanded {
+              width: 96vw !important;
+              max-width: 96vw !important;
+              height: 92vh !important;
+              max-height: 92vh !important;
+              right: 2vw !important;
+              bottom: 2vh !important;
+            }
             .floating-full-message {
               font-size: 16px;
             }
@@ -1259,25 +1634,25 @@
               border-radius: 50px;
               padding: 7px 15px;
               font-size: 14px;
-              color: #666;
-              background: #ecececb6;
+              color: #4b4b4b;
               display: flex;
               align-items: center;
               justify-content: center;
-              gap: 4px;
+              gap: 3px;
               position: relative;
               height: 36px;
 
             }
              
            .typing-dots-text  {
-            font-size: 2rem;
+            font-size: 2.5rem;
             line-height: 1;
-            animation: typingBounce 1.5s infinite;
+            animation: typingBounce 2.2s infinite;
             opacity: 0;
             display: inline-block;
             position: relative;
             top: -9px;
+			border-radius: 50%;
           }
            .typing-dots-text:nth-child(1) { animation-delay: 0s; }
            .typing-dots-text:nth-child(2) { animation-delay: 0.5s; }
@@ -1443,7 +1818,7 @@
               animation: hopeBannerSlideIn 1.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
               animation-delay: 0.3s;
               opacity: 0;
-              top: 68px;
+              top: 56px;
               margin: 0 auto;
               z-index: 0;
             }
@@ -1507,32 +1882,64 @@
             <!-- Header -->
             <div id="chat-header" class="chat-header">
                 
-                <div class="chat-header-left">
-                     <div class="chat-icon">
-                        ${
-													this.config.logoIcon
-														? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
-														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-												}
-                    </div>
-                     <div class="online-ready">
+                <div class="chat-header-left" data-intro-anim="fade" style="--fade-order:0">
+                    <button id="backToIntroBtn" class="chat-action-btn back-btn hidden icon-stroke" aria-label="Back to intro">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left h-5 w-5" aria-hidden="true"><path d="m15 18-6-6 6-6"></path>
+						</svg>
+                    </button>
+                    <div class="chat-header-identity">
+                      <div class="chat-icon">
+                          ${this.config.logoIcon
+					? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
+                      </div>
+                      <div class="online-ready">
                         <div class="online-ready-text">
                         <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || "#fff"}">${this.config.bannerText}</h3>
+                        <div class="header-online-status">
+                          <span class="header-online-dot"></span>
+                          <span>Online</span>
                         </div>
+                        </div>
+                      </div>
                     </div>
                 </div>
                 <div class="chat-header-right">
-                    <button id="backToIntroBtn" class="chat-action-btn back-btn hidden" aria-label="Back to intro">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
-                            <path d="M12.9 3.45a1 1 0 0 1 0 1.42L7.78 10l5.12 5.13a1 1 0 0 1-1.42 1.41l-5.83-5.83a1 1 0 0 1 0-1.41l5.83-5.83a1 1 0 0 1 1.42 0Z"/>
+                    <button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
+                        <!-- Expand Icon -->
+                        <svg class="expand-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M15 3h6v6"></path>
+                            <path d="m21 3-7 7"></path>
+                            <path d="m3 21 7-7"></path>
+                            <path d="M9 21H3v-6"></path>
                         </svg>
+                        <!-- Collapse Icon -->
+                        <svg class="collapse-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                            <path d="m14 10 7-7"></path>
+                            <path d="M20 10h-6V4"></path>
+                            <path d="m3 21 7-7"></path>
+                            <path d="M4 14h6v6"></path>
+                        </svg>
+                    </button>
+                    <button id="headerMenuBtn" class="chat-action-btn icon-stroke" aria-label="Header options">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis h-5 w-5" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
                     </button>
                     <button id="closeTextChat" class="chat-action-btn">
                          
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="${this.config.closeButtonColor || "white"}" style="&#10;">
-                            <path d="M19.707 18.292C19.7999 18.3849 19.8736 18.4952 19.9238 18.6166C19.9741 18.738 20 18.8681 20 18.9995C20 19.1309 19.9741 19.261 19.9238 19.3824C19.8736 19.5038 19.7999 19.6141 19.707 19.707C19.6141 19.7999 19.5038 19.8736 19.3824 19.9238C19.261 19.9741 19.1309 20 18.9995 20C18.8681 20 18.738 19.9741 18.6166 19.9238C18.4952 19.8736 18.3849 19.7999 18.292 19.707L10 11.4137L1.70796 19.707C1.52033 19.8946 1.26585 20 1.0005 20C0.735151 20 0.48067 19.8946 0.29304 19.707C0.105409 19.5193 5.23067e-09 19.2648 0 18.9995C-5.23067e-09 18.7341 0.105409 18.4797 0.29304 18.292L8.58633 10L0.29304 1.70796C0.105409 1.52033 0 1.26585 0 1.0005C0 0.735151 0.105409 0.48067 0.29304 0.29304C0.48067 0.105409 0.735151 0 1.0005 0C1.26585 0 1.52033 0.105409 1.70796 0.29304L10 8.58633L18.292 0.29304C18.4797 0.105409 18.7341 -5.23067e-09 18.9995 0C19.2648 5.23067e-09 19.5193 0.105409 19.707 0.29304C19.8946 0.48067 20 0.735151 20 1.0005C20 1.26585 19.8946 1.52033 19.707 1.70796L11.4137 10L19.707 18.292Z" fill="${this.config.closeButtonColor || "white"}"/>
-                        </svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x h-5 w-5" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
                     </button>
+                    <div id="headerMenuDropdown" class="chat-header-menu hidden">
+                      <button id="downloadTranscriptBtn" class="chat-menu-item" type="button">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+                        <span>Download transcript</span>
+                      </button>
+                      <button id="clearConversationBtn" class="chat-menu-item" type="button">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2 lucide-trash-2 h-4 w-4 text-muted-foreground" aria-hidden="true"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+						</svg>
+                        <span>Clear conversation</span>
+                      </button>
+                    </div>
                 </div>
             </div>
 
@@ -1554,17 +1961,68 @@
             </div>
 
             <div id="introScreen" class="intro-screen">
-              <div class="intro-message-card">
-                <strong id="introTitle">${sanitizeHTML(this.config.introTitle || "Good to see you!")}</strong><br/>
-                <span id="introMessage">${sanitizeHTML(
-									this.config.introMessage ||
-										"We're ready to help. Ask anything, from quick questions to complex topics.",
-								)}</span>
-              </div>
-              <div class="intro-actions">
-                <button id="introStartBtn" class="intro-action-btn primary">${sanitizeHTML(this.config.introPrimaryButtonText || "Let's Chat!")}</button>
-                <button id="introBrowseBtn" class="intro-action-btn">${sanitizeHTML(this.config.introSecondaryButtonText || "Just browsing")}</button>
-              </div>
+              	<div class="intro-top-section" data-intro-anim="fade-up" style="--fade-order:1">
+			  		<div class="intro-message-card-wrapper" data-intro-anim="soft" style="--fade-order:2">
+
+						<div class="img-container">
+							<img src="${this.config.logoIcon || "https://leaderedutech.com/wp-content/uploads/2026/02/zycus-logo.png"}" alt="Intro Image" class="intro-image">
+							<span class="online-status-dot"></span>
+						</div>
+						<div class="intro-message-card">
+              		  		<strong id="introTitle">${sanitizeHTML(this.config.introTitle || "👋Good to see you!")}</strong><br/>
+              		  		<span id="introMessage">${sanitizeHTML(this.config.introMessage || "We're ready to help. Ask anything, from quick questions to complex topics.")}</span>
+							<div class="status-indicators-row">
+								<div class="status-pill">
+									<span class="status-pill-dot"></span>
+									<span class="status-pill-text">AI-powered support</span>
+								</div>
+								<span class="status-secondary-text">Responds instantly</span>
+							</div>
+              			</div>
+					</div>
+
+					<div class="feature-pills" data-intro-anim="fade" style="--fade-order:3">
+
+					</div>
+              		<div class="intro-actions" data-intro-anim="fade-up" style="--fade-order:4">
+              		  <button id="introStartBtn" class="intro-action-btn primary" data-intro-anim="scale" style="--fade-order:5">
+						<span class="intro-action-icon">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        					</svg>
+						</span>
+						${sanitizeHTML(this.config.introPrimaryButtonText || "Let's Chat!")}
+
+						</button>
+              		  <button id="introBrowseBtn" class="intro-action-btn" data-intro-anim="scale" style="--fade-order:6">
+						<span class="intro-action-icon second">
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-globe-icon lucide-globe"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+						</span>
+						${sanitizeHTML(this.config.introSecondaryButtonText || "Just browsing")}
+						</button>
+              		</div>
+			  	</div>
+				
+				<div class="help-links-list" data-intro-anim="fade-up" style="--fade-order:7">
+					<div class="help-link-item" data-intro-anim="soft" style="--fade-order:8">
+						<div class="help-link-content">
+							<span class="help-link-icon">💡</span>
+							<span class="help-link-text">How Witzo works</span>
+						</div>
+						<span class="help-link-arrow">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+						</span>
+					</div>
+					<div class="help-link-item" data-intro-anim="soft" style="--fade-order:9">
+						<div class="help-link-content">
+							<span class="help-link-icon">🚀</span>
+							<span class="help-link-text">Explore AI features</span>
+						</div>
+						<span class="help-link-arrow">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+						</span>
+					</div>
+				</div>
             </div>
 
             <div id="chatMainView" class="chat-main-view hidden">
@@ -1600,35 +2058,42 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-													.map(
-														(language) => `
+					.map(
+						(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-													)
-													.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton">
                         <div class="chat-send-icon">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="17" viewBox="0 0 14 17" fill="${this.config.sendColor}">
-                            <path d="M13.4777 7.32307C13.4142 7.38665 13.3388 7.43709 13.2558 7.47151C13.1728 7.50592 13.0838 7.52364 12.9939 7.52364C12.904 7.52364 12.815 7.50592 12.732 7.47151C12.649 7.43709 12.5736 7.38665 12.5101 7.32307L7.52294 2.3351V15.7295C7.52294 15.9109 7.45089 16.0848 7.32264 16.2131C7.19439 16.3413 7.02044 16.4134 6.83907 16.4134C6.6577 16.4134 6.48375 16.3413 6.3555 16.2131C6.22725 16.0848 6.1552 15.9109 6.1552 15.7295V2.3351L1.16809 7.32307C1.03976 7.45139 0.865723 7.52348 0.684249 7.52348C0.502775 7.52348 0.328734 7.45139 0.200412 7.32307C0.0720903 7.19474 1.35209e-09 7.0207 0 6.83923C-1.35209e-09 6.65775 0.0720903 6.48371 0.200412 6.35539L6.35523 0.20057C6.41875 0.136986 6.49417 0.0865445 6.57719 0.0521293C6.66021 0.017714 6.7492 0 6.83907 0C6.92894 0 7.01793 0.017714 7.10095 0.0521293C7.18397 0.0865445 7.2594 0.136986 7.32291 0.20057L13.4777 6.35539C13.5413 6.4189 13.5918 6.49433 13.6262 6.57735C13.6606 6.66037 13.6783 6.74936 13.6783 6.83923C13.6783 6.9291 13.6606 7.01809 13.6262 7.10111C13.5918 7.18413 13.5413 7.25955 13.4777 7.32307Z" fill="white"/>
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="17" viewBox="0 0 14 17" fill="#471791">
+                            <path d="M13.4777 7.32307C13.4142 7.38665 13.3388 7.43709 13.2558 7.47151C13.1728 7.50592 13.0838 7.52364 12.9939 7.52364C12.904 7.52364 12.815 7.50592 12.732 7.47151C12.649 7.43709 12.5736 7.38665 12.5101 7.32307L7.52294 2.3351V15.7295C7.52294 15.9109 7.45089 16.0848 7.32264 16.2131C7.19439 16.3413 7.02044 16.4134 6.83907 16.4134C6.6577 16.4134 6.48375 16.3413 6.3555 16.2131C6.22725 16.0848 6.1552 15.9109 6.1552 15.7295V2.3351L1.16809 7.32307C1.03976 7.45139 0.865723 7.52348 0.684249 7.52348C0.502775 7.52348 0.328734 7.45139 0.200412 7.32307C0.0720903 7.19474 1.35209e-09 7.0207 0 6.83923C-1.35209e-09 6.65775 0.0720903 6.48371 0.200412 6.35539L6.35523 0.20057C6.41875 0.136986 6.49417 0.0865445 6.57719 0.0521293C6.66021 0.017714 6.7492 0 6.83907 0C6.92894 0 7.01793 0.017714 7.10095 0.0521293C7.18397 0.0865445 7.2594 0.136986 7.32291 0.20057L13.4777 6.35539C13.5413 6.4189 13.5918 6.49433 13.6262 6.57735C13.6606 6.66037 13.6783 6.74936 13.6783 6.83923C13.6783 6.9291 13.6606 7.01809 13.6262 7.10111C13.5918 7.18413 13.5413 7.25955 13.4777 7.32307Z" fill="white"></path>
                           </svg>
                         </div>
                     </button>
                 </div>
             </div>
-            
-            <div class="chat-footer">
-                <h3 class="powered-by">
-                powered by 
-                <a href="https://witzo.ai/" target="_blank" rel="noopener noreferrer" class="powered-by-brand">
-                    witzo
-                </a>
-                </h3>
             </div>
+
+            <div class="chat-footer">
+                <div class="bottom-nav">
+                    <div id="navHome" class="nav-item active">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                        <span class="nav-label">Home</span>
+                    </div>
+                    <div id="navChat" class="nav-item">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+                        <span class="nav-label">Chat</span>
+                    </div>
+                </div>
+                <h3 class="powered-by">
+                Powered by <a href="https://witzo.ai/" target="_blank" rel="noopener noreferrer" class="powered-by-brand">witzo.ai</a>
+                </h3>
             </div>
         </div>
 
@@ -1732,6 +2197,28 @@
 					this.shadowRoot.querySelectorAll(
 						".lang-dropdown-item",
 					),
+				expandChatBtn:
+					this.shadowRoot.getElementById(
+						"expandChatBtn",
+					),
+				headerMenuBtn:
+					this.shadowRoot.getElementById(
+						"headerMenuBtn",
+					),
+				headerMenuDropdown:
+					this.shadowRoot.getElementById(
+						"headerMenuDropdown",
+					),
+				downloadTranscriptBtn:
+					this.shadowRoot.getElementById(
+						"downloadTranscriptBtn",
+					),
+				clearConversationBtn:
+					this.shadowRoot.getElementById(
+						"clearConversationBtn",
+					),
+				navHome: this.shadowRoot.getElementById("navHome"),
+				navChat: this.shadowRoot.getElementById("navChat"),
 			};
 		}
 
@@ -1795,6 +2282,54 @@
 					},
 				);
 			}
+			if (this.elements.expandChatBtn) {
+				this.elements.expandChatBtn.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						this.toggleExpandedView();
+					},
+				);
+			}
+			if (this.elements.headerMenuBtn) {
+				this.elements.headerMenuBtn.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						this.elements.headerMenuDropdown?.classList.toggle(
+							"hidden",
+						);
+					},
+				);
+			}
+			if (this.elements.headerMenuDropdown) {
+				this.elements.headerMenuDropdown.addEventListener(
+					"click",
+					(e) => e.stopPropagation(),
+				);
+			}
+			if (this.elements.downloadTranscriptBtn) {
+				this.elements.downloadTranscriptBtn.addEventListener(
+					"click",
+					() => {
+						this.downloadTranscript();
+						this.elements.headerMenuDropdown?.classList.add(
+							"hidden",
+						);
+					},
+				);
+			}
+			if (this.elements.clearConversationBtn) {
+				this.elements.clearConversationBtn.addEventListener(
+					"click",
+					() => {
+						this.clearConversation();
+						this.elements.headerMenuDropdown?.classList.add(
+							"hidden",
+						);
+					},
+				);
+			}
 
 			this.elements.langItems.forEach((item) => {
 				item.addEventListener("click", (e) => {
@@ -1812,6 +2347,11 @@
 					if (this.elements.langDropdown) {
 						this.elements.langDropdown.classList.remove(
 							"show",
+						);
+					}
+					if (this.elements.headerMenuDropdown) {
+						this.elements.headerMenuDropdown.classList.add(
+							"hidden",
 						);
 					}
 				},
@@ -1873,6 +2413,13 @@
 						}, 2000);
 					},
 				);
+			}
+
+			// Bottom Nav Events
+			if (this.elements.navChat) {
+				this.elements.navChat.addEventListener("click", () => {
+					this.startChatFromIntro();
+				});
 			}
 		}
 
@@ -1954,7 +2501,10 @@
 							"hidden",
 						);
 					}
+					if (this.elements.navHome) this.elements.navHome.classList.add("active");
+					if (this.elements.navChat) this.elements.navChat.classList.remove("active");
 					introScreen.classList.remove("hidden");
+					this.playIntroAnimations();
 					chatMainView.classList.add("hidden");
 					return;
 				}
@@ -1968,6 +2518,9 @@
 						"hidden",
 					);
 				}
+				if (this.elements.navHome) this.elements.navHome.classList.remove("active");
+				if (this.elements.navChat) this.elements.navChat.classList.add("active");
+				introScreen.classList.remove("play-intro-anim");
 				introScreen.classList.add("hidden");
 				chatMainView.classList.remove("hidden");
 				return;
@@ -1986,7 +2539,10 @@
 						"hidden",
 					);
 				}
+				if (this.elements.navHome) this.elements.navHome.classList.add("active");
+				if (this.elements.navChat) this.elements.navChat.classList.remove("active");
 				introScreen.classList.remove("hidden");
+				this.playIntroAnimations();
 				chatMainView.classList.remove("hidden");
 				introScreen.classList.remove(
 					"view-fade-out",
@@ -2023,6 +2579,9 @@
 					"hidden",
 				);
 			}
+			if (this.elements.navHome) this.elements.navHome.classList.remove("active");
+			if (this.elements.navChat) this.elements.navChat.classList.add("active");
+			introScreen.classList.remove("play-intro-anim");
 			introScreen.classList.remove("hidden");
 			chatMainView.classList.remove("hidden");
 			chatMainView.classList.remove("view-fade-out");
@@ -2043,6 +2602,21 @@
 			);
 		}
 
+		playIntroAnimations() {
+			const introScreen = this.elements?.introScreen;
+			if (!introScreen) return;
+			introScreen.classList.remove("play-intro-anim");
+			// Force reflow so animation restarts every time intro is shown.
+			void introScreen.offsetWidth;
+			introScreen.classList.add("play-intro-anim");
+			if (this._introAnimResetTimer) {
+				clearTimeout(this._introAnimResetTimer);
+			}
+			this._introAnimResetTimer = setTimeout(() => {
+				introScreen.classList.remove("play-intro-anim");
+			}, 1600);
+		}
+
 		startChatFromIntro() {
 			this.hasStartedChat = true;
 			this.showIntroScreen(false);
@@ -2051,6 +2625,107 @@
 					this.elements.input.focus();
 				}
 			}, 120);
+		}
+
+		toggleExpandedView() {
+			this.isExpanded = !this.isExpanded;
+			if (this.elements.widget) {
+				this.elements.widget.classList.toggle(
+					"expanded",
+					this.isExpanded,
+				);
+			}
+			if (this.elements.expandChatBtn) {
+				this.elements.expandChatBtn.setAttribute(
+					"aria-label",
+					this.isExpanded
+						? "Collapse chat"
+						: "Expand chat",
+				);
+				// Toggle icon visibility
+				const expandIcon = this.elements.expandChatBtn.querySelector(".expand-icon");
+				const collapseIcon = this.elements.expandChatBtn.querySelector(".collapse-icon");
+				if (expandIcon && collapseIcon) {
+					expandIcon.style.display = this.isExpanded ? "none" : "block";
+					collapseIcon.style.display = this.isExpanded ? "block" : "none";
+				}
+			}
+		}
+
+		downloadTranscript() {
+			if (!this.elements.messagesContainer) return;
+			const chatRows = Array.from(
+				this.elements.messagesContainer.querySelectorAll(
+					".chat-message",
+				),
+			);
+			const lines = [
+				`Witzo transcript (${new Date().toLocaleString()})`,
+				"",
+			];
+			chatRows.forEach((row) => {
+				const isUser = row.classList.contains("user");
+				const textNode = row.querySelector(
+					".md-content",
+				);
+				const text =
+					(textNode?.innerText || "").trim();
+				if (!text) return;
+				lines.push(
+					`${isUser ? "You" : "Witzo AI"}: ${text}`,
+				);
+			});
+			const blob = new Blob(
+				[lines.join("\n\n")],
+				{ type: "text/plain;charset=utf-8" },
+			);
+			const link = document.createElement("a");
+			link.href = URL.createObjectURL(blob);
+			link.download = `witzo-transcript-${Date.now()}.txt`;
+			link.click();
+			URL.revokeObjectURL(link.href);
+		}
+
+		clearConversation() {
+			if (this.elements.messagesContainer) {
+				this.elements.messagesContainer.innerHTML =
+					"";
+			}
+			this.userMessageCount = 0;
+			this.botMessageCount = 0;
+			this.pendingEndIntentRating = false;
+			this.resetConversationRatingState();
+			if (this.elements.hopeBanner) {
+				this.elements.hopeBanner.classList.add(
+					"hidden",
+				);
+			}
+			if (this.elements.hopeBannerUp) {
+				this.elements.hopeBannerUp.classList.remove(
+					"active",
+				);
+			}
+			if (this.elements.hopeBannerDown) {
+				this.elements.hopeBannerDown.classList.remove(
+					"active",
+				);
+			}
+			if (this.elements.contactFormSlot) {
+				this.elements.contactFormSlot.classList.add(
+					"hidden",
+				);
+			}
+			if (this.elements.chatInput) {
+				this.elements.chatInput.classList.remove(
+					"hidden",
+				);
+			}
+			if (this.config.primaryText) {
+				this.displayDefaultMessage();
+			}
+			if (this.elements.input) {
+				this.elements.input.focus();
+			}
 		}
 
 		toggleChat() {
@@ -2245,7 +2920,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) {}
+					} catch (e) { }
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -2316,11 +2991,10 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${
-													this.config.logoIcon
-														? `<img src="${this.config.logoIcon}" alt="Logo" />`
-														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-												}
+                        ${this.config.logoIcon
+					? `<img src="${this.config.logoIcon}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
                     </div>`;
 		}
 
@@ -2496,7 +3170,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) {}
+						} catch (_) { }
 					}
 				}
 			}
@@ -2508,7 +3182,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) {}
+					} catch (_) { }
 				}
 			}
 
@@ -2656,7 +3330,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+					"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: {
@@ -2724,7 +3398,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+					"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: {
@@ -2735,12 +3409,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-									null
+								null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-									null
+								null
 								: null,
 						}),
 					},

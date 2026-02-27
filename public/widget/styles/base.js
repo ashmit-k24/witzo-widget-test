@@ -15,6 +15,10 @@ export const baseCSS = `
     transition: width 0.4s ease-in-out, max-width 0.4s ease-in-out, max-height 0.4s ease-in-out;
   }
 
+  #textChatWidget.intro-mode {
+    background: #FEFEFE;
+  }
+
   .chat-widget {
     box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
     opacity: 0;

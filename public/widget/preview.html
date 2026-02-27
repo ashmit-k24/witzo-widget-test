@@ -1,373 +1,379 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Widget Preview</title>
-		<style>
-			*,
-			*::before,
-			*::after {
-				box-sizing: border-box;
-				margin: 0;
-				padding: 0;
-			}
-			html,
-			body {
-				width: 100%;
-				height: 100%;
-			}
-			body {
-				background: #f0f2f5;
-				background-image: radial-gradient(#ced3db 1px, transparent 1px);
-				background-size: 22px 22px;
-			}
-			.preview-badge {
-				position: fixed;
-				top: 10px;
-				left: 50%;
-				transform: translateX(-50%);
-				background: rgba(0, 0, 0, 0.55);
-				color: rgba(255, 255, 255, 0.85);
-				font-size: 10px;
-				font-family: system-ui, sans-serif;
-				letter-spacing: 0.07em;
-				padding: 3px 10px;
-				border-radius: 20px;
-				pointer-events: none;
-				user-select: none;
-				white-space: nowrap;
-			}
-		</style>
-	</head>
-	<body>
-		<div class="preview-badge">LIVE PREVIEW</div>
 
-		<!-- Production bundle — served by the backend server -->
-		<script src="./witzo-chat.js"></script>
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Widget Preview</title>
+	<style>
+		*,
+		*::before,
+		*::after {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+		}
 
-		<script>
-			/**
-			 * Keys updatable via CSS custom properties on the host element.
-			 * The standalone widget now defines these vars in :host{} and references
-			 * them throughout its CSS, so setting them here overrides instantly —
-			 * zero flicker, no widget recreation.
-			 */
-			var COLOR_KEYS = new Set([
-				'sendColor',
-				'bannerColor',
-				'userChatColor',
-				'floatingBtn',
-				'floatingBtnColor',
-				'botColor',
-				'closeButtonColor',
-				'introPrimaryButtonColor',
-				'introSecondaryButtonColor',
-				'introPrimaryButtonBackgroundColor',
-				'introSecondaryButtonBackgroundColor',
-			]);
+		html,
+		body {
+			width: 100%;
+			height: 100%;
+		}
 
-			/**
-			 * Keys that can be patched by directly mutating shadow DOM nodes.
-			 * No widget recreation needed for these either.
-			 */
-			var TEXT_PATCH_KEYS = new Set([
-				'bannerText',
-				'logoIcon',
-				'placeholderText',
-				'bannerTextColor',
-				'autoOpen',
-				'primaryText',
-				'introTitle',
-				'introMessage',
-				'introPrimaryButtonText',
-				'introSecondaryButtonText',
-			]);
+		body {
+			background: #f0f2f5;
+			background-image: radial-gradient(#ced3db 1px, transparent 1px);
+			background-size: 22px 22px;
+		}
 
-			/**
-			 * Keys that can be patched by updating the floating button DOM directly.
-			 */
-			var FLOATING_PATCH_KEYS = new Set(['floatingType', 'bubbleIcon']);
+		.preview-badge {
+			position: fixed;
+			top: 10px;
+			left: 50%;
+			transform: translateX(-50%);
+			background: rgba(0, 0, 0, 0.55);
+			color: rgba(255, 255, 255, 0.85);
+			font-size: 10px;
+			font-family: system-ui, sans-serif;
+			letter-spacing: 0.07em;
+			padding: 3px 10px;
+			border-radius: 20px;
+			pointer-events: none;
+			user-select: none;
+			white-space: nowrap;
+		}
+	</style>
+</head>
 
-			/**
-			 * Language key — patchable without recreation by updating the lang pill,
-			 * dropdown active state, and the widget instance property directly.
-			 */
-			var LANG_PATCH_KEYS = new Set(['defaultLanguage']);
+<body>
+	<div class="preview-badge">LIVE PREVIEW</div>
 
-			/** Maps JS config keys → shadow-DOM CSS custom property names */
-			var CSS_VAR_MAP = {
-				sendColor:        '--color-primary',
-				bannerColor:      '--color-banner-bg',
-				userChatColor:    '--color-user-bubble',
-				floatingBtn:      '--color-floating-btn',
-				floatingBtnColor: '--color-floating-btn',
-				botColor:         '--color-bot-icon',
-				closeButtonColor: '--color-close-btn',
-				introPrimaryButtonColor:   '--color-intro-primary-btn',
-				introSecondaryButtonColor: '--color-intro-secondary-btn',
-				introPrimaryButtonBackgroundColor:   '--color-intro-primary-btn',
-				introSecondaryButtonBackgroundColor: '--color-intro-secondary-btn',
-			};
+	<!-- Production bundle — served by the backend server -->
+	<script src="./witzo-chat.js"></script>
 
-			/** Maps JS config keys → <witzo-chat> HTML attribute names */
-			var ATTR_MAP = {
-				apiUrl:                   'api-url',
-				widgetKey:                'widget-key',
-				primaryText:              'welcome-message',
-				sendColor:                'send-button-color',
-				floatingBtnColor:         'launcher-color',
-				floatingBtn:              'launcher-color',
-				floatingType:             'launcher-type',
-				autoOpen:                 'auto-open',
-				bannerText:               'header-title',
-				bannerTextColor:          'header-title-color',
-				bannerColor:              'header-background-color',
-				userChatColor:            'user-message-color',
-				closeButtonColor:         'close-button-color',
-				logoIcon:                 'header-logo-url',
-				bubbleIcon:               'launcher-icon-url',
-				defaultLanguage:          'default-language',
-				placeholderText:          'input-placeholder',
-				botColor:                 'bot-color',
-				introTitle:               'intro-title',
-				introMessage:             'intro-message',
-				introPrimaryButtonText:   'intro-primary-button-text',
-				introSecondaryButtonText: 'intro-secondary-button-text',
-				introPrimaryButtonColor:  'intro-primary-button-background-color',
-				introSecondaryButtonColor:'intro-secondary-button-background-color',
-				introPrimaryButtonBackgroundColor:  'intro-primary-button-background-color',
-				introSecondaryButtonBackgroundColor:'intro-secondary-button-background-color',
-			};
+	<script>
+		/**
+		 * Keys updatable via CSS custom properties on the host element.
+		 * The standalone widget now defines these vars in :host{} and references
+		 * them throughout its CSS, so setting them here overrides instantly —
+		 * zero flicker, no widget recreation.
+		 */
+		var COLOR_KEYS = new Set([
+			'sendColor',
+			'bannerColor',
+			'userChatColor',
+			'floatingBtn',
+			'floatingBtnColor',
+			'botColor',
+			'closeButtonColor',
+			'introPrimaryButtonColor',
+			'introSecondaryButtonColor',
+			'introPrimaryButtonBackgroundColor',
+			'introSecondaryButtonBackgroundColor',
+		]);
 
-			var currentConfig = {};
-			var autoOpenDone = false;
+		/**
+		 * Keys that can be patched by directly mutating shadow DOM nodes.
+		 * No widget recreation needed for these either.
+		 */
+		var TEXT_PATCH_KEYS = new Set([
+			'bannerText',
+			'logoIcon',
+			'placeholderText',
+			'bannerTextColor',
+			'autoOpen',
+			'primaryText',
+			'introTitle',
+			'introMessage',
+			'introPrimaryButtonText',
+			'introSecondaryButtonText',
+		]);
 
-			function getWidget() {
-				return document.querySelector('witzo-chat');
-			}
+		/**
+		 * Keys that can be patched by updating the floating button DOM directly.
+		 */
+		var FLOATING_PATCH_KEYS = new Set(['floatingType', 'bubbleIcon']);
 
-			/**
-			 * Recreate the <witzo-chat> element with the full current config.
-			 * Preserves open state:
-			 *  - If the chat was already open, clicks the floating button at 2100 ms
-			 *    (just after the button becomes visible at 2000 ms) to reopen quickly.
-			 *  - On first load, waits 2600 ms for the full entrance animation.
-			 */
-			function createWidget(config) {
-				var wasOpen = false;
-				var existing = getWidget();
-				if (existing && existing.shadowRoot) {
-					var chatWin = existing.shadowRoot.getElementById('textChatWidget');
-					wasOpen = chatWin != null && !chatWin.classList.contains('hidden');
-					existing.remove();
-				}
+		/**
+		 * Language key — patchable without recreation by updating the lang pill,
+		 * dropdown active state, and the widget instance property directly.
+		 */
+		var LANG_PATCH_KEYS = new Set(['defaultLanguage']);
 
-				autoOpenDone = false;
+		/** Maps JS config keys → shadow-DOM CSS custom property names */
+		var CSS_VAR_MAP = {
+			sendColor: '--color-primary',
+			bannerColor: '--color-banner-bg',
+			userChatColor: '--color-user-bubble',
+			floatingBtn: '--color-floating-btn',
+			floatingBtnColor: '--color-floating-btn',
+			botColor: '--color-bot-icon',
+			closeButtonColor: '--color-close-btn',
+			introPrimaryButtonColor: '--color-intro-primary-btn',
+			introSecondaryButtonColor: '--color-intro-secondary-btn',
+			introPrimaryButtonBackgroundColor: '--color-intro-primary-btn',
+			introSecondaryButtonBackgroundColor: '--color-intro-secondary-btn',
+		};
 
-				var el = document.createElement('witzo-chat');
-				Object.keys(config).forEach(function (key) {
-					var value = config[key];
-					if (value === null || value === undefined || value === '') return;
-					var attr = ATTR_MAP[key] || key;
-					el.setAttribute(attr, String(value));
-				});
-				document.body.appendChild(el);
+		/** Maps JS config keys → <witzo-chat> HTML attribute names */
+		var ATTR_MAP = {
+			apiUrl: 'api-url',
+			widgetKey: 'widget-key',
+			primaryText: 'welcome-message',
+			sendColor: 'send-button-color',
+			floatingBtnColor: 'launcher-color',
+			floatingBtn: 'launcher-color',
+			floatingType: 'launcher-type',
+			autoOpen: 'auto-open',
+			bannerText: 'header-title',
+			bannerTextColor: 'header-title-color',
+			bannerColor: 'header-background-color',
+			userChatColor: 'user-message-color',
+			closeButtonColor: 'close-button-color',
+			logoIcon: 'header-logo-url',
+			bubbleIcon: 'launcher-icon-url',
+			defaultLanguage: 'default-language',
+			placeholderText: 'input-placeholder',
+			botColor: 'bot-color',
+			introTitle: 'intro-title',
+			introMessage: 'intro-message',
+			introPrimaryButtonText: 'intro-primary-button-text',
+			introSecondaryButtonText: 'intro-secondary-button-text',
+			introPrimaryButtonColor: 'intro-primary-button-background-color',
+			introSecondaryButtonColor: 'intro-secondary-button-background-color',
+			introPrimaryButtonBackgroundColor: 'intro-primary-button-background-color',
+			introSecondaryButtonBackgroundColor: 'intro-secondary-button-background-color',
+		};
 
-				var delay = wasOpen ? 2100 : 2600;
-				setTimeout(function () {
-					if (autoOpenDone) return;
-					autoOpenDone = true;
-					var w = getWidget();
-					if (!w || !w.shadowRoot) return;
-					var btn = w.shadowRoot.getElementById('floating-btn');
-					if (btn) btn.click();
-				}, delay);
+		var currentConfig = {};
+		var autoOpenDone = false;
+
+		function getWidget() {
+			return document.querySelector('witzo-chat');
+		}
+
+		/**
+		 * Recreate the <witzo-chat> element with the full current config.
+		 * Preserves open state:
+		 *  - If the chat was already open, clicks the floating button at 2100 ms
+		 *    (just after the button becomes visible at 2000 ms) to reopen quickly.
+		 *  - On first load, waits 2600 ms for the full entrance animation.
+		 */
+		function createWidget(config) {
+			var wasOpen = false;
+			var existing = getWidget();
+			if (existing && existing.shadowRoot) {
+				var chatWin = existing.shadowRoot.getElementById('textChatWidget');
+				wasOpen = chatWin != null && !chatWin.classList.contains('hidden');
+				existing.remove();
 			}
 
-			/**
-			 * Apply color-only changes via CSS custom properties on the host element.
-			 * Because the widget's :host{} now defines --color-primary etc. and uses
-			 * them via var() throughout the CSS, overriding them here takes effect
-			 * immediately with no flicker.
-			 */
-			function applyColorUpdates(patch) {
-				var widget = getWidget();
-				if (!widget) return;
-				Object.keys(patch).forEach(function (key) {
-					var cssVar = CSS_VAR_MAP[key];
-					if (cssVar && patch[key]) {
-						widget.style.setProperty(cssVar, patch[key]);
-					}
-				});
+			autoOpenDone = false;
+
+			var el = document.createElement('witzo-chat');
+			Object.keys(config).forEach(function (key) {
+				var value = config[key];
+				if (value === null || value === undefined || value === '') return;
+				var attr = ATTR_MAP[key] || key;
+				el.setAttribute(attr, String(value));
+			});
+			document.body.appendChild(el);
+
+			var delay = wasOpen ? 2100 : 2600;
+			setTimeout(function () {
+				if (autoOpenDone) return;
+				autoOpenDone = true;
+				var w = getWidget();
+				if (!w || !w.shadowRoot) return;
+				var btn = w.shadowRoot.getElementById('floating-btn');
+				if (btn) btn.click();
+			}, delay);
+		}
+
+		/**
+		 * Apply color-only changes via CSS custom properties on the host element.
+		 * Because the widget's :host{} now defines --color-primary etc. and uses
+		 * them via var() throughout the CSS, overriding them here takes effect
+		 * immediately with no flicker.
+		 */
+		function applyColorUpdates(patch) {
+			var widget = getWidget();
+			if (!widget) return;
+			Object.keys(patch).forEach(function (key) {
+				var cssVar = CSS_VAR_MAP[key];
+				if (cssVar && patch[key]) {
+					widget.style.setProperty(cssVar, patch[key]);
+				}
+			});
+		}
+
+		/**
+		 * Apply text / asset changes by directly mutating shadow DOM nodes.
+		 * Falls back to createWidget if a required element doesn't exist
+		 * (e.g. #logoIcon is absent when widget was created without a logo).
+		 */
+		function applyTextUpdates(patch) {
+			var widget = getWidget();
+			if (!widget || !widget.shadowRoot) return;
+
+			var needsRecreate = false;
+
+			if (patch.bannerText != null) {
+				var bannerEl = widget.shadowRoot.getElementById('banner-text');
+				if (bannerEl) bannerEl.textContent = patch.bannerText;
 			}
 
-			/**
-			 * Apply text / asset changes by directly mutating shadow DOM nodes.
-			 * Falls back to createWidget if a required element doesn't exist
-			 * (e.g. #logoIcon is absent when widget was created without a logo).
-			 */
-			function applyTextUpdates(patch) {
-				var widget = getWidget();
-				if (!widget || !widget.shadowRoot) return;
-
-				var needsRecreate = false;
-
-				if (patch.bannerText != null) {
-					var bannerEl = widget.shadowRoot.getElementById('banner-text');
-					if (bannerEl) bannerEl.textContent = patch.bannerText;
-				}
-
-				if (patch.logoIcon != null && patch.logoIcon !== '') {
-					var logoEl = widget.shadowRoot.getElementById('logoIcon');
-					if (logoEl) {
-						logoEl.src = patch.logoIcon;
-					} else {
-						// Widget was created without a logo — template rendered SVG fallback,
-						// no #logoIcon element. Recreate so the img tag is rendered.
-						needsRecreate = true;
-					}
-				}
-
-				if (patch.placeholderText != null) {
-					var inputEl = widget.shadowRoot.getElementById('textMessageInput');
-					if (inputEl) inputEl.placeholder = patch.placeholderText || 'Type your message...';
-				}
-
-				if (patch.bannerTextColor != null) {
-					var titleEl = widget.shadowRoot.getElementById('banner-text');
-					if (titleEl) titleEl.style.color = patch.bannerTextColor || '#fff';
-				}
-
-				if (patch.introTitle != null) {
-					var introTitleEl = widget.shadowRoot.getElementById('introTitle');
-					if (introTitleEl) introTitleEl.textContent = patch.introTitle || 'Good to see you!';
-				}
-
-				if (patch.introMessage != null) {
-					var introMessageEl = widget.shadowRoot.getElementById('introMessage');
-					if (introMessageEl) introMessageEl.textContent = patch.introMessage || '';
-				}
-
-				if (patch.introPrimaryButtonText != null) {
-					var introPrimaryBtn = widget.shadowRoot.getElementById('introStartBtn');
-					if (introPrimaryBtn) introPrimaryBtn.textContent = patch.introPrimaryButtonText || "Let's Chat!";
-				}
-
-				if (patch.introSecondaryButtonText != null) {
-					var introSecondaryBtn = widget.shadowRoot.getElementById('introBrowseBtn');
-					if (introSecondaryBtn) introSecondaryBtn.textContent = patch.introSecondaryButtonText || 'Just browsing';
-				}
-
-				if (patch.primaryText != null) {
-					var messagesEl = widget.shadowRoot.getElementById('textMessagesArea');
-					if (messagesEl) {
-						var firstMsg = messagesEl.querySelector('.chat-message');
-						if (firstMsg) {
-							var mdContent = firstMsg.querySelector('.chat-bubble-ai .md-content');
-							if (mdContent) mdContent.innerHTML = '<p>' + patch.primaryText + '</p>';
-						}
-					}
-					if (widget.config) widget.config.primaryText = patch.primaryText;
-				}
-
-				if (needsRecreate) {
-					createWidget(currentConfig);
-				}
-			}
-
-			/**
-			 * Apply floating button type/icon changes without recreating the widget.
-			 * Delegates to the widget's own updateFloatingType() so markup and events
-			 * are both updated correctly.
-			 */
-			function applyFloatingUpdate(patch) {
-				var widget = getWidget();
-				if (!widget || !widget.shadowRoot) return;
-				// Update bubbleIcon on the widget config first (used by getFloatingIconSvg)
-				if (patch.bubbleIcon != null && widget.config) {
-					widget.config.bubbleIcon = patch.bubbleIcon || null;
-				}
-				// Let the widget regenerate the floating button markup
-				if (widget.updateFloatingType) {
-					var type = patch.floatingType != null ? patch.floatingType : (widget.config && widget.config.floatingType) || 'small';
-					widget.updateFloatingType(type);
-				}
-			}
-
-			/**
-			 * Apply language change without recreating the widget.
-			 * Updates: lang pill display code, dropdown active item,
-			 * and widget.selectedLanguage so API calls use the new language.
-			 */
-			function applyLanguageUpdate(patch) {
-				var widget = getWidget();
-				if (!widget || !widget.shadowRoot) return;
-
-				var newLang = patch.defaultLanguage;
-				if (!newLang) return;
-
-				var pillCode = widget.shadowRoot.getElementById('langPillCode');
-				if (pillCode) pillCode.textContent = newLang.slice(0, 2).toUpperCase();
-
-				var items = widget.shadowRoot.querySelectorAll('.lang-dropdown-item');
-				items.forEach(function (item) {
-					if (item.dataset.code === newLang) {
-						item.classList.add('active');
-					} else {
-						item.classList.remove('active');
-					}
-				});
-
-				widget.selectedLanguage = newLang;
-				if (widget.config) widget.config.defaultLanguage = newLang;
-			}
-
-			/**
-			 * Smart config update — four tiers:
-			 *
-			 *  1. Nothing actually changed          → no-op
-			 *  2. Only color keys                   → CSS custom property patch (instant)
-			 *  3. Only color / text / language keys → inline DOM patch (no close/reopen)
-			 *  4. Structural key changed             → recreate widget (preserves open state)
-			 *
-			 * The diff against `currentConfig` is essential: the parent always sends the
-			 * full config object, so without diffing every update looks "structural".
-			 */
-			function handleConfigUpdate(newConfig) {
-				var changedKeys = Object.keys(newConfig).filter(function (k) {
-					return newConfig[k] !== currentConfig[k];
-				});
-
-				currentConfig = Object.assign({}, currentConfig, newConfig);
-
-				if (changedKeys.length === 0) return;
-
-				var onlyInlinePatchable = changedKeys.every(function (k) {
-					return COLOR_KEYS.has(k) || TEXT_PATCH_KEYS.has(k) || LANG_PATCH_KEYS.has(k) || FLOATING_PATCH_KEYS.has(k);
-				});
-
-				if (onlyInlinePatchable) {
-					applyColorUpdates(newConfig);
-					applyTextUpdates(newConfig);
-					applyLanguageUpdate(newConfig);
-					applyFloatingUpdate(newConfig);
+			if (patch.logoIcon != null && patch.logoIcon !== '') {
+				var logoEl = widget.shadowRoot.getElementById('logoIcon');
+				if (logoEl) {
+					logoEl.src = patch.logoIcon;
 				} else {
-					createWidget(currentConfig);
+					// Widget was created without a logo — template rendered SVG fallback,
+					// no #logoIcon element. Recreate so the img tag is rendered.
+					needsRecreate = true;
 				}
 			}
 
-			// ── postMessage listener ──────────────────────────────────────────────
-			window.addEventListener('message', function (event) {
-				if (!event.data || event.data.type !== 'witzo-config-update') return;
-				handleConfigUpdate(event.data.config);
+			if (patch.placeholderText != null) {
+				var inputEl = widget.shadowRoot.getElementById('textMessageInput');
+				if (inputEl) inputEl.placeholder = patch.placeholderText || 'Type your message...';
+			}
+
+			if (patch.bannerTextColor != null) {
+				var titleEl = widget.shadowRoot.getElementById('banner-text');
+				if (titleEl) titleEl.style.color = patch.bannerTextColor || '#fff';
+			}
+
+			if (patch.introTitle != null) {
+				var introTitleEl = widget.shadowRoot.getElementById('introTitle');
+				if (introTitleEl) introTitleEl.textContent = patch.introTitle || '👋Good to see you!';
+			}
+
+			if (patch.introMessage != null) {
+				var introMessageEl = widget.shadowRoot.getElementById('introMessage');
+				if (introMessageEl) introMessageEl.textContent = patch.introMessage || '';
+			}
+
+			if (patch.introPrimaryButtonText != null) {
+				var introPrimaryBtn = widget.shadowRoot.getElementById('introStartBtn');
+				if (introPrimaryBtn) introPrimaryBtn.textContent = patch.introPrimaryButtonText || "Let's Chat!";
+			}
+
+			if (patch.introSecondaryButtonText != null) {
+				var introSecondaryBtn = widget.shadowRoot.getElementById('introBrowseBtn');
+				if (introSecondaryBtn) introSecondaryBtn.textContent = patch.introSecondaryButtonText || 'Just browsing';
+			}
+
+			if (patch.primaryText != null) {
+				var messagesEl = widget.shadowRoot.getElementById('textMessagesArea');
+				if (messagesEl) {
+					var firstMsg = messagesEl.querySelector('.chat-message');
+					if (firstMsg) {
+						var mdContent = firstMsg.querySelector('.chat-bubble-ai .md-content');
+						if (mdContent) mdContent.innerHTML = '<p>' + patch.primaryText + '</p>';
+					}
+				}
+				if (widget.config) widget.config.primaryText = patch.primaryText;
+			}
+
+			if (needsRecreate) {
+				createWidget(currentConfig);
+			}
+		}
+
+		/**
+		 * Apply floating button type/icon changes without recreating the widget.
+		 * Delegates to the widget's own updateFloatingType() so markup and events
+		 * are both updated correctly.
+		 */
+		function applyFloatingUpdate(patch) {
+			var widget = getWidget();
+			if (!widget || !widget.shadowRoot) return;
+			// Update bubbleIcon on the widget config first (used by getFloatingIconSvg)
+			if (patch.bubbleIcon != null && widget.config) {
+				widget.config.bubbleIcon = patch.bubbleIcon || null;
+			}
+			// Let the widget regenerate the floating button markup
+			if (widget.updateFloatingType) {
+				var type = patch.floatingType != null ? patch.floatingType : (widget.config && widget.config.floatingType) || 'small';
+				widget.updateFloatingType(type);
+			}
+		}
+
+		/**
+		 * Apply language change without recreating the widget.
+		 * Updates: lang pill display code, dropdown active item,
+		 * and widget.selectedLanguage so API calls use the new language.
+		 */
+		function applyLanguageUpdate(patch) {
+			var widget = getWidget();
+			if (!widget || !widget.shadowRoot) return;
+
+			var newLang = patch.defaultLanguage;
+			if (!newLang) return;
+
+			var pillCode = widget.shadowRoot.getElementById('langPillCode');
+			if (pillCode) pillCode.textContent = newLang.slice(0, 2).toUpperCase();
+
+			var items = widget.shadowRoot.querySelectorAll('.lang-dropdown-item');
+			items.forEach(function (item) {
+				if (item.dataset.code === newLang) {
+					item.classList.add('active');
+				} else {
+					item.classList.remove('active');
+				}
 			});
 
-			// ── Signal "ready" to the parent window ──────────────────────────────
-			// Use 'load' so that witzo-chat.js has already registered the custom element.
-			window.addEventListener('load', function () {
-				window.parent.postMessage({ type: 'witzo-preview-ready' }, '*');
+			widget.selectedLanguage = newLang;
+			if (widget.config) widget.config.defaultLanguage = newLang;
+		}
+
+		/**
+		 * Smart config update — four tiers:
+		 *
+		 *  1. Nothing actually changed          → no-op
+		 *  2. Only color keys                   → CSS custom property patch (instant)
+		 *  3. Only color / text / language keys → inline DOM patch (no close/reopen)
+		 *  4. Structural key changed             → recreate widget (preserves open state)
+		 *
+		 * The diff against `currentConfig` is essential: the parent always sends the
+		 * full config object, so without diffing every update looks "structural".
+		 */
+		function handleConfigUpdate(newConfig) {
+			var changedKeys = Object.keys(newConfig).filter(function (k) {
+				return newConfig[k] !== currentConfig[k];
 			});
-		</script>
-	</body>
+
+			currentConfig = Object.assign({}, currentConfig, newConfig);
+
+			if (changedKeys.length === 0) return;
+
+			var onlyInlinePatchable = changedKeys.every(function (k) {
+				return COLOR_KEYS.has(k) || TEXT_PATCH_KEYS.has(k) || LANG_PATCH_KEYS.has(k) || FLOATING_PATCH_KEYS.has(k);
+			});
+
+			if (onlyInlinePatchable) {
+				applyColorUpdates(newConfig);
+				applyTextUpdates(newConfig);
+				applyLanguageUpdate(newConfig);
+				applyFloatingUpdate(newConfig);
+			} else {
+				createWidget(currentConfig);
+			}
+		}
+
+		// ── postMessage listener ──────────────────────────────────────────────
+		window.addEventListener('message', function (event) {
+			if (!event.data || event.data.type !== 'witzo-config-update') return;
+			handleConfigUpdate(event.data.config);
+		});
+
+		// ── Signal "ready" to the parent window ──────────────────────────────
+		// Use 'load' so that witzo-chat.js has already registered the custom element.
+		window.addEventListener('load', function () {
+			window.parent.postMessage({ type: 'witzo-preview-ready' }, '*');
+		});
+	</script>
+</body>
+
 </html>

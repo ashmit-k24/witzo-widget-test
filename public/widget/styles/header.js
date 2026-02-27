@@ -26,7 +26,7 @@ export const headerCSS = `
     box-shadow: 0px 2.4px 4.8px 0px #00000033;
   }
   #logoIcon { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
-  .chat-title { color: #fff; font-size: 20px; font-weight: 500; margin: 0; }
+  .chat-title { color: #fff; font-size: 14px; font-weight: 500; margin: 0; }
   .chat-header-right { display: flex; align-items: center; }
   .chat-action-btn {
     border: none; background: transparent; border-radius: 0.5rem;
