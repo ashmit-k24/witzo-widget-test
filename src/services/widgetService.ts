@@ -47,6 +47,10 @@ export interface WidgetConfig {
 	userChatColor?: string;
 	introTitle?: string;
 	introMessage?: string;
+	introHelpOptionOneText?: string;
+	introHelpOptionOneUrl?: string;
+	introHelpOptionTwoText?: string;
+	introHelpOptionTwoUrl?: string;
 	introPrimaryButtonText?: string;
 	introSecondaryButtonText?: string;
 	introPrimaryButtonColor?: string;

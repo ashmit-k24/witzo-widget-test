@@ -21,7 +21,10 @@ import {
 	setCsrfToken,
 	verifyCsrfToken,
 } from "../middleware/csrf";
-import { upload } from "../middleware/upload";
+import {
+	imageUpload,
+	upload,
+} from "../middleware/upload";
 import {
 	addUsageToResponse,
 	checkConversationLimit,
@@ -468,6 +471,14 @@ router.put(
 	validationRules.widgetUpdate,
 	validate,
 	widgetController.updateWidgetKey,
+);
+
+router.post(
+	"/widget/icon/upload",
+	verifyCsrfToken,
+	authenticateToken,
+	imageUpload.single("icon"),
+	widgetController.uploadWidgetIcon,
 );
 
 /**

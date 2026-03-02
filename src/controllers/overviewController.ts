@@ -202,11 +202,17 @@ export const getOverviewAnalytics = async (
 				(point) => point.totalEvents > 0,
 			).length;
 
+		const messagesPerView =
+			totalViews > 0
+				? Number(
+						(totalMessages / totalViews).toFixed(1),
+				  )
+				: 0;
 		const engagementRate =
 			totalViews > 0
 				? Number(
 						(
-							(totalMessages / totalViews) *
+							(totalSessions / totalViews) *
 							100
 						).toFixed(1),
 				  )
@@ -220,6 +226,7 @@ export const getOverviewAnalytics = async (
 					totalMessages,
 					uniqueVisitors,
 					engagementRate,
+					messagesPerView,
 				},
 				conversations: {
 					totalSessions,

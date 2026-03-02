@@ -6,6 +6,7 @@ import {
 import { chatService } from "../services/chatService";
 import { leadService } from "../services/leadService";
 import usageTrackingService from "../services/usageTrackingService";
+import { widgetIconStorageService } from "../services/widgetIconStorageService";
 import widgetService from "../services/widgetService";
 import logger from "../utils/logger";
 
@@ -294,6 +295,51 @@ export const getWidgetAnalytics = async (
 			data: analytics,
 		});
 	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/widget/icon/upload
+ * @desc    Upload a widget icon image for the authenticated user
+ * @access  Protected
+ */
+export const uploadWidgetIcon = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
+
+		if (!req.file || !req.file.buffer) {
+			res.status(400).json({ success: false, message: "No icon image uploaded" });
+			return;
+		}
+
+		const contentType = req.file.mimetype || "image/png";
+		const uploadResult = await widgetIconStorageService.uploadWidgetIcon({
+			userId,
+			buffer: req.file.buffer,
+			contentType,
+		});
+
+		res.status(200).json({
+			success: true,
+			message: "Widget icon uploaded successfully",
+			data: {
+				url: uploadResult.url,
+				key: uploadResult.key,
+				contentType,
+				size: req.file.size,
+			},
+		});
+	} catch (error) {
+		logger.error("Error uploading widget icon", { error });
 		next(error);
 	}
 };
@@ -752,6 +798,10 @@ export const generateEmbedScript = async (
 			bubbleIcon:                "launcher-icon-url",
 			introTitle:                "intro-title",
 			introMessage:              "intro-message",
+			introHelpOptionOneText:    "intro-help-option-one-text",
+			introHelpOptionOneUrl:     "intro-help-option-one-url",
+			introHelpOptionTwoText:    "intro-help-option-two-text",
+			introHelpOptionTwoUrl:     "intro-help-option-two-url",
 			introPrimaryButtonText:    "intro-primary-button-text",
 			introSecondaryButtonText:  "intro-secondary-button-text",
 			// Colors
@@ -926,6 +976,10 @@ function generateEmbedCode(
 		bubbleIcon:                "launcher-icon-url",
 		introTitle:                "intro-title",
 		introMessage:              "intro-message",
+		introHelpOptionOneText:    "intro-help-option-one-text",
+		introHelpOptionOneUrl:     "intro-help-option-one-url",
+		introHelpOptionTwoText:    "intro-help-option-two-text",
+		introHelpOptionTwoUrl:     "intro-help-option-two-url",
 		introPrimaryButtonText:    "intro-primary-button-text",
 		introSecondaryButtonText:  "intro-secondary-button-text",
 		primaryColor:              ["header-background-color", "user-message-color"],

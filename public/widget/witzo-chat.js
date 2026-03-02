@@ -82,13 +82,17 @@
 				closeButtonColor: "",
 				logoIcon: null,
 				bubbleIcon: null,
+				introHelpOptionOneText:
+					"How Witzo works",
+				introHelpOptionOneUrl: "",
+				introHelpOptionTwoText:
+					"Explore AI features",
+				introHelpOptionTwoUrl: "",
 				introTitle: "👋Good to see you!",
 				introMessage:
 					"We're ready to help. Ask anything, from quick questions to complex topics.",
-				introPrimaryButtonText:
-					"Let's Chat!",
-				introSecondaryButtonText:
-					"Just browsing",
+				introPrimaryButtonText: "Let's Chat!",
+				introSecondaryButtonText: "Just browsing",
 				introPrimaryButtonColor: "#111827",
 				introSecondaryButtonColor: "#f3f4f6",
 				introPrimaryButtonBackgroundColor:
@@ -127,7 +131,10 @@
 				["bot-color", "botColor"],
 				["send-color", "sendColor"],
 				["send-button-color", "sendColor"],
-				["floating-btn-color", "floatingBtnColor"],
+				[
+					"floating-btn-color",
+					"floatingBtnColor",
+				],
 				["floating-btn", "floatingBtn"],
 				["launcher-color", "floatingBtn"],
 				["floating-type", "floatingType"],
@@ -158,6 +165,22 @@
 				["input-placeholder", "placeholderText"],
 				["intro-title", "introTitle"],
 				["intro-message", "introMessage"],
+				[
+					"intro-help-option-one-text",
+					"introHelpOptionOneText",
+				],
+				[
+					"intro-help-option-one-url",
+					"introHelpOptionOneUrl",
+				],
+				[
+					"intro-help-option-two-text",
+					"introHelpOptionTwoText",
+				],
+				[
+					"intro-help-option-two-url",
+					"introHelpOptionTwoUrl",
+				],
 				[
 					"intro-primary-button-text",
 					"introPrimaryButtonText",
@@ -197,7 +220,8 @@
 			);
 			if (
 				!this.getAttribute("plan-type") &&
-				typeof this.__witzoPlanType === "string" &&
+				typeof this.__witzoPlanType ===
+					"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -226,30 +250,36 @@
 				this.config.autoOpen ||
 				this.isEmbeddedPreview
 			) {
-				setTimeout(() => {
-					if (!this.isOpen) this.toggleChat();
-				}, this.isEmbeddedPreview ? 120 : 700);
+				setTimeout(
+					() => {
+						if (!this.isOpen) this.toggleChat();
+					},
+					this.isEmbeddedPreview ? 120 : 700,
+				);
 			}
 
 			// Show floating button after delay
-			setTimeout(() => {
-				if (
-					this.elements.floatingBtn &&
-					!this.isOpen
-				) {
-					this.elements.floatingBtn.classList.remove(
-						"hidden",
-					);
-					this.elements.floatingBtn.classList.add(
-						"entering",
-					);
-					setTimeout(() => {
-						this.elements.floatingBtn?.classList.remove(
+			setTimeout(
+				() => {
+					if (
+						this.elements.floatingBtn &&
+						!this.isOpen
+					) {
+						this.elements.floatingBtn.classList.remove(
+							"hidden",
+						);
+						this.elements.floatingBtn.classList.add(
 							"entering",
 						);
-					}, 550);
-				}
-			}, this.isEmbeddedPreview ? 0 : 2000);
+						setTimeout(() => {
+							this.elements.floatingBtn?.classList.remove(
+								"entering",
+							);
+						}, 550);
+					}
+				},
+				this.isEmbeddedPreview ? 0 : 2000,
+			);
 		}
 
 		initializeSession() {
@@ -381,8 +411,9 @@
 		}
 
 		getFloatingIconSvg() {
-			if (this.config.bubbleIcon) {
-				return `<img src="${this.config.bubbleIcon}" alt="icon" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`;
+			const displayIconUrl = this.getDisplayIconUrl();
+			if (displayIconUrl) {
+				return `<img src="${displayIconUrl}" alt="icon" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`;
 			}
 			return `<svg width="32" height="32" viewBox="0 0 32 26" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path fill-rule="evenodd" clip-rule="evenodd" d="M0.375 6.3125C0.375 3.27493 2.83743 0.8125 5.875 0.8125H25.8125C28.8501 0.8125 31.3125 3.27493 31.3125 6.3125V15.1743L27.5114 13.7677C27.411 13.7306 27.3319 13.6515 27.2948 13.5511L25.4689 8.6168C25.3507 8.29761 24.8993 8.29761 24.7811 8.6168L22.9552 13.5511C22.9181 13.6515 22.839 13.7306 22.7386 13.7677L17.8043 15.5936C17.4851 15.7118 17.4851 16.1632 17.8043 16.2814L22.7386 18.1073C22.839 18.1444 22.9181 18.2235 22.9552 18.3239L24.3618 22.125H18.9339C18.9202 22.1484 18.9049 22.1714 18.888 22.1939L16.3936 25.5174C16.1186 25.8838 15.5689 25.8838 15.2939 25.5174L12.7994 22.1939C12.7826 22.1714 12.7673 22.1484 12.7536 22.125H5.875C2.83743 22.125 0.375 19.6626 0.375 16.625V6.3125ZM19.1094 8.15215C19.0504 7.99255 18.8246 7.99255 18.7656 8.15215L18.4097 9.11387C18.3911 9.16405 18.3516 9.20363 18.3014 9.2222L17.3397 9.57808C17.1801 9.6371 17.1801 9.8629 17.3397 9.92192L18.3014 10.2778C18.3516 10.2964 18.3911 10.3359 18.4097 10.3861L18.7656 11.3478C18.8246 11.5074 19.0504 11.5074 19.1094 11.3478L19.4653 10.3861C19.4839 10.3359 19.5234 10.2964 19.5736 10.2778L20.5353 9.92192C20.6949 9.8629 20.6949 9.6371 20.5353 9.57808L19.5736 9.2222C19.5234 9.20363 19.4839 9.16405 19.4653 9.11387L19.1094 8.15215Z" fill="white"/>
@@ -518,6 +549,39 @@
 			return endPatterns.some((pattern) =>
 				pattern.test(normalized),
 			);
+		}
+
+		getUnifiedIconUrl() {
+			return (
+				this.config.logoIcon ||
+				this.config.bubbleIcon ||
+				""
+			);
+		}
+
+		getDefaultIconUrl() {
+			if (!this.apiBaseUrl) return "";
+			return `${this.apiBaseUrl.replace(/\/+$/, "")}/assets/images/witzo.png`;
+		}
+
+		getDisplayIconUrl() {
+			return (
+				this.getUnifiedIconUrl() ||
+				this.getDefaultIconUrl()
+			);
+		}
+
+		openIntroHelpLink(url) {
+			const safeUrl = sanitizeURL(url);
+			if (!safeUrl) return;
+			const openedWindow = window.open(
+				safeUrl,
+				"_blank",
+				"noopener,noreferrer",
+			);
+			if (openedWindow) {
+				openedWindow.opener = null;
+			}
 		}
 
 		render() {
@@ -840,8 +904,11 @@
             }
           }
           .chat-icon {
-            width: auto;
-            border-radius: 0.75rem;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            overflow: hidden;
+            flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1353,7 +1420,7 @@
             border-top: 1px solid #f1f5f9;
             flex-direction: column;
             align-items: center;
-            gap: 12px;
+            gap: 25px;
           }
           .bottom-nav {
             display: none;
@@ -1666,8 +1733,8 @@
            #logoIcon{
             width: 40px;
             height: 40px;
-            border-radius: 8px;
-            object-fit: contain;
+            border-radius: 50%;
+            object-fit: cover;
             }
             .bot-message-row {
               display: flex;
@@ -1889,10 +1956,11 @@
                     </button>
                     <div class="chat-header-identity">
                       <div class="chat-icon">
-                          ${this.config.logoIcon
-					? `<img id="logoIcon" src="${this.config.logoIcon}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
+                          ${
+														this.getDisplayIconUrl()
+															? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+															: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+													}
                       </div>
                       <div class="online-ready">
                         <div class="online-ready-text">
@@ -1965,7 +2033,7 @@
 			  		<div class="intro-message-card-wrapper" data-intro-anim="soft" style="--fade-order:2">
 
 						<div class="img-container">
-							<img src="${this.config.logoIcon || "https://leaderedutech.com/wp-content/uploads/2026/02/zycus-logo.png"}" alt="Intro Image" class="intro-image">
+							<img src="${this.getDisplayIconUrl() || "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 24 24' fill='%23111827'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z'/%3E%3C/svg%3E"}" alt="Intro Image" class="intro-image">
 							<span class="online-status-dot"></span>
 						</div>
 						<div class="intro-message-card">
@@ -1987,7 +2055,7 @@
               		<div class="intro-actions" data-intro-anim="fade-up" style="--fade-order:4">
               		  <button id="introStartBtn" class="intro-action-btn primary" data-intro-anim="scale" style="--fade-order:5">
 						<span class="intro-action-icon">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
           						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         					</svg>
 						</span>
@@ -2004,19 +2072,19 @@
 			  	</div>
 				
 				<div class="help-links-list" data-intro-anim="fade-up" style="--fade-order:7">
-					<div class="help-link-item" data-intro-anim="soft" style="--fade-order:8">
+					<div id="introHelpOptionOne" class="help-link-item" data-intro-anim="soft" style="--fade-order:8" data-url="${sanitizeHTML(sanitizeURL(this.config.introHelpOptionOneUrl) || "")}">
 						<div class="help-link-content">
 							<span class="help-link-icon">💡</span>
-							<span class="help-link-text">How Witzo works</span>
+							<span id="introHelpOptionOneText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionOneText || "How Witzo works")}</span>
 						</div>
 						<span class="help-link-arrow">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
 						</span>
 					</div>
-					<div class="help-link-item" data-intro-anim="soft" style="--fade-order:9">
+					<div id="introHelpOptionTwo" class="help-link-item" data-intro-anim="soft" style="--fade-order:9" data-url="${sanitizeHTML(sanitizeURL(this.config.introHelpOptionTwoUrl) || "")}">
 						<div class="help-link-content">
 							<span class="help-link-icon">🚀</span>
-							<span class="help-link-text">Explore AI features</span>
+							<span id="introHelpOptionTwoText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionTwoText || "Explore AI features")}</span>
 						</div>
 						<span class="help-link-arrow">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
@@ -2058,15 +2126,15 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-					.map(
-						(language) => `
+													.map(
+														(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-					)
-					.join("")}
+													)
+													.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton">
@@ -2118,12 +2186,14 @@
 				backBtn: this.shadowRoot.getElementById(
 					"backToIntroBtn",
 				),
-				introScreen: this.shadowRoot.getElementById(
-					"introScreen",
-				),
-				chatMainView: this.shadowRoot.getElementById(
-					"chatMainView",
-				),
+				introScreen:
+					this.shadowRoot.getElementById(
+						"introScreen",
+					),
+				chatMainView:
+					this.shadowRoot.getElementById(
+						"chatMainView",
+					),
 				introStartBtn:
 					this.shadowRoot.getElementById(
 						"introStartBtn",
@@ -2132,6 +2202,11 @@
 					this.shadowRoot.getElementById(
 						"introBrowseBtn",
 					),
+				introHelpLinks: Array.from(
+					this.shadowRoot.querySelectorAll(
+						".help-link-item",
+					),
+				),
 				messagesContainer:
 					this.shadowRoot.getElementById(
 						"textMessagesArea",
@@ -2217,8 +2292,14 @@
 					this.shadowRoot.getElementById(
 						"clearConversationBtn",
 					),
-				navHome: this.shadowRoot.getElementById("navHome"),
-				navChat: this.shadowRoot.getElementById("navChat"),
+				navHome:
+					this.shadowRoot.getElementById(
+						"navHome",
+					),
+				navChat:
+					this.shadowRoot.getElementById(
+						"navChat",
+					),
 			};
 		}
 
@@ -2252,6 +2333,20 @@
 					() => {
 						this.hasStartedChat = false;
 						if (this.isOpen) this.toggleChat();
+					},
+				);
+			}
+			if (
+				this.elements.introHelpLinks &&
+				this.elements.introHelpLinks.length
+			) {
+				this.elements.introHelpLinks.forEach(
+					(item) => {
+						item.addEventListener("click", () => {
+							this.openIntroHelpLink(
+								item.dataset.url || "",
+							);
+						});
 					},
 				);
 			}
@@ -2417,9 +2512,12 @@
 
 			// Bottom Nav Events
 			if (this.elements.navChat) {
-				this.elements.navChat.addEventListener("click", () => {
-					this.startChatFromIntro();
-				});
+				this.elements.navChat.addEventListener(
+					"click",
+					() => {
+						this.startChatFromIntro();
+					},
+				);
 			}
 		}
 
@@ -2477,7 +2575,8 @@
 				clearTimeout(this._viewTransitionTimer);
 				this._viewTransitionTimer = null;
 			}
-			const introScreen = this.elements.introScreen;
+			const introScreen =
+				this.elements.introScreen;
 			const chatMainView =
 				this.elements.chatMainView;
 
@@ -2501,8 +2600,14 @@
 							"hidden",
 						);
 					}
-					if (this.elements.navHome) this.elements.navHome.classList.add("active");
-					if (this.elements.navChat) this.elements.navChat.classList.remove("active");
+					if (this.elements.navHome)
+						this.elements.navHome.classList.add(
+							"active",
+						);
+					if (this.elements.navChat)
+						this.elements.navChat.classList.remove(
+							"active",
+						);
 					introScreen.classList.remove("hidden");
 					this.playIntroAnimations();
 					chatMainView.classList.add("hidden");
@@ -2518,9 +2623,17 @@
 						"hidden",
 					);
 				}
-				if (this.elements.navHome) this.elements.navHome.classList.remove("active");
-				if (this.elements.navChat) this.elements.navChat.classList.add("active");
-				introScreen.classList.remove("play-intro-anim");
+				if (this.elements.navHome)
+					this.elements.navHome.classList.remove(
+						"active",
+					);
+				if (this.elements.navChat)
+					this.elements.navChat.classList.add(
+						"active",
+					);
+				introScreen.classList.remove(
+					"play-intro-anim",
+				);
 				introScreen.classList.add("hidden");
 				chatMainView.classList.remove("hidden");
 				return;
@@ -2539,8 +2652,14 @@
 						"hidden",
 					);
 				}
-				if (this.elements.navHome) this.elements.navHome.classList.add("active");
-				if (this.elements.navChat) this.elements.navChat.classList.remove("active");
+				if (this.elements.navHome)
+					this.elements.navHome.classList.add(
+						"active",
+					);
+				if (this.elements.navChat)
+					this.elements.navChat.classList.remove(
+						"active",
+					);
 				introScreen.classList.remove("hidden");
 				this.playIntroAnimations();
 				chatMainView.classList.remove("hidden");
@@ -2579,14 +2698,26 @@
 					"hidden",
 				);
 			}
-			if (this.elements.navHome) this.elements.navHome.classList.remove("active");
-			if (this.elements.navChat) this.elements.navChat.classList.add("active");
-			introScreen.classList.remove("play-intro-anim");
+			if (this.elements.navHome)
+				this.elements.navHome.classList.remove(
+					"active",
+				);
+			if (this.elements.navChat)
+				this.elements.navChat.classList.add(
+					"active",
+				);
+			introScreen.classList.remove(
+				"play-intro-anim",
+			);
 			introScreen.classList.remove("hidden");
 			chatMainView.classList.remove("hidden");
-			chatMainView.classList.remove("view-fade-out");
+			chatMainView.classList.remove(
+				"view-fade-out",
+			);
 			chatMainView.classList.add("view-fade-in");
-			introScreen.classList.remove("view-fade-in");
+			introScreen.classList.remove(
+				"view-fade-in",
+			);
 			introScreen.classList.add("view-fade-out");
 			this._viewTransitionTimer = setTimeout(
 				() => {
@@ -2603,18 +2734,28 @@
 		}
 
 		playIntroAnimations() {
-			const introScreen = this.elements?.introScreen;
+			const introScreen =
+				this.elements?.introScreen;
 			if (!introScreen) return;
-			introScreen.classList.remove("play-intro-anim");
+			introScreen.classList.remove(
+				"play-intro-anim",
+			);
 			// Force reflow so animation restarts every time intro is shown.
 			void introScreen.offsetWidth;
-			introScreen.classList.add("play-intro-anim");
+			introScreen.classList.add(
+				"play-intro-anim",
+			);
 			if (this._introAnimResetTimer) {
 				clearTimeout(this._introAnimResetTimer);
 			}
-			this._introAnimResetTimer = setTimeout(() => {
-				introScreen.classList.remove("play-intro-anim");
-			}, 1600);
+			this._introAnimResetTimer = setTimeout(
+				() => {
+					introScreen.classList.remove(
+						"play-intro-anim",
+					);
+				},
+				1600,
+			);
 		}
 
 		startChatFromIntro() {
@@ -2643,17 +2784,30 @@
 						: "Expand chat",
 				);
 				// Toggle icon visibility
-				const expandIcon = this.elements.expandChatBtn.querySelector(".expand-icon");
-				const collapseIcon = this.elements.expandChatBtn.querySelector(".collapse-icon");
+				const expandIcon =
+					this.elements.expandChatBtn.querySelector(
+						".expand-icon",
+					);
+				const collapseIcon =
+					this.elements.expandChatBtn.querySelector(
+						".collapse-icon",
+					);
 				if (expandIcon && collapseIcon) {
-					expandIcon.style.display = this.isExpanded ? "none" : "block";
-					collapseIcon.style.display = this.isExpanded ? "block" : "none";
+					expandIcon.style.display = this
+						.isExpanded
+						? "none"
+						: "block";
+					collapseIcon.style.display = this
+						.isExpanded
+						? "block"
+						: "none";
 				}
 			}
 		}
 
 		downloadTranscript() {
-			if (!this.elements.messagesContainer) return;
+			if (!this.elements.messagesContainer)
+				return;
 			const chatRows = Array.from(
 				this.elements.messagesContainer.querySelectorAll(
 					".chat-message",
@@ -2664,12 +2818,14 @@
 				"",
 			];
 			chatRows.forEach((row) => {
-				const isUser = row.classList.contains("user");
+				const isUser =
+					row.classList.contains("user");
 				const textNode = row.querySelector(
 					".md-content",
 				);
-				const text =
-					(textNode?.innerText || "").trim();
+				const text = (
+					textNode?.innerText || ""
+				).trim();
 				if (!text) return;
 				lines.push(
 					`${isUser ? "You" : "Witzo AI"}: ${text}`,
@@ -2920,7 +3076,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) { }
+					} catch (e) {}
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -2991,10 +3147,11 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${this.config.logoIcon
-					? `<img src="${this.config.logoIcon}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
+                        ${
+													this.getDisplayIconUrl()
+														? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
+														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+												}
                     </div>`;
 		}
 
@@ -3170,7 +3327,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) { }
+						} catch (_) {}
 					}
 				}
 			}
@@ -3182,7 +3339,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) { }
+					} catch (_) {}
 				}
 			}
 
@@ -3330,7 +3487,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/rating",
+						"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: {
@@ -3398,7 +3555,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/contact",
+						"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: {
@@ -3409,12 +3566,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-								null
+									null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-								null
+									null
 								: null,
 						}),
 					},

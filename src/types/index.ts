@@ -239,6 +239,12 @@ export interface EnvConfig {
 	ADMIN_JWT_SECRET: string;
 	ADMIN_TOKEN_EXPIRY_HOURS: number;
 	ADMIN_FRONTEND_URL?: string;
+	S3_WIDGET_ICON_BUCKET?: string;
+	S3_WIDGET_ICON_REGION?: string;
+	S3_WIDGET_ICON_PUBLIC_BASE_URL?: string;
+	AWS_ACCESS_KEY_ID?: string;
+	AWS_SECRET_ACCESS_KEY?: string;
+	AWS_SESSION_TOKEN?: string;
 }
 
 // Web Scraper types

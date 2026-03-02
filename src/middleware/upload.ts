@@ -74,6 +74,29 @@ const fileFilter = (
 	}
 };
 
+const imageFileFilter = (
+	_req: Request,
+	file: Express.Multer.File,
+	cb: multer.FileFilterCallback,
+) => {
+	const allowedTypes = [
+		"image/png",
+		"image/jpeg",
+		"image/webp",
+	];
+
+	if (allowedTypes.includes(file.mimetype)) {
+		cb(null, true);
+		return;
+	}
+
+	cb(
+		new Error(
+			`Invalid image type. Allowed types: PNG, JPG, WEBP. Received: ${file.mimetype}`,
+		),
+	);
+};
+
 export const upload = multer({
 	storage,
 	fileFilter,
@@ -84,5 +107,18 @@ export const upload = multer({
 		fieldSize: 1 * 1024 * 1024, // 1MB per field value
 		fieldNameSize: 100, // 100 bytes max field name
 		headerPairs: 2000, // Max header key-value pairs
+	},
+});
+
+export const imageUpload = multer({
+	storage: multer.memoryStorage(),
+	fileFilter: imageFileFilter,
+	limits: {
+		fileSize: 5 * 1024 * 1024,
+		files: 1,
+		fields: 10,
+		fieldSize: 1 * 1024 * 1024,
+		fieldNameSize: 100,
+		headerPairs: 2000,
 	},
 });
