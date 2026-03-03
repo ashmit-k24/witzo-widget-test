@@ -653,9 +653,9 @@
             --color-bot-icon:     ${this.config.botColor || "#f1f5f9"};
             --color-close-btn:    ${this.config.closeButtonColor || "white"};
             --color-intro-primary-btn: ${this.config.introPrimaryButtonBackgroundColor || this.config.introPrimaryButtonColor || "#111827"};
-            --color-intro-secondary-btn: ${this.config.introSecondaryButtonBackgroundColor || this.config.introSecondaryButtonColor || "#f3f4f6"};
+            --color-intro-secondary-btn: ${this.config.introSecondaryButtonBackgroundColor || this.config.introSecondaryButtonColor || "#F5F5F7"};
             font-family: Inter, "Inter Fallback", system-ui, sans-serif;
-            font-weight: 600;
+            font-weight: 400;
             display: block;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
           }
@@ -674,7 +674,7 @@
             right: 2em;
             z-index: 9999;
             width: 27rem;
-            height: 80vh;
+            height: 554px;
             max-width: 90vw;
             max-height: 80vh;
             min-height: 460px;
@@ -707,10 +707,9 @@
           }
           #textChatWidget.intro-mode .intro-screen {
             flex: 0 0 auto;
+			padding-bottom: 0;
           }
-          #textChatWidget.intro-mode .chat-header {
-            margin-bottom: 8px;
-          }
+          
           #textChatWidget.intro-mode #backToIntroBtn,
           #textChatWidget.intro-mode #expandChatBtn,
           #textChatWidget.intro-mode #headerMenuBtn,
@@ -901,7 +900,7 @@
             justify-content: space-between;
             flex-shrink: 0;
             height: 60px; /* Fixed height for header */
-            
+            gap:20px;
             border-radius: 10px 10px 0 0;
             position: relative;
             z-index: 1;
@@ -965,15 +964,13 @@
             justify-content: center;
           }
           .bot-msg-chat-icon {
-            width: 40px;
-            height: 40px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
-            padding:4px;
             margin-right:6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: var(--color-bot-icon, #f1f5f9);
           }
             .bot-msg-chat-icon img{
               width: 100%;
@@ -994,6 +991,7 @@
             display: flex;
             align-items: center;
             position: relative;
+			gap:2px
           }
           .chat-action-btn {
             border: none;
@@ -1078,7 +1076,7 @@
 		  .chat-widget.expanded .chat-bubble-ai,
 		  .chat-widget.expanded .chat-bubble-user
 		  {
-		 	 max-width:430px;
+		 	 max-width:490px;
 		  }
 
 		  .chat-widget.expanded.intro-mode{
@@ -1104,11 +1102,13 @@
             margin-top: 46px;
             transition: all 0.7s ease-in 0.3s;
           }
+
+		  
           
           /* Bubbles */
           .chat-bubble-ai { 
             padding: 0; 
-            max-width: 280px; 
+            max-width: 340px; 
             color: #0f172a; 
             font-size: 0.875rem; 
             line-height: 1.3; 
@@ -1116,8 +1116,8 @@
           .chat-bubble-user {
             background: var(--color-user-bubble, #ffdde4); /* Default or Config */
             color: #ffffff;
-            border-radius: 11px 0 11px 11px;
-            padding: 10px 22px;
+            border-radius: 16px 16px 8px 16px;
+            padding: 10px 16px;
             max-width: 280px;
             font-size: 0.875rem;
             line-height: 1.3;
@@ -1128,6 +1128,28 @@
             flex-direction: row;
             gap: 0.5em;
             justify-content: flex-end;
+            position: relative;
+            padding-bottom: 16px;
+          }
+          .msg-status-tick {
+            position: absolute;
+            bottom: 2px;
+            right: -10px;
+            display: flex;
+            align-items: center;
+            gap: 0;
+            line-height: 1;
+			color: #888888c9;
+          }
+          .msg-status-tick svg {
+            display: block;
+			width: 14px;
+			height: 14px;
+          }
+          .msg-status-tick small {
+            padding-right: 3px; 
+			font-size: 10px;
+			padding-top: 2px;
           }
 
             /* Inputs */
@@ -1327,7 +1349,7 @@
           }
 
           .intro-screen {
-            padding: 16px;
+            padding: 20px;
             background: #fff;
             display: flex;
             flex-direction: column;
@@ -1393,7 +1415,7 @@
 			align-items: center;
 			gap: 6px;
 			background: #f5f5f786;
-			border: 1px solid #d8d8d8;
+			border: 1px solid rgb(234, 234, 234);
 			border-radius: 9999px;
 			padding: 6px 12px;
 
@@ -1431,7 +1453,7 @@
           .intro-action-btn {
             height: 44px;
             border-radius: 12px;
-            border: 1px solid var(--color-intro-secondary-btn, rgb(159, 163, 169));
+            border: 1px solid var(--color-intro-secondary-btn, #eaeaea);
             background: var(--color-intro-secondary-btn, #F5F5F7);
             color: #3d434c;
             font-size: 14px;
@@ -1449,6 +1471,8 @@
 				font-size: 13px;
 				font-weight: 400;
 				color: #888;
+				line-height: 18px;
+				display: inline-block;
 			}
           
 
@@ -1471,7 +1495,12 @@
 			cursor: pointer;
 			border-bottom: 1px solid rgb(234, 234, 234);
 		  }
-		  
+		  .intro-mode .chat-footer{
+			position:absolute;
+			width:100%;
+			bottom:0;
+			padding-bottom: 0;
+		  }
 
           .chat-footer {
             display: flex;
@@ -1479,7 +1508,8 @@
             background: #fff;
             flex-direction: column;
             align-items: center;
-            gap: 25px;
+            gap: 20px;
+			
           }
           .bottom-nav {
             display: none;
@@ -1518,10 +1548,11 @@
           }
           .powered-by {
             margin: 0;
-            font-size: 11px;
-            color: #C3C3C3;
-            font-weight: 400;
-            letter-spacing: 0.01em;
+    		font-size: 11px;
+    		color: #9f9f9f;
+    		font-weight: 300;
+    		letter-spacing: 0.01em;
+    		margin-bottom: 10px;
           }
           .powered-by-brand {
             color: #A0A0A0;
@@ -1554,7 +1585,7 @@
 			align-items: center;
 			transition: transform 0.3s ease;
 			border:1px solid #e8e8e8;
-			padding: 5px;
+			padding: 6px;
 			border-radius: 50%;
 			margin-right:2px;
 			transition: all 0.3s ease;
@@ -1634,6 +1665,11 @@
             width: 28px;
             height: 28px;
           }
+          .floating-orb-inner img{
+			width: 100% !important;
+			height: 100% !important;
+			object-fit: contain;
+		  }
 
           .floating-launcher-small {
             background: transparent;
@@ -1724,10 +1760,10 @@
               bottom: 14px;
             }
             #textChatWidget.intro-mode {
-              width: min(92vw, 25.5rem);
-              height: min(380px, 62vh);
-              min-height: min(380px, 62vh);
-              max-height: min(380px, 62vh);
+              width: min(570px, 25.5rem);
+              height: min(570px, 82vh);
+              min-height: min(570px, 82vh);
+              max-height: min(570px, 82vh);
             }
             .floating-launcher-full {
               width: 230px;
@@ -1735,17 +1771,27 @@
             .chat-widget.expanded {
               width: 96vw !important;
               max-width: 96vw !important;
-              height: 92vh !important;
-              max-height: 92vh !important;
+              height: 85vh !important;
+              max-height: 85vh !important;
               right: 2vw !important;
-              bottom: 2vh !important;
             }
+			  .chat-widget.expanded.intro-mode {
+              height: 554px !important;
+				
+			  }
+
+			  .intro-screen{
+			  	padding:16px
+			  }
             .floating-full-message {
               font-size: 16px;
             }
             .floating-compact-label {
               font-size: 14px;
             }
+			.status-pill-text {
+				font-size: 9px;
+			}
           }
 
            @keyframes float {
@@ -1802,13 +1848,25 @@
               display: flex;
               flex-direction: row;
               align-items: flex-start;
-              gap: 0.5rem;
+              gap: 0.3rem;
             }
             .bot-message-row .bot-msg-chat-icon {
               flex-shrink: 0;
             }
+			  .bot-message-row .md-content{
+				background-color: rgb(245, 245, 247);
+				padding:10px 16px;
+				border-radius: 16px 16px 8px 8px;
+			  }
             
             /* Markdown Styles inside bubbles */
+
+			.md-content {
+				line-height: 22.75px;
+			}
+			.md-content strong {
+				font-weight: 600;
+			}
             .md-content p { margin: 0; }
             .md-content ul, .md-content ol { padding-left: 20px; margin: 5px 0; }
             .md-content a { color: #007bff; text-decoration: none; }
@@ -2100,14 +2158,15 @@
 						<div class="intro-message-card">
               		  		<strong id="introTitle">${sanitizeHTML(this.config.introTitle || "👋Good to see you!")}</strong><br/>
               		  		<span id="introMessage">${sanitizeHTML(this.config.introMessage || "We're ready to help. Ask anything, from quick questions to complex topics.")}</span>
-							<div class="status-indicators-row">
-								<div class="status-pill">
-									<span class="status-pill-dot"></span>
-									<span class="status-pill-text">AI-powered support</span>
-								</div>
-								<span class="status-secondary-text">Responds instantly</span>
-							</div>
+							
               			</div>
+					</div>
+					<div class="status-indicators-row">
+						<div class="status-pill">
+							<span class="status-pill-dot"></span>
+							<span class="status-pill-text">AI-powered support</span>
+						</div>
+						<span class="status-secondary-text">Responds instantly</span>
 					</div>
 
 					<div class="feature-pills" data-intro-anim="fade" style="--fade-order:3">
@@ -2139,7 +2198,7 @@
 							<span id="introHelpOptionOneText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionOneText || "How Witzo works")}</span>
 						</div>
 						<span class="help-link-arrow">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right h-3.5 w-3.5" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right h-3.5 w-3.5" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
 						</span>
 					</div>
 					<div id="introHelpOptionTwo" class="help-link-item" data-intro-anim="soft" style="--fade-order:9" data-url="${sanitizeHTML(sanitizeURL(this.config.introHelpOptionTwoUrl) || "")}">
@@ -2148,7 +2207,7 @@
 							<span id="introHelpOptionTwoText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionTwoText || "Explore AI features")}</span>
 						</div>
 						<span class="help-link-arrow">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right h-3.5 w-3.5" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right h-3.5 w-3.5" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
 						</span>
 					</div>
 				</div>
@@ -3210,6 +3269,17 @@
 			bubble.innerHTML = `<div class="md-content"><p>${this.parseMarkdown(this.escapeHtml(text))}</p></div>`;
 
 			wrapper.appendChild(bubble);
+
+			// Double-tick read receipt for user messages
+			if (type === "user") {
+				const tick = document.createElement("div");
+				tick.className = "msg-status-tick";
+				tick.innerHTML = `
+				<small>Read</small>
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check-check-icon lucide-check-check"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>`;
+				wrapper.appendChild(tick);
+			}
+
 			this.elements.messagesContainer.appendChild(
 				wrapper,
 			);
