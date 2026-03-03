@@ -585,12 +585,10 @@
 		render() {
 			// Use the CSS and HTML from template.ts
 			this.shadowRoot.innerHTML = `
-      <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
       <style>
-        @import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap');
           *,
           ::after,
           ::before {
@@ -605,9 +603,13 @@
             --color-close-btn:    ${this.config.closeButtonColor || "white"};
             --color-intro-primary-btn: ${this.config.introPrimaryButtonBackgroundColor || this.config.introPrimaryButtonColor || "#111827"};
             --color-intro-secondary-btn: ${this.config.introSecondaryButtonBackgroundColor || this.config.introSecondaryButtonColor || "#f3f4f6"};
-            font-family: "Plus Jakarta Sans", sans-serif;
+            font-family: Inter, "Inter Fallback", system-ui, sans-serif;
+            font-weight: 600;
             display: block;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
+          }
+          :host, :host * {
+            font-family: Inter, "Inter Fallback", system-ui, sans-serif;
           }
           :host([preview-mode="embedded"]) {
             position: relative;
@@ -1549,6 +1551,9 @@
             border: 0;
             display: flex;
             transition: transform 0.25s ease, box-shadow 0.25s ease;
+          }
+          .floating-launcher.widget-open {
+            pointer-events: none;
           }
           .floating-launcher:hover {
             transform: translateY(-2px);
@@ -2902,6 +2907,9 @@
 				// Open
 				this.isOpen = true;
 				if (this.elements.floatingBtn) {
+					this.elements.floatingBtn.classList.add(
+						"widget-open",
+					);
 					this.elements.floatingBtn.classList.remove(
 						"entering",
 					);
@@ -2933,6 +2941,9 @@
 						"hidden",
 					);
 					if (this.elements.floatingBtn) {
+						this.elements.floatingBtn.classList.remove(
+							"widget-open",
+						);
 						this.elements.floatingBtn.classList.add(
 							"entering",
 						);

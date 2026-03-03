@@ -64,6 +64,7 @@ export function toggleChat(widget) {
   if (!widget.isOpen) {
     widget.isOpen = true;
     widget.elements.widget.classList.remove('hidden', 'minimizing');
+    widget.elements.floatingBtn.classList.add('widget-open');
     setTimeout(() => widget.elements.input.focus(), 100);
   } else {
     widget.isOpen = false;
@@ -71,6 +72,7 @@ export function toggleChat(widget) {
     setTimeout(() => {
       widget.elements.widget.classList.add('hidden');
       const btn = widget.elements.floatingBtn;
+      btn.classList.remove('widget-open');
       btn.classList.add('entering');
       setTimeout(() => btn.classList.remove('entering'), 550);
     }, 480);

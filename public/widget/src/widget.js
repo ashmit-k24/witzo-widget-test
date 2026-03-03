@@ -93,12 +93,12 @@ export class WitzoChatWidget extends HTMLElement {
       _preload.src = this.config.logoIcon;
     }
 
-    // 4. Load Plus Jakarta Sans into the document head (fonts are shared into shadow DOM)
-    if (!document.getElementById('witzo-font-pjs')) {
+    // 4. Load Inter into the document head (fonts are shared into shadow DOM)
+    if (!document.getElementById('witzo-font-inter')) {
       const link = document.createElement('link');
-      link.id   = 'witzo-font-pjs';
+      link.id   = 'witzo-font-inter';
       link.rel  = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap';
+      link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap';
       document.head.appendChild(link);
     }
 
