@@ -40,6 +40,9 @@
 			this.pendingEndIntentRating = false;
 			this.ratingShown = false;
 			this.ratingSubmitted = false;
+			this._wasEndIntent = false;
+			this._idleTimer = null;
+			this._pendingHopeBanner = false;
 			this.selectedLanguage = "en";
 			this.isExpanded = false;
 			this.date = new Date();
@@ -563,6 +566,8 @@
 			this.pendingEndIntentRating = false;
 			this.setRatingShownState(false);
 			this.setRatingSubmittedState(false);
+			this._pendingHopeBanner = false;
+			this._clearHopeBannerTimer();
 			if (
 				this.elements &&
 				this.elements.conversationRatingSlot
@@ -573,6 +578,7 @@
 					"hidden",
 				);
 			}
+			this._hideHopeBanner();
 		}
 
 		isConversationEndMessage(text) {
@@ -1904,7 +1910,7 @@
               }
               100% {
                 opacity: 1;
-                min-width: 115px;
+                min-width: 124px;
                 margin-right: 20px;
               }
             }
@@ -2964,6 +2970,7 @@
 				const shouldShowIntro =
 					!this.hasStartedChat;
 				this.showIntroScreen(shouldShowIntro);
+				this.showPendingHopeBanner();
 				if (!shouldShowIntro) {
 					setTimeout(() => {
 						if (this.elements.input) {
@@ -3018,12 +3025,17 @@
 				this.resetConversationRatingState();
 			}
 
+			this._clearHopeBannerTimer();
+			this._hideHopeBanner();
+
 			// Add User Message
 			this.appendMessage(text, "user");
 			this.userMessageCount += 1;
+			this._wasEndIntent =
+				this.isConversationEndMessage(text);
 			this.pendingEndIntentRating =
 				this.config.planType === "basic" &&
-				this.isConversationEndMessage(text) &&
+				this._wasEndIntent &&
 				!this.ratingShown &&
 				!this.ratingSubmitted;
 			this.elements.input.value = "";
@@ -3553,7 +3565,70 @@
 
 			this.pendingEndIntentRating = false;
 
-			// Show hope banner after every bot reply
+			if (
+				this.userMessageCount > 0 &&
+				this.botMessageCount > 0
+			) {
+				if (this._wasEndIntent) {
+					this._showHopeBanner();
+				} else {
+					this._scheduleHopeBanner();
+				}
+			}
+			this._wasEndIntent = false;
+		}
+
+		_clearHopeBannerTimer() {
+			if (this._idleTimer) {
+				clearTimeout(this._idleTimer);
+				this._idleTimer = null;
+			}
+		}
+
+		_hideHopeBanner() {
+			this._pendingHopeBanner = false;
+			if (this.elements.hopeBanner) {
+				this.elements.hopeBanner.classList.add(
+					"hidden",
+				);
+			}
+			if (this.elements.hopeBannerUp) {
+				this.elements.hopeBannerUp.classList.remove(
+					"active",
+				);
+			}
+			if (this.elements.hopeBannerDown) {
+				this.elements.hopeBannerDown.classList.remove(
+					"active",
+				);
+			}
+		}
+
+		_scheduleHopeBanner() {
+			this._clearHopeBannerTimer();
+			this._idleTimer = setTimeout(() => {
+				if (this.isOpen) {
+					this._showHopeBanner();
+					return;
+				}
+				this._pendingHopeBanner = true;
+			}, 25000);
+		}
+
+		showPendingHopeBanner() {
+			if (!this._pendingHopeBanner) return;
+			this._pendingHopeBanner = false;
+			this._showHopeBanner();
+		}
+
+		_showHopeBanner() {
+			if (
+				this.userMessageCount <= 0 ||
+				this.botMessageCount <= 0
+			) {
+				return;
+			}
+			this._clearHopeBannerTimer();
 			if (this.elements.hopeBanner) {
 				this.elements.hopeBanner.classList.remove(
 					"hidden",
