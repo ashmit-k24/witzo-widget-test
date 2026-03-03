@@ -494,6 +494,34 @@ export const updateProfile = async (
 };
 
 /**
+ * @route   PUT /api/auth/onboarding
+ * @desc    Mark an onboarding step as complete (step 3 auto-completes onboarding)
+ * @access  Protected
+ */
+export const updateOnboarding = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const step = Number(req.body.step);
+		const user = await authService.updateOnboardingStep(userId, step);
+		res.status(200).json({ success: true, user });
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
  * @route   GET /api/auth/sessions
  * @desc    Get all active sessions for the current user
  * @access  Protected

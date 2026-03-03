@@ -140,6 +140,20 @@ router.put(
 	authController.updateProfile,
 );
 
+/**
+ * @route   PUT /api/auth/onboarding
+ * @desc    Mark an onboarding step as complete
+ * @access  Protected
+ */
+router.put(
+	"/onboarding",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.updateOnboarding,
+	validate,
+	authController.updateOnboarding,
+);
+
 // ============================================
 // Session Management Routes
 // ============================================

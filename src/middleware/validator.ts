@@ -111,6 +111,12 @@ export const validationRules: Record<
 			.withMessage("company_website must be a valid URL"),
 	],
 
+	updateOnboarding: [
+		body("step")
+			.isInt({ min: 1, max: 3 })
+			.withMessage("step must be an integer between 1 and 3"),
+	],
+
 	revokeSession: [
 		param("sessionId")
 			.isInt({ min: 1 })

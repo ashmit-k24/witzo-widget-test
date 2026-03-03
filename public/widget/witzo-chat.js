@@ -223,7 +223,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-				"string" &&
+					"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -1643,10 +1643,9 @@
           }
 
           .floating-orb {
-            width: 54px;
-            height: 54px;
+            width: 64px;
+            height: 64px;
             border-radius: 9999px;
-            background: linear-gradient(135deg, var(--color-floating-btn, #fc0e3f) 0%, #7c3aed 100%);
             padding: 3px;
             box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
             flex-shrink: 0;
@@ -2076,10 +2075,11 @@
                     </button>
                     <div class="chat-header-identity">
                       <div class="chat-icon">
-                          ${this.getDisplayIconUrl()
-					? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
+                          ${
+														this.getDisplayIconUrl()
+															? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+															: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+													}
                       </div>
                       <div class="online-ready">
                         <div class="online-ready-text">
@@ -2246,15 +2246,15 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-					.map(
-						(language) => `
+													.map(
+														(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-					)
-					.join("")}
+													)
+													.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
@@ -3210,7 +3210,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) { }
+					} catch (e) {}
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -3272,7 +3272,8 @@
 
 			// Double-tick read receipt for user messages
 			if (type === "user") {
-				const tick = document.createElement("div");
+				const tick =
+					document.createElement("div");
 				tick.className = "msg-status-tick";
 				tick.innerHTML = `
 				<small>Read</small>
@@ -3315,10 +3316,11 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${this.getDisplayIconUrl()
-					? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
+                        ${
+													this.getDisplayIconUrl()
+														? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
+														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+												}
                     </div>`;
 		}
 
@@ -3494,7 +3496,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) { }
+						} catch (_) {}
 					}
 				}
 			}
@@ -3506,7 +3508,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) { }
+					} catch (_) {}
 				}
 			}
 
@@ -3717,7 +3719,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/rating",
+						"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: {
@@ -3785,7 +3787,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/contact",
+						"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: {
@@ -3796,12 +3798,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-								null
+									null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-								null
+									null
 								: null,
 						}),
 					},

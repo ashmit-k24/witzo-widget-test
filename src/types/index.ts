@@ -30,6 +30,9 @@ export interface User {
 	profile_completed: boolean;
 	profile_prompt_required_at: Date | null;
 	profile_completed_at: Date | null;
+	onboarding_step: number;
+	onboarding_completed: boolean;
+	onboarding_completed_at: Date | null;
 }
 
 export interface UserResponse {
@@ -50,6 +53,8 @@ export interface UserResponse {
 	requiresProfileCompletion?: boolean;
 	profilePromptRequiredAt?: Date | null;
 	profileCompletedAt?: Date | null;
+	onboardingStep?: number;
+	onboardingCompleted?: boolean;
 }
 
 export interface UpdateProfileBody {

@@ -25,10 +25,10 @@ export const floatingCSS = `
   }
 
   .floating-orb {
-    width: 54px;
-    height: 54px;
+    width: 64px;
+    height: 64px;
     border-radius: 9999px;
-    background: linear-gradient(135deg, var(--color-send, #fc0e3f) 0%, var(--color-banner, #120b14) 100%);
+  
     padding: 3px;
     box-shadow: 0 10px 24px rgba(0,0,0,0.22);
     flex-shrink: 0;

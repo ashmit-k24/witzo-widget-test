@@ -80,6 +80,8 @@ class AuthService {
 				user.profile_prompt_required_at,
 			profileCompletedAt:
 				user.profile_completed_at,
+			onboardingStep: user.onboarding_step,
+			onboardingCompleted: user.onboarding_completed,
 		};
 	}
 
@@ -1041,6 +1043,37 @@ class AuthService {
 				industry,
 				normalizedWebsite,
 			],
+		);
+
+		if (result.rows.length === 0) {
+			throw this.createHttpError("User not found", 404);
+		}
+
+		return this.formatUserResponse(result.rows[0]);
+	}
+
+	/**
+	 * Record the completion of an onboarding step for a user.
+	 * Step 3 automatically marks onboarding as fully completed.
+	 */
+	async updateOnboardingStep(
+		userId: string,
+		step: number,
+	): Promise<UserResponse> {
+		const completed = step >= 3;
+		const result = await pool.query<User>(
+			`UPDATE users
+       SET onboarding_step         = GREATEST(onboarding_step, $2),
+           onboarding_completed    = CASE WHEN $3 THEN TRUE ELSE onboarding_completed END,
+           onboarding_completed_at = CASE
+             WHEN $3 AND onboarding_completed = FALSE
+             THEN CURRENT_TIMESTAMP
+             ELSE onboarding_completed_at
+           END,
+           updated_at              = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+			[userId, step, completed],
 		);
 
 		if (result.rows.length === 0) {
