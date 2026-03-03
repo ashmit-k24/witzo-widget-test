@@ -28,11 +28,11 @@ export const floatingCSS = `
     width: 64px;
     height: 64px;
     border-radius: 9999px;
-  
     padding: 3px;
     box-shadow: 0 10px 24px rgba(0,0,0,0.22);
     flex-shrink: 0;
     display: flex;
+    perspective: 600px;
   }
   .floating-orb-inner {
     width: 100%;
@@ -42,24 +42,36 @@ export const floatingCSS = `
     align-items: center;
     justify-content: center;
     background: #111827;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .floating-launcher.widget-open .floating-orb-inner {
+    transform: rotateY(180deg);
   }
   .floating-orb-inner svg {
     width: 28px;
     height: 28px;
   }
 
-  /* Icon swap: chat icon ↔ close icon based on widget open state */
+  /* Flip animation: chat icon (front face) ↔ close icon (back face) */
   .floating-icon-chat,
   .floating-icon-close {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 100%;
-    height: 100%;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
   }
-  .floating-icon-close { display: none; width: 30%; height: 30%; }
-  .floating-launcher.widget-open .floating-icon-chat { display: none; }
-  .floating-launcher.widget-open .floating-icon-close { display: flex; }
+  .floating-icon-close {
+    transform: rotateY(180deg);
+  }
+  .floating-icon-close svg {
+    width: 30% !important;
+    height: 30% !important;
+  }
 
   /* Collapse text labels when widget is open */
   .floating-launcher.widget-open .floating-compact-label { display: none; }
