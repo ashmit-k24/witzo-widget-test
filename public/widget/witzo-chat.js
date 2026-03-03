@@ -82,8 +82,7 @@
 				closeButtonColor: "",
 				logoIcon: null,
 				bubbleIcon: null,
-				introHelpOptionOneText:
-					"How Witzo works",
+				introHelpOptionOneText: "How Witzo works",
 				introHelpOptionOneUrl: "",
 				introHelpOptionTwoText:
 					"Explore AI features",
@@ -257,8 +256,7 @@
 					document.createElement("link");
 				preconnectCrossorigin.id =
 					"witzo-font-inter-preconnect-crossorigin";
-				preconnectCrossorigin.rel =
-					"preconnect";
+				preconnectCrossorigin.rel = "preconnect";
 				preconnectCrossorigin.href =
 					"https://fonts.gstatic.com";
 				preconnectCrossorigin.crossOrigin =
@@ -455,7 +453,8 @@
 		}
 
 		getFloatingIconSvg() {
-			const displayIconUrl = this.getDisplayIconUrl();
+			const displayIconUrl =
+				this.getDisplayIconUrl();
 			if (displayIconUrl) {
 				return `<img src="${displayIconUrl}" alt="icon" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`;
 			}
@@ -1474,7 +1473,6 @@
             display: flex;
             padding: 12px 16px 16px;
             background: #fff;
-            border-top: 1px solid #f1f5f9;
             flex-direction: column;
             align-items: center;
             gap: 25px;
