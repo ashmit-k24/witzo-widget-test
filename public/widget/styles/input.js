@@ -22,13 +22,18 @@ export const inputCSS = `
     display: flex; align-items: center; justify-content: center;
     color: #fff; cursor: pointer; overflow: hidden;
     background: transparent; padding: 0; transition: all 0.3s ease;
+    opacity: 0.45;
   }
-  .chat-send-btn:hover { rotate: 90deg; box-shadow: rgba(100,100,111,0.2) 0px 7px 29px 0px; }
+  .chat-send-btn:disabled { cursor: not-allowed; }
+  .chat-send-btn.is-active { opacity: 1; }
+  .chat-send-btn.is-active:hover { rotate: 90deg; box-shadow: rgba(100,100,111,0.2) 0px 7px 29px 0px; }
   .chat-send-icon {
     width: 3rem; height: 3rem; border-radius: 0.75rem;
     display: flex; align-items: center; justify-content: center;
-    background: var(--color-primary, #fc0e3f);
+    background: #d1d5db;
+    transition: background 0.2s ease, transform 0.2s ease;
   }
+  .chat-send-btn.is-active .chat-send-icon { background: var(--color-primary, #fc0e3f); }
 
   .chat-footer { padding-bottom: 10px; }
   .powered-by { text-align: center; font-size: 10px; font-weight: 500; color: #999; margin: 6px 0 0 0; opacity: 0.7; }
