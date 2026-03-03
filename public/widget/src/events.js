@@ -11,6 +11,7 @@ export function bindEvents(widget) {
 
   // Send message
   elements.sendBtn.addEventListener('click', () => widget.handleSend());
+  elements.input.addEventListener('input', () => widget.updateSendButtonState());
   elements.input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); widget.handleSend(); }
   });
@@ -63,7 +64,6 @@ export function toggleChat(widget) {
   if (!widget.isOpen) {
     widget.isOpen = true;
     widget.elements.widget.classList.remove('hidden', 'minimizing');
-    widget.elements.floatingBtn.classList.add('hidden');
     setTimeout(() => widget.elements.input.focus(), 100);
   } else {
     widget.isOpen = false;
@@ -71,7 +71,6 @@ export function toggleChat(widget) {
     setTimeout(() => {
       widget.elements.widget.classList.add('hidden');
       const btn = widget.elements.floatingBtn;
-      btn.classList.remove('hidden');
       btn.classList.add('entering');
       setTimeout(() => btn.classList.remove('entering'), 550);
     }, 480);

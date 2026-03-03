@@ -236,6 +236,7 @@
 			this.initializeLanguagePreference();
 			this.render();
 			this.bindEvents();
+			this.updateSendButtonState();
 			this.showIntroScreen(!this.hasStartedChat);
 
 			// Process default message
@@ -261,10 +262,7 @@
 			// Show floating button after delay
 			setTimeout(
 				() => {
-					if (
-						this.elements.floatingBtn &&
-						!this.isOpen
-					) {
+					if (this.elements.floatingBtn) {
 						this.elements.floatingBtn.classList.remove(
 							"hidden",
 						);
@@ -1235,10 +1233,17 @@
             background: transparent;
             padding: 0;
             transition: all 0.3s ease;
+            opacity: 0.45;
           }
-           .chat-send-btn:hover {
-           rotate: 90deg;
-           box-shadow: rgba(100, 100, 111, 0.2) 0px 7px 29px 0px;
+           .chat-send-btn:disabled {
+            cursor: not-allowed;
+          }
+           .chat-send-btn.is-active {
+            opacity: 1;
+          }
+           .chat-send-btn.is-active:hover {
+            rotate: 90deg;
+            box-shadow: rgba(100, 100, 111, 0.2) 0px 7px 29px 0px;
 
 
           }
@@ -1250,6 +1255,10 @@
             align-items: center;
             justify-content: center;
             border-radius: 0.75rem;
+            background: #d1d5db;
+            transition: background 0.2s ease, transform 0.2s ease;
+          }
+          .chat-send-btn.is-active .chat-send-icon {
             background: var(--color-primary, #fc0e3f);
           }
 
@@ -2137,7 +2146,7 @@
 													.join("")}
                       </div>
                     </div>
-                    <button class="chat-send-btn" id="textSendButton">
+                    <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
                         <div class="chat-send-icon">
                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="17" viewBox="0 0 14 17" fill="#471791">
                             <path d="M13.4777 7.32307C13.4142 7.38665 13.3388 7.43709 13.2558 7.47151C13.1728 7.50592 13.0838 7.52364 12.9939 7.52364C12.904 7.52364 12.815 7.50592 12.732 7.47151C12.649 7.43709 12.5736 7.38665 12.5101 7.32307L7.52294 2.3351V15.7295C7.52294 15.9109 7.45089 16.0848 7.32264 16.2131C7.19439 16.3413 7.02044 16.4134 6.83907 16.4134C6.6577 16.4134 6.48375 16.3413 6.3555 16.2131C6.22725 16.0848 6.1552 15.9109 6.1552 15.7295V2.3351L1.16809 7.32307C1.03976 7.45139 0.865723 7.52348 0.684249 7.52348C0.502775 7.52348 0.328734 7.45139 0.200412 7.32307C0.0720903 7.19474 1.35209e-09 7.0207 0 6.83923C-1.35209e-09 6.65775 0.0720903 6.48371 0.200412 6.35539L6.35523 0.20057C6.41875 0.136986 6.49417 0.0865445 6.57719 0.0521293C6.66021 0.017714 6.7492 0 6.83907 0C6.92894 0 7.01793 0.017714 7.10095 0.0521293C7.18397 0.0865445 7.2594 0.136986 7.32291 0.20057L13.4777 6.35539C13.5413 6.4189 13.5918 6.49433 13.6262 6.57735C13.6606 6.66037 13.6783 6.74936 13.6783 6.83923C13.6783 6.9291 13.6606 7.01809 13.6262 7.10111C13.5918 7.18413 13.5413 7.25955 13.4777 7.32307Z" fill="white"></path>
@@ -2354,6 +2363,10 @@
 			this.elements.sendBtn.addEventListener(
 				"click",
 				() => this.handleSend(),
+			);
+			this.elements.input.addEventListener(
+				"input",
+				() => this.updateSendButtonState(),
 			);
 			this.elements.input.addEventListener(
 				"keydown",
@@ -2889,9 +2902,6 @@
 				// Open
 				this.isOpen = true;
 				if (this.elements.floatingBtn) {
-					this.elements.floatingBtn.classList.add(
-						"hidden",
-					);
 					this.elements.floatingBtn.classList.remove(
 						"entering",
 					);
@@ -2923,9 +2933,6 @@
 						"hidden",
 					);
 					if (this.elements.floatingBtn) {
-						this.elements.floatingBtn.classList.remove(
-							"hidden",
-						);
 						this.elements.floatingBtn.classList.add(
 							"entering",
 						);
@@ -2942,7 +2949,10 @@
 		async handleSend() {
 			const text =
 				this.elements.input.value.trim();
-			if (!text) return;
+			if (!text) {
+				this.updateSendButtonState();
+				return;
+			}
 
 			// Reset chat count if time gap large (simple version)
 			const gap =
@@ -2965,6 +2975,7 @@
 				!this.ratingShown &&
 				!this.ratingSubmitted;
 			this.elements.input.value = "";
+			this.updateSendButtonState();
 
 			// Show Typing Indicator
 			const typingWrapper =
@@ -3093,6 +3104,29 @@
 				);
 				this.pendingEndIntentRating = false;
 			}
+		}
+
+		updateSendButtonState() {
+			if (
+				!this.elements?.sendBtn ||
+				!this.elements?.input
+			) {
+				return;
+			}
+			const hasValue = Boolean(
+				this.elements.input.value.trim(),
+			);
+			const disabled =
+				this.elements.input.disabled || !hasValue;
+			this.elements.sendBtn.disabled = disabled;
+			this.elements.sendBtn.setAttribute(
+				"aria-disabled",
+				String(disabled),
+			);
+			this.elements.sendBtn.classList.toggle(
+				"is-active",
+				!disabled,
+			);
 		}
 
 		appendMessage(text, type) {

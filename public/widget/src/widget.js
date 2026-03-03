@@ -133,6 +133,7 @@ export class WitzoChatWidget extends HTMLElement {
 
     // 6. Wire events
     events.bindEvents(this);
+    this.updateSendButtonState();
 
     // 7. Show default message
     if (this.config.primaryText) {
@@ -166,7 +167,10 @@ export class WitzoChatWidget extends HTMLElement {
   // ── Core send flow ───────────────────────────────────────────────
   async handleSend() {
     const text = this.elements.input.value.trim();
-    if (!text) return;
+    if (!text) {
+      this.updateSendButtonState();
+      return;
+    }
 
     // Block if daily session limit is already reached
     if (session.isDailyLimitReached(this.widgetKey)) {
@@ -195,6 +199,7 @@ export class WitzoChatWidget extends HTMLElement {
       && this._wasEndIntent
       && !this.ratingShown && !this.ratingSubmitted;
     this.elements.input.value = '';
+    this.updateSendButtonState();
 
     // Show typing indicator
     const typingEl = msg.createTypingIndicator(this.config.logoIcon);
@@ -412,6 +417,7 @@ export class WitzoChatWidget extends HTMLElement {
     // Disable input and send button
     if (this.elements.input)   this.elements.input.disabled   = true;
     if (this.elements.sendBtn) this.elements.sendBtn.disabled = true;
+    this.updateSendButtonState();
 
     // Cancel any pending idle timer and hide hope banner
     clearTimeout(this._idleTimer);
@@ -429,5 +435,14 @@ export class WitzoChatWidget extends HTMLElement {
     if (this.elements.messagesContainer) {
       this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
     }
+  }
+
+  updateSendButtonState() {
+    if (!this.elements?.sendBtn || !this.elements?.input) return;
+    const hasValue = Boolean(this.elements.input.value.trim());
+    const disabled = this.elements.input.disabled || !hasValue;
+    this.elements.sendBtn.disabled = disabled;
+    this.elements.sendBtn.setAttribute('aria-disabled', String(disabled));
+    this.elements.sendBtn.classList.toggle('is-active', !disabled);
   }
 }

@@ -102,7 +102,7 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
           </div>
 
           <!-- Send button -->
-          <button class="chat-send-btn" id="textSendButton">
+          <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
             <div class="chat-send-icon">${SEND_ARROW_SVG}</div>
           </button>
         </div>
