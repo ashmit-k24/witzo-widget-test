@@ -82,8 +82,7 @@
 				closeButtonColor: "",
 				logoIcon: null,
 				bubbleIcon: null,
-				introHelpOptionOneText:
-					"How Witzo works",
+				introHelpOptionOneText: "How Witzo works",
 				introHelpOptionOneUrl: "",
 				introHelpOptionTwoText:
 					"Explore AI features",
@@ -221,7 +220,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-					"string" &&
+				"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -234,6 +233,51 @@
 				);
 
 			this.initializeLanguagePreference();
+			if (
+				!document.getElementById(
+					"witzo-font-inter-preconnect",
+				)
+			) {
+				const preconnect =
+					document.createElement("link");
+				preconnect.id =
+					"witzo-font-inter-preconnect";
+				preconnect.rel = "preconnect";
+				preconnect.href =
+					"https://fonts.googleapis.com";
+				document.head.appendChild(preconnect);
+			}
+			if (
+				!document.getElementById(
+					"witzo-font-inter-preconnect-crossorigin",
+				)
+			) {
+				const preconnectCrossorigin =
+					document.createElement("link");
+				preconnectCrossorigin.id =
+					"witzo-font-inter-preconnect-crossorigin";
+				preconnectCrossorigin.rel = "preconnect";
+				preconnectCrossorigin.href =
+					"https://fonts.gstatic.com";
+				preconnectCrossorigin.crossOrigin =
+					"anonymous";
+				document.head.appendChild(
+					preconnectCrossorigin,
+				);
+			}
+			if (
+				!document.getElementById(
+					"witzo-font-inter",
+				)
+			) {
+				const link =
+					document.createElement("link");
+				link.id = "witzo-font-inter";
+				link.rel = "stylesheet";
+				link.href =
+					"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
+				document.head.appendChild(link);
+			}
 			this.render();
 			this.bindEvents();
 			this.updateSendButtonState();
@@ -409,7 +453,8 @@
 		}
 
 		getFloatingIconSvg() {
-			const displayIconUrl = this.getDisplayIconUrl();
+			const displayIconUrl =
+				this.getDisplayIconUrl();
 			if (displayIconUrl) {
 				return `<img src="${displayIconUrl}" alt="icon" style="width:28px;height:28px;border-radius:50%;object-fit:cover;" />`;
 			}
@@ -585,12 +630,10 @@
 		render() {
 			// Use the CSS and HTML from template.ts
 			this.shadowRoot.innerHTML = `
-      <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
       <style>
-       @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
           *,
           ::after,
           ::before {
@@ -605,9 +648,13 @@
             --color-close-btn:    ${this.config.closeButtonColor || "white"};
             --color-intro-primary-btn: ${this.config.introPrimaryButtonBackgroundColor || this.config.introPrimaryButtonColor || "#111827"};
             --color-intro-secondary-btn: ${this.config.introSecondaryButtonBackgroundColor || this.config.introSecondaryButtonColor || "#f3f4f6"};
-            font-family: "Plus Jakarta Sans", sans-serif;
+            font-family: Inter, "Inter Fallback", system-ui, sans-serif;
+            font-weight: 600;
             display: block;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
+          }
+          :host, :host * {
+            font-family: Inter, "Inter Fallback", system-ui, sans-serif;
           }
           :host([preview-mode="embedded"]) {
             position: relative;
@@ -647,7 +694,7 @@
             min-height: 420px;
           }
           #textChatWidget.intro-mode {
-            background:#FEFEFE;
+            background:#FBFBFB;
           }
           :host([preview-mode="embedded"]) #textChatWidget.intro-mode {
             width: min(25.5rem, calc(100% - 32px));
@@ -1328,10 +1375,10 @@
 			z-index: 1;
 		  }
 		  .intro-top-section{
-			box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+			box-shadow: rgba(0, 0, 0, 0.06) 0px 4px 24px;
 			padding:20px;
 			border-radius: 16px;
-			border: 1px solid #d8d8d8;
+			border: 1px solid rgb(234, 234, 234);
 			background: #fff;
 		  }
 
@@ -1364,7 +1411,7 @@
 		  }
 		  .status-secondary-text {
 			font-size: 12px;
-			color: black;
+			color: #888;
 			font-weight: 400;
 		  }
 
@@ -1381,7 +1428,7 @@
             border: 1px solid var(--color-intro-secondary-btn, rgb(159, 163, 169));
             background: var(--color-intro-secondary-btn, #F5F5F7);
             color: #3d434c;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -1394,8 +1441,8 @@
 		  }
 			#introMessage{
 				font-size: 13px;
-				font-weight: 500;
-				color: #737373;
+				font-weight: 400;
+				color: #888;
 			}
           
 
@@ -1416,17 +1463,14 @@
 			justify-content: space-between;
 			padding: 12px 0;
 			cursor: pointer;
-			border-bottom: 1px solid #d8d8d8;
+			border-bottom: 1px solid rgb(234, 234, 234);
 		  }
-		  .help-link-item:last-child {
-			border-bottom: none;
-		  }
+		  
 
           .chat-footer {
             display: flex;
             padding: 12px 16px 16px;
             background: #fff;
-            border-top: 1px solid #f1f5f9;
             flex-direction: column;
             align-items: center;
             gap: 25px;
@@ -1448,19 +1492,19 @@
             align-items: center;
             gap: 4px;
             cursor: pointer;
-            color: #94a3b8;
+            color: #888888;
             transition: all 0.2s;
             text-decoration: none;
           }
           .nav-item.active {
-            color: #000;
+            color: rgb(17, 17, 17);
           }
           .nav-item svg {
             width: 22px;
             height: 22px;
           }
           .nav-label {
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 500;
           }
           .nav-item.active .nav-label {
@@ -1469,12 +1513,12 @@
           .powered-by {
             margin: 0;
             font-size: 11px;
-            color: #767676;
+            color: #C3C3C3;
             font-weight: 400;
             letter-spacing: 0.01em;
           }
           .powered-by-brand {
-            color: #3e2f5a;
+            color: #A0A0A0;
             text-decoration: none;
             font-weight: 500;
           }
@@ -1495,15 +1539,15 @@
 		  }
 
 		  .help-link-item:hover .help-link-arrow{
-		 	color:black ;
-			border:1px solid black;
+		 	color: #2e2f31ff ;
+			border:1px solid #a2a0a0ff;
 		  }
 		  .help-link-arrow {
-			color: #a6abb4;
+			color: #77797eff;
 			display: flex;
 			align-items: center;
 			transition: transform 0.3s ease;
-			border:1px solid #a6abb4;
+			border:1px solid #e8e8e8;
 			padding: 5px;
 			border-radius: 50%;
 			margin-right:2px;
@@ -1521,7 +1565,7 @@
 		  .intro-action-icon{
 			 padding-right: 4px;
 			 position: relative;
-			 top: 2px; 
+			 top: 4px; 
 		  }
 		.intro-action-icon.second{
 			 padding-right: 3px;
@@ -1549,6 +1593,9 @@
             border: 0;
             display: flex;
             transition: transform 0.25s ease, box-shadow 0.25s ease;
+          }
+          .floating-launcher.widget-open {
+            pointer-events: none;
           }
           .floating-launcher:hover {
             transform: translateY(-2px);
@@ -1965,11 +2012,10 @@
                     </button>
                     <div class="chat-header-identity">
                       <div class="chat-icon">
-                          ${
-														this.getDisplayIconUrl()
-															? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-															: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-													}
+                          ${this.getDisplayIconUrl()
+					? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
                       </div>
                       <div class="online-ready">
                         <div class="online-ready-text">
@@ -2064,7 +2110,7 @@
               		<div class="intro-actions" data-intro-anim="fade-up" style="--fade-order:4">
               		  <button id="introStartBtn" class="intro-action-btn primary" data-intro-anim="scale" style="--fade-order:5">
 						<span class="intro-action-icon">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
           						<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         					</svg>
 						</span>
@@ -2073,7 +2119,7 @@
 						</button>
               		  <button id="introBrowseBtn" class="intro-action-btn" data-intro-anim="scale" style="--fade-order:6">
 						<span class="intro-action-icon second">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-globe-icon lucide-globe"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-globe-icon lucide-globe"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
 						</span>
 						${sanitizeHTML(this.config.introSecondaryButtonText || "Just browsing")}
 						</button>
@@ -2087,7 +2133,7 @@
 							<span id="introHelpOptionOneText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionOneText || "How Witzo works")}</span>
 						</div>
 						<span class="help-link-arrow">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right h-3.5 w-3.5" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
 						</span>
 					</div>
 					<div id="introHelpOptionTwo" class="help-link-item" data-intro-anim="soft" style="--fade-order:9" data-url="${sanitizeHTML(sanitizeURL(this.config.introHelpOptionTwoUrl) || "")}">
@@ -2096,7 +2142,7 @@
 							<span id="introHelpOptionTwoText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionTwoText || "Explore AI features")}</span>
 						</div>
 						<span class="help-link-arrow">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right h-3.5 w-3.5" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
 						</span>
 					</div>
 				</div>
@@ -2135,15 +2181,15 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-													.map(
-														(language) => `
+					.map(
+						(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-													)
-													.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
@@ -2160,11 +2206,11 @@
             <div class="chat-footer">
                 <div class="bottom-nav">
                     <div id="navHome" class="nav-item active">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                         <span class="nav-label">Home</span>
                     </div>
                     <div id="navChat" class="nav-item">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
                         <span class="nav-label">Chat</span>
                     </div>
                 </div>
@@ -2902,6 +2948,9 @@
 				// Open
 				this.isOpen = true;
 				if (this.elements.floatingBtn) {
+					this.elements.floatingBtn.classList.add(
+						"widget-open",
+					);
 					this.elements.floatingBtn.classList.remove(
 						"entering",
 					);
@@ -2933,6 +2982,9 @@
 						"hidden",
 					);
 					if (this.elements.floatingBtn) {
+						this.elements.floatingBtn.classList.remove(
+							"widget-open",
+						);
 						this.elements.floatingBtn.classList.add(
 							"entering",
 						);
@@ -3087,7 +3139,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) {}
+					} catch (e) { }
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -3181,11 +3233,10 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${
-													this.getDisplayIconUrl()
-														? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
-														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-												}
+                        ${this.getDisplayIconUrl()
+					? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
                     </div>`;
 		}
 
@@ -3361,7 +3412,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) {}
+						} catch (_) { }
 					}
 				}
 			}
@@ -3373,7 +3424,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) {}
+					} catch (_) { }
 				}
 			}
 
@@ -3521,7 +3572,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+					"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: {
@@ -3589,7 +3640,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+					"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: {
@@ -3600,12 +3651,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-									null
+								null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-									null
+								null
 								: null,
 						}),
 					},

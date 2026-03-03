@@ -15,6 +15,9 @@ export const floatingCSS = `
     font-family: inherit;
     transition: transform 0.25s ease, box-shadow 0.25s ease;
   }
+  .floating-launcher.widget-open {
+    pointer-events: none;
+  }
   .floating-launcher:hover { transform: translateY(-2px); }
   .floating-launcher:focus-visible {
     outline: 2px solid var(--color-primary, #fc0e3f);
