@@ -40,7 +40,7 @@ export const formsCSS = `
     display: flex; align-items: center; justify-content: center; gap: 0;
     width: fit-content; left: 0; right: 0; top: 68px; margin: 0 auto;
     padding: 12px 24px; border-radius: 0 0 25px 25px; position: fixed;
-    font-size: 0.9rem; font-weight: 500; color: #1a1a2e; flex-shrink: 0; z-index: 0;
+    font-size: 0.9rem; font-weight: 500; color: #1a1a2e; flex-shrink: 0; z-index: 10;
     background: linear-gradient(135deg,
       color-mix(in srgb, var(--color-banner-bg, #120b14) 5%, white) 0%,
       color-mix(in srgb, var(--color-primary, #350535) 15%, white) 100%);

@@ -4,7 +4,7 @@ export const floatingCSS = `
     position: fixed;
     bottom: 20px;
     right: 24px;
-    z-index: 9999;
+    z-index: 2147483647;
     animation: float 3s ease-in-out infinite;
   }
 

@@ -658,6 +658,8 @@
             font-family: Inter, "Inter Fallback", system-ui, sans-serif;
             font-weight: 400;
             display: block;
+            position: relative;
+            z-index: 2147483647;
             /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
           }
           :host, :host * {
@@ -673,7 +675,7 @@
             position: fixed;
             bottom: 6em;
             right: 2em;
-            z-index: 9999;
+            z-index: 2147483647;
             width: 27rem;
             height: 554px;
             max-width: 90vw;
@@ -1616,7 +1618,7 @@
             bottom: 20px;
             position: fixed;
             right: 24px;
-            z-index: 9999;
+            z-index: 2147483647;
             animation: float 3s ease-in-out infinite;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
@@ -2034,13 +2036,12 @@
               font-weight: 500;
               color: #1a1a2e;
               flex-shrink: 0;
-              z-index: 999;
+              z-index: 10;
               animation: hopeBannerSlideIn 1.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
               animation-delay: 0.3s;
               opacity: 0;
               top: 56px;
               margin: 0 auto;
-              z-index: 0;
             }
              
             .hope-banner.hidden {

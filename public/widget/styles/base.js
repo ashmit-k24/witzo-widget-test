@@ -1,13 +1,13 @@
 export const baseCSS = `
   *, ::after, ::before { box-sizing: border-box; }
-  :host { font-family: Inter, "Inter Fallback", system-ui, sans-serif; font-weight: 600; display: block; }
+  :host { font-family: Inter, "Inter Fallback", system-ui, sans-serif; font-weight: 600; display: block; position: relative; z-index: 2147483647; }
   :host, :host * { font-family: Inter, "Inter Fallback", system-ui, sans-serif; }
   .hidden { display: none !important; }
 
   #textChatWidget {
     position: fixed;
     bottom: 6em; right: 2em;
-    z-index: 9999;
+    z-index: 2147483647;
     width: 27rem; height: 100%;
     max-width: 90vw; max-height: 70vh;
     display: flex; flex-direction: column;

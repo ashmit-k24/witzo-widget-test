@@ -128,6 +128,12 @@ const migrations: Migration[] = [
 			"Allow unlimited enterprise conversations by making conversations_limit nullable and setting enterprise to NULL",
 		file: "20260223_018_enterprise_unlimited_conversations.sql",
 	},
+	{
+		id: "20260303_019_user_onboarding",
+		description:
+			"Add onboarding_step, onboarding_completed, onboarding_completed_at to users table",
+		file: "20260303_019_user_onboarding.sql",
+	},
 ];
 
 const ensureMigrationTable = async (
