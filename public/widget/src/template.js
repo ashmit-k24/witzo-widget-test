@@ -18,10 +18,10 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
     </div>`).join('');
 
   const floatingType = config.floatingType || 'small';
-  const floatingIconContent = config.logoIcon
+  const chatIconHtml = config.logoIcon
     ? `<img src="${config.logoIcon}" alt="Logo" style="width: 100%; height: 100%; border-radius: inherit;" />`
     : FLOATING_BTN_SVG;
-  const floatingIcon = `<span class="floating-orb"><span class="floating-orb-inner">${floatingIconContent}</span></span>`;
+  const floatingIcon = `<span class="floating-orb"><span class="floating-orb-inner"><span class="floating-icon-chat">${chatIconHtml}</span><span class="floating-icon-close">${CLOSE_ICON_SVG('white')}</span></span></span>`;
   const floatingMarkup = floatingType === 'full'
     ? `
       <button class="floating-launcher floating-launcher-full hidden" id="floating-btn" aria-label="Open chat">

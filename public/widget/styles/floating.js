@@ -16,7 +16,7 @@ export const floatingCSS = `
     transition: transform 0.25s ease, box-shadow 0.25s ease;
   }
   .floating-launcher.widget-open {
-    pointer-events: none;
+    pointer-events: auto;
   }
   .floating-launcher:hover { transform: translateY(-2px); }
   .floating-launcher:focus-visible {
@@ -47,6 +47,26 @@ export const floatingCSS = `
     width: 28px;
     height: 28px;
   }
+
+  /* Icon swap: chat icon ↔ close icon based on widget open state */
+  .floating-icon-chat,
+  .floating-icon-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
+  .floating-icon-close { display: none; width: 30%; height: 30%; }
+  .floating-launcher.widget-open .floating-icon-chat { display: none; }
+  .floating-launcher.widget-open .floating-icon-close { display: flex; }
+
+  /* Collapse text labels when widget is open */
+  .floating-launcher.widget-open .floating-compact-label { display: none; }
+  .floating-launcher-compact.widget-open { background: transparent; box-shadow: none; padding: 0; }
+  .floating-launcher.widget-open .floating-full-message,
+  .floating-launcher.widget-open .floating-full-cta { display: none; }
+  .floating-launcher-full.widget-open { width: auto; border-radius: 9999px; background: transparent; box-shadow: none; padding: 0; }
 
   .floating-launcher-small {
     background: transparent;
