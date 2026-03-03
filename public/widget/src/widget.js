@@ -42,6 +42,7 @@ export class WitzoChatWidget extends HTMLElement {
     // Hope banner state
     this._wasEndIntent = false;
     this._idleTimer    = null;
+    this._pendingHopeBanner = false;
 
     // Auto-open timer (cleared on first manual interaction)
     this._autoOpenTimer = null;
@@ -202,10 +203,9 @@ export class WitzoChatWidget extends HTMLElement {
       this._resetRatingState();
     }
 
-    // Clear idle timer and hide hope banner when user sends a new message
-    clearTimeout(this._idleTimer);
-    this._idleTimer = null;
-    if (this.elements.hopeBanner) this.elements.hopeBanner.classList.add('hidden');
+    // Reset feedback prompt state when the user continues the conversation
+    this._clearHopeBannerTimer();
+    this._hideHopeBanner();
 
     msg.appendMessage(text, 'user', this.elements.messagesContainer);
     this.userMessageCount++;
@@ -329,12 +329,13 @@ export class WitzoChatWidget extends HTMLElement {
 
     this.pendingEndIntentRating = false;
 
-    // Show hope banner: immediately for end-intent messages, after 20s idle otherwise
-    if (this._wasEndIntent) {
-      this._showHopeBanner();
-    } else {
-      clearTimeout(this._idleTimer);
-      this._idleTimer = setTimeout(() => this._showHopeBanner(), 20000);
+    // Show feedback prompt immediately for gratitude/end-intent, otherwise after 25s of inactivity.
+    if (this.userMessageCount > 0 && this.botMessageCount > 0) {
+      if (this._wasEndIntent) {
+        this._showHopeBanner();
+      } else {
+        this._scheduleHopeBanner();
+      }
     }
     this._wasEndIntent = false;
   }
@@ -405,19 +406,56 @@ export class WitzoChatWidget extends HTMLElement {
     this.pendingEndIntentRating = false;
     this.ratingShown            = false;
     this.ratingSubmitted        = false;
+    this._pendingHopeBanner     = false;
+    this._clearHopeBannerTimer();
     session.setRatingShown(this.sessionId, false);
     session.setRatingSubmitted(this.sessionId, false);
     if (this.elements?.conversationRatingSlot) {
       this.elements.conversationRatingSlot.innerHTML = '';
       this.elements.conversationRatingSlot.classList.add('hidden');
     }
+    this._hideHopeBanner();
   }
 
   _resetCfBtn() {
     if (this.elements.cfSubmit) { this.elements.cfSubmit.disabled = false; this.elements.cfSubmit.textContent = 'Send Message'; }
   }
 
+  _clearHopeBannerTimer() {
+    clearTimeout(this._idleTimer);
+    this._idleTimer = null;
+  }
+
+  _hideHopeBanner() {
+    this._pendingHopeBanner = false;
+    if (this.elements.hopeBanner) {
+      this.elements.hopeBanner.classList.add('hidden');
+    }
+    this.elements.hopeBannerUp?.classList.remove('active');
+    this.elements.hopeBannerDown?.classList.remove('active');
+    this.elements.messagesContainer?.querySelector('.chat-message.mt-space')?.classList.remove('mt-space');
+  }
+
+  _scheduleHopeBanner() {
+    this._clearHopeBannerTimer();
+    this._idleTimer = setTimeout(() => {
+      if (this.isOpen) {
+        this._showHopeBanner();
+        return;
+      }
+      this._pendingHopeBanner = true;
+    }, 25000);
+  }
+
+  showPendingHopeBanner() {
+    if (!this._pendingHopeBanner) return;
+    this._pendingHopeBanner = false;
+    this._showHopeBanner();
+  }
+
   _showHopeBanner() {
+    this._clearHopeBannerTimer();
+    if (this.userMessageCount === 0 || this.botMessageCount === 0) return;
     if (this.elements.hopeBanner) {
       this.elements.hopeBanner.classList.remove('hidden');
       this.elements.messagesContainer?.querySelector('.chat-message')?.classList.add('mt-space');
@@ -435,9 +473,8 @@ export class WitzoChatWidget extends HTMLElement {
     this.updateSendButtonState();
 
     // Cancel any pending idle timer and hide hope banner
-    clearTimeout(this._idleTimer);
-    this._idleTimer = null;
-    if (this.elements.hopeBanner) this.elements.hopeBanner.classList.add('hidden');
+    this._clearHopeBannerTimer();
+    this._hideHopeBanner();
 
     // Append session-ended message as a bot bubble
     const wrapper = document.createElement('div');

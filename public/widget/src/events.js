@@ -66,6 +66,7 @@ export function toggleChat(widget) {
     widget.elements.widget.classList.remove('hidden', 'minimizing');
     widget.elements.floatingBtn.classList.add('widget-open');
     setTimeout(() => widget.elements.input.focus(), 100);
+    widget.showPendingHopeBanner();
   } else {
     widget.isOpen = false;
     widget.elements.widget.classList.add('minimizing');
