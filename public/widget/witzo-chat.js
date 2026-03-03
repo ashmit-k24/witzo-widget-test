@@ -234,6 +234,52 @@
 				);
 
 			this.initializeLanguagePreference();
+			if (
+				!document.getElementById(
+					"witzo-font-inter-preconnect",
+				)
+			) {
+				const preconnect =
+					document.createElement("link");
+				preconnect.id =
+					"witzo-font-inter-preconnect";
+				preconnect.rel = "preconnect";
+				preconnect.href =
+					"https://fonts.googleapis.com";
+				document.head.appendChild(preconnect);
+			}
+			if (
+				!document.getElementById(
+					"witzo-font-inter-preconnect-crossorigin",
+				)
+			) {
+				const preconnectCrossorigin =
+					document.createElement("link");
+				preconnectCrossorigin.id =
+					"witzo-font-inter-preconnect-crossorigin";
+				preconnectCrossorigin.rel =
+					"preconnect";
+				preconnectCrossorigin.href =
+					"https://fonts.gstatic.com";
+				preconnectCrossorigin.crossOrigin =
+					"anonymous";
+				document.head.appendChild(
+					preconnectCrossorigin,
+				);
+			}
+			if (
+				!document.getElementById(
+					"witzo-font-inter",
+				)
+			) {
+				const link =
+					document.createElement("link");
+				link.id = "witzo-font-inter";
+				link.rel = "stylesheet";
+				link.href =
+					"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
+				document.head.appendChild(link);
+			}
 			this.render();
 			this.bindEvents();
 			this.updateSendButtonState();
@@ -587,7 +633,7 @@
 			this.shadowRoot.innerHTML = `
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
       <style>
           *,
           ::after,
