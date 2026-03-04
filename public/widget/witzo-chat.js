@@ -696,11 +696,12 @@
           :host([preview-mode="embedded"]) #textChatWidget {
             position: absolute;
             right: 16px;
-            bottom: 16px;
+            bottom: 92px;
             width: min(27rem, calc(100% - 32px));
             max-width: calc(100% - 32px);
-            max-height: calc(100% - 32px);
+            max-height: calc(100% - 108px);
             min-height: 420px;
+            z-index: 2;
           }
           #textChatWidget.intro-mode {
             background:#FBFBFB;
@@ -1625,7 +1626,7 @@
             position: absolute;
             right: 16px;
             bottom: 16px;
-            z-index: 3;
+            z-index: 4;
           }
           .floating-launcher {
             font-family: inherit;
