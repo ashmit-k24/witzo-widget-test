@@ -884,8 +884,6 @@ export const generateEmbedScript = async (
 
       // Apply custom configuration
 ${configAttrs}
-      // Always open widget to show the intro screen first
-      widget.setAttribute('auto-open', 'true');
 
       // Append to body
       document.body.appendChild(widget);
@@ -929,10 +927,9 @@ ${configAttrs}
 			"Content-Type",
 			"application/javascript",
 		);
-		res.setHeader(
-			"Cache-Control",
-			"public, max-age=3600",
-		); // Cache for 1 hour
+		res.setHeader("Cache-Control", "no-store, must-revalidate");
+		res.setHeader("Pragma", "no-cache");
+		res.setHeader("Expires", "0");
 		res.setHeader(
 			"Access-Control-Allow-Origin",
 			"*",

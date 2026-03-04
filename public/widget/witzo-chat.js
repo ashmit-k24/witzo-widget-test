@@ -293,11 +293,8 @@
 				}, 500);
 			}
 
-			// Auto-open if configured
-			if (
-				this.config.autoOpen ||
-				this.isEmbeddedPreview
-			) {
+			// Auto-open only when explicitly configured
+			if (this.config.autoOpen) {
 				setTimeout(
 					() => {
 						if (!this.isOpen) this.toggleChat();
@@ -711,7 +708,7 @@
           }
           #textChatWidget.intro-mode .intro-screen {
             flex: 0 0 auto;
-			padding-bottom: 0;
+			padding-bottom: 64px;
           }
           
           #textChatWidget.intro-mode #backToIntroBtn,
@@ -1487,14 +1484,16 @@
           }
 
 		  .help-links-list {
-			margin-top: 20px;
+			margin-top: 10px;
 			display: flex;
 			flex-direction: column;
+			padding-bottom: 8px;
 		  }
 		  .help-link-item {
 			display: flex;
 			align-items: center;
 			justify-content: space-between;
+			gap: 12px;
 			padding: 12px 0;
 			cursor: pointer;
 			border-bottom: 1px solid rgb(234, 234, 234);
@@ -1502,7 +1501,7 @@
 		  .intro-mode .chat-footer{
 			position:absolute;
 			width:100%;
-			bottom:0;
+			bottom:-5px;
 			padding-bottom: 0;
 		  }
 
@@ -1574,6 +1573,8 @@
 			transition: opacity 0.3s ease;
 		  }
 		  .help-link-text {
+			flex: 1 1 auto;
+			min-width: 0;
 			font-size: 14px;
 			font-weight: 500;
 			color: #111;

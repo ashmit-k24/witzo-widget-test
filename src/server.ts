@@ -184,7 +184,15 @@ app.use((req: Request, _res: Response, next) => {
 // Serve widget static files from public directory
 app.use(
 	"/widget",
-	express.static("public/widget"),
+	express.static("public/widget", {
+		setHeaders: (res, filePath) => {
+			if (filePath.endsWith("witzo-chat.js")) {
+				res.setHeader("Cache-Control", "no-store, must-revalidate");
+				res.setHeader("Pragma", "no-cache");
+				res.setHeader("Expires", "0");
+			}
+		},
+	}),
 );
 
 // Serve shared assets (images, etc.)
