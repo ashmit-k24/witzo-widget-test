@@ -65,7 +65,6 @@ export const checkConversationLimit = async (
 					conversationsUsed: currentUsage.conversationsUsed,
 					conversationsLimit: currentUsage.conversationsLimit,
 					resetDate: currentUsage.resetDate,
-					upgradeUrl: "/api/auth/upgrade",
 				},
 			});
 			return;
@@ -209,10 +208,6 @@ export const checkScraperLimit = async (
 					pagesUsed: usage.pagesUsed,
 					pagesLimit: usage.pagesLimit,
 					pagesRemaining: usage.pagesRemaining,
-					upgradeUrl:
-						planType !== "enterprise"
-							? "/api/auth/upgrade"
-							: undefined,
 					upgradeMessage:
 						getScraperUpgradeMessage(
 							planType,

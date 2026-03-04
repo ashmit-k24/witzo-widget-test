@@ -264,6 +264,79 @@ class PineconeService {
 		return chunks;
 	}
 
+	private buildVectorId(
+		userId: string,
+		url: string,
+		chunkIndex: number,
+	): string {
+		const sanitizedUrl = this.sanitizeId(url);
+		return `${this.sanitizeId(userId)}_${sanitizedUrl}_chunk_${chunkIndex}`;
+	}
+
+	private async deleteVectorIds(
+		index: any,
+		ids: string[],
+	): Promise<void> {
+		if (ids.length === 0) {
+			return;
+		}
+
+		for (const batch of this.chunkArray(ids, 1000)) {
+			await pineconeCircuitBreaker.execute(
+				async () => {
+					await index.deleteMany(batch);
+				},
+			);
+		}
+	}
+
+	private async deleteStaleChunksForUrl(
+		userId: string,
+		url: string,
+		validIds: Set<string>,
+	): Promise<void> {
+		const index = this.getNamespaceIndex(userId);
+		const prefix = `${this.sanitizeId(userId)}_${this.sanitizeId(url)}_chunk_`;
+		const staleIds: string[] = [];
+		let paginationToken: string | undefined;
+
+		do {
+			const listResponse = await index.listPaginated({
+				prefix,
+				paginationToken,
+				limit: 100,
+			});
+
+			const ids =
+				listResponse.vectors
+					?.map((vector: any) => vector.id)
+					.filter((id: any): id is string =>
+						Boolean(id),
+					) ?? [];
+
+			for (const id of ids) {
+				if (!validIds.has(id)) {
+					staleIds.push(id);
+				}
+			}
+
+			paginationToken =
+				listResponse.pagination?.next ||
+				undefined;
+		} while (paginationToken);
+
+		if (staleIds.length === 0) {
+			return;
+		}
+
+		await this.deleteVectorIds(index, staleIds);
+		logger.info("Deleted stale Pinecone chunks", {
+			userId,
+			url,
+			staleChunks: staleIds.length,
+		});
+	}
+
 	async upsertDocument(
 		userId: string,
 		url: string,
@@ -273,11 +346,8 @@ class PineconeService {
 	): Promise<void> {
 		let chunks: string[] = [];
 		try {
-			const namespace =
-				this.getUserNamespace(userId);
-			const index = this.pinecone
-				.index(this.indexName)
-				.namespace(namespace);
+			const index =
+				this.getNamespaceIndex(userId);
 			chunks = this.chunkText(content);
 
 			const vectors: PineconeRecord[] = [];
@@ -301,8 +371,11 @@ class PineconeService {
 					...metadata,
 				};
 
-				const sanitizedUrl = this.sanitizeId(url);
-				const vectorId = `${this.sanitizeId(userId)}_${sanitizedUrl}_chunk_${i}`;
+				const vectorId = this.buildVectorId(
+					userId,
+					url,
+					i,
+				);
 
 				vectors.push({
 					id: vectorId,
@@ -310,6 +383,12 @@ class PineconeService {
 					metadata: pineconeMetadata,
 				});
 			}
+
+			await this.deleteStaleChunksForUrl(
+				userId,
+				url,
+				new Set(vectors.map((vector) => vector.id)),
+			);
 
 			// Use circuit breaker and retry for Pinecone upsert
 			await pineconeCircuitBreaker.execute(
@@ -446,16 +525,10 @@ class PineconeService {
 				return;
 			}
 
-			for (const batch of this.chunkArray(
+			await this.deleteVectorIds(
+				index,
 				matchingIds,
-				1000,
-			)) {
-				await pineconeCircuitBreaker.execute(
-					async () => {
-						await index.deleteMany(batch);
-					},
-				);
-			}
+			);
 
 			logger.info(
 				`Deleted ${matchingIds.length} chunks from ${logLabel} (user: ${userId})`,
@@ -514,16 +587,10 @@ class PineconeService {
 				return;
 			}
 
-			for (const batch of this.chunkArray(
+			await this.deleteVectorIds(
+				index,
 				matchingIds,
-				1000,
-			)) {
-				await pineconeCircuitBreaker.execute(
-					async () => {
-						await index.deleteMany(batch);
-					},
-				);
-			}
+			);
 
 			logger.info(
 				`Deleted ${matchingIds.length} chunks for exact page: ${exactUrl} (user: ${userId})`,

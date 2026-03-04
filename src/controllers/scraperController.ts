@@ -4,6 +4,7 @@ import {
 } from "../config/planConfig";
 import { pineconeService } from "../services/pineconeService";
 import { scraperService } from "../services/scraperService";
+import { scraperStatusService } from "../services/scraperStatusService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
@@ -23,10 +24,27 @@ const getScraperUpgradeMessage = (
 	return "You have reached the maximum limit for Enterprise plan (300 pages)";
 };
 
+const getScraperLimitPayload = (
+	planType: "free" | "basic" | "enterprise",
+	scraperUsage: Awaited<
+		ReturnType<typeof pineconeService.getScraperUsageStats>
+	>,
+) => ({
+		planType: scraperUsage.planType,
+		pagesUsed: scraperUsage.pagesUsed,
+		pagesLimit: scraperUsage.pagesLimit,
+		pagesRemaining: scraperUsage.pagesRemaining,
+		upgradeMessage:
+			scraperUsage.pagesLimit === null
+				? undefined
+				: getScraperUpgradeMessage(planType),
+	});
+
 export const scrapeWebsite = async (
 	req: Request,
 	res: Response,
 ): Promise<void> => {
+	let jobId: string | null = null;
 	try {
 		const {
 			url,
@@ -82,24 +100,12 @@ export const scrapeWebsite = async (
 			) {
 				res.status(403).json({
 					success: false,
-				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
 					data: {
-						planType:
-							scraperUsage.planType,
-						pagesUsed:
-							scraperUsage.pagesUsed,
-						pagesLimit:
-							scraperUsage.pagesLimit,
-						pagesRemaining:
-							scraperUsage.pagesRemaining,
-						upgradeUrl:
-							planType !== "enterprise"
-								? "/api/auth/upgrade"
-								: undefined,
-						upgradeMessage:
-							getScraperUpgradeMessage(
-								planType,
-							),
+						...getScraperLimitPayload(
+							planType,
+							scraperUsage,
+						),
 					},
 				});
 				return;
@@ -137,23 +143,73 @@ export const scrapeWebsite = async (
 				},
 			);
 
-		// Scrape synchronously — waits until all pages are scraped
-				const result =
-					await scraperService.scrapeWebsite(
-						userId,
-						url,
-						{
-							maxDepth:
-								normalizedMaxDepth,
-							maxPages:
-								effectiveMaxPages,
+			const job =
+				await scraperStatusService.startJob({
+					userId,
+					url,
+					mode: "scrape",
+					maxDepth: normalizedMaxDepth,
+					maxPages: effectiveMaxPages,
+				});
+			jobId = job.jobId;
+
+			// Scrape synchronously while exposing progress through status endpoints.
+			const result =
+				await scraperService.scrapeWebsite(
+					userId,
+					url,
+					{
+						maxDepth:
+							normalizedMaxDepth,
+						maxPages:
+							effectiveMaxPages,
+						onProgress: async (
+							progress,
+						) => {
+							await scraperStatusService.updateProgress(
+								job.jobId,
+								progress,
+							);
 						},
-					);
+					},
+				);
+			const finalProgress = {
+				totalPages: result.visitedPages,
+				scrapedPages: result.visitedPages,
+				storedPages: result.storedPages,
+				currentUrl: url,
+			};
+			const finalJob = result.success
+				? await scraperStatusService.completeJob(
+						job.jobId,
+						finalProgress,
+				  )
+				: await scraperStatusService.failJob(
+						job.jobId,
+						result.message,
+						finalProgress,
+				  );
 		res.status(result.success ? 200 : 500).json({
 			success: result.success,
 			message: result.message,
+			data: {
+				job: finalJob ?? job,
+				pagesScraped: result.pagesScraped,
+				visitedPages: result.visitedPages,
+				storedPages: result.storedPages,
+			},
 		});
 	} catch (error) {
+		if (jobId) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Scrape failed";
+			await scraperStatusService.failJob(
+				jobId,
+				message,
+			);
+		}
 		logger.error(
 			"Error in scrapeWebsite controller",
 			{ error },
@@ -438,6 +494,10 @@ export const getAllSources = async (
 			await pineconeService.getAllUserSources(
 				userId,
 			);
+		const latestJob =
+			await scraperStatusService.getLatestJobForUser(
+				userId,
+			);
 		const scraperUsage =
 			await pineconeService.getScraperUsageStats(
 				userId,
@@ -472,6 +532,7 @@ export const getAllSources = async (
 					isAtLimit:
 						scraperUsage.isAtLimit,
 				},
+				scrapeJob: latestJob,
 			},
 		});
 	} catch (error) {
@@ -523,6 +584,12 @@ export const getAllSources = async (
 						isAtLimit:
 							scraperUsage.isAtLimit,
 					},
+					scrapeJob:
+						userId
+							? await scraperStatusService.getLatestJobForUser(
+									userId,
+							  )
+							: null,
 				},
 			});
 			return;
@@ -540,10 +607,90 @@ export const getAllSources = async (
 	}
 };
 
+export const getLatestScrapeStatus = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = (req as any).user?.id;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		const job =
+			await scraperStatusService.getLatestJobForUser(
+				userId,
+			);
+		res.status(200).json({
+			success: true,
+			data: job,
+		});
+	} catch (error) {
+		logger.error(
+			"Error in getLatestScrapeStatus controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while fetching scrape status",
+		});
+	}
+};
+
+export const getScrapeStatusByJobId = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = (req as any).user?.id;
+		const { jobId } = req.params;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		const job =
+			await scraperStatusService.getJob(jobId);
+		if (!job || job.userId !== userId) {
+			res.status(404).json({
+				success: false,
+				message: "Scrape job not found",
+			});
+			return;
+		}
+
+		res.status(200).json({
+			success: true,
+			data: job,
+		});
+	} catch (error) {
+		logger.error(
+			"Error in getScrapeStatusByJobId controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while fetching scrape job",
+		});
+	}
+};
+
 export const retrainWebsite = async (
 	req: Request,
 	res: Response,
 ): Promise<void> => {
+	let jobId: string | null = null;
 	try {
 		const {
 			url,
@@ -595,22 +742,10 @@ export const retrainWebsite = async (
 					success: false,
 					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
 					data: {
-						planType:
-							scraperUsage.planType,
-						pagesUsed:
-							scraperUsage.pagesUsed,
-						pagesLimit:
-							scraperUsage.pagesLimit,
-						pagesRemaining:
-							scraperUsage.pagesRemaining,
-						upgradeUrl:
-							planType !== "enterprise"
-								? "/api/auth/upgrade"
-								: undefined,
-						upgradeMessage:
-							getScraperUpgradeMessage(
-								planType,
-							),
+						...getScraperLimitPayload(
+							planType,
+							scraperUsage,
+						),
 					},
 				});
 				return;
@@ -636,6 +771,15 @@ export const retrainWebsite = async (
 				scraperUsage.pagesRemaining ??
 					normalizedMaxPages,
 			);
+			const job =
+				await scraperStatusService.startJob({
+					userId,
+					url,
+					mode: "retrain",
+					maxDepth: normalizedMaxDepth,
+					maxPages: effectiveMaxPages,
+				});
+			jobId = job.jobId;
 
 			// Re-scrape the website
 			const result =
@@ -647,14 +791,54 @@ export const retrainWebsite = async (
 							normalizedMaxDepth,
 						maxPages:
 							effectiveMaxPages,
+						onProgress: async (
+							progress,
+						) => {
+							await scraperStatusService.updateProgress(
+								job.jobId,
+								progress,
+							);
+						},
 					},
 				);
+			const finalProgress = {
+				totalPages: result.visitedPages,
+				scrapedPages: result.visitedPages,
+				storedPages: result.storedPages,
+				currentUrl: url,
+			};
+			const finalJob = result.success
+				? await scraperStatusService.completeJob(
+						job.jobId,
+						finalProgress,
+				  )
+				: await scraperStatusService.failJob(
+						job.jobId,
+						result.message,
+						finalProgress,
+				  );
 
 		res.status(result.success ? 200 : 500).json({
 			success: result.success,
 			message: `Website retrained successfully: ${result.message}`,
+			data: {
+				job: finalJob ?? job,
+				pagesScraped: result.pagesScraped,
+				visitedPages: result.visitedPages,
+				storedPages: result.storedPages,
+			},
 		});
 	} catch (error) {
+		if (jobId) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Retrain failed";
+			await scraperStatusService.failJob(
+				jobId,
+				message,
+			);
+		}
 		logger.error(
 			"Error in retrainWebsite controller",
 			{ error },

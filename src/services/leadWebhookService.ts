@@ -4,6 +4,7 @@ import {
 	getPlanCapabilities,
 	PlanType,
 } from "../config/planConfig";
+import { config as appConfig } from "../config/env";
 import pool from "../config/database";
 import {
 	WEBHOOK_BACKOFF_BASE_MS,
@@ -13,6 +14,7 @@ import {
 	WEBHOOK_PROCESS_BATCH_SIZE,
 } from "../constants";
 import logger from "../utils/logger";
+import { assertSafeOutgoingUrl } from "../utils/networkSafety";
 
 type LeadWebhookEventStatus =
 	| "pending"
@@ -80,18 +82,24 @@ class LeadWebhookService {
 		if (!normalized) {
 			throw new Error("webhookUrl is required");
 		}
-		let parsed: URL;
-		try {
-			parsed = new URL(normalized);
-		} catch {
-			throw new Error("webhookUrl must be a valid URL");
-		}
+		const parsed = new URL(normalized);
 		if (
 			parsed.protocol !== "https:" &&
 			parsed.protocol !== "http:"
 		) {
 			throw new Error("webhookUrl must be http or https");
 		}
+		return parsed.toString();
+	}
+
+	private async assertSafeWebhookUrl(
+		url: string,
+	): Promise<string> {
+		const parsed = await assertSafeOutgoingUrl(url, {
+			allowHttp:
+				appConfig.NODE_ENV !==
+				"production",
+		});
 		return parsed.toString();
 	}
 
@@ -217,8 +225,10 @@ class LeadWebhookService {
 			current?.is_active ??
 			true;
 		const webhookUrl = payload.webhookUrl
-			? this.normalizeWebhookUrl(
-					payload.webhookUrl,
+			? await this.assertSafeWebhookUrl(
+					this.normalizeWebhookUrl(
+						payload.webhookUrl,
+					),
 				)
 			: current?.webhook_url;
 		if (!current && !webhookUrl) {
@@ -508,10 +518,14 @@ class LeadWebhookService {
 			timestamp,
 			body,
 		);
+		const safeWebhookUrl =
+			await this.assertSafeWebhookUrl(
+				config.webhook_url,
+			);
 
 		try {
 			const response = await axios.post(
-				config.webhook_url,
+				safeWebhookUrl,
 				JSON.parse(body),
 				{
 					timeout: WEBHOOK_DELIVERY_TIMEOUT_MS,

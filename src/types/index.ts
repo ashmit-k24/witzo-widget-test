@@ -274,6 +274,12 @@ export interface ScrapeRequest {
 
 export interface ScrapeJobStatus {
 	jobId: string;
+	userId?: string;
+	url?: string;
+	mode?: "scrape" | "retrain";
+	currentUrl?: string;
+	maxDepth?: number;
+	maxPages?: number;
 	status:
 		| "pending"
 		| "in_progress"

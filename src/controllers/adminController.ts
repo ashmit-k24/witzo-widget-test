@@ -1,7 +1,6 @@
-import crypto from "crypto";
 import { NextFunction, Request, Response } from "express";
 import pool from "../config/database";
-import { config } from "../config/env";
+import adminAuthService from "../services/adminAuthService";
 import { signAdminToken } from "../middleware/adminAuth";
 import logger from "../utils/logger";
 
@@ -23,28 +22,58 @@ export const login = async (
 			return;
 		}
 
-		const emailMatch = crypto.timingSafeEqual(
-			Buffer.from(email.toLowerCase()),
-			Buffer.from(config.ADMIN_EMAIL.toLowerCase()),
-		);
+		const loginResult =
+			await adminAuthService.authenticateAdmin(
+				email,
+				password,
+				{
+					ipAddress: req.ip,
+					userAgent:
+						req.get("user-agent") ?? null,
+				},
+			);
 
-		const passwordMatch = crypto.timingSafeEqual(
-			Buffer.from(password),
-			Buffer.from(config.ADMIN_PASSWORD),
-		);
-
-		if (!emailMatch || !passwordMatch) {
-			logger.warn("Failed admin login attempt", { email, ip: req.ip });
-			res.status(401).json({ message: "Invalid credentials" });
+		if (!loginResult.success) {
+			logger.warn(
+				"Failed admin login attempt",
+				{ email, ip: req.ip },
+			);
+			res.status(loginResult.status).json({
+				message: loginResult.message,
+			});
 			return;
 		}
 
-		const token = signAdminToken(email);
-		logger.info("Admin login successful", { email, ip: req.ip });
-		res.json({ token });
+		const token = signAdminToken(
+			loginResult.admin,
+		);
+		logger.info("Admin login successful", {
+			adminId: loginResult.admin.id,
+			email: loginResult.admin.email,
+			role: loginResult.admin.role,
+			ip: req.ip,
+		});
+		res.json({
+			token,
+			data: {
+				admin: loginResult.admin,
+			},
+		});
 	} catch (error) {
 		next(error);
 	}
+};
+
+export const getCurrentAdmin = async (
+	req: Request,
+	res: Response,
+	_next: NextFunction,
+): Promise<void> => {
+	res.json({
+		data: {
+			admin: req.admin,
+		},
+	});
 };
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -528,7 +557,17 @@ export const resetUsage = async (
 			[userId],
 		);
 
-		logger.info("Admin: reset usage", { userId });
+		await adminAuthService.recordAuditEvent({
+			adminUserId: req.admin?.id,
+			action: "admin.user.reset_usage",
+			ipAddress: req.ip,
+			userAgent: req.get("user-agent") ?? null,
+			metadata: { userId },
+		});
+		logger.info("Admin: reset usage", {
+			adminId: req.admin?.id,
+			userId,
+		});
 		res.json({ data: { success: true } });
 	} catch (error) {
 		next(error);
@@ -552,7 +591,17 @@ export const forceLogout = async (
 			[userId],
 		);
 
-		logger.info("Admin: force logout", { userId });
+		await adminAuthService.recordAuditEvent({
+			adminUserId: req.admin?.id,
+			action: "admin.user.force_logout",
+			ipAddress: req.ip,
+			userAgent: req.get("user-agent") ?? null,
+			metadata: { userId },
+		});
+		logger.info("Admin: force logout", {
+			adminId: req.admin?.id,
+			userId,
+		});
 		res.json({ data: { success: true } });
 	} catch (error) {
 		next(error);
@@ -588,7 +637,18 @@ export const setUserPlan = async (
 			[planType, userId],
 		);
 
-		logger.info("Admin: set user plan", { userId, planType });
+		await adminAuthService.recordAuditEvent({
+			adminUserId: req.admin?.id,
+			action: "admin.user.set_plan",
+			ipAddress: req.ip,
+			userAgent: req.get("user-agent") ?? null,
+			metadata: { userId, planType },
+		});
+		logger.info("Admin: set user plan", {
+			adminId: req.admin?.id,
+			userId,
+			planType,
+		});
 		res.json({ data: { success: true } });
 	} catch (error) {
 		next(error);

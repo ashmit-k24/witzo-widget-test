@@ -3,16 +3,27 @@ import * as cheerio from "cheerio";
 import { pineconeService } from "./pineconeService";
 import { ScrapedPage } from "../types";
 import logger from "../utils/logger";
+import {
+	assertSafeOutgoingUrl,
+} from "../utils/networkSafety";
 
 interface CrawlOptions {
 	maxDepth?: number;
 	maxPages?: number;
+	onProgress?: (progress: {
+		totalPages: number;
+		scrapedPages: number;
+		storedPages: number;
+		currentUrl?: string;
+	}) => Promise<void> | void;
 }
 
 interface ScrapeResult {
 	success: boolean;
 	message: string;
 	pagesScraped: number;
+	visitedPages: number;
+	storedPages: number;
 	pages: ScrapedPage[];
 }
 
@@ -97,14 +108,44 @@ class ScraperService {
 	private async fetchPageContent(
 		url: string,
 	): Promise<string> {
-		const response = await axios.get(url, {
-			headers: {
-				"User-Agent":
-					"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-			},
-			timeout: 10000,
-		});
-		return response.data;
+		let currentUrl = url;
+
+		for (let redirectCount = 0; redirectCount < 5; redirectCount += 1) {
+			const safeUrl =
+				await assertSafeOutgoingUrl(currentUrl, {
+					allowHttp: true,
+				});
+			const response = await axios.get(safeUrl.toString(), {
+				headers: {
+					"User-Agent":
+						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+				},
+				timeout: 10000,
+				maxRedirects: 0,
+				validateStatus: (status) =>
+					(status >= 200 && status < 300) ||
+					(status >= 300 && status < 400),
+			});
+
+			if (response.status >= 300 && response.status < 400) {
+				const location =
+					response.headers.location;
+				if (!location) {
+					throw new Error(
+						"Redirect response missing location header",
+					);
+				}
+				currentUrl = new URL(
+					location,
+					safeUrl,
+				).toString();
+				continue;
+			}
+
+			return response.data;
+		}
+
+		throw new Error("Too many redirects while scraping");
 	}
 
 	private extractPageData(
@@ -164,15 +205,22 @@ class ScraperService {
 		url: string,
 		options: CrawlOptions = {},
 	): Promise<ScrapeResult> {
-		const rootUrl = this.normalizeUrl(url);
+		const safeRootUrl =
+			await assertSafeOutgoingUrl(url, {
+				allowHttp: true,
+			});
+		const rootUrl = this.normalizeUrl(
+			safeRootUrl.toString(),
+		);
 		let rootTitle = "";
 		const maxDepth = options.maxDepth || 3;
 		const maxPages = options.maxPages || 300;
+		const reportProgress = options.onProgress;
 		const visitedUrls = new Set<string>();
 		const urlQueue: Array<{
 			url: string;
 			depth: number;
-		}> = [{ url, depth: 0 }];
+		}> = [{ url: rootUrl, depth: 0 }];
 		const scrapedPages: ScrapedPage[] = [];
 
 		logger.info(
@@ -181,6 +229,12 @@ class ScraperService {
 		);
 
 		await pineconeService.ensureIndexExists();
+		await reportProgress?.({
+			totalPages: Math.min(maxPages, urlQueue.length),
+			scrapedPages: 0,
+			storedPages: 0,
+			currentUrl: rootUrl,
+		});
 
 		while (
 			urlQueue.length > 0 &&
@@ -255,6 +309,19 @@ class ScraperService {
 					`Error scraping ${normalizedUrl}`,
 					{ error },
 				);
+			} finally {
+				await reportProgress?.({
+					totalPages: Math.min(
+						maxPages,
+						Math.max(
+							visitedUrls.size + urlQueue.length,
+							visitedUrls.size,
+						),
+					),
+					scrapedPages: visitedUrls.size,
+					storedPages: scrapedPages.length,
+					currentUrl: normalizedUrl,
+				});
 			}
 		}
 
@@ -266,10 +333,17 @@ class ScraperService {
 			},
 		);
 
+		const wasSuccessful =
+			scrapedPages.length > 0;
+
 		return {
-			success: true,
-			message: `Successfully scraped ${scrapedPages.length} page(s)`,
+			success: wasSuccessful,
+			message: wasSuccessful
+				? `Successfully scraped ${scrapedPages.length} page(s)`
+				: "Failed to scrape any pages from the provided website",
 			pagesScraped: scrapedPages.length,
+			visitedPages: visitedUrls.size,
+			storedPages: scrapedPages.length,
 			pages: scrapedPages,
 		};
 	}

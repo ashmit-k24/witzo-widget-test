@@ -1,8 +1,24 @@
+import fs from "fs";
 import { Request, Response } from "express";
 import { coercePlanType } from "../config/planConfig";
 import { documentParserService } from "../services/documentParserService";
 import { pineconeService } from "../services/pineconeService";
 import logger from "../utils/logger";
+
+const cleanupUploadedFile = (filePath?: string): void => {
+	if (!filePath || !fs.existsSync(filePath)) {
+		return;
+	}
+
+	try {
+		fs.unlinkSync(filePath);
+	} catch (error) {
+		logger.warn("Failed to cleanup uploaded file", {
+			error,
+			filePath,
+		});
+	}
+};
 
 export const uploadDocument = async (
 	req: Request,
@@ -44,6 +60,7 @@ export const uploadDocument = async (
 				documentUrl,
 			);
 		if (existingSource.exists) {
+			cleanupUploadedFile(filePath);
 			logger.info(
 				`Document already uploaded for user: ${userId}`,
 				{
@@ -71,6 +88,7 @@ export const uploadDocument = async (
 				planType,
 			);
 		if (documentUsage.isAtLimit) {
+			cleanupUploadedFile(filePath);
 			logger.warn(
 				"User has reached document training limit",
 				{
@@ -94,14 +112,11 @@ export const uploadDocument = async (
 						documentUsage.documentsLimit,
 					documentsRemaining:
 						documentUsage.documentsRemaining,
-					upgradeUrl:
-						planType === "free"
-							? "/api/auth/upgrade"
-							: undefined,
 					upgradeMessage:
-						planType === "free"
-							? "Upgrade to Basic plan for 10 document uploads"
-							: "You have reached the maximum limit for Basic plan",
+						documentUsage.documentsLimit ===
+						null
+							? undefined
+							: `Your ${planType} plan allows ${documentUsage.documentsLimit} document uploads.`,
 				},
 			});
 			return;
@@ -148,6 +163,7 @@ export const uploadDocument = async (
 			},
 		});
 	} catch (error) {
+		cleanupUploadedFile(req.file?.path);
 		logger.error(
 			"Error in uploadDocument controller",
 			{ error },
@@ -228,6 +244,7 @@ export const uploadMultipleDocuments = async (
 						documentUrl,
 					);
 				if (existingSource.exists) {
+					cleanupUploadedFile(file.path);
 					logger.info(
 						`Document already uploaded for user: ${userId}`,
 						{
@@ -249,6 +266,7 @@ export const uploadMultipleDocuments = async (
 						documentsLimit !== null &&
 						documentsUsed >= documentsLimit
 					) {
+					cleanupUploadedFile(file.path);
 					results.push({
 						filename: file.originalname,
 						success: false,
@@ -275,6 +293,7 @@ export const uploadMultipleDocuments = async (
 					chunks: result.chunks,
 				});
 			} catch (error) {
+				cleanupUploadedFile(file.path);
 				results.push({
 					filename: file.originalname,
 					success: false,
@@ -303,14 +322,19 @@ export const uploadMultipleDocuments = async (
 			data: {
 				successCount,
 				upgradeMessage:
-					planType === "free" &&
+					documentsLimit !== null &&
 					limitExceededCount > 0
-						? "Upgrade to Basic plan for up to 10 document uploads"
+						? `Your ${planType} plan allows ${documentsLimit} document uploads.`
 						: undefined,
 				results,
 			},
 		});
 	} catch (error) {
+		const files =
+			(req.files as Express.Multer.File[]) || [];
+		for (const file of files) {
+			cleanupUploadedFile(file.path);
+		}
 		logger.error(
 			"Error in uploadMultipleDocuments controller",
 			{ error },

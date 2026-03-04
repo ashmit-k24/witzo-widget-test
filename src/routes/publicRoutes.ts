@@ -1,4 +1,8 @@
 import { Router } from "express";
+import {
+	publicWidgetActionLimiter,
+	publicWidgetChatLimiter,
+} from "../config/rateLimiters";
 import * as widgetController from "../controllers/widgetController";
 import * as publicWidgetController from "../controllers/publicWidgetController";
 import {
@@ -30,6 +34,7 @@ router.get(
  */
 router.post(
 	"/webhook",
+	publicWidgetChatLimiter,
 	validationRules.publicWebhook,
 	validate,
 	widgetController.webhookChat,
@@ -71,6 +76,7 @@ router.get(
  */
 router.post(
 	"/widget/contact",
+	publicWidgetActionLimiter,
 	validationRules.publicWidgetContact,
 	validate,
 	publicWidgetController.submitContactForm,
@@ -83,6 +89,7 @@ router.post(
  */
 router.post(
 	"/widget/rating",
+	publicWidgetActionLimiter,
 	validationRules.publicWidgetRating,
 	validate,
 	publicWidgetController.submitChatRating,

@@ -69,6 +69,22 @@ export const validationRules: Record<
 			),
 	],
 
+	adminLogin: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid admin email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+		body("password")
+			.isString()
+			.withMessage("password is required")
+			.isLength({ min: 8, max: 256 })
+			.withMessage(
+				"password must be 8-256 characters",
+			),
+	],
+
 	updateProfile: [
 		body("full_name")
 			.isString()

@@ -4,6 +4,7 @@ import {
 	PlanType,
 } from "../config/planConfig";
 import pool from "../config/database";
+import { config } from "../config/env";
 import {
 	redisAnalytics,
 	redisCache,
@@ -18,6 +19,7 @@ import logger from "../utils/logger";
 export interface WidgetKey {
 	id: number;
 	user_id: string;
+	company_website: string | null;
 	widget_key: string;
 	widget_name: string;
 	is_active: boolean;
@@ -65,9 +67,13 @@ export interface CreateWidgetKeyParams {
 	widgetName?: string;
 	allowedDomains?: string[];
 	widgetConfig?: WidgetConfig;
+	companyWebsite?: string | null;
 }
 
 class WidgetService {
+	private readonly originTokenTtlMs =
+		12 * 60 * 60 * 1000;
+
 	/**
 	 * Generate a unique widget key
 	 */
@@ -77,6 +83,228 @@ class WidgetService {
 
 	private getCacheKey(widgetKey: string): string {
 		return `widget_key:${widgetKey}`;
+	}
+
+	private normalizeDomain(
+		value: string,
+	): string | null {
+		const trimmed = value.trim();
+		if (!trimmed) {
+			return null;
+		}
+
+		const isWildcard =
+			trimmed.startsWith("*.");
+		const candidate = isWildcard
+			? trimmed.slice(2)
+			: trimmed;
+		const withProtocol =
+			/^https?:\/\//i.test(candidate)
+				? candidate
+				: `https://${candidate}`;
+
+		try {
+			const hostname = new URL(withProtocol).hostname
+				.toLowerCase()
+				.replace(/\.$/, "");
+			if (!hostname) {
+				return null;
+			}
+			return isWildcard
+				? `*.${hostname}`
+				: hostname;
+		} catch {
+			return null;
+		}
+	}
+
+	private normalizeAllowedDomains(
+		domains?: string[] | null,
+	): string[] | null {
+		if (!domains) {
+			return null;
+		}
+
+		const normalized = Array.from(
+			new Set(
+				domains
+					.map((domain) =>
+						this.normalizeDomain(domain),
+					)
+					.filter(
+						(
+							domain,
+						): domain is string => Boolean(domain),
+					),
+			),
+		);
+
+		return normalized.length > 0
+			? normalized
+			: null;
+	}
+
+	private getDerivedAllowedDomains(
+		companyWebsite?: string | null,
+	): string[] | null {
+		if (!companyWebsite) {
+			return null;
+		}
+		const domain = this.normalizeDomain(
+			companyWebsite,
+		);
+		return domain ? [domain] : null;
+	}
+
+	private resolveAllowedDomains(
+		requestedDomains: string[] | null | undefined,
+		options?: {
+			existingDomains?: string[] | null;
+			companyWebsite?: string | null;
+		},
+	): string[] | null {
+		const normalizedRequested =
+			this.normalizeAllowedDomains(
+				requestedDomains,
+			);
+		if (normalizedRequested) {
+			return normalizedRequested;
+		}
+
+		const existing =
+			this.normalizeAllowedDomains(
+				options?.existingDomains,
+			);
+		if (existing) {
+			return existing;
+		}
+
+		return this.getDerivedAllowedDomains(
+			options?.companyWebsite,
+		);
+	}
+
+	private getEffectiveAllowedDomains(
+		widget: WidgetKey,
+	): string[] | null {
+		return (
+			this.normalizeAllowedDomains(
+				widget.allowed_domains,
+			) ||
+			this.getDerivedAllowedDomains(
+				widget.company_website,
+			)
+		);
+	}
+
+	private matchesAllowedDomain(
+		refererDomain: string,
+		allowedDomains: string[],
+	): boolean {
+		return allowedDomains.some((domain) => {
+			const sanitizedDomain = domain
+				.replace(/^https?:\/\//i, "")
+				.toLowerCase();
+			if (!sanitizedDomain) {
+				return false;
+			}
+
+			if (sanitizedDomain.startsWith("*.")) {
+				const baseDomain =
+					sanitizedDomain.slice(2);
+				return (
+					refererDomain === baseDomain ||
+					refererDomain.endsWith(
+						`.${baseDomain}`,
+					)
+				);
+			}
+
+			return (
+				refererDomain === sanitizedDomain ||
+				refererDomain.endsWith(
+					`.${sanitizedDomain}`,
+				)
+			);
+		});
+	}
+
+	createOriginToken(
+		widgetKey: string,
+		originDomain: string,
+	): string {
+		const now = Date.now();
+		const payload = {
+			widgetKey,
+			originDomain:
+				originDomain.toLowerCase(),
+			exp: now + this.originTokenTtlMs,
+			iat: now,
+		};
+		const encodedPayload = Buffer.from(
+			JSON.stringify(payload),
+			"utf-8",
+		).toString("base64url");
+		const signature = crypto
+			.createHmac("sha256", config.COOKIE_SECRET)
+			.update(encodedPayload)
+			.digest("base64url");
+		return `${encodedPayload}.${signature}`;
+	}
+
+	private validateOriginToken(
+		token: string,
+		widgetKey: string,
+		originDomain: string,
+	): boolean {
+		const parts = token.split(".");
+		if (parts.length !== 2) {
+			return false;
+		}
+
+		const [encodedPayload, signature] = parts;
+		const expectedSignature = crypto
+			.createHmac("sha256", config.COOKIE_SECRET)
+			.update(encodedPayload)
+			.digest("base64url");
+
+		try {
+			if (
+				!crypto.timingSafeEqual(
+					Buffer.from(signature, "utf-8"),
+					Buffer.from(
+						expectedSignature,
+						"utf-8",
+					),
+				)
+			) {
+				return false;
+			}
+		} catch {
+			return false;
+		}
+
+		try {
+			const payload = JSON.parse(
+				Buffer.from(
+					encodedPayload,
+					"base64url",
+				).toString("utf-8"),
+			) as {
+				widgetKey: string;
+				originDomain: string;
+				exp: number;
+			};
+
+			return (
+				payload.widgetKey === widgetKey &&
+				payload.originDomain ===
+					originDomain.toLowerCase() &&
+				Date.now() <= payload.exp
+			);
+		} catch {
+			return false;
+		}
 	}
 
 	/**
@@ -90,6 +318,7 @@ class WidgetService {
 			widgetName = "My Chat Widget",
 			allowedDomains = null,
 			widgetConfig = {},
+			companyWebsite,
 		} = params;
 
 		try {
@@ -103,6 +332,11 @@ class WidgetService {
 			}
 
 			const widgetKey = this.generateWidgetKey();
+			const effectiveAllowedDomains =
+				this.resolveAllowedDomains(
+					allowedDomains,
+					{ companyWebsite },
+				);
 
 			const result = await pool.query(
 				`INSERT INTO widget_keys
@@ -113,7 +347,7 @@ class WidgetService {
 					userId,
 					widgetKey,
 					widgetName,
-					allowedDomains,
+					effectiveAllowedDomains,
 					JSON.stringify(widgetConfig),
 				],
 			);
@@ -155,11 +389,18 @@ class WidgetService {
 				this.getCacheKey(widgetKey),
 			);
 			if (cached) {
-				return JSON.parse(cached);
+				const parsedCached =
+					JSON.parse(cached) as Partial<WidgetKey>;
+				if (
+					parsedCached.company_website !==
+					undefined
+				) {
+					return parsedCached as WidgetKey;
+				}
 			}
 
 			const result = await pool.query(
-				`SELECT wk.*, u.plan_type
+				`SELECT wk.*, u.plan_type, u.company_website
 				 FROM widget_keys wk
 				 JOIN users u ON u.id = wk.user_id
 				 WHERE wk.widget_key = $1`,
@@ -201,7 +442,12 @@ class WidgetService {
 			// We don't cache by userID easily because primary lookup is by key
 			// But we could add a secondary cache if needed
 			const result = await pool.query(
-				`SELECT * FROM widget_keys WHERE user_id = $1`,
+				`SELECT wk.*, u.plan_type, u.company_website
+				 FROM widget_keys wk
+				 JOIN users u ON u.id = wk.user_id
+				 WHERE wk.user_id = $1
+				 ORDER BY wk.updated_at DESC
+				 LIMIT 1`,
 				[userId],
 			);
 
@@ -227,9 +473,11 @@ class WidgetService {
 	async verifyWidgetKey(
 		widgetKey: string,
 		refererDomain?: string,
+		originToken?: string,
 	): Promise<{
 		valid: boolean;
 		userId?: string;
+		widget?: WidgetKey;
 		message?: string;
 	}> {
 		try {
@@ -251,61 +499,60 @@ class WidgetService {
 			}
 
 			const normalizedReferer =
-				refererDomain?.toLowerCase();
+				refererDomain
+					? this.normalizeDomain(
+							refererDomain,
+					  )
+					: null;
+			const allowedDomains =
+				this.getEffectiveAllowedDomains(widget);
 
-			// Check domain restrictions
 			if (
-				widget.allowed_domains &&
-				widget.allowed_domains.length > 0
+				normalizedReferer &&
+				originToken &&
+				this.validateOriginToken(
+					originToken,
+					widgetKey,
+					normalizedReferer,
+				)
 			) {
-				if (!normalizedReferer) {
-					return {
-						valid: false,
-						message:
-							"Missing referer for domain-restricted widget",
-					};
-				}
+				this.updateWidgetUsage(widget.id);
+				return {
+					valid: true,
+					userId: widget.user_id,
+					widget,
+				};
+			}
 
-				const isAllowed =
-					widget.allowed_domains.some(
-						(domain) => {
-							const sanitizedDomain = domain
-								.replace(/^https?:\/\//i, "")
-								.toLowerCase();
-							if (!sanitizedDomain) {
-								return false;
-							}
+			if (
+				!allowedDomains ||
+				allowedDomains.length === 0
+			) {
+				return {
+					valid: false,
+					message:
+						"Widget allowed domains are not configured",
+				};
+			}
 
-							if (
-								sanitizedDomain.startsWith("*.")
-							) {
-								const baseDomain =
-									sanitizedDomain.slice(2);
-								return (
-									normalizedReferer ===
-										baseDomain ||
-									normalizedReferer.endsWith(
-										`.${baseDomain}`,
-									)
-								);
-							}
+			if (!normalizedReferer) {
+				return {
+					valid: false,
+					message:
+						"Missing referer for domain-restricted widget",
+				};
+			}
 
-							return (
-								normalizedReferer ===
-									sanitizedDomain ||
-								normalizedReferer.endsWith(
-									`.${sanitizedDomain}`,
-								)
-							);
-						},
-					);
-
-				if (!isAllowed) {
-					return {
-						valid: false,
-						message: "Domain not allowed",
-					};
-				}
+			if (
+				!this.matchesAllowedDomain(
+					normalizedReferer,
+					allowedDomains,
+				)
+			) {
+				return {
+					valid: false,
+					message: "Domain not allowed",
+				};
 			}
 
 			// Update usage stats (fire and forget, maybe buffered later if needed)
@@ -314,6 +561,7 @@ class WidgetService {
 			return {
 				valid: true,
 				userId: widget.user_id,
+				widget,
 			};
 		} catch (error) {
 			logger.error("Error verifying widget key", {
@@ -337,9 +585,16 @@ class WidgetService {
 			isActive?: boolean;
 			allowedDomains?: string[];
 			widgetConfig?: WidgetConfig;
+			companyWebsite?: string | null;
 		},
 	): Promise<WidgetKey> {
 		try {
+			const currentWidget =
+				await this.getUserWidgetKey(userId);
+			if (!currentWidget) {
+				throw new Error("Widget key not found");
+			}
+
 			const setClauses: string[] = [];
 			const values: any[] = [];
 			let paramIndex = 1;
@@ -359,10 +614,38 @@ class WidgetService {
 			}
 
 			if (updates.allowedDomains !== undefined) {
+				const effectiveAllowedDomains =
+					this.resolveAllowedDomains(
+						updates.allowedDomains,
+						{
+							existingDomains:
+								currentWidget.allowed_domains,
+							companyWebsite:
+								updates.companyWebsite,
+						},
+					);
 				setClauses.push(
 					`allowed_domains = $${paramIndex++}`,
 				);
-				values.push(updates.allowedDomains);
+				values.push(effectiveAllowedDomains);
+			} else if (
+				!this.normalizeAllowedDomains(
+					currentWidget.allowed_domains,
+				)
+			) {
+				const derivedAllowedDomains =
+					this.getDerivedAllowedDomains(
+						updates.companyWebsite ??
+							currentWidget.company_website,
+					);
+				if (derivedAllowedDomains) {
+					setClauses.push(
+						`allowed_domains = $${paramIndex++}`,
+					);
+					values.push(
+						derivedAllowedDomains,
+					);
+				}
 			}
 
 			if (updates.widgetConfig !== undefined) {
@@ -386,10 +669,6 @@ class WidgetService {
                     RETURNING *`,
 				values,
 			);
-
-			if (result.rows.length === 0) {
-				throw new Error("Widget key not found");
-			}
 
 			const widget = this.mapRowToWidgetKey(
 				result.rows[0],
@@ -752,6 +1031,8 @@ class WidgetService {
 		return {
 			id: row.id,
 			user_id: row.user_id,
+			company_website:
+				row.company_website ?? null,
 			widget_key: row.widget_key,
 			widget_name: row.widget_name,
 			is_active: row.is_active,

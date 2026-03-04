@@ -626,7 +626,8 @@ class AuthService {
 				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified, u.plan_type,
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
-				        u.profile_prompt_required_at, u.profile_completed_at
+				        u.profile_prompt_required_at, u.profile_completed_at,
+				        u.onboarding_step, u.onboarding_completed
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1 AND s.user_id = $2 AND s.access_token = $3 AND s.is_revoked = FALSE`,
@@ -670,6 +671,10 @@ class AuthService {
 						session.profile_prompt_required_at,
 					profileCompletedAt:
 						session.profile_completed_at,
+					onboardingStep:
+						session.onboarding_step,
+					onboardingCompleted:
+						session.onboarding_completed,
 				},
 			};
 		} catch (error) {
@@ -748,11 +753,14 @@ class AuthService {
 				profile_completed: boolean;
 				profile_prompt_required_at: Date | null;
 				profile_completed_at: Date | null;
+				onboarding_step: number;
+				onboarding_completed: boolean;
 			}>(
 				`SELECT s.id, s.user_id, u.email, u.is_verified, u.plan_type, s.refresh_token_expires_at,
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
-				        u.profile_prompt_required_at, u.profile_completed_at
+				        u.profile_prompt_required_at, u.profile_completed_at,
+				        u.onboarding_step, u.onboarding_completed
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1
@@ -854,6 +862,10 @@ class AuthService {
 						session.profile_prompt_required_at,
 					profileCompletedAt:
 						session.profile_completed_at,
+					onboardingStep:
+						session.onboarding_step,
+					onboardingCompleted:
+						session.onboarding_completed,
 				},
 			};
 		} catch (error) {

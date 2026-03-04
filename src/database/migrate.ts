@@ -134,6 +134,12 @@ const migrations: Migration[] = [
 			"Add onboarding_step, onboarding_completed, onboarding_completed_at to users table",
 		file: "20260303_019_user_onboarding.sql",
 	},
+	{
+		id: "20260304_020_admin_users",
+		description:
+			"Create admin users and admin audit logs tables",
+		file: "20260304_020_admin_users.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

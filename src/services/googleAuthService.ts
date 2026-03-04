@@ -58,6 +58,8 @@ class GoogleAuthService {
 				user.profile_prompt_required_at,
 			profileCompletedAt:
 				user.profile_completed_at,
+			onboardingStep: user.onboarding_step,
+			onboardingCompleted: user.onboarding_completed,
 		};
 	}
 

@@ -309,6 +309,18 @@ router.get(
 	scraperController.getAllSources,
 );
 
+router.get(
+	"/scraper/status",
+	authenticateToken,
+	scraperController.getLatestScrapeStatus,
+);
+
+router.get(
+	"/scraper/status/:jobId",
+	authenticateToken,
+	scraperController.getScrapeStatusByJobId,
+);
+
 /**
  * @route   POST /api/auth/chat
  * @desc    Chat with AI using scraped data (RAG)

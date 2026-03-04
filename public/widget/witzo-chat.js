@@ -31,6 +31,7 @@
 			this.apiUrl = "";
 			this.apiBaseUrl = "";
 			this.widgetKey = "";
+			this.originToken = "";
 			this.sessionId = "";
 			this.isOpen = false;
 			this.hasStartedChat = false;
@@ -122,6 +123,9 @@
 				);
 			this.widgetKey =
 				this.getAttribute("widget-key") || "";
+			this.originToken =
+				this.getAttribute("origin-token") ||
+				"";
 			this.isEmbeddedPreview =
 				this.getAttribute("preview-mode") ===
 				"embedded";
@@ -3155,11 +3159,11 @@
 
 				const response = await fetch(url, {
 					method: "POST",
-					headers: {
+					headers: this.getRequestHeaders({
 						"Content-Type": "application/json",
 						Accept:
 							"text/event-stream, application/json",
-					},
+					}),
 					body: JSON.stringify(body),
 				});
 
@@ -3303,7 +3307,7 @@
 					: "chat-bubble-ai";
 
 			// Render content
-			bubble.innerHTML = `<div class="md-content"><p>${this.parseMarkdown(this.escapeHtml(text))}</p></div>`;
+			bubble.innerHTML = `<div class="md-content"><p>${this.parseMarkdown(text)}</p></div>`;
 
 			wrapper.appendChild(bubble);
 
@@ -3397,7 +3401,7 @@
 					);
 				streamingTextNode.innerHTML =
 					this.parseMarkdown(
-						this.escapeHtml(normalizedText),
+						normalizedText,
 					);
 			}
 			this.queueScrollToBottom();
@@ -3759,9 +3763,9 @@
 						"/api/v1/widget/rating",
 					{
 						method: "POST",
-						headers: {
+						headers: this.getRequestHeaders({
 							"Content-Type": "application/json",
-						},
+						}),
 						body: JSON.stringify({
 							widgetKey: this.widgetKey,
 							sessionId: this.sessionId,
@@ -3827,9 +3831,9 @@
 						"/api/v1/widget/contact",
 					{
 						method: "POST",
-						headers: {
+						headers: this.getRequestHeaders({
 							"Content-Type": "application/json",
-						},
+						}),
 						body: JSON.stringify({
 							widgetKey: this.widgetKey,
 							sessionId: this.sessionId,
@@ -3881,7 +3885,7 @@
 		parseMarkdown(text) {
 			if (!text) return "";
 			// Simple markdown parsing to match text-widget capabilities
-			let html = text;
+			let html = this.escapeHtml(String(text));
 
 			// Bold **text**
 			html = html.replace(
@@ -3916,6 +3920,24 @@
 					}[m];
 				},
 			);
+		}
+
+		getRequestHeaders(additionalHeaders) {
+			var headers = Object.assign(
+				{},
+				additionalHeaders || {},
+			);
+			var originToken =
+				this.originToken ||
+				this.getAttribute(
+					"origin-token",
+				) ||
+				"";
+			if (originToken) {
+				headers["X-Witzo-Origin-Token"] =
+					originToken;
+			}
+			return headers;
 		}
 	}
 

@@ -3,6 +3,7 @@ import {
 	Request,
 	Response,
 } from "express";
+import { config } from "../config/env";
 import { chatService } from "../services/chatService";
 import { leadService } from "../services/leadService";
 import usageTrackingService from "../services/usageTrackingService";
@@ -38,10 +39,17 @@ export const createWidgetKey = async (
 				widgetName,
 				allowedDomains,
 				widgetConfig,
+				companyWebsite:
+					req.user?.companyWebsite ?? null,
 			});
 		const publicUrls = getWidgetPublicUrls(
 			widgetKey.widget_key,
 		);
+		const previewOriginToken =
+			getPreviewOriginToken(
+				req,
+				widgetKey.widget_key,
+			);
 
 		res.status(201).json({
 			success: true,
@@ -49,13 +57,16 @@ export const createWidgetKey = async (
 				widgetKey: widgetKey.widget_key,
 				widgetName: widgetKey.widget_name,
 				isActive: widgetKey.is_active,
-				allowedDomains: widgetKey.allowed_domains,
+				allowedDomains:
+					widgetKey.allowed_domains || [],
 				widgetConfig: widgetKey.widget_config,
 				apiBaseUrl: publicUrls.apiUrl,
 				embedScriptUrl:
 					publicUrls.embedScriptUrl,
 				widgetScriptUrl:
 					publicUrls.widgetScriptUrl,
+				previewOriginToken:
+					previewOriginToken,
 				embedCode: generateEmbedCode(
 					widgetKey.widget_key,
 					widgetKey.widget_config,
@@ -101,6 +112,11 @@ export const getWidgetKey = async (
 		const publicUrls = getWidgetPublicUrls(
 			widgetKey.widget_key,
 		);
+		const previewOriginToken =
+			getPreviewOriginToken(
+				req,
+				widgetKey.widget_key,
+			);
 
 		res.status(200).json({
 			success: true,
@@ -108,13 +124,15 @@ export const getWidgetKey = async (
 				widgetKey: widgetKey.widget_key,
 				widgetName: widgetKey.widget_name,
 				isActive: widgetKey.is_active,
-				allowedDomains: widgetKey.allowed_domains,
+				allowedDomains:
+					widgetKey.allowed_domains || [],
 				widgetConfig: widgetKey.widget_config,
 				apiBaseUrl: publicUrls.apiUrl,
 				embedScriptUrl:
 					publicUrls.embedScriptUrl,
 				widgetScriptUrl:
 					publicUrls.widgetScriptUrl,
+				previewOriginToken,
 				embedCode: generateEmbedCode(
 					widgetKey.widget_key,
 					widgetKey.widget_config,
@@ -157,11 +175,19 @@ export const updateWidgetKey = async (
 					isActive,
 					allowedDomains,
 					widgetConfig,
+					companyWebsite:
+						req.user?.companyWebsite ??
+						null,
 				},
 			);
 		const publicUrls = getWidgetPublicUrls(
 			updatedWidget.widget_key,
 		);
+		const previewOriginToken =
+			getPreviewOriginToken(
+				req,
+				updatedWidget.widget_key,
+			);
 
 		res.status(200).json({
 			success: true,
@@ -170,13 +196,14 @@ export const updateWidgetKey = async (
 				widgetName: updatedWidget.widget_name,
 				isActive: updatedWidget.is_active,
 				allowedDomains:
-					updatedWidget.allowed_domains,
+					updatedWidget.allowed_domains || [],
 				widgetConfig: updatedWidget.widget_config,
 				apiBaseUrl: publicUrls.apiUrl,
 				embedScriptUrl:
 					publicUrls.embedScriptUrl,
 				widgetScriptUrl:
 					publicUrls.widgetScriptUrl,
+				previewOriginToken,
 				embedCode: generateEmbedCode(
 					updatedWidget.widget_key,
 					updatedWidget.widget_config,
@@ -212,6 +239,11 @@ export const regenerateWidgetKey = async (
 		const publicUrls = getWidgetPublicUrls(
 			newWidget.widget_key,
 		);
+		const previewOriginToken =
+			getPreviewOriginToken(
+				req,
+				newWidget.widget_key,
+			);
 
 		res.status(200).json({
 			success: true,
@@ -219,13 +251,15 @@ export const regenerateWidgetKey = async (
 				widgetKey: newWidget.widget_key,
 				widgetName: newWidget.widget_name,
 				isActive: newWidget.is_active,
-				allowedDomains: newWidget.allowed_domains,
+				allowedDomains:
+					newWidget.allowed_domains || [],
 				widgetConfig: newWidget.widget_config,
 				apiBaseUrl: publicUrls.apiUrl,
 				embedScriptUrl:
 					publicUrls.embedScriptUrl,
 				widgetScriptUrl:
 					publicUrls.widgetScriptUrl,
+				previewOriginToken,
 				embedCode: generateEmbedCode(
 					newWidget.widget_key,
 					newWidget.widget_config,
@@ -361,11 +395,14 @@ export const getWidgetConfig = async (
 			req.get("origin") ||
 			"";
 		const refererDomain = extractDomain(referer);
+		const originToken =
+			getOriginTokenHeader(req);
 
 		const verification =
 			await widgetService.verifyWidgetKey(
 				widgetKey,
 				refererDomain,
+				originToken,
 			);
 
 		if (!verification.valid) {
@@ -455,12 +492,15 @@ export const webhookChat = async (
 			req.get("origin") ||
 			"";
 		const refererDomain = extractDomain(referer);
+		const originToken =
+			getOriginTokenHeader(req);
 
 		// Verify widget key and get userId
 		const verification =
 			await widgetService.verifyWidgetKey(
 				widgetKey,
 				refererDomain,
+				originToken,
 			);
 
 		if (!verification.valid) {
@@ -503,6 +543,11 @@ export const webhookChat = async (
 			userAgent: req.get("user-agent"),
 			refererUrl: referer,
 		};
+		const visitorId =
+			typeof sessionId === "string" &&
+			sessionId.trim()
+				? sessionId
+				: undefined;
 
 		// Atomically check AND increment the conversation counter in one query,
 		// eliminating the TOCTOU race that existed with the old canUserChat() +
@@ -603,6 +648,16 @@ export const webhookChat = async (
 					},
 					resolvedLanguage,
 				);
+				await chatService.attachConversationContext(
+					result.sessionId,
+					userId,
+					{
+						widgetKeyId: widget.id,
+						visitorId:
+							visitorId ||
+							result.sessionId,
+					},
+				);
 
 				// usage came from checkAndTrackConversation — no extra DB query needed
 				writeEvent({
@@ -667,6 +722,15 @@ export const webhookChat = async (
 			message,
 			sessionId,
 			resolvedLanguage,
+		);
+		await chatService.attachConversationContext(
+			result.sessionId,
+			userId,
+			{
+				widgetKeyId: widget.id,
+				visitorId:
+					visitorId || result.sessionId,
+			},
 		);
 
 		// Queue non-critical writes out of request path
@@ -736,11 +800,14 @@ export const generateEmbedScript = async (
 			req.get("origin") ||
 			"";
 		const refererDomain = extractDomain(referer);
+		const originToken =
+			getOriginTokenHeader(req);
 
 		const verification =
 			await widgetService.verifyWidgetKey(
 				widgetKey,
 				refererDomain,
+				originToken,
 			);
 
 		if (!verification.valid) {
@@ -786,6 +853,13 @@ export const generateEmbedScript = async (
 		const widgetScriptUrl =
 			process.env.WIDGET_SCRIPT_URL ||
 			`${apiUrl}/widget/witzo-chat.js`;
+		const runtimeOriginToken =
+			refererDomain
+				? widgetService.createOriginToken(
+						widgetKey,
+						refererDomain,
+				  )
+				: null;
 
 		// Explicit mapping from WidgetConfig camelCase keys → witzo-chat HTML attribute names.
 		// primaryColor fans out to three attributes (banner-color, floating-btn, user-chat-color).
@@ -881,6 +955,11 @@ export const generateEmbedScript = async (
       widget.setAttribute('widget-key', '${widgetKey}');
       widget.setAttribute('api-base-url', '${apiUrl}');
       widget.__witzoPlanType = '${planType}';
+      ${
+				runtimeOriginToken
+					? `widget.setAttribute('origin-token', '${runtimeOriginToken}');`
+					: ""
+			}
 
       // Apply custom configuration
 ${configAttrs}
@@ -1070,6 +1149,38 @@ function getWidgetPublicUrls(widgetKey: string): {
 		widgetScriptUrl,
 		embedScriptUrl,
 	};
+}
+
+function getOriginTokenHeader(
+	req: Request,
+): string | undefined {
+	const token = req.get(
+		"x-witzo-origin-token",
+	);
+	return token?.trim() || undefined;
+}
+
+function getPreviewOriginToken(
+	req: Request,
+	widgetKey: string,
+): string | undefined {
+	if (!widgetKey) {
+		return undefined;
+	}
+
+	const previewOrigin =
+		req.get("origin") ||
+		req.get("referer") ||
+		config.FRONTEND_URL;
+	const previewDomain =
+		extractDomain(previewOrigin);
+
+	return previewDomain
+		? widgetService.createOriginToken(
+				widgetKey,
+				previewDomain,
+		  )
+		: undefined;
 }
 
 /**

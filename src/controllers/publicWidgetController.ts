@@ -3,6 +3,7 @@ import { coercePlanType, getPlanCapabilities } from "../config/planConfig";
 import pool from "../config/database";
 import widgetService from "../services/widgetService";
 import { chatRatingService } from "../services/chatRatingService";
+import { chatService } from "../services/chatService";
 import { leadService } from "../services/leadService";
 import logger from "../utils/logger";
 
@@ -25,10 +26,24 @@ async function resolveWidget(
 ): Promise<{ userId: string; referer: string } | null> {
 	const referer = req.get("referer") || req.get("origin") || "";
 	const refererDomain = extractDomain(referer);
+	const originToken =
+		req
+			.get("x-witzo-origin-token")
+			?.trim() || undefined;
 
-	const verification = await widgetService.verifyWidgetKey(widgetKey, refererDomain);
+	const verification =
+		await widgetService.verifyWidgetKey(
+			widgetKey,
+			refererDomain,
+			originToken,
+		);
 	if (!verification.valid) {
-		res.status(403).json({ success: false, message: "Invalid widget key" });
+		res.status(403).json({
+			success: false,
+			message:
+				verification.message ||
+				"Invalid widget key",
+		});
 		return null;
 	}
 
@@ -62,6 +77,21 @@ export async function submitContactForm(req: Request, res: Response): Promise<vo
 		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
 		if (!widget) {
 			res.status(404).json({ success: false, message: "Widget not found" });
+			return;
+		}
+		const sessionContext =
+			await chatService.getConversationContext(
+				sessionId,
+				userId,
+			);
+		if (
+			!sessionContext ||
+			sessionContext.widgetKeyId !== widget.id
+		) {
+			res.status(403).json({
+				success: false,
+				message: "Invalid widget session",
+			});
 			return;
 		}
 
@@ -107,6 +137,21 @@ export async function submitChatRating(req: Request, res: Response): Promise<voi
 		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
 		if (!widget) {
 			res.status(404).json({ success: false, message: "Widget not found" });
+			return;
+		}
+		const sessionContext =
+			await chatService.getConversationContext(
+				sessionId,
+				userId,
+			);
+		if (
+			!sessionContext ||
+			sessionContext.widgetKeyId !== widget.id
+		) {
+			res.status(403).json({
+				success: false,
+				message: "Invalid widget session",
+			});
 			return;
 		}
 

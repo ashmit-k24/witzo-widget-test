@@ -32,6 +32,7 @@ import healthRoutes from "./routes/healthRoutes";
 import publicRoutes from "./routes/publicRoutes";
 import authRoutes from "./routes/routes";
 import authService from "./services/authService";
+import adminAuthService from "./services/adminAuthService";
 import { leadWebhookService } from "./services/leadWebhookService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
@@ -89,12 +90,18 @@ const rawOrigins = configuredOrigins
 	.split(",")
 	.map((origin) => origin.trim())
 	.filter(Boolean);
-const allowAnyOrigin = rawOrigins.includes("*");
+const hasWildcardOrigin = rawOrigins.includes("*");
 const allowedOriginSet = new Set(
 	rawOrigins
 		.filter((origin) => origin !== "*")
 		.map((origin) => origin.toLowerCase()),
 );
+
+if (hasWildcardOrigin) {
+	logger.warn(
+		'Ignoring CORS wildcard origin "*" because credentialed requests require explicit origins. Configure CORS_ORIGIN with a comma-separated allowlist instead.',
+	);
+}
 
 app.use(
 	cors({
@@ -107,10 +114,7 @@ app.use(
 			const normalizedOrigin =
 				origin.toLowerCase();
 
-			if (
-				allowAnyOrigin ||
-				allowedOriginSet.has(normalizedOrigin)
-			) {
+			if (allowedOriginSet.has(normalizedOrigin)) {
 				callback(null, true);
 				return;
 			}
@@ -298,6 +302,7 @@ const server: Server = app.listen(
 		logger.info(
 			`🚀 Server is running on http://localhost:${config.PORT}`,
 		);
+		void adminAuthService.initializeAdminAuth();
 	},
 );
 server.keepAliveTimeout =
