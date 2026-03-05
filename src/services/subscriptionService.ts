@@ -434,6 +434,121 @@ class SubscriptionService {
 		return {};
 	}
 
+	private normalizeProviderPlanId(
+		value: string | null | undefined,
+	): string | null {
+		if (typeof value !== "string") {
+			return null;
+		}
+		const normalized = value.trim();
+		return normalized.length > 0
+			? normalized
+			: null;
+	}
+
+	private extractRazorpayErrorMessage(
+		error: unknown,
+		fallback: string,
+	): string {
+		if (error instanceof Error) {
+			const message = error.message.trim();
+			if (message) {
+				return message;
+			}
+		}
+
+		const payload = this.toObject(error);
+		const directMessage = payload.message;
+		if (
+			typeof directMessage === "string" &&
+			directMessage.trim()
+		) {
+			return directMessage.trim();
+		}
+
+		const nestedError = this.toObject(payload.error);
+		const description = nestedError.description;
+		if (
+			typeof description === "string" &&
+			description.trim()
+		) {
+			return description.trim();
+		}
+
+		const nestedMessage = nestedError.message;
+		if (
+			typeof nestedMessage === "string" &&
+			nestedMessage.trim()
+		) {
+			return nestedMessage.trim();
+		}
+
+		return fallback;
+	}
+
+	private async validateProviderPlanForCycle(
+		razorpay: Razorpay,
+		providerPlanId: string,
+		billingCycle: BillingCycle,
+		planName: string,
+	): Promise<void> {
+		if (!/^plan_[A-Za-z0-9]+$/.test(providerPlanId)) {
+			throw new Error(
+				`Razorpay ${billingCycle} plan ID configured for ${planName} is invalid. It must start with "plan_".`,
+			);
+		}
+
+		let providerPlan: Record<string, unknown>;
+		try {
+			providerPlan =
+				(await razorpay.plans.fetch(
+					providerPlanId,
+				)) as unknown as Record<
+					string,
+					unknown
+				>;
+		} catch (error) {
+			const message =
+				this.extractRazorpayErrorMessage(
+					error,
+					`Razorpay ${billingCycle} plan ID configured for ${planName} is invalid or inaccessible.`,
+				);
+			throw new Error(message);
+		}
+
+		const period =
+			typeof providerPlan.period ===
+			"string"
+				? providerPlan.period
+						.trim()
+						.toLowerCase()
+				: "";
+		const intervalRaw =
+			providerPlan.interval;
+		const interval =
+			typeof intervalRaw ===
+			"number"
+				? intervalRaw
+				: Number(intervalRaw);
+
+		const hasExpectedPeriod =
+			billingCycle === "monthly"
+				? period === "monthly"
+				: period === "yearly";
+		const hasExpectedInterval =
+			Number.isFinite(interval) &&
+			interval === 1;
+
+		if (
+			!hasExpectedPeriod ||
+			!hasExpectedInterval
+		) {
+			throw new Error(
+				`Configured Razorpay ${billingCycle} plan for ${planName} does not match a ${billingCycle} interval. Please update the plan ID in admin.`,
+			);
+		}
+	}
+
 	private async applyUserPlan(
 		client: PoolClient,
 		userId: string,
@@ -800,9 +915,11 @@ class SubscriptionService {
 		}
 
 		const providerPlanId =
-			input.billingCycle === "monthly"
-				? plan.razorpay_monthly_plan_id
-				: plan.razorpay_yearly_plan_id;
+			this.normalizeProviderPlanId(
+				input.billingCycle === "monthly"
+					? plan.razorpay_monthly_plan_id
+					: plan.razorpay_yearly_plan_id,
+			);
 
 		if (!providerPlanId) {
 			throw new Error(
@@ -812,6 +929,12 @@ class SubscriptionService {
 
 		const razorpay =
 			this.getRazorpayClient();
+		await this.validateProviderPlanForCycle(
+			razorpay,
+			providerPlanId,
+			input.billingCycle,
+			plan.name,
+		);
 		const shouldCancelCurrent =
 			input.cancelCurrent !== false;
 
@@ -844,25 +967,41 @@ class SubscriptionService {
 				],
 			);
 
-			const created =
-				(await razorpay.subscriptions.create({
-					plan_id: providerPlanId,
-					customer_notify: 1,
-					quantity: 1,
-					total_count: 120,
-					notes: {
-						user_id: userId,
-						plan_name: plan.name,
-						billing_cycle: input.billingCycle,
-						cancel_current:
-							shouldCancelCurrent
-								? "true"
-								: "false",
-					},
-				})) as unknown as Record<
-					string,
-					unknown
-				>;
+			let created: Record<
+				string,
+				unknown
+			>;
+			try {
+				created =
+					(await razorpay.subscriptions.create(
+						{
+							plan_id: providerPlanId,
+							customer_notify: 1,
+							quantity: 1,
+							total_count: 120,
+							notes: {
+								user_id: userId,
+								plan_name: plan.name,
+								billing_cycle:
+									input.billingCycle,
+								cancel_current:
+									shouldCancelCurrent
+										? "true"
+										: "false",
+							},
+						},
+					)) as unknown as Record<
+						string,
+						unknown
+					>;
+			} catch (error) {
+				const message =
+					this.extractRazorpayErrorMessage(
+						error,
+						"Failed to create Razorpay subscription.",
+					);
+				throw new Error(message);
+			}
 
 			const razorpaySubscriptionId = String(
 				created.id ?? "",
