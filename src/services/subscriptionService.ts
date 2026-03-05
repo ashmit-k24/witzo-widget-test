@@ -972,13 +972,17 @@ class SubscriptionService {
 				unknown
 			>;
 			try {
+				// Razorpay enforces max total_count=100 for plan subscriptions.
+				// Keep this valid for both monthly and yearly plans.
+				const subscriptionTotalCount = 100;
 				created =
 					(await razorpay.subscriptions.create(
 						{
 							plan_id: providerPlanId,
 							customer_notify: 1,
 							quantity: 1,
-							total_count: 120,
+							total_count:
+								subscriptionTotalCount,
 							notes: {
 								user_id: userId,
 								plan_name: plan.name,
