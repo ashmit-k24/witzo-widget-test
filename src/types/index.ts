@@ -16,9 +16,6 @@ export interface User {
 	conversations_limit: number | null;
 	plan_reset_date: Date;
 	plan_expires_at: Date | null;
-	stripe_customer_id: string | null;
-	subscription_id: string | null;
-	subscription_status: string | null;
 	login_count: number;
 	full_name: string | null;
 	company_name: string | null;
@@ -416,29 +413,3 @@ export interface DocumentUsageStats {
 	isAtLimit: boolean;
 }
 
-// Subscription types
-export interface Subscription {
-	id: number;
-	user_id: string;
-	stripe_subscription_id: string;
-	stripe_customer_id: string;
-	plan_type: PlanType;
-	status: string;
-	current_period_start: Date;
-	current_period_end: Date;
-	cancel_at_period_end: boolean;
-	created_at: Date;
-	updated_at: Date;
-}
-
-// Payment History types
-export interface PaymentHistory {
-	id: number;
-	user_id: string;
-	stripe_payment_id: string;
-	amount: number;
-	currency: string;
-	status: string;
-	plan_type: PlanType;
-	created_at: Date;
-}

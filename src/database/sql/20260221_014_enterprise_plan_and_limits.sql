@@ -18,11 +18,3 @@ UPDATE users
 SET conversations_limit = 1000
 WHERE plan_type = 'basic'
   AND conversations_limit < 1000;
-
-ALTER TABLE subscriptions
-DROP CONSTRAINT IF EXISTS sub_plan_type_check;
-
-ALTER TABLE subscriptions
-ADD CONSTRAINT sub_plan_type_check CHECK (
-  plan_type IN ('free', 'basic', 'enterprise')
-);

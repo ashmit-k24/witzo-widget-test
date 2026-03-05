@@ -1,8 +1,5 @@
 import pool from "../config/database";
-import {
-	coercePlanType,
-	PLAN_CONVERSATION_DEFAULT_LIMITS,
-} from "../config/planConfig";
+import { coercePlanType } from "../config/planConfig";
 import {
 	USAGE_APPROACHING_LIMIT_THRESHOLD,
 	USAGE_CACHE_TTL_SECONDS,
@@ -341,111 +338,6 @@ class UsageTrackingService {
 		}
 	}
 
-	/**
-	 * Upgrade user to basic plan. Invalidates Redis cache.
-	 */
-	async upgradeUserPlan(
-		userId: string,
-		stripeCustomerId: string,
-		subscriptionId: string,
-	): Promise<void> {
-		try {
-			await pool.query(
-				`UPDATE users
-        SET plan_type = 'basic',
-            conversations_limit = $4,
-            stripe_customer_id = $2,
-            subscription_id = $3,
-            subscription_status = 'active',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1`,
-				[
-					userId,
-					stripeCustomerId,
-					subscriptionId,
-					PLAN_CONVERSATION_DEFAULT_LIMITS
-						.basic as number,
-				],
-			);
-
-			await redisCache.del(usageCacheKey(userId));
-
-			logger.info("User upgraded to basic plan", {
-				userId,
-				stripeCustomerId,
-				subscriptionId,
-			});
-		} catch (error) {
-			const err = error as Error;
-			logger.error("Error upgrading user plan", {
-				userId,
-				error: err.message,
-			});
-			throw error;
-		}
-	}
-
-	/**
-	 * Downgrade user to free plan. Invalidates Redis cache.
-	 */
-	async downgradeUserPlan(userId: string): Promise<void> {
-		try {
-			await pool.query(
-				`UPDATE users
-        SET plan_type = 'free',
-            conversations_limit = $2,
-            subscription_status = 'canceled',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1`,
-				[
-					userId,
-					PLAN_CONVERSATION_DEFAULT_LIMITS
-						.free as number,
-				],
-			);
-
-			await redisCache.del(usageCacheKey(userId));
-
-			logger.info("User downgraded to free plan", { userId });
-		} catch (error) {
-			const err = error as Error;
-			logger.error("Error downgrading user plan", {
-				userId,
-				error: err.message,
-			});
-			throw error;
-		}
-	}
-
-	/**
-	 * Update subscription status
-	 */
-	async updateSubscriptionStatus(
-		userId: string,
-		status: string,
-	): Promise<void> {
-		try {
-			await pool.query(
-				`UPDATE users
-        SET subscription_status = $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1`,
-				[userId, status],
-			);
-
-			logger.info("Subscription status updated", {
-				userId,
-				status,
-			});
-		} catch (error) {
-			const err = error as Error;
-			logger.error("Error updating subscription status", {
-				userId,
-				error: err.message,
-			});
-			throw error;
-		}
-	}
 }
 
 export default new UsageTrackingService();

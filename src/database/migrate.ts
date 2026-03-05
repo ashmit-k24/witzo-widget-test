@@ -53,7 +53,7 @@ const migrations: Migration[] = [
 	{
 		id: "20260217_006_subscriptions",
 		description:
-			"Create subscriptions and payment history",
+			"Legacy billing migration (no-op)",
 		file: "20260217_006_subscriptions.sql",
 	},
 	{
@@ -139,6 +139,12 @@ const migrations: Migration[] = [
 		description:
 			"Create admin users and admin audit logs tables",
 		file: "20260304_020_admin_users.sql",
+	},
+	{
+		id: "20260305_021_remove_legacy_billing",
+		description:
+			"Remove legacy billing tables and columns",
+		file: "20260305_021_remove_legacy_billing.sql",
 	},
 ];
 

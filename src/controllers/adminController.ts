@@ -258,25 +258,12 @@ export const getInsights = async (
 					churn_risk_subscriptions: string;
 				}>(`
 					SELECT
-						(SELECT COUNT(DISTINCT user_id) FROM subscriptions
-							WHERE status = 'active') AS paying_users,
-						(SELECT COUNT(*) FROM subscriptions WHERE status = 'active') AS active_subscriptions,
-						(SELECT COALESCE(SUM(
-							CASE plan_type
-								WHEN 'basic' THEN 29
-								WHEN 'enterprise' THEN 99
-								ELSE 0
-							END
-						), 0) FROM subscriptions WHERE status = 'active') AS mrr_estimate_usd,
-						(SELECT COALESCE(SUM(amount::numeric / 100), 0) FROM payment_history
-							WHERE status = 'succeeded'
-							AND created_at >= NOW() - INTERVAL '30 days') AS revenue_30d_usd,
-						(SELECT COUNT(*) FROM payment_history
-							WHERE status = 'failed'
-							AND created_at >= NOW() - INTERVAL '30 days') AS failed_payments_30d,
-						(SELECT COUNT(*) FROM subscriptions
-							WHERE cancel_at_period_end = TRUE
-							AND status = 'active') AS churn_risk_subscriptions
+						0::text AS paying_users,
+						0::text AS active_subscriptions,
+						0::text AS mrr_estimate_usd,
+						0::text AS revenue_30d_usd,
+						0::text AS failed_payments_30d,
+						0::text AS churn_risk_subscriptions
 				`),
 				client.query<{
 					total_ratings: string;
