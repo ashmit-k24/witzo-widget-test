@@ -146,6 +146,12 @@ const migrations: Migration[] = [
 			"Remove legacy billing tables and columns",
 		file: "20260305_021_remove_legacy_billing.sql",
 	},
+	{
+		id: "20260305_022_razorpay_billing",
+		description:
+			"Create Razorpay-backed plans, subscriptions, and payments tables",
+		file: "20260305_022_razorpay_billing.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

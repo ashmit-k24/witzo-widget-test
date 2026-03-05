@@ -67,7 +67,6 @@ export interface CreateWidgetKeyParams {
 	widgetName?: string;
 	allowedDomains?: string[];
 	widgetConfig?: WidgetConfig;
-	companyWebsite?: string | null;
 }
 
 class WidgetService {
@@ -144,56 +143,11 @@ class WidgetService {
 			: null;
 	}
 
-	private getDerivedAllowedDomains(
-		companyWebsite?: string | null,
-	): string[] | null {
-		if (!companyWebsite) {
-			return null;
-		}
-		const domain = this.normalizeDomain(
-			companyWebsite,
-		);
-		return domain ? [domain] : null;
-	}
-
-	private resolveAllowedDomains(
-		requestedDomains: string[] | null | undefined,
-		options?: {
-			existingDomains?: string[] | null;
-			companyWebsite?: string | null;
-		},
-	): string[] | null {
-		const normalizedRequested =
-			this.normalizeAllowedDomains(
-				requestedDomains,
-			);
-		if (normalizedRequested) {
-			return normalizedRequested;
-		}
-
-		const existing =
-			this.normalizeAllowedDomains(
-				options?.existingDomains,
-			);
-		if (existing) {
-			return existing;
-		}
-
-		return this.getDerivedAllowedDomains(
-			options?.companyWebsite,
-		);
-	}
-
 	private getEffectiveAllowedDomains(
 		widget: WidgetKey,
 	): string[] | null {
-		return (
-			this.normalizeAllowedDomains(
-				widget.allowed_domains,
-			) ||
-			this.getDerivedAllowedDomains(
-				widget.company_website,
-			)
+		return this.normalizeAllowedDomains(
+			widget.allowed_domains,
 		);
 	}
 
@@ -318,7 +272,6 @@ class WidgetService {
 			widgetName = "My Chat Widget",
 			allowedDomains = null,
 			widgetConfig = {},
-			companyWebsite,
 		} = params;
 
 		try {
@@ -333,9 +286,8 @@ class WidgetService {
 
 			const widgetKey = this.generateWidgetKey();
 			const effectiveAllowedDomains =
-				this.resolveAllowedDomains(
+				this.normalizeAllowedDomains(
 					allowedDomains,
-					{ companyWebsite },
 				);
 
 			const result = await pool.query(
@@ -528,10 +480,11 @@ class WidgetService {
 				!allowedDomains ||
 				allowedDomains.length === 0
 			) {
+				this.updateWidgetUsage(widget.id);
 				return {
-					valid: false,
-					message:
-						"Widget allowed domains are not configured",
+					valid: true,
+					userId: widget.user_id,
+					widget,
 				};
 			}
 
@@ -585,7 +538,6 @@ class WidgetService {
 			isActive?: boolean;
 			allowedDomains?: string[];
 			widgetConfig?: WidgetConfig;
-			companyWebsite?: string | null;
 		},
 	): Promise<WidgetKey> {
 		try {
@@ -615,37 +567,13 @@ class WidgetService {
 
 			if (updates.allowedDomains !== undefined) {
 				const effectiveAllowedDomains =
-					this.resolveAllowedDomains(
+					this.normalizeAllowedDomains(
 						updates.allowedDomains,
-						{
-							existingDomains:
-								currentWidget.allowed_domains,
-							companyWebsite:
-								updates.companyWebsite,
-						},
 					);
 				setClauses.push(
 					`allowed_domains = $${paramIndex++}`,
 				);
 				values.push(effectiveAllowedDomains);
-			} else if (
-				!this.normalizeAllowedDomains(
-					currentWidget.allowed_domains,
-				)
-			) {
-				const derivedAllowedDomains =
-					this.getDerivedAllowedDomains(
-						updates.companyWebsite ??
-							currentWidget.company_website,
-					);
-				if (derivedAllowedDomains) {
-					setClauses.push(
-						`allowed_domains = $${paramIndex++}`,
-					);
-					values.push(
-						derivedAllowedDomains,
-					);
-				}
 			}
 
 			if (updates.widgetConfig !== undefined) {

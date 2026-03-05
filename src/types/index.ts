@@ -209,6 +209,9 @@ export interface EnvConfig {
 	PINECONE_INDEX_NAME: string;
 	OPENAI_API_KEY: string;
 	OPENAI_MODEL: string;
+	RAZORPAY_KEY_ID: string;
+	RAZORPAY_KEY_SECRET: string;
+	RAZORPAY_WEBHOOK_SECRET: string;
 
 	// Redis
 	REDIS_HOST: string;

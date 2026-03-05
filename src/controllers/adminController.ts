@@ -258,12 +258,32 @@ export const getInsights = async (
 					churn_risk_subscriptions: string;
 				}>(`
 					SELECT
-						0::text AS paying_users,
-						0::text AS active_subscriptions,
-						0::text AS mrr_estimate_usd,
-						0::text AS revenue_30d_usd,
-						0::text AS failed_payments_30d,
-						0::text AS churn_risk_subscriptions
+						(SELECT COUNT(DISTINCT user_id) FROM subscriptions
+							WHERE status IN ('active', 'authenticated'))::text AS paying_users,
+						(SELECT COUNT(*) FROM subscriptions
+							WHERE status IN ('active', 'authenticated'))::text AS active_subscriptions,
+						(SELECT COALESCE(SUM(
+							CASE s.billing_cycle
+								WHEN 'monthly' THEN p.monthly_price::numeric
+								WHEN 'yearly' THEN (p.yearly_price::numeric / 12)
+								ELSE 0
+							END
+						) / 100, 0)
+						FROM subscriptions s
+						INNER JOIN plans p ON p.id = s.plan_id
+						WHERE s.status IN ('active', 'authenticated'))::text AS mrr_estimate_usd,
+						(SELECT COALESCE(SUM(amount::numeric) / 100, 0)
+						FROM payments
+						WHERE payment_status IN ('captured', 'authorized')
+						  AND created_at >= NOW() - INTERVAL '30 days')::text AS revenue_30d_usd,
+						(SELECT COUNT(*)
+						FROM payments
+						WHERE payment_status = 'failed'
+						  AND created_at >= NOW() - INTERVAL '30 days')::text AS failed_payments_30d,
+						(SELECT COUNT(*)
+						FROM subscriptions
+						WHERE cancel_at_cycle_end = TRUE
+						  AND status IN ('active', 'authenticated'))::text AS churn_risk_subscriptions
 				`),
 				client.query<{
 					total_ratings: string;

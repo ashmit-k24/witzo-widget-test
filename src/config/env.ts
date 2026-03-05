@@ -319,6 +319,18 @@ export const config: EnvConfig = {
 		"OPENAI_MODEL",
 		"text-embedding-3-small",
 	),
+	RAZORPAY_KEY_ID: getEnvString(
+		"RAZORPAY_KEY_ID",
+		"",
+	),
+	RAZORPAY_KEY_SECRET: getEnvString(
+		"RAZORPAY_KEY_SECRET",
+		"",
+	),
+	RAZORPAY_WEBHOOK_SECRET: getEnvString(
+		"RAZORPAY_WEBHOOK_SECRET",
+		"",
+	),
 
 	// Redis
 	REDIS_HOST: getEnvString(

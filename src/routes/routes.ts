@@ -16,6 +16,7 @@ import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
 import * as leadWebhookController from "../controllers/leadWebhookController";
 import * as feedbackController from "../controllers/feedbackController";
+import * as subscriptionController from "../controllers/subscriptionController";
 import { authenticateToken } from "../middleware/auth";
 import {
 	setCsrfToken,
@@ -51,6 +52,16 @@ router.use(setCsrfToken);
 router.get(
 	"/csrf-token",
 	csrfController.getCsrfToken,
+);
+
+router.get(
+	"/plans",
+	subscriptionController.getPlans,
+);
+
+router.post(
+	"/razorpay/webhook",
+	subscriptionController.handleRazorpayWebhook,
 );
 
 /**
@@ -221,6 +232,39 @@ router.get(
 	"/usage",
 	authenticateToken,
 	usageController.getUserUsage,
+);
+
+router.get(
+	"/subscription/current",
+	authenticateToken,
+	subscriptionController.getCurrentSubscription,
+);
+
+router.post(
+	"/subscription/create",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.subscriptionCreate,
+	validate,
+	subscriptionController.createSubscription,
+);
+
+router.post(
+	"/payment/verify",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.paymentVerify,
+	validate,
+	subscriptionController.verifyPayment,
+);
+
+router.post(
+	"/subscription/cancel",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.subscriptionCancel,
+	validate,
+	subscriptionController.cancelSubscription,
 );
 
 router.get(

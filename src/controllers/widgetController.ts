@@ -39,8 +39,6 @@ export const createWidgetKey = async (
 				widgetName,
 				allowedDomains,
 				widgetConfig,
-				companyWebsite:
-					req.user?.companyWebsite ?? null,
 			});
 		const publicUrls = getWidgetPublicUrls(
 			widgetKey.widget_key,
@@ -175,9 +173,6 @@ export const updateWidgetKey = async (
 					isActive,
 					allowedDomains,
 					widgetConfig,
-					companyWebsite:
-						req.user?.companyWebsite ??
-						null,
 				},
 			);
 		const publicUrls = getWidgetPublicUrls(

@@ -357,6 +357,128 @@ export const validationRules: Record<
 			.withMessage("limit must be between 1 and 100"),
 	],
 
+	subscriptionCreate: [
+		body("planId")
+			.optional()
+			.isInt({ min: 1 })
+			.withMessage("planId must be a positive integer"),
+		body("planName")
+			.optional()
+			.isString()
+			.isLength({ min: 2, max: 50 })
+			.withMessage("planName must be 2-50 characters"),
+		body("billingCycle")
+			.isIn(["monthly", "yearly"])
+			.withMessage(
+				'billingCycle must be either "monthly" or "yearly"',
+			),
+		body("cancelCurrent")
+			.optional()
+			.isBoolean()
+			.withMessage("cancelCurrent must be boolean"),
+		body()
+			.custom((payload) => {
+				if (
+					!payload?.planId &&
+					!payload?.planName
+				) {
+					throw new Error(
+						"Either planId or planName is required",
+					);
+				}
+				return true;
+			}),
+	],
+
+	paymentVerify: [
+		body("razorpay_subscription_id")
+			.optional({ values: "falsy" })
+			.isString()
+			.isLength({ min: 3, max: 255 })
+			.withMessage(
+				"razorpay_subscription_id must be valid",
+			),
+		body("razorpay_order_id")
+			.optional({ values: "falsy" })
+			.isString()
+			.isLength({ min: 3, max: 255 })
+			.withMessage(
+				"razorpay_order_id must be valid",
+			),
+		body("razorpay_payment_id")
+			.isString()
+			.isLength({ min: 3, max: 255 })
+			.withMessage(
+				"razorpay_payment_id is required",
+			),
+		body("razorpay_signature")
+			.isString()
+			.isLength({ min: 10, max: 512 })
+			.withMessage("razorpay_signature is required"),
+		body()
+			.custom((payload) => {
+				if (
+					!payload?.razorpay_subscription_id &&
+					!payload?.razorpay_order_id
+				) {
+					throw new Error(
+						"Either razorpay_subscription_id or razorpay_order_id is required",
+					);
+				}
+				return true;
+			}),
+	],
+
+	subscriptionCancel: [
+		body("cancelAtCycleEnd")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"cancelAtCycleEnd must be boolean",
+			),
+	],
+
+	adminPlanIdParam: [
+		param("id")
+			.isInt({ min: 1 })
+			.withMessage("id must be a positive integer"),
+	],
+
+	adminPlanUpsert: [
+		body("name")
+			.isString()
+			.isLength({ min: 2, max: 50 })
+			.withMessage("name must be 2-50 characters"),
+		body("monthlyPrice")
+			.isInt({ min: 0 })
+			.withMessage(
+				"monthlyPrice must be a non-negative integer",
+			),
+		body("yearlyPrice")
+			.isInt({ min: 0 })
+			.withMessage(
+				"yearlyPrice must be a non-negative integer",
+			),
+		body("razorpayMonthlyPlanId")
+			.optional({ values: "falsy" })
+			.isString()
+			.isLength({ max: 255 })
+			.withMessage(
+				"razorpayMonthlyPlanId must be <= 255 characters",
+			),
+		body("razorpayYearlyPlanId")
+			.optional({ values: "falsy" })
+			.isString()
+			.isLength({ max: 255 })
+			.withMessage(
+				"razorpayYearlyPlanId must be <= 255 characters",
+			),
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+	],
+
 	publicWebhook: [
 		body("widgetKey")
 			.matches(WIDGET_KEY_REGEX)

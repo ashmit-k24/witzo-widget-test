@@ -129,7 +129,18 @@ app.use(
 app.use(cookieParser(config.COOKIE_SECRET));
 
 // Body parser
-app.use(express.json({ limit: "10kb" }));
+app.use(
+	express.json({
+		limit: "10kb",
+		verify: (
+			req: Request & { rawBody?: string },
+			_res,
+			buffer,
+		) => {
+			req.rawBody = buffer.toString("utf-8");
+		},
+	}),
+);
 app.use(
 	express.urlencoded({
 		extended: true,
