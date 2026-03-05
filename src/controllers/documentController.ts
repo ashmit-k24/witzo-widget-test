@@ -1,6 +1,7 @@
 import fs from "fs";
 import { Request, Response } from "express";
 import { coercePlanType } from "../config/planConfig";
+import { UNSUPPORTED_DOCUMENT_FILE_MESSAGE } from "../middleware/upload";
 import { documentParserService } from "../services/documentParserService";
 import { pineconeService } from "../services/pineconeService";
 import logger from "../utils/logger";
@@ -18,6 +19,19 @@ const cleanupUploadedFile = (filePath?: string): void => {
 			filePath,
 		});
 	}
+};
+
+const isUnsupportedDocumentError = (error: unknown): boolean => {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+
+	const normalizedMessage = error.message.toLowerCase();
+	return (
+		normalizedMessage.includes("unsupported file type") ||
+		normalizedMessage.includes("invalid file type") ||
+		normalizedMessage.includes("unsupported file")
+	);
 };
 
 export const uploadDocument = async (
@@ -164,6 +178,21 @@ export const uploadDocument = async (
 		});
 	} catch (error) {
 		cleanupUploadedFile(req.file?.path);
+
+		if (isUnsupportedDocumentError(error)) {
+			logger.warn("Rejected unsupported document upload", {
+				userId: (req as any).user?.id,
+				filename: req.file?.originalname,
+				mimetype: req.file?.mimetype,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			res.status(400).json({
+				success: false,
+				error: UNSUPPORTED_DOCUMENT_FILE_MESSAGE,
+			});
+			return;
+		}
+
 		logger.error(
 			"Error in uploadDocument controller",
 			{ error },
@@ -339,10 +368,17 @@ export const uploadMultipleDocuments = async (
 			"Error in uploadMultipleDocuments controller",
 			{ error },
 		);
-		res.status(500).json({
-			success: false,
-			message:
-				"Internal server error while processing documents",
-		});
+		if (isUnsupportedDocumentError(error)) {
+			res.status(400).json({
+				success: false,
+				error: UNSUPPORTED_DOCUMENT_FILE_MESSAGE,
+			});
+		} else {
+			res.status(500).json({
+				success: false,
+				message:
+					"Internal server error while processing documents",
+			});
+		}
 	}
 };

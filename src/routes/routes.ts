@@ -23,7 +23,8 @@ import {
 } from "../middleware/csrf";
 import {
 	imageUpload,
-	upload,
+	uploadMultipleDocuments,
+	uploadSingleDocument,
 } from "../middleware/upload";
 import {
 	addUsageToResponse,
@@ -438,7 +439,7 @@ router.post(
 	"/documents/upload",
 	verifyCsrfToken,
 	authenticateToken,
-	upload.single("document"),
+	uploadSingleDocument,
 	documentController.uploadDocument,
 );
 
@@ -452,7 +453,7 @@ router.post(
 	"/documents/upload-multiple",
 	verifyCsrfToken,
 	authenticateToken,
-	upload.array("documents", 10),
+	uploadMultipleDocuments,
 	documentController.uploadMultipleDocuments,
 );
 
