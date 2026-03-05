@@ -104,25 +104,64 @@ if (hasWildcardOrigin) {
 }
 
 app.use(
-	cors({
-		origin: (origin, callback) => {
-			if (!origin) {
-				callback(null, true);
+	cors(
+		(
+			req: Request,
+			callback,
+		) => {
+			const requestPath = req.path.toLowerCase();
+			const isPublicWidgetRoute =
+				requestPath === "/api/v1" ||
+				requestPath.startsWith(
+					"/api/v1/",
+				);
+
+			if (isPublicWidgetRoute) {
+				callback(null, {
+					origin: true,
+					credentials: false,
+				});
 				return;
 			}
 
-			const normalizedOrigin =
-				origin.toLowerCase();
+			callback(null, {
+				origin: (
+					origin,
+					originCallback,
+				) => {
+					if (!origin) {
+						originCallback(
+							null,
+							true,
+						);
+						return;
+					}
 
-			if (allowedOriginSet.has(normalizedOrigin)) {
-				callback(null, true);
-				return;
-			}
+					const normalizedOrigin =
+						origin.toLowerCase();
 
-			callback(new Error("Not allowed by CORS"));
+					if (
+						allowedOriginSet.has(
+							normalizedOrigin,
+						)
+					) {
+						originCallback(
+							null,
+							true,
+						);
+						return;
+					}
+
+					originCallback(
+						new Error(
+							"Not allowed by CORS",
+						),
+					);
+				},
+				credentials: true,
+			});
 		},
-		credentials: true,
-	}),
+	),
 );
 
 // Cookie parser middleware
