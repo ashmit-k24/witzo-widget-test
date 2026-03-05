@@ -274,6 +274,12 @@ class SubscriptionService {
 		return status === "active";
 	}
 
+	private async delay(ms: number): Promise<void> {
+		await new Promise((resolve) => {
+			setTimeout(resolve, ms);
+		});
+	}
+
 	private buildVerificationCandidates(input: {
 		orderId: string | null;
 		subscriptionId: string | null;
@@ -1196,6 +1202,74 @@ class SubscriptionService {
 			);
 		}
 
+		// Razorpay may emit payment authorization before subscription turns active.
+		// Retry provider subscription fetch for a short window to avoid false negatives.
+		if (
+			this.isPaymentSuccessStatus(paymentStatus) &&
+			!this.isSubscriptionActiveStatus(
+				providerSubscriptionStatus,
+			)
+		) {
+			for (
+				let attempt = 1;
+				attempt <= 6 &&
+				!this.isSubscriptionActiveStatus(
+					providerSubscriptionStatus,
+				);
+				attempt++
+			) {
+				await this.delay(1500);
+				try {
+					const retryDetails =
+						(await razorpay.subscriptions.fetch(
+							normalizedSubscriptionId,
+						)) as unknown as Record<
+							string,
+							unknown
+						>;
+					subscriptionPayload =
+						retryDetails;
+					if (
+						typeof retryDetails.status ===
+						"string"
+					) {
+						providerSubscriptionStatus =
+							this.normalizeProviderStatus(
+								retryDetails.status,
+							);
+					}
+					providerStartDate =
+						this.parseUnixTimestamp(
+							retryDetails.current_start,
+						) ?? providerStartDate;
+					providerEndDate =
+						this.parseUnixTimestamp(
+							retryDetails.current_end,
+						) ?? providerEndDate;
+					providerNextBillingDate =
+						this.parseUnixTimestamp(
+							retryDetails.charge_at,
+						) ??
+						providerEndDate ??
+						providerNextBillingDate;
+				} catch (error) {
+					logger.warn(
+						"Retry fetch failed while waiting for subscription activation",
+						{
+							attempt,
+							userId,
+							razorpaySubscriptionId:
+								normalizedSubscriptionId,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				}
+			}
+		}
+
 		const client = await pool.connect();
 		let hasCommitted = false;
 		try {
@@ -1279,7 +1353,7 @@ class SubscriptionService {
 					},
 				);
 				throw new Error(
-					"Subscription is not active yet. Please wait a moment and retry verification.",
+					"Payment received. Subscription activation is in progress. Please wait a few seconds and refresh.",
 				);
 			}
 
