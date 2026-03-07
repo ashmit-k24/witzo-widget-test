@@ -52,6 +52,20 @@ const getOptionalEnvString = (
 		: undefined;
 };
 
+const getOptionalEnvStringFromKeys = (
+	keys: string[],
+): string | undefined => {
+	for (const key of keys) {
+		const value = normalizeEnvString(
+			process.env[key],
+		);
+		if (value !== undefined && value !== "") {
+			return value;
+		}
+	}
+	return undefined;
+};
+
 const getEnvStringFromKeys = (
 	keys: string[],
 	defaultValue: string,
@@ -154,6 +168,11 @@ export const config: EnvConfig = {
 		"DB_PASSWORD",
 		"postgres",
 	),
+	DB_SSL_MODE: getOptionalEnvStringFromKeys([
+		"DB_SSL_MODE",
+		"PGSSLMODE",
+		"DATABASE_SSL_MODE",
+	]),
 	DB_MAX_CONNECTIONS: getEnvNumber(
 		"DB_MAX_CONNECTIONS",
 		20,
@@ -216,46 +235,6 @@ export const config: EnvConfig = {
 		"RATE_LIMIT_MAX_REQUESTS",
 		1000,
 	),
-
-	// Redis Instances (for separation of concerns)
-	REDIS_CACHE_HOST: getEnvString(
-		"REDIS_CACHE_HOST",
-		getEnvString("REDIS_HOST", "localhost"),
-	),
-	REDIS_CACHE_PORT: getEnvNumber(
-		"REDIS_CACHE_PORT",
-		getEnvNumber("REDIS_PORT", 6379),
-	),
-	REDIS_CACHE_PASSWORD:
-		getOptionalEnvString(
-			"REDIS_CACHE_PASSWORD",
-		) ?? getOptionalEnvString("REDIS_PASSWORD"),
-
-	REDIS_QUEUE_HOST: getEnvString(
-		"REDIS_QUEUE_HOST",
-		getEnvString("REDIS_HOST", "localhost"),
-	),
-	REDIS_QUEUE_PORT: getEnvNumber(
-		"REDIS_QUEUE_PORT",
-		getEnvNumber("REDIS_PORT", 6379),
-	),
-	REDIS_QUEUE_PASSWORD:
-		getOptionalEnvString(
-			"REDIS_QUEUE_PASSWORD",
-		) ?? getOptionalEnvString("REDIS_PASSWORD"),
-
-	REDIS_ANALYTICS_HOST: getEnvString(
-		"REDIS_ANALYTICS_HOST",
-		getEnvString("REDIS_HOST", "localhost"),
-	),
-	REDIS_ANALYTICS_PORT: getEnvNumber(
-		"REDIS_ANALYTICS_PORT",
-		getEnvNumber("REDIS_PORT", 6379),
-	),
-	REDIS_ANALYTICS_PASSWORD:
-		getOptionalEnvString(
-			"REDIS_ANALYTICS_PASSWORD",
-		) ?? getOptionalEnvString("REDIS_PASSWORD"),
 
 	// Scraper Configuration
 	SCRAPER_CONCURRENCY: getEnvNumber(
@@ -333,14 +312,158 @@ export const config: EnvConfig = {
 	),
 
 	// Redis
-	REDIS_HOST: getEnvString(
-		"REDIS_HOST",
+	REDIS_HOST: getEnvStringFromKeys(
+		[
+			"REDIS_HOST",
+			"REDIS_CACHE_HOST",
+			"REDIS_QUEUE_HOST",
+			"REDIS_ANALYTICS_HOST",
+		],
 		"localhost",
 	),
-	REDIS_PORT: getEnvNumber("REDIS_PORT", 6379),
-	REDIS_PASSWORD: getOptionalEnvString(
+	REDIS_PORT: (() => {
+		const directValue = getOptionalEnvStringFromKeys([
+			"REDIS_PORT",
+			"REDIS_CACHE_PORT",
+			"REDIS_QUEUE_PORT",
+			"REDIS_ANALYTICS_PORT",
+		]);
+		if (!directValue) {
+			return 6379;
+		}
+		const parsedValue = Number(directValue);
+		return Number.isFinite(parsedValue)
+			? parsedValue
+			: 6379;
+	})(),
+	REDIS_USERNAME: getOptionalEnvStringFromKeys([
+		"REDIS_USERNAME",
+		"REDIS_CACHE_USERNAME",
+		"REDIS_QUEUE_USERNAME",
+		"REDIS_ANALYTICS_USERNAME",
+	]),
+	REDIS_PASSWORD: getOptionalEnvStringFromKeys([
 		"REDIS_PASSWORD",
+		"REDIS_CACHE_PASSWORD",
+		"REDIS_QUEUE_PASSWORD",
+		"REDIS_ANALYTICS_PASSWORD",
+	]),
+	REDIS_TLS_ENABLED: getEnvBoolean(
+		"REDIS_TLS_ENABLED",
+		getEnvBoolean("REDIS_USE_TLS", false),
 	),
+
+	// Backward-compatible aliases. All Redis roles now use the same shared Redis connection.
+	REDIS_CACHE_HOST: getEnvStringFromKeys(
+		[
+			"REDIS_HOST",
+			"REDIS_CACHE_HOST",
+			"REDIS_QUEUE_HOST",
+			"REDIS_ANALYTICS_HOST",
+		],
+		"localhost",
+	),
+	REDIS_CACHE_PORT: (() => {
+		const directValue = getOptionalEnvStringFromKeys([
+			"REDIS_PORT",
+			"REDIS_CACHE_PORT",
+			"REDIS_QUEUE_PORT",
+			"REDIS_ANALYTICS_PORT",
+		]);
+		if (!directValue) {
+			return 6379;
+		}
+		const parsedValue = Number(directValue);
+		return Number.isFinite(parsedValue)
+			? parsedValue
+			: 6379;
+	})(),
+	REDIS_CACHE_USERNAME: getOptionalEnvStringFromKeys([
+		"REDIS_USERNAME",
+		"REDIS_CACHE_USERNAME",
+		"REDIS_QUEUE_USERNAME",
+		"REDIS_ANALYTICS_USERNAME",
+	]),
+	REDIS_CACHE_PASSWORD: getOptionalEnvStringFromKeys([
+		"REDIS_PASSWORD",
+		"REDIS_CACHE_PASSWORD",
+		"REDIS_QUEUE_PASSWORD",
+		"REDIS_ANALYTICS_PASSWORD",
+	]),
+	REDIS_QUEUE_HOST: getEnvStringFromKeys(
+		[
+			"REDIS_HOST",
+			"REDIS_CACHE_HOST",
+			"REDIS_QUEUE_HOST",
+			"REDIS_ANALYTICS_HOST",
+		],
+		"localhost",
+	),
+	REDIS_QUEUE_PORT: (() => {
+		const directValue = getOptionalEnvStringFromKeys([
+			"REDIS_PORT",
+			"REDIS_CACHE_PORT",
+			"REDIS_QUEUE_PORT",
+			"REDIS_ANALYTICS_PORT",
+		]);
+		if (!directValue) {
+			return 6379;
+		}
+		const parsedValue = Number(directValue);
+		return Number.isFinite(parsedValue)
+			? parsedValue
+			: 6379;
+	})(),
+	REDIS_QUEUE_USERNAME: getOptionalEnvStringFromKeys([
+		"REDIS_USERNAME",
+		"REDIS_CACHE_USERNAME",
+		"REDIS_QUEUE_USERNAME",
+		"REDIS_ANALYTICS_USERNAME",
+	]),
+	REDIS_QUEUE_PASSWORD: getOptionalEnvStringFromKeys([
+		"REDIS_PASSWORD",
+		"REDIS_CACHE_PASSWORD",
+		"REDIS_QUEUE_PASSWORD",
+		"REDIS_ANALYTICS_PASSWORD",
+	]),
+	REDIS_ANALYTICS_HOST: getEnvStringFromKeys(
+		[
+			"REDIS_HOST",
+			"REDIS_CACHE_HOST",
+			"REDIS_QUEUE_HOST",
+			"REDIS_ANALYTICS_HOST",
+		],
+		"localhost",
+	),
+	REDIS_ANALYTICS_PORT: (() => {
+		const directValue = getOptionalEnvStringFromKeys([
+			"REDIS_PORT",
+			"REDIS_CACHE_PORT",
+			"REDIS_QUEUE_PORT",
+			"REDIS_ANALYTICS_PORT",
+		]);
+		if (!directValue) {
+			return 6379;
+		}
+		const parsedValue = Number(directValue);
+		return Number.isFinite(parsedValue)
+			? parsedValue
+			: 6379;
+	})(),
+	REDIS_ANALYTICS_USERNAME:
+		getOptionalEnvStringFromKeys([
+			"REDIS_USERNAME",
+			"REDIS_CACHE_USERNAME",
+			"REDIS_QUEUE_USERNAME",
+			"REDIS_ANALYTICS_USERNAME",
+		]),
+	REDIS_ANALYTICS_PASSWORD:
+		getOptionalEnvStringFromKeys([
+			"REDIS_PASSWORD",
+			"REDIS_CACHE_PASSWORD",
+			"REDIS_QUEUE_PASSWORD",
+			"REDIS_ANALYTICS_PASSWORD",
+		]),
 
 	// Admin
 	ADMIN_EMAIL: getEnvString("ADMIN_EMAIL", "admin@witzo.local"),

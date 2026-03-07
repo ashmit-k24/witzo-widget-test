@@ -181,6 +181,7 @@ export interface EnvConfig {
 	DB_NAME: string;
 	DB_USER: string;
 	DB_PASSWORD: string;
+	DB_SSL_MODE?: string;
 	DB_MAX_CONNECTIONS: number;
 	DB_MIN_CONNECTIONS: number;
 	EMAIL_HOST: string;
@@ -216,19 +217,24 @@ export interface EnvConfig {
 	// Redis
 	REDIS_HOST: string;
 	REDIS_PORT: number;
+	REDIS_USERNAME?: string;
 	REDIS_PASSWORD?: string;
+	REDIS_TLS_ENABLED: boolean;
 
 	// Separate Redis Instances
 	REDIS_CACHE_HOST: string;
 	REDIS_CACHE_PORT: number;
+	REDIS_CACHE_USERNAME?: string;
 	REDIS_CACHE_PASSWORD?: string;
 
 	REDIS_QUEUE_HOST: string;
 	REDIS_QUEUE_PORT: number;
+	REDIS_QUEUE_USERNAME?: string;
 	REDIS_QUEUE_PASSWORD?: string;
 
 	REDIS_ANALYTICS_HOST: string;
 	REDIS_ANALYTICS_PORT: number;
+	REDIS_ANALYTICS_USERNAME?: string;
 	REDIS_ANALYTICS_PASSWORD?: string;
 
 	// Scraper Configuration
