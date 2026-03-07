@@ -503,6 +503,11 @@ export const getAllSources = async (
 				userId,
 				planType,
 			);
+		const documentUsage =
+			await pineconeService.getDocumentUsageStats(
+				userId,
+				planType,
+			);
 
 		// Total individual pages across all websites
 		const pagesUsed = sources.websites.reduce(
@@ -532,6 +537,17 @@ export const getAllSources = async (
 					isAtLimit:
 						scraperUsage.isAtLimit,
 				},
+				documentUsage: {
+					planType,
+					documentsUsed:
+						documentUsage.documentsUsed,
+					documentsLimit:
+						documentUsage.documentsLimit,
+					documentsRemaining:
+						documentUsage.documentsRemaining,
+					isAtLimit:
+						documentUsage.isAtLimit,
+				},
 				scrapeJob: latestJob,
 			},
 		});
@@ -549,6 +565,18 @@ export const getAllSources = async (
 				: {
 						pagesLimit: 0,
 						pagesRemaining: 0,
+						isAtLimit: false,
+				  };
+		const documentUsage =
+			userId
+				? await pineconeService.getDocumentUsageStats(
+						userId,
+						planType,
+				  )
+				: {
+						documentsUsed: 0,
+						documentsLimit: 0,
+						documentsRemaining: 0,
 						isAtLimit: false,
 				  };
 		const isPineconeConnectionError =
@@ -583,6 +611,17 @@ export const getAllSources = async (
 							scraperUsage.pagesRemaining,
 						isAtLimit:
 							scraperUsage.isAtLimit,
+					},
+					documentUsage: {
+						planType,
+						documentsUsed:
+							documentUsage.documentsUsed,
+						documentsLimit:
+							documentUsage.documentsLimit,
+						documentsRemaining:
+							documentUsage.documentsRemaining,
+						isAtLimit:
+							documentUsage.isAtLimit,
 					},
 					scrapeJob:
 						userId

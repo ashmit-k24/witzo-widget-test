@@ -26,7 +26,7 @@ export const PLAN_CAPABILITIES: Record<
 > = {
 	free: {
 		websitePagesLimit: 15,
-		documentLimit: null,
+		documentLimit: 4,
 		chatHistoryLimit: 3,
 		leadStorageLimit: 3,
 		fallbackLeadForm: false,
@@ -38,7 +38,7 @@ export const PLAN_CAPABILITIES: Record<
 	},
 	basic: {
 		websitePagesLimit: 30,
-		documentLimit: null,
+		documentLimit: 10,
 		chatHistoryLimit: 10,
 		leadStorageLimit: 10,
 		fallbackLeadForm: true,

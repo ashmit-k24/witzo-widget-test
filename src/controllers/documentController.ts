@@ -340,6 +340,11 @@ export const uploadMultipleDocuments = async (
 		const limitExceededCount = results.filter(
 			(r) => r.limitExceeded,
 		).length;
+		const finalUsage =
+			await pineconeService.getDocumentUsageStats(
+				userId,
+				planType,
+			);
 		const limitExceededMessage =
 				limitExceededCount > 0
 					? ` ${limitExceededCount} file(s) were skipped because your ${planType} plan allows only ${documentsLimit ?? "unlimited"} documents.`
@@ -355,6 +360,7 @@ export const uploadMultipleDocuments = async (
 					limitExceededCount > 0
 						? `Your ${planType} plan allows ${documentsLimit} document uploads.`
 						: undefined,
+				documentUsage: finalUsage,
 				results,
 			},
 		});
