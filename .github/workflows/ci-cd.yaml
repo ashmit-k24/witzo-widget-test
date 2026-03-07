@@ -68,6 +68,8 @@ jobs:
           DB_USER=${{ secrets.DB_USER }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
           DB_MAX_CONNECTIONS=${{ secrets.DB_MAX_CONNECTIONS }}
+          DB_MIN_CONNECTIONS=${{ secrets.DB_MIN_CONNECTIONS }}
+          DB_SSL_MODE=${{ secrets.DB_SSL_MODE }}
           EMAIL_HOST=${{ secrets.EMAIL_HOST }}
           EMAIL_PORT=${{ secrets.EMAIL_PORT }}
           EMAIL_USER=${{ secrets.EMAIL_USER }}
@@ -95,6 +97,9 @@ jobs:
           PINECONE_INDEX_NAME=${{ secrets.PINECONE_INDEX_NAME }}
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL=${{ secrets.OPENAI_MODEL }}
+          OPENAI_CHAT_MODEL=${{ secrets.OPENAI_CHAT_MODEL }}
+          CHAT_HISTORY_WINDOW_MESSAGES=${{ secrets.CHAT_HISTORY_WINDOW_MESSAGES }}
+          CHAT_SESSION_CACHE_MESSAGE_LIMIT=${{ secrets.CHAT_SESSION_CACHE_MESSAGE_LIMIT }}
           REDIS_HOST=${{ secrets.REDIS_HOST }}
           REDIS_PORT=${{ secrets.REDIS_PORT }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
@@ -108,6 +113,12 @@ jobs:
           RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
           RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
           RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+
+          ADMIN_FRONTEND_URL=${{ secrets.ADMIN_FRONTEND_URL }}
+          ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+          ADMIN_JWT_SECRET=${{ secrets.ADMIN_JWT_SECRET }}
+          ADMIN_TOKEN_EXPIRY_HOURS=${{ secrets.ADMIN_TOKEN_EXPIRY_HOURS }}
 
           S3_WIDGET_ICON_BUCKET=${{ secrets.S3_WIDGET_ICON_BUCKET }}
           S3_WIDGET_ICON_REGION=${{ secrets.S3_WIDGET_ICON_REGION }}    
