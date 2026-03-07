@@ -1,4 +1,8 @@
 import { Request, Response } from "express";
+import {
+	coercePlanType,
+	getPlanCapabilities,
+} from "../config/planConfig";
 import { chatService } from "../services/chatService";
 import { ChatRequest } from "../types";
 import logger from "../utils/logger";
@@ -8,9 +12,13 @@ export const chat = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const { sessionId, message } =
+		const {
+			sessionId,
+			message,
+			language,
+		} =
 			req.body as ChatRequest;
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!userId) {
 			res.status(401).json({
@@ -32,13 +40,95 @@ export const chat = async (
 		logger.info("Processing chat request", {
 			userId,
 			sessionId,
+			language,
 			messageLength: message.length,
 		});
+		const streamRequested =
+			req.query.stream === "1" ||
+			(req.get("accept") || "").includes(
+				"text/event-stream",
+			);
+
+		if (streamRequested) {
+			const usage = (res.locals as any).usage;
+			res.status(200);
+			res.setHeader(
+				"Content-Type",
+				"text/event-stream",
+			);
+			res.setHeader(
+				"Cache-Control",
+				"no-cache, no-transform",
+			);
+			res.setHeader(
+				"Connection",
+				"keep-alive",
+			);
+			res.flushHeaders?.();
+
+			const writeEvent = (
+				payload: Record<string, any>,
+			) => {
+				res.write(
+					`data: ${JSON.stringify(payload)}\n\n`,
+				);
+			};
+
+			try {
+				const result =
+					await chatService.chatStream(
+						userId,
+						message,
+						sessionId,
+						{
+							onToken: (token) =>
+								writeEvent({
+									type: "token",
+									token,
+								}),
+						},
+						language,
+					);
+
+				writeEvent({
+					type: "done",
+					sessionId: result.sessionId,
+					language: result.language,
+					usage: usage
+						? {
+								conversationsRemaining:
+									usage.conversationsRemaining,
+								resetDate:
+									usage.resetDate,
+						  }
+						: undefined,
+					warning:
+						usage?.isApproachingLimit
+							? "You're approaching your monthly conversation limit"
+							: undefined,
+				});
+				res.end();
+				return;
+			} catch (streamError) {
+				logger.error(
+					"Error in streaming chat controller",
+					{ streamError },
+				);
+				writeEvent({
+					type: "error",
+					message:
+						"Internal server error while processing chat",
+				});
+				res.end();
+				return;
+			}
+		}
 
 		const result = await chatService.chat(
 			userId,
 			message,
 			sessionId,
+			language,
 		);
 
 		// Add usage stats from middleware if available
@@ -48,6 +138,7 @@ export const chat = async (
 			success: true,
 			sessionId: result.sessionId,
 			response: result.response,
+			language: result.language,
 			// sources: result.sources,
 		};
 
@@ -75,10 +166,6 @@ export const chat = async (
 			success: false,
 			message:
 				"Internal server error while processing chat",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -88,7 +175,15 @@ export const getUserChatSessions = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		const userPlanType =
+			req.user?.plan_type;
+		const planType =
+			coercePlanType(userPlanType);
+		const planCapabilities =
+			getPlanCapabilities(planType);
+		const maxVisibleSessions =
+			planCapabilities.chatHistoryLimit;
 
 		if (!userId) {
 			res.status(401).json({
@@ -102,10 +197,21 @@ export const getUserChatSessions = async (
 			await chatService.getUserChatSessions(
 				userId,
 			);
+		const limitedSessions =
+			maxVisibleSessions === null
+				? sessions
+				: sessions.slice(
+						0,
+						maxVisibleSessions,
+				  );
 
 		res.status(200).json({
 			success: true,
-			data: sessions,
+			data: limitedSessions,
+			meta: {
+				planType,
+				maxVisibleSessions,
+			},
 		});
 	} catch (error) {
 		logger.error(
@@ -116,10 +222,6 @@ export const getUserChatSessions = async (
 			success: false,
 			message:
 				"Internal server error while retrieving sessions",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -130,7 +232,7 @@ export const getChatSession = async (
 ): Promise<void> => {
 	try {
 		const { sessionId } = req.params;
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!sessionId) {
 			res.status(400).json({
@@ -163,7 +265,6 @@ export const getChatSession = async (
 			success: true,
 			data: {
 				sessionId: session.sessionId,
-				userId: session.userId,
 				messageCount: session.messages.length,
 				createdAt: session.createdAt,
 				updatedAt: session.updatedAt,
@@ -178,10 +279,6 @@ export const getChatSession = async (
 			success: false,
 			message:
 				"Internal server error while retrieving session",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -192,7 +289,7 @@ export const clearChatSession = async (
 ): Promise<void> => {
 	try {
 		const { sessionId } = req.params;
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!sessionId) {
 			res.status(400).json({
@@ -243,10 +340,6 @@ export const clearChatSession = async (
 			success: false,
 			message:
 				"Internal server error while clearing session",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -256,7 +349,7 @@ export const clearUserSessions = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
 
 		if (!userId) {
 			res.status(401).json({
@@ -282,10 +375,6 @@ export const clearUserSessions = async (
 			success: false,
 			message:
 				"Internal server error while clearing user sessions",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };

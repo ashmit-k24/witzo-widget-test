@@ -2,6 +2,10 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { PoolClient } from "pg";
 import pool from "../config/database";
+import {
+	MIGRATION_LOCK_ID,
+	SQL_MIGRATIONS_SUBDIRECTORY,
+} from "../constants";
 import logger from "../utils/logger";
 
 type Migration = {
@@ -10,8 +14,10 @@ type Migration = {
 	file: string;
 };
 
-const MIGRATION_LOCK_ID = 982451653;
-const SQL_MIGRATIONS_DIR = path.join(__dirname, "sql");
+const SQL_MIGRATIONS_DIR = path.join(
+	__dirname,
+	SQL_MIGRATIONS_SUBDIRECTORY,
+);
 
 const migrations: Migration[] = [
 	{
@@ -47,7 +53,7 @@ const migrations: Migration[] = [
 	{
 		id: "20260217_006_subscriptions",
 		description:
-			"Create subscriptions and payment history",
+			"Legacy billing migration (no-op)",
 		file: "20260217_006_subscriptions.sql",
 	},
 	{
@@ -67,6 +73,84 @@ const migrations: Migration[] = [
 		description:
 			"Backfill users pricing fields and defaults",
 		file: "20260217_009_users_backfill_defaults.sql",
+	},
+	{
+		id: "20260220_010_leads",
+		description:
+			"Create leads table for AI-extracted visitor contact info",
+		file: "20260220_010_leads.sql",
+	},
+	{
+		id: "20260220_011_ratings_and_followup",
+		description:
+			"Add follow_up_sent_at to leads and create chat_ratings table",
+		file: "20260220_011_ratings_and_followup.sql",
+	},
+	{
+		id: "20260221_012_chat_storage",
+		description:
+			"Create scalable chat conversations/messages storage with partitioned messages",
+		file: "20260221_012_chat_storage.sql",
+	},
+	{
+		id: "20260221_013_partition_maintenance",
+		description:
+			"Add partition maintenance and analytics cleanup helper functions",
+		file: "20260221_013_partition_maintenance.sql",
+	},
+	{
+		id: "20260221_014_enterprise_plan_and_limits",
+		description:
+			"Add enterprise plan support and normalize plan conversation limits",
+		file: "20260221_014_enterprise_plan_and_limits.sql",
+	},
+	{
+		id: "20260221_015_user_profile_completion",
+		description:
+			"Add login tracking and required profile completion fields",
+		file: "20260221_015_user_profile_completion.sql",
+	},
+	{
+		id: "20260221_016_feedback_suggestions",
+		description:
+			"Create feedback_suggestions table for dashboard feedback/suggestion submissions",
+		file: "20260221_016_feedback_suggestions.sql",
+	},
+	{
+		id: "20260223_017_enterprise_lead_webhooks",
+		description:
+			"Create enterprise lead webhook config/events tables for outbound CRM delivery",
+		file: "20260223_017_enterprise_lead_webhooks.sql",
+	},
+	{
+		id: "20260223_018_enterprise_unlimited_conversations",
+		description:
+			"Allow unlimited enterprise conversations by making conversations_limit nullable and setting enterprise to NULL",
+		file: "20260223_018_enterprise_unlimited_conversations.sql",
+	},
+	{
+		id: "20260303_019_user_onboarding",
+		description:
+			"Add onboarding_step, onboarding_completed, onboarding_completed_at to users table",
+		file: "20260303_019_user_onboarding.sql",
+	},
+	{
+		id: "20260304_020_admin_users",
+		description:
+			"Create admin users and admin audit logs tables",
+		file: "20260304_020_admin_users.sql",
+	},
+	{
+		id: "20260305_021_remove_legacy_billing",
+		description:
+			"Remove legacy billing tables and columns",
+		file: "20260305_021_remove_legacy_billing.sql",
+	},
+	{
+		id: "20260305_022_razorpay_billing",
+		description:
+			"Create Razorpay-backed plans, subscriptions, and payments tables",
+		file: "20260305_022_razorpay_billing.sql",
 	},
 ];
 

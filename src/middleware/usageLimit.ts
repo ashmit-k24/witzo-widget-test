@@ -1,16 +1,36 @@
 import {
+	NextFunction,
 	Request,
 	Response,
-	NextFunction,
 } from "express";
-import usageTrackingService from "../services/usageTrackingService";
+import { coercePlanType } from "../config/planConfig";
 import { pineconeService } from "../services/pineconeService";
-import { SCRAPER_PAGE_LIMITS } from "../types";
+import usageTrackingService from "../services/usageTrackingService";
 import logger from "../utils/logger";
 
+const getScraperUpgradeMessage = (
+	planType: "free" | "basic" | "enterprise",
+): string => {
+	if (planType === "free") {
+		return "Upgrade to Basic plan for 30 website pages";
+	}
+	if (planType === "basic") {
+		return "Upgrade to Enterprise plan for up to 300 website pages";
+	}
+	return "You have reached the maximum limit for Enterprise plan (300 pages)";
+};
+
 /**
- * Middleware to check if user has reached conversation limit
- * Blocks request if user has exceeded their plan's conversation limit
+ * Middleware to atomically check the conversation limit AND increment the
+ * usage counter in a single DB UPDATE.  This eliminates the TOCTOU race
+ * that existed when canUserChat() (SELECT) and trackConversation() (UPDATE)
+ * were two separate round-trips: concurrent requests for the same user
+ * could both pass the check and both increment, letting a user exceed their
+ * plan limit.
+ *
+ * On success the post-increment usage stats are stored in res.locals.usage
+ * so the chat controller and addUsageToResponse can read them without an
+ * additional DB query.
  */
 export const checkConversationLimit = async (
 	req: Request,
@@ -23,43 +43,41 @@ export const checkConversationLimit = async (
 		if (!userId) {
 			res.status(401).json({
 				success: false,
-				message:
-					"Unauthorized - User ID not found",
+				message: "Unauthorized - User ID not found",
 			});
 			return;
 		}
 
-		// Check if user can chat
-		const canChat =
-			await usageTrackingService.canUserChat(
-				userId,
-			);
+		const { allowed, usage } =
+			await usageTrackingService.checkAndTrackConversation(userId);
 
-		if (!canChat) {
-			// Get usage stats to provide helpful info
-			const usage =
-				await usageTrackingService.getUserUsage(
-					userId,
-				);
+		if (!allowed) {
+			// Fetch current stats (read-only, no increment) for the error body
+			const currentUsage =
+				await usageTrackingService.getUserUsage(userId);
 
 			res.status(403).json({
 				success: false,
 				message:
 					"You've reached your conversation limit for this month",
 				data: {
-					planType: usage.planType,
-					conversationsUsed:
-						usage.conversationsUsed,
-					conversationsLimit:
-						usage.conversationsLimit,
-					resetDate: usage.resetDate,
-					upgradeUrl: "/api/auth/upgrade",
+					planType: currentUsage.planType,
+					conversationsUsed: currentUsage.conversationsUsed,
+					conversationsLimit: currentUsage.conversationsLimit,
+					resetDate: currentUsage.resetDate,
 				},
 			});
 			return;
 		}
 
-		// User can chat, proceed
+		// Make usage stats available to downstream middleware and controllers
+		// without requiring another DB round-trip.
+		(res.locals as any).usage = {
+			conversationsRemaining: usage!.conversationsRemaining,
+			isApproachingLimit: usage!.isApproachingLimit,
+			resetDate: usage!.resetDate,
+		};
+
 		next();
 	} catch (error) {
 		const err = error as Error;
@@ -80,74 +98,35 @@ export const checkConversationLimit = async (
 };
 
 /**
- * Middleware to track conversation after successful response
- * This runs after the chat response is sent
+ * No-op pass-through kept for backward-compatibility with the route
+ * definition.  Tracking is now done atomically inside checkConversationLimit,
+ * so there is nothing left to do here.
  */
 export const trackConversation = (
-	req: Request,
-	res: Response,
+	_req: Request,
+	_res: Response,
 	next: NextFunction,
 ): void => {
-	const userId = (req as any).user?.id;
-
-	if (!userId) {
-		next();
-		return;
-	}
-
-	// Track after response is sent
-	res.on("finish", async () => {
-		// Only track if response was successful
-		if (res.statusCode === 200) {
-			try {
-				await usageTrackingService.trackConversation(
-					userId,
-				);
-
-				// Check if user is approaching limit and log a warning
-				const isApproaching =
-					await usageTrackingService.isApproachingLimit(
-						userId,
-					);
-				if (isApproaching) {
-					const remaining =
-						await usageTrackingService.getRemainingConversations(
-							userId,
-						);
-					logger.warn(
-						"User approaching conversation limit",
-						{
-							userId,
-							conversationsRemaining: remaining,
-						},
-					);
-				}
-			} catch (error) {
-				const err = error as Error;
-				logger.error(
-					"Error tracking conversation",
-					{
-						userId,
-						error: err.message,
-					},
-				);
-				// Don't throw error here - conversation was already processed
-			}
-		}
-	});
-
 	next();
 };
 
 /**
- * Middleware to add usage stats to response
- * Adds current usage info to successful chat responses
+ * Middleware to add usage stats to the response locals.
+ * If checkConversationLimit already ran and populated res.locals.usage,
+ * this is a no-op (saves an extra DB query).  Otherwise it fetches from
+ * the service (which is Redis-cached for 60 s).
  */
 export const addUsageToResponse = async (
 	req: Request,
 	res: Response,
 	next: NextFunction,
 ): Promise<void> => {
+	// Already populated by checkConversationLimit — nothing to do.
+	if ((res.locals as any).usage) {
+		next();
+		return;
+	}
+
 	const userId = (req as any).user?.id;
 
 	if (!userId) {
@@ -157,28 +136,20 @@ export const addUsageToResponse = async (
 
 	try {
 		const usage =
-			await usageTrackingService.getUserUsage(
-				userId,
-			);
+			await usageTrackingService.getUserUsage(userId);
 
-		// Store usage in res.locals to be accessed by controller
-		res.locals.usage = {
-			conversationsRemaining:
-				usage.conversationsRemaining,
-			isApproachingLimit:
-				usage.isApproachingLimit,
+		(res.locals as any).usage = {
+			conversationsRemaining: usage.conversationsRemaining,
+			isApproachingLimit: usage.isApproachingLimit,
 			resetDate: usage.resetDate,
 		};
 	} catch (error) {
 		const err = error as Error;
-		logger.error(
-			"Error adding usage to response",
-			{
-				userId,
-				error: err.message,
-			},
-		);
-		// Continue without usage info
+		logger.error("Error adding usage to response", {
+			userId,
+			error: err.message,
+		});
+		// Continue without usage info — don't block the response
 	}
 
 	next();
@@ -196,24 +167,23 @@ export const checkScraperLimit = async (
 ): Promise<void> => {
 	try {
 		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type || "free";
+		const planType = coercePlanType(
+			(req as any).user?.plan_type,
+		);
 
 		if (!userId) {
 			res.status(401).json({
 				success: false,
-				message:
-					"Unauthorized - User ID not found",
+				message: "Unauthorized - User ID not found",
 			});
 			return;
 		}
 
 		// Check if user can scrape more pages
-		const canScrape =
-			await pineconeService.canUserScrape(
-				userId,
-				planType,
-			);
+		const canScrape = await pineconeService.canUserScrape(
+			userId,
+			planType,
+		);
 
 		if (!canScrape) {
 			// Get usage stats to provide helpful info
@@ -223,32 +193,25 @@ export const checkScraperLimit = async (
 					planType,
 				);
 
-			logger.warn(
-				"User has reached scraper page limit",
-				{
-					userId,
-					planType,
-					pagesUsed: usage.pagesUsed,
-					pagesLimit: usage.pagesLimit,
-				},
-			);
+			logger.warn("User has reached scraper page limit", {
+				userId,
+				planType,
+				pagesUsed: usage.pagesUsed,
+				pagesLimit: usage.pagesLimit,
+			});
 
 			res.status(403).json({
 				success: false,
-				message: `You've reached your website scraping limit. ${planType === "free" ? "Free" : "Basic"} plan allows ${usage.pagesLimit} websites.`,
+			message: `You've reached your website scraping limit. ${planType} plan allows ${usage.pagesLimit ?? "unlimited"} websites.`,
 				data: {
 					planType: usage.planType,
 					pagesUsed: usage.pagesUsed,
 					pagesLimit: usage.pagesLimit,
 					pagesRemaining: usage.pagesRemaining,
-					upgradeUrl:
-						planType === "free"
-							? "/api/auth/upgrade"
-							: undefined,
 					upgradeMessage:
-						planType === "free"
-							? "Upgrade to Basic plan for 30 website pages"
-							: "You have reached the maximum limit for Basic plan",
+						getScraperUpgradeMessage(
+							planType,
+						),
 				},
 			});
 			return;
@@ -258,13 +221,10 @@ export const checkScraperLimit = async (
 		next();
 	} catch (error) {
 		const err = error as Error;
-		logger.error(
-			"Error in checkScraperLimit middleware",
-			{
-				error: err.message,
-				stack: err.stack,
-			},
-		);
+		logger.error("Error in checkScraperLimit middleware", {
+			error: err.message,
+			stack: err.stack,
+		});
 
 		res.status(500).json({
 			success: false,

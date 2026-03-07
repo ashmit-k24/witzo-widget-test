@@ -15,7 +15,7 @@ import {
 } from "../utils/circuitBreaker";
 import logger from "../utils/logger";
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * Basic health check - fast response for load balancer

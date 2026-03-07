@@ -1,0 +1,140 @@
+name: CI & CD Pipeline Development
+
+on:
+  push:
+    branches: [development]
+
+jobs:
+  build:
+    name: Build & Push Image
+    runs-on: [self-hosted, backend]
+    environment: 'witzo-automation-development'
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo docker system prune -a --volumes --force
+          sudo rm -rf /home/runner/_work/_temp/*
+          [ -d /var/cache/apt ] && sudo apt-get clean
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Debug - Check workspace
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "Current dir: $(pwd)"
+          ls -la
+          if [ -f "Dockerfile" ]; then
+            echo "✓ Dockerfile found"
+          else
+            echo "✗ Dockerfile NOT found"
+            exit 1
+          fi
+
+      - name: Login to Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | sudo docker login --username "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build the Docker image
+        run: sudo docker build -t webomindapps1/witzo-automation-dev:latest .
+
+      - name: Push to Docker Hub
+        run: sudo docker push webomindapps1/witzo-automation-dev:latest
+
+
+  deploy:
+    name: Deploy to Self-Hosted
+    needs: build
+    runs-on: [self-hosted, backend]
+    environment: 'witzo-automation-development'
+
+    steps:
+      - name: Checkout code (so we have a workspace dir)
+        uses: actions/checkout@v3
+        
+      - name: Re-create .env file on the runner
+        run: |
+          # Create .env with no leading indentation so docker --env-file can parse it correctly.
+          cat > $GITHUB_WORKSPACE/.env <<'EOF'
+          APP_NAME=${{ secrets.APP_NAME }}
+          PORT=${{ secrets.PORT }}
+          NODE_ENV=${{ secrets.NODE_ENV }}
+          DB_HOST=${{ secrets.DB_HOST }}
+          DB_PORT=${{ secrets.DB_PORT }}
+          DB_NAME=${{ secrets.DB_NAME }}
+          DB_USER=${{ secrets.DB_USER }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_MAX_CONNECTIONS=${{ secrets.DB_MAX_CONNECTIONS }}
+          EMAIL_HOST=${{ secrets.EMAIL_HOST }}
+          EMAIL_PORT=${{ secrets.EMAIL_PORT }}
+          EMAIL_USER=${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_FROM=${{ secrets.EMAIL_FROM }}
+          EMAIL_FROM_ADDRESS=${{ secrets.EMAIL_FROM_ADDRESS }}
+          VERIFICATION_CODE_EXPIRY_MINUTES=${{ secrets.VERIFICATION_CODE_EXPIRY_MINUTES }}
+          MAX_VERIFICATION_ATTEMPTS=${{ secrets.MAX_VERIFICATION_ATTEMPTS }}
+          SESSION_EXPIRY_HOURS=${{ secrets.SESSION_EXPIRY_HOURS }}
+          RATE_LIMIT_WINDOW_MS=${{ secrets.RATE_LIMIT_WINDOW_MS }}
+          RATE_LIMIT_MAX_REQUESTS=${{ secrets.RATE_LIMIT_MAX_REQUESTS }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
+          COOKIE_SECRET=${{ secrets.COOKIE_SECRET }}
+          ACCESS_TOKEN_EXPIRY_MINUTES=${{ secrets.ACCESS_TOKEN_EXPIRY_MINUTES }}
+          REFRESH_TOKEN_EXPIRY_DAYS=${{ secrets.REFRESH_TOKEN_EXPIRY_DAYS }}
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_CALLBACK_URL=${{ secrets.GOOGLE_CALLBACK_URL }}
+          FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+          WIDGET_API_URL=${{ secrets.WIDGET_API_URL }}
+          WIDGET_SCRIPT_URL=${{ secrets.WIDGET_SCRIPT_URL }}
+          PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
+          PINECONE_ENVIRONMENT=${{ secrets.PINECONE_ENVIRONMENT }}
+          PINECONE_INDEX_NAME=${{ secrets.PINECONE_INDEX_NAME }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL=${{ secrets.OPENAI_MODEL }}
+          REDIS_HOST=${{ secrets.REDIS_HOST }}
+          REDIS_PORT=${{ secrets.REDIS_PORT }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
+          REDIS_TLS_ENABLED=${{ secrets.REDIS_TLS_ENABLED }}
+          SCRAPER_CONCURRENCY=${{ secrets.SCRAPER_CONCURRENCY }}
+          ANALYTICS_BUFFER_SIZE=${{ secrets.ANALYTICS_BUFFER_SIZE }}
+          ANALYTICS_FLUSH_INTERVAL_MS=${{ secrets.ANALYTICS_FLUSH_INTERVAL_MS }}
+          CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
+
+          RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
+          RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+
+          S3_WIDGET_ICON_BUCKET=${{ secrets.S3_WIDGET_ICON_BUCKET }}
+          S3_WIDGET_ICON_REGION=${{ secrets.S3_WIDGET_ICON_REGION }}    
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}  
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}  
+          S3_WIDGET_ICON_PUBLIC_BASE_URL=${{ secrets.S3_WIDGET_ICON_PUBLIC_BASE_URL }}  
+          AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}  
+
+          EOF
+
+      - name: Login to Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | sudo docker login --username "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Pull Docker image
+        run: sudo docker pull webomindapps1/witzo-automation-dev:latest
+
+      - name: Stop & remove old container (if any)
+        run: |
+          docker stop cicd-pipeline-witzo-automation || true
+          docker rm   cicd-pipeline-witzo-automation || true
+
+      - name: Run Docker container
+        run: |
+          sudo docker run -d \
+            --name cicd-pipeline-witzo-automation \
+            -p 3008:3008 \
+            --restart always \
+            -v /home/ubuntu/logsfiles:/logs \
+            --env-file $GITHUB_WORKSPACE/.env \
+            webomindapps1/witzo-automation-dev:latest

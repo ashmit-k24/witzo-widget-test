@@ -1,3 +1,4 @@
+import compression from "compression";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, {
@@ -13,19 +14,35 @@ import passport, {
 	configurePassport,
 } from "./config/passport";
 import {
+	AUTH_CLEANUP_INTERVAL_MS,
+	RESPONSE_COMPRESSION_MIN_BYTES,
+	SERVER_HEADERS_TIMEOUT_MS,
+	SERVER_KEEP_ALIVE_TIMEOUT_MS,
+	SERVER_REQUEST_TIMEOUT_MS,
+	SHUTDOWN_FORCE_TIMEOUT_MS,
+	WEBHOOK_PROCESS_INTERVAL_MS,
+} from "./constants";
+import {
 	errorHandler,
 	notFoundHandler,
 } from "./middleware/errorHandler";
+import { sanitizeRequestInput } from "./middleware/sanitizeInput";
+import adminRoutes from "./routes/adminRoutes";
+import healthRoutes from "./routes/healthRoutes";
 import publicRoutes from "./routes/publicRoutes";
 import authRoutes from "./routes/routes";
-import healthRoutes from "./routes/healthRoutes";
 import authService from "./services/authService";
+import adminAuthService from "./services/adminAuthService";
+import { leadWebhookService } from "./services/leadWebhookService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
+import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 import { createScraperWorker } from "./workers/scraperWorker";
 
-// Start background workers
-createScraperWorker();
+// Start background workers and keep references for graceful shutdown
+const scraperWorker = createScraperWorker();
+const maintenanceWorker =
+	createMaintenanceWorker();
 
 const app: Application = express();
 app.set("trust proxy", 1);
@@ -41,13 +58,14 @@ app.use(
 			directives: {
 				defaultSrc: ["'self'"],
 				scriptSrc: ["'self'", "'unsafe-inline'"],
-				styleSrc: ["'self'", "'unsafe-inline'"],
+				styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
 				imgSrc: ["'self'", "data:", "https:"],
 				connectSrc: ["'self'"],
-				fontSrc: ["'self'", "data:"],
+				fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
 				objectSrc: ["'none'"],
 				mediaSrc: ["'self'"],
 				frameSrc: ["'self'"],
+				frameAncestors: ["'self'", "http://localhost:*", "https://witzo.ai", "https://*.witzo.ai"],
 			},
 		},
 		crossOriginEmbedderPolicy: false,
@@ -62,6 +80,7 @@ app.use(
 const configuredOrigins = [
 	config.CORS_ORIGIN,
 	config.FRONTEND_URL,
+	config.ADMIN_FRONTEND_URL,
 ]
 	.filter((value): value is string =>
 		Boolean(value),
@@ -71,54 +90,125 @@ const rawOrigins = configuredOrigins
 	.split(",")
 	.map((origin) => origin.trim())
 	.filter(Boolean);
-const allowAnyOrigin = rawOrigins.includes("*");
+const hasWildcardOrigin = rawOrigins.includes("*");
 const allowedOriginSet = new Set(
 	rawOrigins
 		.filter((origin) => origin !== "*")
 		.map((origin) => origin.toLowerCase()),
 );
 
+if (hasWildcardOrigin) {
+	logger.warn(
+		'Ignoring CORS wildcard origin "*" because credentialed requests require explicit origins. Configure CORS_ORIGIN with a comma-separated allowlist instead.',
+	);
+}
+
 app.use(
-	cors({
-		origin: (origin, callback) => {
-			if (!origin) {
-				callback(null, true);
+	cors(
+		(
+			req: Request,
+			callback,
+		) => {
+			const requestPath = req.path.toLowerCase();
+			const isPublicWidgetRoute =
+				requestPath === "/api/v1" ||
+				requestPath.startsWith(
+					"/api/v1/",
+				);
+
+			if (isPublicWidgetRoute) {
+				callback(null, {
+					origin: true,
+					credentials: false,
+				});
 				return;
 			}
 
-			const normalizedOrigin =
-				origin.toLowerCase();
+			callback(null, {
+				origin: (
+					origin,
+					originCallback,
+				) => {
+					if (!origin) {
+						originCallback(
+							null,
+							true,
+						);
+						return;
+					}
 
-			if (
-				allowAnyOrigin ||
-				allowedOriginSet.has(normalizedOrigin)
-			) {
-				callback(null, true);
-				return;
-			}
+					const normalizedOrigin =
+						origin.toLowerCase();
 
-			callback(new Error("Not allowed by CORS"));
+					if (
+						allowedOriginSet.has(
+							normalizedOrigin,
+						)
+					) {
+						originCallback(
+							null,
+							true,
+						);
+						return;
+					}
+
+					originCallback(
+						new Error(
+							"Not allowed by CORS",
+						),
+					);
+				},
+				credentials: true,
+			});
 		},
-		credentials: true,
-	}),
+	),
 );
 
 // Cookie parser middleware
 app.use(cookieParser(config.COOKIE_SECRET));
 
 // Body parser
-app.use(express.json({ limit: "10kb" }));
+app.use(
+	express.json({
+		limit: "10kb",
+		verify: (
+			req: Request & { rawBody?: string },
+			_res,
+			buffer,
+		) => {
+			req.rawBody = buffer.toString("utf-8");
+		},
+	}),
+);
 app.use(
 	express.urlencoded({
 		extended: true,
 		limit: "10kb",
 	}),
 );
+app.use(sanitizeRequestInput);
 
 // Initialize Passport middleware
 app.use(passport.initialize());
 
-// Global rate limiting
+// Response compression — handles gzip/deflate, skips SSE streams automatically
+app.use(
+	compression({
+		filter: (req, res) => {
+			// Don't compress SSE streams
+			if (
+				res.getHeader("Content-Type") ===
+				"text/event-stream"
+			) {
+				return false;
+			}
+			return compression.filter(req, res);
+		},
+		threshold: RESPONSE_COMPRESSION_MIN_BYTES,
+	}),
+);
+
+// Global rate limiting — only applies to /api routes; static files are excluded
 const limiter = rateLimit({
 	windowMs: config.RATE_LIMIT_WINDOW_MS,
 	max: config.RATE_LIMIT_MAX_REQUESTS,
@@ -129,6 +219,7 @@ const limiter = rateLimit({
 	},
 	standardHeaders: true,
 	legacyHeaders: false,
+	skip: (req: Request) => !req.path.startsWith("/api"),
 });
 
 app.use(limiter);
@@ -147,7 +238,21 @@ app.use((req: Request, _res: Response, next) => {
 // Serve widget static files from public directory
 app.use(
 	"/widget",
-	express.static("public/widget"),
+	express.static("public/widget", {
+		setHeaders: (res, filePath) => {
+			if (filePath.endsWith("witzo-chat.js")) {
+				res.setHeader("Cache-Control", "no-store, must-revalidate");
+				res.setHeader("Pragma", "no-cache");
+				res.setHeader("Expires", "0");
+			}
+		},
+	}),
+);
+
+// Serve shared assets (images, etc.)
+app.use(
+	"/assets",
+	express.static("public/assets"),
 );
 
 // Health check routes (no rate limiting for health checks)
@@ -155,6 +260,9 @@ app.use(healthRoutes);
 
 // API routes
 app.use("/api/auth", authRoutes);
+
+// Admin API routes
+app.use("/api/admin", adminRoutes);
 
 // Public API routes (for widget embedding)
 app.use("/api/v1", publicRoutes);
@@ -166,7 +274,6 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Cleanup expired sessions and codes periodically
-const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
 setInterval(() => {
 	authService
 		.cleanupExpired()
@@ -175,7 +282,7 @@ setInterval(() => {
 				error: error.message,
 			});
 		});
-}, CLEANUP_INTERVAL);
+}, AUTH_CLEANUP_INTERVAL_MS);
 
 // Flush analytics buffer periodically (configurable for high-traffic scenarios)
 setInterval(() => {
@@ -189,22 +296,50 @@ setInterval(() => {
 		});
 }, config.ANALYTICS_FLUSH_INTERVAL_MS);
 
+// Process pending enterprise lead webhook deliveries
+setInterval(() => {
+	leadWebhookService
+		.processPendingEvents()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled lead webhook processing failed",
+				{ error: error.message },
+			);
+		});
+}, WEBHOOK_PROCESS_INTERVAL_MS);
+
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {
 	logger.info(
 		"Received shutdown signal, closing server gracefully...",
 	);
 
-	server.close(() => {
-		logger.info("Server closed");
-		process.exit(0);
-	});
-
-	// Force shutdown after 10 seconds
-	setTimeout(() => {
+	// Force shutdown after timeout if clean shutdown stalls
+	const forceTimer = setTimeout(() => {
 		logger.error("Forced shutdown after timeout");
 		process.exit(1);
-	}, 10000);
+	}, SHUTDOWN_FORCE_TIMEOUT_MS);
+	forceTimer.unref(); // Don't keep the process alive just for this timer
+
+	server.close(async () => {
+		logger.info(
+			"HTTP server closed, draining workers...",
+		);
+		try {
+			await Promise.all([
+				scraperWorker.close(),
+				maintenanceWorker.close(),
+			]);
+			logger.info("BullMQ workers closed");
+		} catch (err) {
+			logger.error("Error closing workers", {
+				error: (err as Error).message,
+			});
+		}
+		logger.info("Shutdown complete");
+		clearTimeout(forceTimer);
+		process.exit(0);
+	});
 };
 
 // Start server
@@ -214,11 +349,16 @@ const server: Server = app.listen(
 		logger.info(
 			`Server running in ${config.NODE_ENV} mode on port ${config.PORT}`,
 		);
-		console.log(
+		logger.info(
 			`🚀 Server is running on http://localhost:${config.PORT}`,
 		);
+		void adminAuthService.initializeAdminAuth();
 	},
 );
+server.keepAliveTimeout =
+	SERVER_KEEP_ALIVE_TIMEOUT_MS;
+server.headersTimeout = SERVER_HEADERS_TIMEOUT_MS;
+server.requestTimeout = SERVER_REQUEST_TIMEOUT_MS;
 
 // Handle graceful shutdown
 process.on("SIGTERM", () =>
@@ -236,6 +376,21 @@ process.on(
 			reason: reason.message,
 			promise,
 		});
+	},
+);
+
+// Handle synchronous uncaught exceptions — log then exit so PM2 can restart
+process.on(
+	"uncaughtException",
+	(error: Error) => {
+		logger.error(
+			"Uncaught Exception — process will exit",
+			{
+				error: error.message,
+				stack: error.stack,
+			},
+		);
+		process.exit(1);
 	},
 );
 

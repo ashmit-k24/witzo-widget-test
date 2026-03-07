@@ -3,46 +3,41 @@ import logger from "../utils/logger";
 import { config } from "./env";
 
 /**
- * Separate Redis instances for better scalability and isolation
- * - Cache Redis: Widget keys, user sessions, general caching
- * - Queue Redis: BullMQ job queue (requires maxRetriesPerRequest: null)
- * - Analytics Redis: Event buffering and analytics data
+ * All Redis roles share one Redis host/port/password.
+ * We keep separate client instances only for connection behavior isolation.
  */
-
-// Cache Redis configuration
-const redisCacheConfig = {
-	host: config.REDIS_CACHE_HOST,
-	port: config.REDIS_CACHE_PORT,
-	password: config.REDIS_CACHE_PASSWORD,
+const sharedRedisConfig = {
+	host: config.REDIS_HOST,
+	port: config.REDIS_PORT,
+	username: config.REDIS_USERNAME,
+	password: config.REDIS_PASSWORD,
 	retryStrategy(times: number) {
 		const delay = Math.min(times * 50, 2000);
 		return delay;
 	},
 	enableReadyCheck: true,
+	...(config.REDIS_TLS_ENABLED
+		? {
+				tls: {},
+			}
+		: {}),
+};
+
+// Cache Redis configuration
+const redisCacheConfig = {
+	...sharedRedisConfig,
 	maxRetriesPerRequest: 3,
 };
 
 // Queue Redis configuration (for BullMQ)
 const redisQueueConfig = {
-	host: config.REDIS_QUEUE_HOST,
-	port: config.REDIS_QUEUE_PORT,
-	password: config.REDIS_QUEUE_PASSWORD,
+	...sharedRedisConfig,
 	maxRetriesPerRequest: null,
-	retryStrategy(times: number) {
-		const delay = Math.min(times * 50, 2000);
-		return delay;
-	},
 };
 
 // Analytics Redis configuration
 const redisAnalyticsConfig = {
-	host: config.REDIS_ANALYTICS_HOST,
-	port: config.REDIS_ANALYTICS_PORT,
-	password: config.REDIS_ANALYTICS_PASSWORD,
-	retryStrategy(times: number) {
-		const delay = Math.min(times * 50, 2000);
-		return delay;
-	},
+	...sharedRedisConfig,
 	maxRetriesPerRequest: 3,
 };
 
@@ -63,8 +58,8 @@ export const redisAnalytics = new Redis(
 // Event handlers for Cache Redis
 redisCache.on("connect", () => {
 	logger.info("Redis Cache connected", {
-		host: config.REDIS_CACHE_HOST,
-		port: config.REDIS_CACHE_PORT,
+		host: config.REDIS_HOST,
+		port: config.REDIS_PORT,
 	});
 });
 
@@ -81,8 +76,8 @@ redisCache.on("ready", () => {
 // Event handlers for Queue Redis
 redisQueue.on("connect", () => {
 	logger.info("Redis Queue connected", {
-		host: config.REDIS_QUEUE_HOST,
-		port: config.REDIS_QUEUE_PORT,
+		host: config.REDIS_HOST,
+		port: config.REDIS_PORT,
 	});
 });
 
@@ -95,8 +90,8 @@ redisQueue.on("error", (err) => {
 // Event handlers for Analytics Redis
 redisAnalytics.on("connect", () => {
 	logger.info("Redis Analytics connected", {
-		host: config.REDIS_ANALYTICS_HOST,
-		port: config.REDIS_ANALYTICS_PORT,
+		host: config.REDIS_HOST,
+		port: config.REDIS_PORT,
 	});
 });
 

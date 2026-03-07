@@ -1,7 +1,7 @@
+import ExcelJS from "exceljs";
 import * as fs from "fs";
 import mammoth from "mammoth";
 import * as Papa from "papaparse";
-import * as XLSX from "xlsx";
 import { ParsedDocument } from "../types";
 import logger from "../utils/logger";
 import { pineconeService } from "./pineconeService";
@@ -224,28 +224,50 @@ class DocumentParserService {
 		filePath: string,
 	): Promise<string> {
 		try {
-			const workbook = XLSX.readFile(filePath);
-			let content = "";
+			const workbook = new ExcelJS.Workbook();
+			await workbook.xlsx.readFile(filePath);
 
 			if (
-				!workbook.SheetNames ||
-				workbook.SheetNames.length === 0
+				!workbook.worksheets ||
+				workbook.worksheets.length === 0
 			) {
 				throw new Error(
 					"Excel file has no sheets",
 				);
 			}
 
-			workbook.SheetNames.forEach((sheetName) => {
-				const sheet = workbook.Sheets[sheetName];
-				const jsonData = XLSX.utils.sheet_to_json(
-					sheet,
-					{ header: 1 },
-				);
+			let content = "";
 
-				content += `\n\n=== Sheet: ${sheetName} ===\n`;
-				jsonData.forEach((row: any) => {
-					content += row.join(" | ") + "\n";
+			workbook.worksheets.forEach((sheet) => {
+				content += `\n\n=== Sheet: ${sheet.name} ===\n`;
+
+				sheet.eachRow((row) => {
+					const rowValues = (
+						row.values as ExcelJS.CellValue[]
+					)
+						.slice(1) // ExcelJS row.values is 1-indexed, index 0 is always null
+						.map((cell) => {
+							if (
+								cell === null ||
+								cell === undefined
+							)
+								return "";
+							if (
+								typeof cell === "object" &&
+								cell !== null &&
+								"richText" in cell
+							) {
+								// RichText cell
+								return (
+									cell as ExcelJS.CellRichTextValue
+								).richText
+									.map((r) => r.text)
+									.join("");
+							}
+							return String(cell);
+						});
+
+					content += rowValues.join(" | ") + "\n";
 				});
 			});
 

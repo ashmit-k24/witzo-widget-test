@@ -2,13 +2,13 @@ name: CI & CD Pipeline Development
 
 on:
   push:
-    branches: [development]
+    branches: [main]
 
 jobs:
   build:
     name: Build & Push Image
-    runs-on: [self-hosted, backend]
-    environment: 'witzo-automation-development'
+    runs-on: [self-hosted, witzo-prod]
+    environment: 'witzo-backend-prod'
     defaults:
       run:
         working-directory: ${{ github.workspace }}
@@ -39,17 +39,17 @@ jobs:
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | sudo docker login --username "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
       - name: Build the Docker image
-        run: sudo docker build -t webomindapps1/witzo-automation-dev:latest .
+        run: sudo docker build -t webomindapps1/witzo-automation-prod:latest .
 
       - name: Push to Docker Hub
-        run: sudo docker push webomindapps1/witzo-automation-dev:latest
+        run: sudo docker push webomindapps1/witzo-automation-prod:latest
 
 
   deploy:
     name: Deploy to Self-Hosted
     needs: build
-    runs-on: [self-hosted, backend]
-    environment: 'witzo-automation-development'
+    runs-on: [self-hosted, witzo-prod]
+    environment: 'witzo-backend-prod'
 
     steps:
       - name: Checkout code (so we have a workspace dir)
@@ -58,7 +58,7 @@ jobs:
       - name: Re-create .env file on the runner
         run: |
           # Create .env with no leading indentation so docker --env-file can parse it correctly.
-          cat > $GITHUB_WORKSPACE/.env <<EOF
+          cat > $GITHUB_WORKSPACE/.env <<'EOF'
           APP_NAME=${{ secrets.APP_NAME }}
           PORT=${{ secrets.PORT }}
           NODE_ENV=${{ secrets.NODE_ENV }}
@@ -70,10 +70,10 @@ jobs:
           DB_MAX_CONNECTIONS=${{ secrets.DB_MAX_CONNECTIONS }}
           EMAIL_HOST=${{ secrets.EMAIL_HOST }}
           EMAIL_PORT=${{ secrets.EMAIL_PORT }}
-          EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}
           EMAIL_USER=${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}
           EMAIL_FROM=${{ secrets.EMAIL_FROM }}
+          EMAIL_FROM_ADDRESS=${{ secrets.EMAIL_FROM_ADDRESS }}
           VERIFICATION_CODE_EXPIRY_MINUTES=${{ secrets.VERIFICATION_CODE_EXPIRY_MINUTES }}
           MAX_VERIFICATION_ATTEMPTS=${{ secrets.MAX_VERIFICATION_ATTEMPTS }}
           SESSION_EXPIRY_HOURS=${{ secrets.SESSION_EXPIRY_HOURS }}
@@ -98,10 +98,23 @@ jobs:
           REDIS_HOST=${{ secrets.REDIS_HOST }}
           REDIS_PORT=${{ secrets.REDIS_PORT }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
+          REDIS_TLS_ENABLED=${{ secrets.REDIS_TLS_ENABLED }}
           SCRAPER_CONCURRENCY=${{ secrets.SCRAPER_CONCURRENCY }}
           ANALYTICS_BUFFER_SIZE=${{ secrets.ANALYTICS_BUFFER_SIZE }}
           ANALYTICS_FLUSH_INTERVAL_MS=${{ secrets.ANALYTICS_FLUSH_INTERVAL_MS }}
           CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
+
+          RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
+          RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+
+          S3_WIDGET_ICON_BUCKET=${{ secrets.S3_WIDGET_ICON_BUCKET }}
+          S3_WIDGET_ICON_REGION=${{ secrets.S3_WIDGET_ICON_REGION }}    
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}  
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}  
+          S3_WIDGET_ICON_PUBLIC_BASE_URL=${{ secrets.S3_WIDGET_ICON_PUBLIC_BASE_URL }}  
+          AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}  
 
           EOF
 
@@ -109,7 +122,7 @@ jobs:
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | sudo docker login --username "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
       - name: Pull Docker image
-        run: sudo docker pull webomindapps1/witzo-automation-dev:latest
+        run: sudo docker pull webomindapps1/witzo-automation-prod:latest
 
       - name: Stop & remove old container (if any)
         run: |
@@ -124,4 +137,4 @@ jobs:
             --restart always \
             -v /home/ubuntu/logsfiles:/logs \
             --env-file $GITHUB_WORKSPACE/.env \
-            webomindapps1/witzo-automation-dev:latest
+            webomindapps1/witzo-automation-prod:latest

@@ -1,21 +1,25 @@
-import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
+import {
+	coercePlanType,
+	PlanType,
+} from "../config/planConfig";
 import pool from "../config/database";
 import { config } from "../config/env";
 import {
 	redisAnalytics,
 	redisCache,
 } from "../config/redis";
+import {
+	WIDGET_ANALYTICS_BATCH_SIZE,
+	WIDGET_ANALYTICS_BUFFER_KEY,
+	WIDGET_KEY_CACHE_TTL_SECONDS,
+} from "../constants";
 import logger from "../utils/logger";
-
-const WIDGET_KEY_CACHE_TTL = 3600; // 1 hour
-const ANALYTICS_BUFFER_KEY = "analytics:buffer";
-const ANALYTICS_BATCH_SIZE =
-	config.ANALYTICS_BUFFER_SIZE;
-// const ANALYTICS_FLUSH_INTERVAL_MS = config.ANALYTICS_FLUSH_INTERVAL_MS;
 
 export interface WidgetKey {
 	id: number;
 	user_id: string;
+	company_website: string | null;
 	widget_key: string;
 	widget_name: string;
 	is_active: boolean;
@@ -25,6 +29,7 @@ export interface WidgetKey {
 	updated_at: Date;
 	last_used_at: Date | null;
 	usage_count: number;
+	plan_type: PlanType;
 }
 
 export interface WidgetConfig {
@@ -38,12 +43,22 @@ export interface WidgetConfig {
 	autoOpen?: boolean;
 	bannerText?: string;
 	bannerTextColor?: string;
-	bannerTextParagraph?: string;
-	bannerTextParagraphColor?: string;
 	closeButtonColor?: string;
 	logoIcon?: string;
 	bannerColor?: string;
 	userChatColor?: string;
+	introTitle?: string;
+	introMessage?: string;
+	introHelpOptionOneText?: string;
+	introHelpOptionOneUrl?: string;
+	introHelpOptionTwoText?: string;
+	introHelpOptionTwoUrl?: string;
+	introPrimaryButtonText?: string;
+	introSecondaryButtonText?: string;
+	introPrimaryButtonColor?: string;
+	introSecondaryButtonColor?: string;
+	introPrimaryButtonBackgroundColor?: string;
+	introSecondaryButtonBackgroundColor?: string;
 	[key: string]: any;
 }
 
@@ -55,15 +70,195 @@ export interface CreateWidgetKeyParams {
 }
 
 class WidgetService {
+	private readonly originTokenTtlMs =
+		12 * 60 * 60 * 1000;
+
 	/**
 	 * Generate a unique widget key
 	 */
 	private generateWidgetKey(): string {
-		return `wk_${uuidv4().replace(/-/g, "")}`;
+		return `wk_${crypto.randomUUID().replace(/-/g, "")}`;
 	}
 
 	private getCacheKey(widgetKey: string): string {
 		return `widget_key:${widgetKey}`;
+	}
+
+	private normalizeDomain(
+		value: string,
+	): string | null {
+		const trimmed = value.trim();
+		if (!trimmed) {
+			return null;
+		}
+
+		const isWildcard =
+			trimmed.startsWith("*.");
+		const candidate = isWildcard
+			? trimmed.slice(2)
+			: trimmed;
+		const withProtocol =
+			/^https?:\/\//i.test(candidate)
+				? candidate
+				: `https://${candidate}`;
+
+		try {
+			const hostname = new URL(withProtocol).hostname
+				.toLowerCase()
+				.replace(/\.$/, "");
+			if (!hostname) {
+				return null;
+			}
+			return isWildcard
+				? `*.${hostname}`
+				: hostname;
+		} catch {
+			return null;
+		}
+	}
+
+	private normalizeAllowedDomains(
+		domains?: string[] | null,
+	): string[] | null {
+		if (!domains) {
+			return null;
+		}
+
+		const normalized = Array.from(
+			new Set(
+				domains
+					.map((domain) =>
+						this.normalizeDomain(domain),
+					)
+					.filter(
+						(
+							domain,
+						): domain is string => Boolean(domain),
+					),
+			),
+		);
+
+		return normalized.length > 0
+			? normalized
+			: null;
+	}
+
+	private getEffectiveAllowedDomains(
+		widget: WidgetKey,
+	): string[] | null {
+		return this.normalizeAllowedDomains(
+			widget.allowed_domains,
+		);
+	}
+
+	private matchesAllowedDomain(
+		refererDomain: string,
+		allowedDomains: string[],
+	): boolean {
+		return allowedDomains.some((domain) => {
+			const sanitizedDomain = domain
+				.replace(/^https?:\/\//i, "")
+				.toLowerCase();
+			if (!sanitizedDomain) {
+				return false;
+			}
+
+			if (sanitizedDomain.startsWith("*.")) {
+				const baseDomain =
+					sanitizedDomain.slice(2);
+				return (
+					refererDomain === baseDomain ||
+					refererDomain.endsWith(
+						`.${baseDomain}`,
+					)
+				);
+			}
+
+			return (
+				refererDomain === sanitizedDomain ||
+				refererDomain.endsWith(
+					`.${sanitizedDomain}`,
+				)
+			);
+		});
+	}
+
+	createOriginToken(
+		widgetKey: string,
+		originDomain: string,
+	): string {
+		const now = Date.now();
+		const payload = {
+			widgetKey,
+			originDomain:
+				originDomain.toLowerCase(),
+			exp: now + this.originTokenTtlMs,
+			iat: now,
+		};
+		const encodedPayload = Buffer.from(
+			JSON.stringify(payload),
+			"utf-8",
+		).toString("base64url");
+		const signature = crypto
+			.createHmac("sha256", config.COOKIE_SECRET)
+			.update(encodedPayload)
+			.digest("base64url");
+		return `${encodedPayload}.${signature}`;
+	}
+
+	private validateOriginToken(
+		token: string,
+		widgetKey: string,
+		originDomain: string,
+	): boolean {
+		const parts = token.split(".");
+		if (parts.length !== 2) {
+			return false;
+		}
+
+		const [encodedPayload, signature] = parts;
+		const expectedSignature = crypto
+			.createHmac("sha256", config.COOKIE_SECRET)
+			.update(encodedPayload)
+			.digest("base64url");
+
+		try {
+			if (
+				!crypto.timingSafeEqual(
+					Buffer.from(signature, "utf-8"),
+					Buffer.from(
+						expectedSignature,
+						"utf-8",
+					),
+				)
+			) {
+				return false;
+			}
+		} catch {
+			return false;
+		}
+
+		try {
+			const payload = JSON.parse(
+				Buffer.from(
+					encodedPayload,
+					"base64url",
+				).toString("utf-8"),
+			) as {
+				widgetKey: string;
+				originDomain: string;
+				exp: number;
+			};
+
+			return (
+				payload.widgetKey === widgetKey &&
+				payload.originDomain ===
+					originDomain.toLowerCase() &&
+				Date.now() <= payload.exp
+			);
+		} catch {
+			return false;
+		}
 	}
 
 	/**
@@ -90,6 +285,10 @@ class WidgetService {
 			}
 
 			const widgetKey = this.generateWidgetKey();
+			const effectiveAllowedDomains =
+				this.normalizeAllowedDomains(
+					allowedDomains,
+				);
 
 			const result = await pool.query(
 				`INSERT INTO widget_keys
@@ -100,7 +299,7 @@ class WidgetService {
 					userId,
 					widgetKey,
 					widgetName,
-					allowedDomains,
+					effectiveAllowedDomains,
 					JSON.stringify(widgetConfig),
 				],
 			);
@@ -112,7 +311,7 @@ class WidgetService {
 			// Cache the new key
 			await redisCache.setex(
 				this.getCacheKey(widgetKey),
-				WIDGET_KEY_CACHE_TTL,
+				WIDGET_KEY_CACHE_TTL_SECONDS,
 				JSON.stringify(widget),
 			);
 
@@ -142,11 +341,21 @@ class WidgetService {
 				this.getCacheKey(widgetKey),
 			);
 			if (cached) {
-				return JSON.parse(cached);
+				const parsedCached =
+					JSON.parse(cached) as Partial<WidgetKey>;
+				if (
+					parsedCached.company_website !==
+					undefined
+				) {
+					return parsedCached as WidgetKey;
+				}
 			}
 
 			const result = await pool.query(
-				`SELECT * FROM widget_keys WHERE widget_key = $1`,
+				`SELECT wk.*, u.plan_type, u.company_website
+				 FROM widget_keys wk
+				 JOIN users u ON u.id = wk.user_id
+				 WHERE wk.widget_key = $1`,
 				[widgetKey],
 			);
 
@@ -161,7 +370,7 @@ class WidgetService {
 			// Cache result
 			await redisCache.setex(
 				this.getCacheKey(widgetKey),
-				WIDGET_KEY_CACHE_TTL,
+				WIDGET_KEY_CACHE_TTL_SECONDS,
 				JSON.stringify(widget),
 			);
 
@@ -185,7 +394,12 @@ class WidgetService {
 			// We don't cache by userID easily because primary lookup is by key
 			// But we could add a secondary cache if needed
 			const result = await pool.query(
-				`SELECT * FROM widget_keys WHERE user_id = $1`,
+				`SELECT wk.*, u.plan_type, u.company_website
+				 FROM widget_keys wk
+				 JOIN users u ON u.id = wk.user_id
+				 WHERE wk.user_id = $1
+				 ORDER BY wk.updated_at DESC
+				 LIMIT 1`,
 				[userId],
 			);
 
@@ -211,9 +425,11 @@ class WidgetService {
 	async verifyWidgetKey(
 		widgetKey: string,
 		refererDomain?: string,
+		originToken?: string,
 	): Promise<{
 		valid: boolean;
 		userId?: string;
+		widget?: WidgetKey;
 		message?: string;
 	}> {
 		try {
@@ -235,61 +451,61 @@ class WidgetService {
 			}
 
 			const normalizedReferer =
-				refererDomain?.toLowerCase();
+				refererDomain
+					? this.normalizeDomain(
+							refererDomain,
+					  )
+					: null;
+			const allowedDomains =
+				this.getEffectiveAllowedDomains(widget);
 
-			// Check domain restrictions
 			if (
-				widget.allowed_domains &&
-				widget.allowed_domains.length > 0
+				normalizedReferer &&
+				originToken &&
+				this.validateOriginToken(
+					originToken,
+					widgetKey,
+					normalizedReferer,
+				)
 			) {
-				if (!normalizedReferer) {
-					return {
-						valid: false,
-						message:
-							"Missing referer for domain-restricted widget",
-					};
-				}
+				this.updateWidgetUsage(widget.id);
+				return {
+					valid: true,
+					userId: widget.user_id,
+					widget,
+				};
+			}
 
-				const isAllowed =
-					widget.allowed_domains.some(
-						(domain) => {
-							const sanitizedDomain = domain
-								.replace(/^https?:\/\//i, "")
-								.toLowerCase();
-							if (!sanitizedDomain) {
-								return false;
-							}
+			if (
+				!allowedDomains ||
+				allowedDomains.length === 0
+			) {
+				this.updateWidgetUsage(widget.id);
+				return {
+					valid: true,
+					userId: widget.user_id,
+					widget,
+				};
+			}
 
-							if (
-								sanitizedDomain.startsWith("*.")
-							) {
-								const baseDomain =
-									sanitizedDomain.slice(2);
-								return (
-									normalizedReferer ===
-										baseDomain ||
-									normalizedReferer.endsWith(
-										`.${baseDomain}`,
-									)
-								);
-							}
+			if (!normalizedReferer) {
+				return {
+					valid: false,
+					message:
+						"Missing referer for domain-restricted widget",
+				};
+			}
 
-							return (
-								normalizedReferer ===
-									sanitizedDomain ||
-								normalizedReferer.endsWith(
-									`.${sanitizedDomain}`,
-								)
-							);
-						},
-					);
-
-				if (!isAllowed) {
-					return {
-						valid: false,
-						message: "Domain not allowed",
-					};
-				}
+			if (
+				!this.matchesAllowedDomain(
+					normalizedReferer,
+					allowedDomains,
+				)
+			) {
+				return {
+					valid: false,
+					message: "Domain not allowed",
+				};
 			}
 
 			// Update usage stats (fire and forget, maybe buffered later if needed)
@@ -298,6 +514,7 @@ class WidgetService {
 			return {
 				valid: true,
 				userId: widget.user_id,
+				widget,
 			};
 		} catch (error) {
 			logger.error("Error verifying widget key", {
@@ -324,6 +541,12 @@ class WidgetService {
 		},
 	): Promise<WidgetKey> {
 		try {
+			const currentWidget =
+				await this.getUserWidgetKey(userId);
+			if (!currentWidget) {
+				throw new Error("Widget key not found");
+			}
+
 			const setClauses: string[] = [];
 			const values: any[] = [];
 			let paramIndex = 1;
@@ -343,10 +566,14 @@ class WidgetService {
 			}
 
 			if (updates.allowedDomains !== undefined) {
+				const effectiveAllowedDomains =
+					this.normalizeAllowedDomains(
+						updates.allowedDomains,
+					);
 				setClauses.push(
 					`allowed_domains = $${paramIndex++}`,
 				);
-				values.push(updates.allowedDomains);
+				values.push(effectiveAllowedDomains);
 			}
 
 			if (updates.widgetConfig !== undefined) {
@@ -370,10 +597,6 @@ class WidgetService {
                     RETURNING *`,
 				values,
 			);
-
-			if (result.rows.length === 0) {
-				throw new Error("Widget key not found");
-			}
 
 			const widget = this.mapRowToWidgetKey(
 				result.rows[0],
@@ -450,7 +673,7 @@ class WidgetService {
 
 			// Push to Redis Buffer
 			await redisAnalytics.lpush(
-				ANALYTICS_BUFFER_KEY,
+				WIDGET_ANALYTICS_BUFFER_KEY,
 				JSON.stringify(event),
 			);
 		} catch (error) {
@@ -469,7 +692,7 @@ class WidgetService {
 	async flushAnalytics(): Promise<void> {
 		try {
 			const len = await redisAnalytics.llen(
-				ANALYTICS_BUFFER_KEY,
+				WIDGET_ANALYTICS_BUFFER_KEY,
 			);
 
 			// Only flush if buffer has enough events or forced flush
@@ -477,10 +700,10 @@ class WidgetService {
 
 			const batchSize = Math.min(
 				len,
-				ANALYTICS_BATCH_SIZE,
+				WIDGET_ANALYTICS_BATCH_SIZE,
 			);
 			const eventsStr = await redisAnalytics.rpop(
-				ANALYTICS_BUFFER_KEY,
+				WIDGET_ANALYTICS_BUFFER_KEY,
 				batchSize,
 			);
 
@@ -566,7 +789,7 @@ class WidgetService {
 				try {
 					for (const event of events) {
 						await redisAnalytics.rpush(
-							ANALYTICS_BUFFER_KEY,
+							WIDGET_ANALYTICS_BUFFER_KEY,
 							JSON.stringify(event),
 						);
 					}
@@ -597,11 +820,11 @@ class WidgetService {
 	async checkAndFlushIfNeeded(): Promise<void> {
 		try {
 			const len = await redisAnalytics.llen(
-				ANALYTICS_BUFFER_KEY,
+				WIDGET_ANALYTICS_BUFFER_KEY,
 			);
 
 			// Force flush if buffer exceeds threshold
-			if (len >= ANALYTICS_BATCH_SIZE) {
+			if (len >= WIDGET_ANALYTICS_BATCH_SIZE) {
 				logger.info(
 					`Analytics buffer size ${len} exceeds threshold, forcing flush`,
 				);
@@ -736,6 +959,8 @@ class WidgetService {
 		return {
 			id: row.id,
 			user_id: row.user_id,
+			company_website:
+				row.company_website ?? null,
 			widget_key: row.widget_key,
 			widget_name: row.widget_name,
 			is_active: row.is_active,
@@ -745,6 +970,9 @@ class WidgetService {
 			updated_at: row.updated_at,
 			last_used_at: row.last_used_at,
 			usage_count: row.usage_count,
+			plan_type: coercePlanType(
+				row.plan_type,
+			),
 		};
 	}
 }

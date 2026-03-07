@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { getPlanCapabilities } from "../config/planConfig";
 import usageTrackingService from "../services/usageTrackingService";
 import logger from "../utils/logger";
 
@@ -41,6 +42,10 @@ export const getUserUsage = async (
 				isApproachingLimit:
 					usage.isApproachingLimit,
 				isAtLimit: usage.isAtLimit,
+				capabilities:
+					getPlanCapabilities(
+						usage.planType,
+					),
 			},
 		});
 	} catch (error) {
@@ -53,7 +58,6 @@ export const getUserUsage = async (
 		res.status(500).json({
 			success: false,
 			message: "Failed to get usage statistics",
-			error: err.message,
 		});
 	}
 };
@@ -97,6 +101,10 @@ export const checkUsage = async (
 				isApproachingLimit:
 					usage.isApproachingLimit,
 				isAtLimit: usage.isAtLimit,
+				capabilities:
+					getPlanCapabilities(
+						usage.planType,
+					),
 			},
 		});
 	} catch (error) {
@@ -109,7 +117,6 @@ export const checkUsage = async (
 		res.status(500).json({
 			success: false,
 			message: "Failed to check usage",
-			error: err.message,
 		});
 	}
 };

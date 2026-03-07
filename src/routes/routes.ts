@@ -9,15 +9,24 @@ import * as authController from "../controllers/authController";
 import * as chatController from "../controllers/chatController";
 import * as csrfController from "../controllers/csrfController";
 import * as documentController from "../controllers/documentController";
+import * as overviewController from "../controllers/overviewController";
 import * as scraperController from "../controllers/scraperController";
 import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
+import * as leadController from "../controllers/leadController";
+import * as leadWebhookController from "../controllers/leadWebhookController";
+import * as feedbackController from "../controllers/feedbackController";
+import * as subscriptionController from "../controllers/subscriptionController";
 import { authenticateToken } from "../middleware/auth";
 import {
 	setCsrfToken,
 	verifyCsrfToken,
 } from "../middleware/csrf";
-import { upload } from "../middleware/upload";
+import {
+	imageUpload,
+	uploadMultipleDocuments,
+	uploadSingleDocument,
+} from "../middleware/upload";
 import {
 	addUsageToResponse,
 	checkConversationLimit,
@@ -29,7 +38,7 @@ import {
 	validationRules,
 } from "../middleware/validator";
 
-const router = Router();
+const router: Router = Router();
 
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
@@ -43,6 +52,16 @@ router.use(setCsrfToken);
 router.get(
 	"/csrf-token",
 	csrfController.getCsrfToken,
+);
+
+router.get(
+	"/plans",
+	subscriptionController.getPlans,
+);
+
+router.post(
+	"/razorpay/webhook",
+	subscriptionController.handleRazorpayWebhook,
 );
 
 /**
@@ -118,6 +137,35 @@ router.get(
 	authController.validateSession,
 );
 
+router.get(
+	"/profile",
+	authenticateToken,
+	authController.getProfileStatus,
+);
+
+router.put(
+	"/profile",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.updateProfile,
+	validate,
+	authController.updateProfile,
+);
+
+/**
+ * @route   PUT /api/auth/onboarding
+ * @desc    Mark an onboarding step as complete
+ * @access  Protected
+ */
+router.put(
+	"/onboarding",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.updateOnboarding,
+	validate,
+	authController.updateOnboarding,
+);
+
 // ============================================
 // Session Management Routes
 // ============================================
@@ -142,6 +190,8 @@ router.delete(
 	"/sessions/:sessionId",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.revokeSession,
+	validate,
 	authController.revokeSession,
 );
 
@@ -184,6 +234,45 @@ router.get(
 	usageController.getUserUsage,
 );
 
+router.get(
+	"/subscription/current",
+	authenticateToken,
+	subscriptionController.getCurrentSubscription,
+);
+
+router.post(
+	"/subscription/create",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.subscriptionCreate,
+	validate,
+	subscriptionController.createSubscription,
+);
+
+router.post(
+	"/payment/verify",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.paymentVerify,
+	validate,
+	subscriptionController.verifyPayment,
+);
+
+router.post(
+	"/subscription/cancel",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.subscriptionCancel,
+	validate,
+	subscriptionController.cancelSubscription,
+);
+
+router.get(
+	"/overview/analytics",
+	authenticateToken,
+	overviewController.getOverviewAnalytics,
+);
+
 /**
  * @route   POST /api/auth/usage/check
  * @desc    Check usage statistics for the authenticated user
@@ -191,6 +280,7 @@ router.get(
  */
 router.post(
 	"/usage/check",
+	verifyCsrfToken,
 	authenticateToken,
 	usageController.checkUsage,
 );
@@ -203,6 +293,8 @@ router.post(
 	"/scraper/scrape",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.urlWithOptions,
+	validate,
 	checkScraperLimit,
 	scraperController.scrapeWebsite,
 );
@@ -211,6 +303,8 @@ router.post(
 	"/scraper/query",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.queryDocuments,
+	validate,
 	scraperController.queryDocuments,
 );
 
@@ -218,7 +312,18 @@ router.delete(
 	"/scraper/delete",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.deleteByUrl,
+	validate,
 	scraperController.deleteDocuments,
+);
+
+router.delete(
+	"/scraper/delete-page",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.deleteByUrl,
+	validate,
+	scraperController.deletePage,
 );
 
 router.delete(
@@ -226,6 +331,15 @@ router.delete(
 	verifyCsrfToken,
 	authenticateToken,
 	scraperController.deleteAllDocuments,
+);
+
+router.post(
+	"/scraper/retrain",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.urlWithOptions,
+	validate,
+	scraperController.retrainWebsite,
 );
 
 router.get(
@@ -240,6 +354,18 @@ router.get(
 	scraperController.getAllSources,
 );
 
+router.get(
+	"/scraper/status",
+	authenticateToken,
+	scraperController.getLatestScrapeStatus,
+);
+
+router.get(
+	"/scraper/status/:jobId",
+	authenticateToken,
+	scraperController.getScrapeStatusByJobId,
+);
+
 /**
  * @route   POST /api/auth/chat
  * @desc    Chat with AI using scraped data (RAG)
@@ -250,7 +376,10 @@ router.get(
  */
 router.post(
 	"/chat",
+	verifyCsrfToken,
 	authenticateToken,
+	validationRules.chatRequest,
+	validate,
 	checkConversationLimit,
 	trackConversation,
 	addUsageToResponse,
@@ -286,7 +415,10 @@ router.get(
  */
 router.delete(
 	"/chat/session/:sessionId",
+	verifyCsrfToken,
 	authenticateToken,
+	validationRules.chatSessionParam,
+	validate,
 	chatController.clearChatSession,
 );
 
@@ -297,6 +429,7 @@ router.delete(
  */
 router.post(
 	"/chat/clear-user-sessions",
+	verifyCsrfToken,
 	authenticateToken,
 	chatController.clearUserSessions,
 );
@@ -309,9 +442,7 @@ router.post(
 router.get(
 	"/google",
 	authLimiter,
-	passport.authenticate("google", {
-		session: false,
-	}),
+	authController.initiateGoogleAuth,
 );
 
 /**
@@ -321,11 +452,21 @@ router.get(
  */
 router.get(
 	"/google/callback",
+	authController.validateGoogleOAuthState,
 	passport.authenticate("google", {
 		session: false,
-		failureRedirect: `${config.FRONTEND_URL}/login?error=google_auth_failed`,
+		failureRedirect: `${config.FRONTEND_URL}/?error=google_auth_failed`,
 	}),
 	authController.googleCallback,
+);
+
+router.post(
+	"/google/verify",
+	verifyCsrfToken,
+	verifyLimiter,
+	validationRules.verifyGoogleCode,
+	validate,
+	authController.verifyGoogleCode,
 );
 
 // ============================================
@@ -340,8 +481,9 @@ router.get(
  */
 router.post(
 	"/documents/upload",
+	verifyCsrfToken,
 	authenticateToken,
-	upload.single("document"),
+	uploadSingleDocument,
 	documentController.uploadDocument,
 );
 
@@ -353,8 +495,9 @@ router.post(
  */
 router.post(
 	"/documents/upload-multiple",
+	verifyCsrfToken,
 	authenticateToken,
-	upload.array("documents", 10),
+	uploadMultipleDocuments,
 	documentController.uploadMultipleDocuments,
 );
 
@@ -371,6 +514,8 @@ router.post(
 	"/widget/create",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.widgetCreate,
+	validate,
 	widgetController.createWidgetKey,
 );
 
@@ -394,7 +539,17 @@ router.put(
 	"/widget/update",
 	verifyCsrfToken,
 	authenticateToken,
+	validationRules.widgetUpdate,
+	validate,
 	widgetController.updateWidgetKey,
+);
+
+router.post(
+	"/widget/icon/upload",
+	verifyCsrfToken,
+	authenticateToken,
+	imageUpload.single("icon"),
+	widgetController.uploadWidgetIcon,
 );
 
 /**
@@ -429,7 +584,102 @@ router.delete(
 router.get(
 	"/widget/analytics",
 	authenticateToken,
+	validationRules.widgetAnalyticsQuery,
+	validate,
 	widgetController.getWidgetAnalytics,
+);
+
+// ============================================
+// Leads Routes (Protected)
+// ============================================
+
+router.get(
+	"/leads",
+	authenticateToken,
+	leadController.listLeads,
+);
+router.get(
+	"/leads/webhook",
+	authenticateToken,
+	leadWebhookController.getLeadWebhookConfig,
+);
+
+router.put(
+	"/leads/webhook",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.leadWebhookUpsert,
+	validate,
+	leadWebhookController.upsertLeadWebhookConfig,
+);
+
+router.post(
+	"/leads/webhook/test",
+	verifyCsrfToken,
+	authenticateToken,
+	leadWebhookController.sendLeadWebhookTest,
+);
+
+router.get(
+	"/leads/webhook/events",
+	authenticateToken,
+	validationRules.leadWebhookEventsQuery,
+	validate,
+	leadWebhookController.listLeadWebhookEvents,
+);
+
+router.post(
+	"/leads/webhook/events/:eventId/retry",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.leadWebhookEventParam,
+	validate,
+	leadWebhookController.retryLeadWebhookEvent,
+);
+
+router.get(
+	"/leads/:id",
+	authenticateToken,
+	leadController.getLead,
+);
+
+router.patch(
+	"/leads/:id/status",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.leadUpdateStatus,
+	validate,
+	leadController.updateLeadStatus,
+);
+
+router.delete(
+	"/leads/:id",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.leadDelete,
+	validate,
+	leadController.deleteLead,
+);
+
+// ============================================
+// Feedback/Suggestion Routes (Protected)
+// ============================================
+
+router.get(
+	"/feedback",
+	authenticateToken,
+	validationRules.feedbackList,
+	validate,
+	feedbackController.listFeedback,
+);
+
+router.post(
+	"/feedback",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.feedbackCreate,
+	validate,
+	feedbackController.createFeedback,
 );
 
 export default router;

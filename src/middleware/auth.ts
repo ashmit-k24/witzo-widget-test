@@ -5,14 +5,16 @@ import {
 } from "express";
 import { config } from "../config/env";
 import authService from "../services/authService";
+import { UserResponse } from "../types";
 import logger from "../utils/logger";
 
-// Extend Express Request type to include user
+// Extend Passport's Express.User to include our UserResponse shape.
+// Passport types declare req.user as Express.User, so we must augment
+// Express.User — not Request.user — to avoid a merged union that loses id.
 declare global {
 	namespace Express {
-		interface Request {
-			user?: User; // Allow only User for OAuth profiles
-		}
+		// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+		interface User extends UserResponse {}
 	}
 }
 

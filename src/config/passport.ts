@@ -70,7 +70,7 @@ export const configurePassport = (): void => {
 					);
 
 					// Pass the profile to the next middleware/controller
-					return done(null, googleProfile);
+					return done(null, googleProfile as unknown as Express.User);
 				} catch (error) {
 					logger.error(
 						"Error in Google OAuth strategy",

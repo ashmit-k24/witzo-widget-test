@@ -2,6 +2,10 @@ import { Pool, PoolConfig } from "pg";
 import logger from "../utils/logger";
 import { config } from "./env";
 
+const isDatabaseSslRequired =
+	config.DB_SSL_MODE?.trim().toLowerCase() ===
+	"require";
+
 const poolConfig: PoolConfig = {
 	host: config.DB_HOST,
 	port: config.DB_PORT,
@@ -18,6 +22,9 @@ const poolConfig: PoolConfig = {
 	query_timeout: 30000,
 	application_name: "witzo-ai-automation-chatbot",
 	allowExitOnIdle: false,
+	ssl: isDatabaseSslRequired
+		? { rejectUnauthorized: false }
+		: false,
 };
 
 const pool = new Pool(poolConfig);
@@ -54,6 +61,9 @@ const testConnection = async (
 					database: config.DB_NAME,
 					maxConnections:
 						config.DB_MAX_CONNECTIONS,
+					sslMode:
+						config.DB_SSL_MODE ||
+						"disable",
 				},
 			);
 			return;
@@ -65,6 +75,9 @@ const testConnection = async (
 					error: error.message,
 					host: config.DB_HOST,
 					database: config.DB_NAME,
+					sslMode:
+						config.DB_SSL_MODE ||
+						"disable",
 				},
 			);
 

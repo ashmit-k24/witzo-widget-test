@@ -1,25 +1,60 @@
 import { Request, Response } from "express";
+import {
+	coercePlanType,
+} from "../config/planConfig";
 import { pineconeService } from "../services/pineconeService";
 import { scraperService } from "../services/scraperService";
-import {
-	SCRAPER_PAGE_LIMITS,
-	ScrapeRequest,
-} from "../types";
+import { scraperStatusService } from "../services/scraperStatusService";
+import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
+
+const SCRAPER_DEFAULT_MAX_PAGES = 300;
+const SCRAPER_MAX_DEPTH = 10;
+const SCRAPER_MAX_PAGES = 300;
+
+const getScraperUpgradeMessage = (
+	planType: "free" | "basic" | "enterprise",
+): string => {
+	if (planType === "free") {
+		return "Upgrade to Basic plan for 30 website pages";
+	}
+	if (planType === "basic") {
+		return "Upgrade to Enterprise plan for up to 300 website pages";
+	}
+	return "You have reached the maximum limit for Enterprise plan (300 pages)";
+};
+
+const getScraperLimitPayload = (
+	planType: "free" | "basic" | "enterprise",
+	scraperUsage: Awaited<
+		ReturnType<typeof pineconeService.getScraperUsageStats>
+	>,
+) => ({
+		planType: scraperUsage.planType,
+		pagesUsed: scraperUsage.pagesUsed,
+		pagesLimit: scraperUsage.pagesLimit,
+		pagesRemaining: scraperUsage.pagesRemaining,
+		upgradeMessage:
+			scraperUsage.pagesLimit === null
+				? undefined
+				: getScraperUpgradeMessage(planType),
+	});
 
 export const scrapeWebsite = async (
 	req: Request,
 	res: Response,
 ): Promise<void> => {
+	let jobId: string | null = null;
 	try {
 		const {
 			url,
 			maxDepth = 3,
-			maxPages = 100,
+			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type || "free";
+		const planType = coercePlanType(
+			(req as any).user?.plan_type,
+		);
 
 		if (!userId) {
 			res.status(401).json({
@@ -45,74 +80,136 @@ export const scrapeWebsite = async (
 			);
 		if (existingSource.exists) {
 			logger.info(
-				`URL already scraped for user: ${userId}`,
+				`URL already scraped for user; allowing incremental re-scrape: ${userId}`,
 				{
 					url,
 					chunks: existingSource.chunks,
 				},
 			);
-			res.status(409).json({
-				success: false,
-				message: `This website has already been scraped. We found ${existingSource.chunks} existing chunks from this source.`,
-				data: {
-					alreadyScraped: true,
-					existingChunks: existingSource.chunks,
-					scrapedAt: existingSource.scrapedAt,
-				},
-			});
-			return;
 		}
 
 		// Get current scraper usage stats
-		const scraperUsage =
-			await pineconeService.getScraperUsageStats(
-				userId,
-				planType,
+			const scraperUsage =
+				await pineconeService.getScraperUsageStats(
+					userId,
+					planType,
+				);
+			if (
+				scraperUsage.pagesRemaining !== null &&
+				scraperUsage.pagesRemaining <= 0
+			) {
+				res.status(403).json({
+					success: false,
+					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					data: {
+						...getScraperLimitPayload(
+							planType,
+							scraperUsage,
+						),
+					},
+				});
+				return;
+			}
+
+			const normalizedMaxDepth = Math.max(
+				0,
+				Math.min(
+					SCRAPER_MAX_DEPTH,
+					Number(maxDepth) || 3,
+				),
+			);
+			const normalizedMaxPages = Math.max(
+				1,
+				Math.min(
+					SCRAPER_MAX_PAGES,
+					Number(maxPages) ||
+						SCRAPER_DEFAULT_MAX_PAGES,
+				),
+			);
+			const effectiveMaxPages = Math.min(
+				normalizedMaxPages,
+				scraperUsage.pagesRemaining ??
+					normalizedMaxPages,
 			);
 
-		logger.info(
-			`Starting scrape for URL: ${url}`,
-			{
-				maxDepth,
-				maxPages,
-				userId,
-			},
-		);
-
-		// Scrape synchronously — waits until all pages are scraped
-		const result =
-			await scraperService.scrapeWebsite(
-				userId,
-				url,
+			logger.info(
+				`Starting scrape for URL: ${url}`,
 				{
-					maxDepth,
-					maxPages,
+					maxDepth: normalizedMaxDepth,
+					maxPages: normalizedMaxPages,
+					effectiveMaxPages,
+					userId,
+					planType,
 				},
 			);
 
+			const job =
+				await scraperStatusService.startJob({
+					userId,
+					url,
+					mode: "scrape",
+					maxDepth: normalizedMaxDepth,
+					maxPages: effectiveMaxPages,
+				});
+			jobId = job.jobId;
+
+			// Scrape synchronously while exposing progress through status endpoints.
+			const result =
+				await scraperService.scrapeWebsite(
+					userId,
+					url,
+					{
+						maxDepth:
+							normalizedMaxDepth,
+						maxPages:
+							effectiveMaxPages,
+						onProgress: async (
+							progress,
+						) => {
+							await scraperStatusService.updateProgress(
+								job.jobId,
+								progress,
+							);
+						},
+					},
+				);
+			const finalProgress = {
+				totalPages: result.visitedPages,
+				scrapedPages: result.visitedPages,
+				storedPages: result.storedPages,
+				currentUrl: url,
+			};
+			const finalJob = result.success
+				? await scraperStatusService.completeJob(
+						job.jobId,
+						finalProgress,
+				  )
+				: await scraperStatusService.failJob(
+						job.jobId,
+						result.message,
+						finalProgress,
+				  );
 		res.status(result.success ? 200 : 500).json({
 			success: result.success,
 			message: result.message,
 			data: {
+				job: finalJob ?? job,
 				pagesScraped: result.pagesScraped,
-				scrapedPages: result.pages.map(
-					(page) => ({
-						url: page.url,
-						title: page.title,
-						contentLength: page.content.length,
-					}),
-				),
-				usage: {
-					pagesUsed: scraperUsage.pagesUsed + result.pagesScraped,
-					pagesLimit: scraperUsage.pagesLimit,
-					pagesRemaining: Math.max(
-						0,
-						scraperUsage.pagesRemaining - result.pagesScraped,
-					),
-				},
+				visitedPages: result.visitedPages,
+				storedPages: result.storedPages,
 			},
 		});
 	} catch (error) {
+		if (jobId) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Scrape failed";
+			await scraperStatusService.failJob(
+				jobId,
+				message,
+			);
+		}
 		logger.error(
 			"Error in scrapeWebsite controller",
 			{ error },
@@ -121,10 +218,6 @@ export const scrapeWebsite = async (
 			success: false,
 			message:
 				"Internal server error while scraping website",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -188,10 +281,6 @@ export const queryDocuments = async (
 			success: false,
 			message:
 				"Internal server error while querying documents",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -221,7 +310,7 @@ export const deleteDocuments = async (
 		}
 
 		logger.info(
-			`Deleting documents for URL: ${url}`,
+			`Deleting all documents for website: ${url}`,
 			{
 				userId,
 			},
@@ -234,7 +323,7 @@ export const deleteDocuments = async (
 
 		res.status(200).json({
 			success: true,
-			message: `All documents for URL ${url} have been deleted`,
+			message: `All documents for website ${url} have been deleted`,
 		});
 	} catch (error) {
 		logger.error(
@@ -245,10 +334,57 @@ export const deleteDocuments = async (
 			success: false,
 			message:
 				"Internal server error while deleting documents",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
+		});
+	}
+};
+
+export const deletePage = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const { url } = req.body;
+		const userId = (req as any).user?.id;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		if (!url) {
+			res.status(400).json({
+				success: false,
+				message: "URL is required",
+			});
+			return;
+		}
+
+		logger.info(
+			`Deleting individual page: ${url}`,
+			{ userId },
+		);
+
+		await pineconeService.deletePageByExactUrl(
+			userId,
+			url,
+		);
+
+		res.status(200).json({
+			success: true,
+			message: `Page ${url} has been deleted`,
+		});
+	} catch (error) {
+		logger.error(
+			"Error in deletePage controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while deleting page",
 		});
 	}
 };
@@ -289,10 +425,6 @@ export const deleteAllDocuments = async (
 			success: false,
 			message:
 				"Internal server error while deleting all documents",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -332,10 +464,6 @@ export const getStats = async (
 			success: false,
 			message:
 				"Internal server error while getting stats",
-			error:
-				error instanceof Error
-					? error.message
-					: "Unknown error",
 		});
 	}
 };
@@ -345,9 +473,10 @@ export const getAllSources = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type || "free";
+			const userId = (req as any).user?.id;
+			const planType = coercePlanType(
+				(req as any).user?.plan_type,
+			);
 
 		if (!userId) {
 			res.status(401).json({
@@ -365,15 +494,29 @@ export const getAllSources = async (
 			await pineconeService.getAllUserSources(
 				userId,
 			);
-		const pagesLimit =
-			SCRAPER_PAGE_LIMITS[
-				planType as "free" | "basic"
-			];
-		const pagesUsed = sources.websites.length;
+		const latestJob =
+			await scraperStatusService.getLatestJobForUser(
+				userId,
+			);
+		const scraperUsage =
+			await pineconeService.getScraperUsageStats(
+				userId,
+				planType,
+			);
+		const documentUsage =
+			await pineconeService.getDocumentUsageStats(
+				userId,
+				planType,
+			);
+
+		// Total individual pages across all websites
+		const pagesUsed = sources.websites.reduce(
+			(sum, w) => sum + w.pages.length,
+			0,
+		);
 
 		res.status(200).json({
 			success: true,
-			message: "Sources retrieved successfully",
 			data: {
 				documents: sources.documents,
 				websites: sources.websites,
@@ -381,28 +524,61 @@ export const getAllSources = async (
 					totalDocuments:
 						sources.documents.length,
 					totalWebsites: sources.websites.length,
+					totalPages: pagesUsed,
 					totalChunks: sources.totalChunks,
 				},
 				scraperUsage: {
 					planType,
 					pagesUsed,
-					pagesLimit,
-					pagesRemaining: Math.max(
-						0,
-						pagesLimit - pagesUsed,
-					),
-					isAtLimit: pagesUsed >= pagesLimit,
+					pagesLimit:
+						scraperUsage.pagesLimit,
+					pagesRemaining:
+						scraperUsage.pagesRemaining,
+					isAtLimit:
+						scraperUsage.isAtLimit,
 				},
+				documentUsage: {
+					planType,
+					documentsUsed:
+						documentUsage.documentsUsed,
+					documentsLimit:
+						documentUsage.documentsLimit,
+					documentsRemaining:
+						documentUsage.documentsRemaining,
+					isAtLimit:
+						documentUsage.isAtLimit,
+				},
+				scrapeJob: latestJob,
 			},
 		});
 	} catch (error) {
 		const userId = (req as any).user?.id;
-		const planType =
-			(req as any).user?.plan_type || "free";
-		const pagesLimit =
-			SCRAPER_PAGE_LIMITS[
-				planType as "free" | "basic"
-			];
+		const planType = coercePlanType(
+			(req as any).user?.plan_type,
+		);
+		const scraperUsage =
+			userId
+				? await pineconeService.getScraperUsageStats(
+						userId,
+						planType,
+				  )
+				: {
+						pagesLimit: 0,
+						pagesRemaining: 0,
+						isAtLimit: false,
+				  };
+		const documentUsage =
+			userId
+				? await pineconeService.getDocumentUsageStats(
+						userId,
+						planType,
+				  )
+				: {
+						documentsUsed: 0,
+						documentsLimit: 0,
+						documentsRemaining: 0,
+						isAtLimit: false,
+				  };
 		const isPineconeConnectionError =
 			error &&
 			typeof error === "object" &&
@@ -417,23 +593,42 @@ export const getAllSources = async (
 			);
 			res.status(200).json({
 				success: true,
-				message:
-					"Sources temporarily unavailable; returning empty list",
 				data: {
 					documents: [],
 					websites: [],
 					summary: {
 						totalDocuments: 0,
 						totalWebsites: 0,
+						totalPages: 0,
 						totalChunks: 0,
 					},
 					scraperUsage: {
 						planType,
 						pagesUsed: 0,
-						pagesLimit,
-						pagesRemaining: pagesLimit,
-						isAtLimit: false,
+						pagesLimit:
+							scraperUsage.pagesLimit,
+						pagesRemaining:
+							scraperUsage.pagesRemaining,
+						isAtLimit:
+							scraperUsage.isAtLimit,
 					},
+					documentUsage: {
+						planType,
+						documentsUsed:
+							documentUsage.documentsUsed,
+						documentsLimit:
+							documentUsage.documentsLimit,
+						documentsRemaining:
+							documentUsage.documentsRemaining,
+						isAtLimit:
+							documentUsage.isAtLimit,
+					},
+					scrapeJob:
+						userId
+							? await scraperStatusService.getLatestJobForUser(
+									userId,
+							  )
+							: null,
 				},
 			});
 			return;
@@ -447,10 +642,250 @@ export const getAllSources = async (
 			success: false,
 			message:
 				"Internal server error while fetching sources",
-			error:
+		});
+	}
+};
+
+export const getLatestScrapeStatus = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = (req as any).user?.id;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		const job =
+			await scraperStatusService.getLatestJobForUser(
+				userId,
+			);
+		res.status(200).json({
+			success: true,
+			data: job,
+		});
+	} catch (error) {
+		logger.error(
+			"Error in getLatestScrapeStatus controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while fetching scrape status",
+		});
+	}
+};
+
+export const getScrapeStatusByJobId = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = (req as any).user?.id;
+		const { jobId } = req.params;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		const job =
+			await scraperStatusService.getJob(jobId);
+		if (!job || job.userId !== userId) {
+			res.status(404).json({
+				success: false,
+				message: "Scrape job not found",
+			});
+			return;
+		}
+
+		res.status(200).json({
+			success: true,
+			data: job,
+		});
+	} catch (error) {
+		logger.error(
+			"Error in getScrapeStatusByJobId controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while fetching scrape job",
+		});
+	}
+};
+
+export const retrainWebsite = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	let jobId: string | null = null;
+	try {
+		const {
+			url,
+			maxDepth = 3,
+			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
+		} = req.body as ScrapeRequest;
+		const userId = (req as any).user?.id;
+		const planType = coercePlanType(
+			(req as any).user?.plan_type,
+		);
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		if (!url) {
+			res.status(400).json({
+				success: false,
+				message: "URL is required",
+			});
+			return;
+		}
+
+		logger.info(
+			`Retraining website: ${url}`,
+			{ userId },
+		);
+
+			// Delete all existing data for this website domain first
+			await pineconeService.deleteDocumentsByUrl(
+				userId,
+				url,
+			);
+
+			const scraperUsage =
+				await pineconeService.getScraperUsageStats(
+					userId,
+					planType,
+				);
+			if (
+				scraperUsage.pagesRemaining !== null &&
+				scraperUsage.pagesRemaining <= 0
+			) {
+				res.status(403).json({
+					success: false,
+					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					data: {
+						...getScraperLimitPayload(
+							planType,
+							scraperUsage,
+						),
+					},
+				});
+				return;
+			}
+
+			const normalizedMaxDepth = Math.max(
+				0,
+				Math.min(
+					SCRAPER_MAX_DEPTH,
+					Number(maxDepth) || 3,
+				),
+			);
+			const normalizedMaxPages = Math.max(
+				1,
+				Math.min(
+					SCRAPER_MAX_PAGES,
+					Number(maxPages) ||
+						SCRAPER_DEFAULT_MAX_PAGES,
+				),
+			);
+			const effectiveMaxPages = Math.min(
+				normalizedMaxPages,
+				scraperUsage.pagesRemaining ??
+					normalizedMaxPages,
+			);
+			const job =
+				await scraperStatusService.startJob({
+					userId,
+					url,
+					mode: "retrain",
+					maxDepth: normalizedMaxDepth,
+					maxPages: effectiveMaxPages,
+				});
+			jobId = job.jobId;
+
+			// Re-scrape the website
+			const result =
+				await scraperService.scrapeWebsite(
+					userId,
+					url,
+					{
+						maxDepth:
+							normalizedMaxDepth,
+						maxPages:
+							effectiveMaxPages,
+						onProgress: async (
+							progress,
+						) => {
+							await scraperStatusService.updateProgress(
+								job.jobId,
+								progress,
+							);
+						},
+					},
+				);
+			const finalProgress = {
+				totalPages: result.visitedPages,
+				scrapedPages: result.visitedPages,
+				storedPages: result.storedPages,
+				currentUrl: url,
+			};
+			const finalJob = result.success
+				? await scraperStatusService.completeJob(
+						job.jobId,
+						finalProgress,
+				  )
+				: await scraperStatusService.failJob(
+						job.jobId,
+						result.message,
+						finalProgress,
+				  );
+
+		res.status(result.success ? 200 : 500).json({
+			success: result.success,
+			message: `Website retrained successfully: ${result.message}`,
+			data: {
+				job: finalJob ?? job,
+				pagesScraped: result.pagesScraped,
+				visitedPages: result.visitedPages,
+				storedPages: result.storedPages,
+			},
+		});
+	} catch (error) {
+		if (jobId) {
+			const message =
 				error instanceof Error
 					? error.message
-					: "Unknown error",
+					: "Retrain failed";
+			await scraperStatusService.failJob(
+				jobId,
+				message,
+			);
+		}
+		logger.error(
+			"Error in retrainWebsite controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while retraining website",
 		});
 	}
 };

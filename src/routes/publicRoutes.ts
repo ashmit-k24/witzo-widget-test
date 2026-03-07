@@ -1,11 +1,20 @@
 import { Router } from "express";
+import {
+	publicWidgetActionLimiter,
+	publicWidgetChatLimiter,
+} from "../config/rateLimiters";
 import * as widgetController from "../controllers/widgetController";
+import * as publicWidgetController from "../controllers/publicWidgetController";
+import {
+	validate,
+	validationRules,
+} from "../middleware/validator";
 
-const router = Router();
+const router: Router = Router();
 
 /**
- * Public API routes for widget embedding
- * These routes don't require authentication but need valid widget keys
+ * Public API routes for widget embedding.
+ * These routes do not require user authentication but validate widget keys.
  */
 
 /**
@@ -25,6 +34,9 @@ router.get(
  */
 router.post(
 	"/webhook",
+	publicWidgetChatLimiter,
+	validationRules.publicWebhook,
+	validate,
 	widgetController.webhookChat,
 );
 
@@ -34,17 +46,8 @@ router.post(
  * @access  Public
  */
 router.get("/widget/embed.js", (_req, res) => {
-	res.setHeader(
-		"Content-Type",
-		"application/javascript",
-	);
-	res.setHeader(
-		"Cache-Control",
-		"public, max-age=3600",
-	); // Cache for 1 hour
-
-	// Serve the widget embed script
-	// For now, we'll serve a placeholder that tells users to use their own widget
+	res.setHeader("Content-Type", "application/javascript");
+	res.setHeader("Cache-Control", "public, max-age=3600");
 	res.send(`
 // Witzo Chat Widget Embed Script
 console.log('Witzo Chat Widget: Use your own chat widget component with the widget-key attribute');
@@ -52,7 +55,7 @@ console.warn('This endpoint is for serving your custom widget JavaScript. Please
 
 // Example usage:
 // <witzo-chat widget-key="your-key" api-url="http://localhost:3008/api/v1/webhook"></witzo-chat>
-     `);
+	`);
 });
 
 /**
@@ -64,6 +67,32 @@ console.warn('This endpoint is for serving your custom widget JavaScript. Please
 router.get(
 	"/embed/:widgetKey.js",
 	widgetController.generateEmbedScript,
+);
+
+/**
+ * @route   POST /api/v1/widget/contact
+ * @desc    Fallback contact form submission when conversation limit is hit (basic plan only)
+ * @access  Public (requires valid widget key in body)
+ */
+router.post(
+	"/widget/contact",
+	publicWidgetActionLimiter,
+	validationRules.publicWidgetContact,
+	validate,
+	publicWidgetController.submitContactForm,
+);
+
+/**
+ * @route   POST /api/v1/widget/rating
+ * @desc    Submit a chat rating (👍/👎) for a session (basic plan only)
+ * @access  Public (requires valid widget key in body)
+ */
+router.post(
+	"/widget/rating",
+	publicWidgetActionLimiter,
+	validationRules.publicWidgetRating,
+	validate,
+	publicWidgetController.submitChatRating,
 );
 
 export default router;

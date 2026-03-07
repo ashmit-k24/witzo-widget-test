@@ -3,8 +3,11 @@ import {
 	Request,
 	Response,
 } from "express";
+import { config } from "../config/env";
 import { chatService } from "../services/chatService";
+import { leadService } from "../services/leadService";
 import usageTrackingService from "../services/usageTrackingService";
+import { widgetIconStorageService } from "../services/widgetIconStorageService";
 import widgetService from "../services/widgetService";
 import logger from "../utils/logger";
 
@@ -19,7 +22,11 @@ export const createWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 		const {
 			widgetName,
 			allowedDomains,
@@ -33,15 +40,31 @@ export const createWidgetKey = async (
 				allowedDomains,
 				widgetConfig,
 			});
+		const publicUrls = getWidgetPublicUrls(
+			widgetKey.widget_key,
+		);
+		const previewOriginToken =
+			getPreviewOriginToken(
+				req,
+				widgetKey.widget_key,
+			);
 
 		res.status(201).json({
 			success: true,
-			message: "Widget key created successfully",
 			data: {
 				widgetKey: widgetKey.widget_key,
 				widgetName: widgetKey.widget_name,
-				allowedDomains: widgetKey.allowed_domains,
+				isActive: widgetKey.is_active,
+				allowedDomains:
+					widgetKey.allowed_domains || [],
 				widgetConfig: widgetKey.widget_config,
+				apiBaseUrl: publicUrls.apiUrl,
+				embedScriptUrl:
+					publicUrls.embedScriptUrl,
+				widgetScriptUrl:
+					publicUrls.widgetScriptUrl,
+				previewOriginToken:
+					previewOriginToken,
 				embedCode: generateEmbedCode(
 					widgetKey.widget_key,
 					widgetKey.widget_config,
@@ -64,7 +87,11 @@ export const getWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 
 		const widgetKey =
 			await widgetService.getUserWidgetKey(
@@ -80,17 +107,30 @@ export const getWidgetKey = async (
 			return;
 		}
 
+		const publicUrls = getWidgetPublicUrls(
+			widgetKey.widget_key,
+		);
+		const previewOriginToken =
+			getPreviewOriginToken(
+				req,
+				widgetKey.widget_key,
+			);
+
 		res.status(200).json({
 			success: true,
 			data: {
 				widgetKey: widgetKey.widget_key,
 				widgetName: widgetKey.widget_name,
 				isActive: widgetKey.is_active,
-				allowedDomains: widgetKey.allowed_domains,
+				allowedDomains:
+					widgetKey.allowed_domains || [],
 				widgetConfig: widgetKey.widget_config,
-				usageCount: widgetKey.usage_count,
-				lastUsedAt: widgetKey.last_used_at,
-				createdAt: widgetKey.created_at,
+				apiBaseUrl: publicUrls.apiUrl,
+				embedScriptUrl:
+					publicUrls.embedScriptUrl,
+				widgetScriptUrl:
+					publicUrls.widgetScriptUrl,
+				previewOriginToken,
 				embedCode: generateEmbedCode(
 					widgetKey.widget_key,
 					widgetKey.widget_config,
@@ -113,7 +153,11 @@ export const updateWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 		const {
 			widgetName,
 			isActive,
@@ -131,17 +175,30 @@ export const updateWidgetKey = async (
 					widgetConfig,
 				},
 			);
+		const publicUrls = getWidgetPublicUrls(
+			updatedWidget.widget_key,
+		);
+		const previewOriginToken =
+			getPreviewOriginToken(
+				req,
+				updatedWidget.widget_key,
+			);
 
 		res.status(200).json({
 			success: true,
-			message: "Widget key updated successfully",
 			data: {
 				widgetKey: updatedWidget.widget_key,
 				widgetName: updatedWidget.widget_name,
 				isActive: updatedWidget.is_active,
 				allowedDomains:
-					updatedWidget.allowed_domains,
+					updatedWidget.allowed_domains || [],
 				widgetConfig: updatedWidget.widget_config,
+				apiBaseUrl: publicUrls.apiUrl,
+				embedScriptUrl:
+					publicUrls.embedScriptUrl,
+				widgetScriptUrl:
+					publicUrls.widgetScriptUrl,
+				previewOriginToken,
 				embedCode: generateEmbedCode(
 					updatedWidget.widget_key,
 					updatedWidget.widget_config,
@@ -164,19 +221,40 @@ export const regenerateWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 
 		const newWidget =
 			await widgetService.regenerateWidgetKey(
 				userId,
 			);
+		const publicUrls = getWidgetPublicUrls(
+			newWidget.widget_key,
+		);
+		const previewOriginToken =
+			getPreviewOriginToken(
+				req,
+				newWidget.widget_key,
+			);
 
 		res.status(200).json({
 			success: true,
-			message:
-				"Widget key regenerated successfully",
 			data: {
 				widgetKey: newWidget.widget_key,
+				widgetName: newWidget.widget_name,
+				isActive: newWidget.is_active,
+				allowedDomains:
+					newWidget.allowed_domains || [],
+				widgetConfig: newWidget.widget_config,
+				apiBaseUrl: publicUrls.apiUrl,
+				embedScriptUrl:
+					publicUrls.embedScriptUrl,
+				widgetScriptUrl:
+					publicUrls.widgetScriptUrl,
+				previewOriginToken,
 				embedCode: generateEmbedCode(
 					newWidget.widget_key,
 					newWidget.widget_config,
@@ -199,7 +277,11 @@ export const deleteWidgetKey = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 
 		await widgetService.deleteWidgetKey(userId);
 
@@ -223,7 +305,11 @@ export const getWidgetAnalytics = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const userId = (req.user as any)?.id;
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
 		const limit =
 			parseInt(req.query.limit as string) || 100;
 
@@ -238,6 +324,51 @@ export const getWidgetAnalytics = async (
 			data: analytics,
 		});
 	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/widget/icon/upload
+ * @desc    Upload a widget icon image for the authenticated user
+ * @access  Protected
+ */
+export const uploadWidgetIcon = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
+
+		if (!req.file || !req.file.buffer) {
+			res.status(400).json({ success: false, message: "No icon image uploaded" });
+			return;
+		}
+
+		const contentType = req.file.mimetype || "image/png";
+		const uploadResult = await widgetIconStorageService.uploadWidgetIcon({
+			userId,
+			buffer: req.file.buffer,
+			contentType,
+		});
+
+		res.status(200).json({
+			success: true,
+			message: "Widget icon uploaded successfully",
+			data: {
+				url: uploadResult.url,
+				key: uploadResult.key,
+				contentType,
+				size: req.file.size,
+			},
+		});
+	} catch (error) {
+		logger.error("Error uploading widget icon", { error });
 		next(error);
 	}
 };
@@ -259,11 +390,14 @@ export const getWidgetConfig = async (
 			req.get("origin") ||
 			"";
 		const refererDomain = extractDomain(referer);
+		const originToken =
+			getOriginTokenHeader(req);
 
 		const verification =
 			await widgetService.verifyWidgetKey(
 				widgetKey,
 				refererDomain,
+				originToken,
 			);
 
 		if (!verification.valid) {
@@ -326,8 +460,18 @@ export const webhookChat = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const { widgetKey, message, sessionId } =
+		const {
+			widgetKey,
+			message,
+			sessionId,
+			language,
+		} =
 			req.body;
+		const streamRequested =
+			req.query.stream === "1" ||
+			(req.get("accept") || "").includes(
+				"text/event-stream",
+			);
 
 		if (!widgetKey || !message) {
 			res.status(400).json({
@@ -343,12 +487,15 @@ export const webhookChat = async (
 			req.get("origin") ||
 			"";
 		const refererDomain = extractDomain(referer);
+		const originToken =
+			getOriginTokenHeader(req);
 
 		// Verify widget key and get userId
 		const verification =
 			await widgetService.verifyWidgetKey(
 				widgetKey,
 				refererDomain,
+				originToken,
 			);
 
 		if (!verification.valid) {
@@ -362,16 +509,52 @@ export const webhookChat = async (
 		}
 
 		const userId = verification.userId!;
+		const widget =
+			await widgetService.getWidgetKeyByKey(
+				widgetKey,
+			);
+		if (!widget) {
+			res.status(404).json({
+				success: false,
+				message: "Widget not found",
+			});
+			return;
+		}
 
-		// CRITICAL: Check conversation limit BEFORE processing
-		const canChat =
-			await usageTrackingService.canUserChat(
+		const widgetDefaultLanguage =
+			typeof widget.widget_config
+				?.defaultLanguage ===
+			"string"
+				? widget.widget_config.defaultLanguage
+				: undefined;
+		const resolvedLanguage =
+			typeof language === "string" &&
+			language.trim()
+				? language
+				: widgetDefaultLanguage;
+
+		const trackMeta = {
+			ipAddress: req.ip,
+			userAgent: req.get("user-agent"),
+			refererUrl: referer,
+		};
+		const visitorId =
+			typeof sessionId === "string" &&
+			sessionId.trim()
+				? sessionId
+				: undefined;
+
+		// Atomically check AND increment the conversation counter in one query,
+		// eliminating the TOCTOU race that existed with the old canUserChat() +
+		// trackConversation() two-step pattern.
+		const { allowed, usage } =
+			await usageTrackingService.checkAndTrackConversation(
 				userId,
 			);
 
-		if (!canChat) {
-			// Get usage stats to provide helpful info
-			const usage =
+		if (!allowed) {
+			// Fetch current stats (read-only, no increment) for the error body
+			const currentUsage =
 				await usageTrackingService.getUserUsage(
 					userId,
 				);
@@ -382,9 +565,9 @@ export const webhookChat = async (
 					userId,
 					widgetKey,
 					conversationsUsed:
-						usage.conversationsUsed,
+						currentUsage.conversationsUsed,
 					conversationsLimit:
-						usage.conversationsLimit,
+						currentUsage.conversationsLimit,
 				},
 			);
 
@@ -394,74 +577,200 @@ export const webhookChat = async (
 					"You've reached your conversation limit for this month. Please upgrade your plan to continue chatting.",
 				limitReached: true,
 				data: {
-					planType: usage.planType,
+					planType: currentUsage.planType,
 					conversationsUsed:
-						usage.conversationsUsed,
+						currentUsage.conversationsUsed,
 					conversationsLimit:
-						usage.conversationsLimit,
-					resetDate: usage.resetDate,
+						currentUsage.conversationsLimit,
+					resetDate: currentUsage.resetDate,
 				},
 			});
 			return;
 		}
 
-		// Track message event
-		await widgetService.trackWidgetEvent(
-			widgetKey,
-			"message_sent",
-			{ message: message.substring(0, 100) },
-			{
-				ipAddress: req.ip,
-				userAgent: req.get("user-agent"),
-				refererUrl: referer,
-			},
-		);
+		// Non-critical analytics write is intentionally decoupled from request latency.
+		void widgetService
+			.trackWidgetEvent(
+				widgetKey,
+				"message_sent",
+				{ message: message.substring(0, 100) },
+				trackMeta,
+			)
+			.catch(() => {});
 
-		// Use chat service to get response
+		if (streamRequested) {
+			res.status(200);
+			res.setHeader(
+				"Content-Type",
+				"text/event-stream",
+			);
+			res.setHeader(
+				"Cache-Control",
+				"no-cache, no-transform",
+			);
+			res.setHeader(
+				"Connection",
+				"keep-alive",
+			);
+			res.flushHeaders?.();
+
+			const writeEvent = (
+				payload: Record<string, any>,
+			) => {
+				res.write(
+					`data: ${JSON.stringify(payload)}\n\n`,
+				);
+			};
+
+			let result:
+				| Awaited<
+						ReturnType<
+							typeof chatService.chatStream
+						>
+				  >
+				| undefined;
+			try {
+				result = await chatService.chatStream(
+					userId,
+					message,
+					sessionId,
+					{
+						onToken: (token) =>
+							writeEvent({
+								type: "token",
+								token,
+							}),
+					},
+					resolvedLanguage,
+				);
+				await chatService.attachConversationContext(
+					result.sessionId,
+					userId,
+					{
+						widgetKeyId: widget.id,
+						visitorId:
+							visitorId ||
+							result.sessionId,
+					},
+				);
+
+				// usage came from checkAndTrackConversation — no extra DB query needed
+				writeEvent({
+					type: "done",
+					sessionId: result.sessionId,
+					language: result.language,
+					usage: {
+						conversationsRemaining:
+							usage!.conversationsRemaining,
+						resetDate: usage!.resetDate,
+					},
+				});
+			} catch (streamError) {
+				logger.error(
+					"Error in webhook stream chat",
+					{ streamError },
+				);
+				writeEvent({
+					type: "error",
+					message:
+						"Temporary issue while generating response",
+				});
+			} finally {
+				res.end();
+
+				if (result) {
+					void (async () => {
+						try {
+							const session =
+								await chatService.getSession(
+									result!.sessionId,
+								);
+							if (
+								session &&
+								session.messages.length >= 2
+							) {
+								await leadService.extractAndUpsertLead(
+									userId,
+									result!.sessionId,
+									widget?.id ?? 0,
+									session.messages,
+									{
+										ipAddress:
+											req.ip,
+										sourceUrl:
+											referer,
+									},
+									usage!.planType,
+								);
+							}
+						} catch {
+							// Non-critical side effects
+						}
+					})();
+				}
+			}
+			return;
+		}
+
 		const result = await chatService.chat(
 			userId,
 			message,
 			sessionId,
+			resolvedLanguage,
+		);
+		await chatService.attachConversationContext(
+			result.sessionId,
+			userId,
+			{
+				widgetKeyId: widget.id,
+				visitorId:
+					visitorId || result.sessionId,
+			},
 		);
 
-		// CRITICAL: Track conversation AFTER successful response
-		await usageTrackingService.trackConversation(
-			userId,
-		);
+		// Queue non-critical writes out of request path
+		void (async () => {
+			try {
+				const session =
+					await chatService.getSession(
+						result.sessionId,
+					);
+				if (
+					session &&
+					session.messages.length >= 2
+				) {
+					await leadService.extractAndUpsertLead(
+						userId,
+						result.sessionId,
+						widget?.id ?? 0,
+						session.messages,
+						{
+							ipAddress: req.ip,
+							sourceUrl: referer,
+						},
+						usage!.planType,
+					);
+				}
+			} catch {
+				// Non-critical side effects
+			}
+		})();
 
-		// Get updated usage stats
-		const usage =
-			await usageTrackingService.getUserUsage(
-				userId,
-			);
-
-		logger.info("Widget conversation tracked", {
-			userId,
-			widgetKey,
-			conversationsUsed: usage.conversationsUsed,
-			conversationsRemaining:
-				usage.conversationsRemaining,
-		});
-
-		const responseData: any = {
+		// usage came from checkAndTrackConversation — no extra DB query needed
+		res.status(200).json({
 			success: true,
 			sessionId: result.sessionId,
 			response: result.response,
-			// sources: result.sources,
+			language: result.language,
 			usage: {
 				conversationsRemaining:
-					usage.conversationsRemaining,
-				resetDate: usage.resetDate,
+					usage!.conversationsRemaining,
+				resetDate: usage!.resetDate,
 			},
-		};
-
-		// Add warning if approaching limit
-		if (usage.isApproachingLimit) {
-			responseData.warning =
-				"You're approaching your monthly conversation limit";
-		}
-
-		res.status(200).json(responseData);
+			warning: usage!.isApproachingLimit
+				? "You're approaching your monthly conversation limit"
+				: undefined,
+		});
 	} catch (error) {
 		logger.error("Error in webhook chat", {
 			error,
@@ -486,11 +795,14 @@ export const generateEmbedScript = async (
 			req.get("origin") ||
 			"";
 		const refererDomain = extractDomain(referer);
+		const originToken =
+			getOriginTokenHeader(req);
 
 		const verification =
 			await widgetService.verifyWidgetKey(
 				widgetKey,
 				refererDomain,
+				originToken,
 			);
 
 		if (!verification.valid) {
@@ -529,38 +841,87 @@ export const generateEmbedScript = async (
 		}
 
 		const config = widget.widget_config;
+		const planType = widget.plan_type ?? "free";
 		const apiUrl =
 			process.env.WIDGET_API_URL ||
 			"http://localhost:3008";
 		const widgetScriptUrl =
 			process.env.WIDGET_SCRIPT_URL ||
 			`${apiUrl}/widget/witzo-chat.js`;
+		const runtimeOriginToken =
+			refererDomain
+				? widgetService.createOriginToken(
+						widgetKey,
+						refererDomain,
+				  )
+				: null;
+
+		// Explicit mapping from WidgetConfig camelCase keys → witzo-chat HTML attribute names.
+		// primaryColor fans out to three attributes (banner-color, floating-btn, user-chat-color).
+		const WIDGET_ATTR_MAP: Record<string, string | string[]> = {
+			// Content / text
+			headerTitle:               "header-title",
+			welcomeMessage:            "welcome-message",
+			placeholderText:           "input-placeholder",
+			logoIcon:                  "header-logo-url",
+			bubbleIcon:                "launcher-icon-url",
+			introTitle:                "intro-title",
+			introMessage:              "intro-message",
+			introHelpOptionOneText:    "intro-help-option-one-text",
+			introHelpOptionOneUrl:     "intro-help-option-one-url",
+			introHelpOptionTwoText:    "intro-help-option-two-text",
+			introHelpOptionTwoUrl:     "intro-help-option-two-url",
+			introPrimaryButtonText:    "intro-primary-button-text",
+			introSecondaryButtonText:  "intro-secondary-button-text",
+			// Colors
+			primaryColor:              ["header-background-color", "user-message-color"],
+			bannerColor:               "header-background-color",
+			userChatColor:             "user-message-color",
+			accentColor:               "send-button-color",
+			sendColor:                 "send-button-color",
+			floatingBtnColor:          "launcher-color",
+			floatingBtn:               "launcher-color",
+			bannerTextColor:           "header-title-color",
+			closeButtonColor:          "close-button-color",
+			botColor:                  "bot-color",
+			introPrimaryButtonColor:   "intro-primary-button-background-color",
+			introSecondaryButtonColor: "intro-secondary-button-background-color",
+			introPrimaryButtonBackgroundColor:
+				"intro-primary-button-background-color",
+			introSecondaryButtonBackgroundColor:
+				"intro-secondary-button-background-color",
+			// Layout / behavior
+			floatingType:              "launcher-type",
+			autoOpen:                  "auto-open",
+			// Language
+			defaultLanguage:           "default-language",
+		};
 
 		// Build config attributes for the widget element
-		const configAttrs = Object.entries(config)
-			.map(([key, value]) => {
-				// Convert camelCase to kebab-case
-				const kebabKey = key
-					.replace(/([A-Z])/g, "-$1")
-					.toLowerCase();
+		const configLines: string[] = [];
+		Object.entries(config).forEach(([key, value]) => {
+			const mapping = WIDGET_ATTR_MAP[key];
+			if (!mapping) return;
 
-				if (typeof value === "boolean") {
-					return `  widget.setAttribute('${kebabKey}', '${value}');`;
-				}
-				if (typeof value === "string") {
-					// Escape quotes and newlines
-					const escapedValue = value
-						.replace(/'/g, "\\'")
-						.replace(/\n/g, "\\n");
-					return `  widget.setAttribute('${kebabKey}', '${escapedValue}');`;
-				}
-				if (typeof value === "number") {
-					return `  widget.setAttribute('${kebabKey}', '${value}');`;
-				}
-				return "";
-			})
-			.filter(Boolean)
-			.join("\n");
+			let attrValue: string;
+			if (typeof value === "boolean") {
+				attrValue = String(value);
+			} else if (typeof value === "string" && value) {
+				attrValue = value
+					.replace(/'/g, "\\'")
+					.replace(/\n/g, "\\n");
+			} else if (typeof value === "number") {
+				attrValue = String(value);
+			} else {
+				return;
+			}
+
+			const attrNames = Array.isArray(mapping) ? mapping : [mapping];
+			attrNames.forEach((attr) => {
+				configLines.push(`  widget.setAttribute('${attr}', '${attrValue}');`);
+			});
+		});
+		const configAttrs = configLines.join("\n");
 
 		// Generate the embed script
 		const script = `
@@ -587,6 +948,13 @@ export const generateEmbedScript = async (
       widget.id = 'witzoChat';
       widget.setAttribute('api-url', '${apiUrl}/api/v1/webhook');
       widget.setAttribute('widget-key', '${widgetKey}');
+      widget.setAttribute('api-base-url', '${apiUrl}');
+      widget.__witzoPlanType = '${planType}';
+      ${
+				runtimeOriginToken
+					? `widget.setAttribute('origin-token', '${runtimeOriginToken}');`
+					: ""
+			}
 
       // Apply custom configuration
 ${configAttrs}
@@ -633,10 +1001,9 @@ ${configAttrs}
 			"Content-Type",
 			"application/javascript",
 		);
-		res.setHeader(
-			"Cache-Control",
-			"public, max-age=3600",
-		); // Cache for 1 hour
+		res.setHeader("Cache-Control", "no-store, must-revalidate");
+		res.setHeader("Pragma", "no-cache");
+		res.setHeader("Expires", "0");
 		res.setHeader(
 			"Access-Control-Allow-Origin",
 			"*",
@@ -666,28 +1033,82 @@ function generateEmbedCode(
 	widgetKey: string,
 	config: any,
 ): string {
-	const apiUrl =
-		process.env.WIDGET_API_URL ||
-		"http://localhost:3008";
+	const { apiUrl, widgetScriptUrl } =
+		getWidgetPublicUrls(widgetKey);
 
-	// Build config attributes
-	const configAttrs = Object.entries(config)
-		.map(([key, value]) => {
-			// Convert camelCase to kebab-case
-			const kebabKey = key
-				.replace(/([A-Z])/g, "-$1")
-				.toLowerCase();
+	const MANUAL_ATTR_MAP: Record<
+		string,
+		string | string[]
+	> = {
+		headerTitle:               "header-title",
+		welcomeMessage:            "welcome-message",
+		placeholderText:           "input-placeholder",
+		logoIcon:                  "header-logo-url",
+		bubbleIcon:                "launcher-icon-url",
+		introTitle:                "intro-title",
+		introMessage:              "intro-message",
+		introHelpOptionOneText:    "intro-help-option-one-text",
+		introHelpOptionOneUrl:     "intro-help-option-one-url",
+		introHelpOptionTwoText:    "intro-help-option-two-text",
+		introHelpOptionTwoUrl:     "intro-help-option-two-url",
+		introPrimaryButtonText:    "intro-primary-button-text",
+		introSecondaryButtonText:  "intro-secondary-button-text",
+		primaryColor:              ["header-background-color", "user-message-color"],
+		bannerColor:               "header-background-color",
+		userChatColor:             "user-message-color",
+		accentColor:               "send-button-color",
+		sendColor:                 "send-button-color",
+		floatingBtnColor:          "launcher-color",
+		floatingBtn:               "launcher-color",
+		bannerTextColor:           "header-title-color",
+		closeButtonColor:          "close-button-color",
+		botColor:                  "bot-color",
+		introPrimaryButtonColor:   "intro-primary-button-background-color",
+		introSecondaryButtonColor: "intro-secondary-button-background-color",
+		introPrimaryButtonBackgroundColor:
+			"intro-primary-button-background-color",
+		introSecondaryButtonBackgroundColor:
+			"intro-secondary-button-background-color",
+		floatingType:              "launcher-type",
+		autoOpen:                  "auto-open",
+		defaultLanguage:           "default-language",
+	};
 
+	const configLines: string[] = [];
+	Object.entries(config || {}).forEach(
+		([key, value]) => {
+			const mapping = MANUAL_ATTR_MAP[key];
+			if (!mapping) return;
+
+			let attrValue: string | null = null;
 			if (typeof value === "boolean") {
-				return `${kebabKey}="${value}"`;
+				attrValue = String(value);
+			} else if (
+				typeof value === "string" &&
+				value
+			) {
+				attrValue = value.replace(
+					/"/g,
+					"&quot;",
+				);
+			} else if (typeof value === "number") {
+				attrValue = String(value);
 			}
-			if (typeof value === "string") {
-				return `${kebabKey}="${value.replace(/"/g, "&quot;")}"`;
-			}
-			return "";
-		})
-		.filter(Boolean)
-		.join("\n      ");
+			if (!attrValue) return;
+
+			const attrs = Array.isArray(mapping)
+				? mapping
+				: [mapping];
+			attrs.forEach((attr) => {
+				configLines.push(
+					`${attr}="${attrValue}"`,
+				);
+			});
+		},
+	);
+	const configAttrs = configLines.join(
+		"\n      ",
+	);
 
 	// Return both options: single-script and manual embed
 	return `<!-- Witzo Chat Widget - Single Script (Recommended) -->
@@ -701,8 +1122,60 @@ function generateEmbedCode(
       widget-key="${widgetKey}"
       ${configAttrs}
     ></witzo-chat>
-<script src="https://unpkg.com/@witzo-ai/chat-widget-embed" type="module"></script>
+<script src="${widgetScriptUrl}" type="module"></script>
 -->`;
+}
+
+function getWidgetPublicUrls(widgetKey: string): {
+	apiUrl: string;
+	widgetScriptUrl: string;
+	embedScriptUrl: string;
+} {
+	const apiUrl =
+		process.env.WIDGET_API_URL ||
+		"http://localhost:3008";
+	const widgetScriptUrl =
+		process.env.WIDGET_SCRIPT_URL ||
+		`${apiUrl}/widget/witzo-chat.js`;
+	const embedScriptUrl = `${apiUrl}/api/v1/embed/${widgetKey}.js`;
+
+	return {
+		apiUrl,
+		widgetScriptUrl,
+		embedScriptUrl,
+	};
+}
+
+function getOriginTokenHeader(
+	req: Request,
+): string | undefined {
+	const token = req.get(
+		"x-witzo-origin-token",
+	);
+	return token?.trim() || undefined;
+}
+
+function getPreviewOriginToken(
+	req: Request,
+	widgetKey: string,
+): string | undefined {
+	if (!widgetKey) {
+		return undefined;
+	}
+
+	const previewOrigin =
+		req.get("origin") ||
+		req.get("referer") ||
+		config.FRONTEND_URL;
+	const previewDomain =
+		extractDomain(previewOrigin);
+
+	return previewDomain
+		? widgetService.createOriginToken(
+				widgetKey,
+				previewDomain,
+		  )
+		: undefined;
 }
 
 /**

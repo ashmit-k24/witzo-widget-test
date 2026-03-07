@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import { PoolClient } from "pg";
 import pool from "../config/database";
+import { PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD } from "../constants";
+import { PlanType } from "../config/planConfig";
 import { config } from "../config/env";
 import {
 	CleanupResult,
@@ -51,12 +53,44 @@ class AuthService {
 	 */
 	private formatUserResponse(
 		user: User,
+		sessionId?: number,
 	): UserResponse {
+		const requiresProfileCompletion =
+			!user.profile_completed &&
+			user.login_count >
+				PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD;
+
 		return {
 			id: user.id,
 			email: user.email,
 			isVerified: user.is_verified,
+			plan_type: user.plan_type,
+			sessionId,
+			loginCount: user.login_count,
+			fullName: user.full_name,
+			companyName: user.company_name,
+			phoneNumber: user.phone_number,
+			country: user.country,
+			jobTitle: user.job_title,
+			industry: user.industry,
+			companyWebsite: user.company_website,
+			profileCompleted: user.profile_completed,
+			requiresProfileCompletion,
+			profilePromptRequiredAt:
+				user.profile_prompt_required_at,
+			profileCompletedAt:
+				user.profile_completed_at,
+			onboardingStep: user.onboarding_step,
+			onboardingCompleted: user.onboarding_completed,
 		};
+	}
+
+	private normalizeOptionalText(
+		value: unknown,
+	): string | null {
+		if (typeof value !== "string") return null;
+		const normalized = value.trim();
+		return normalized.length > 0 ? normalized : null;
 	}
 
 	/**
@@ -261,7 +295,7 @@ class AuthService {
 
 			// Get user
 			const userResult = await client.query<User>(
-				"SELECT id, email, is_verified FROM users WHERE email = $1",
+				"SELECT * FROM users WHERE email = $1",
 				[normalizedEmail],
 			);
 
@@ -275,6 +309,8 @@ class AuthService {
 			}
 
 			const user = userResult.rows[0];
+			const isFirstTimeSignup =
+				!user.is_verified;
 
 			// Get the latest verification code
 			const codeResult =
@@ -376,17 +412,32 @@ class AuthService {
 				[verificationRecord.id],
 			);
 
-			// Update user as verified and last login
-			await client.query(
-				"UPDATE users SET is_verified = TRUE, last_login = CURRENT_TIMESTAMP WHERE id = $1",
-				[user.id],
-			);
+			// Update verification + login tracking and trigger profile prompt threshold.
+			const updatedUserResult =
+				await client.query<User>(
+					`UPDATE users
+					 SET is_verified = TRUE,
+					     last_login = CURRENT_TIMESTAMP,
+					     login_count = login_count + 1,
+					     profile_prompt_required_at = CASE
+					       WHEN (login_count + 1) > $2 AND profile_completed = FALSE
+					         THEN COALESCE(profile_prompt_required_at, CURRENT_TIMESTAMP)
+					       ELSE profile_prompt_required_at
+					     END
+					 WHERE id = $1
+					 RETURNING *`,
+					[
+						user.id,
+						PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD,
+					],
+				);
+			const updatedUser =
+				updatedUserResult.rows[0] ?? user;
 
-			// Revoke old sessions for this user (optional security measure)
-			await client.query(
-				"UPDATE sessions SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE",
-				[user.id],
-			);
+			// NOTE: We intentionally do NOT revoke other sessions on login.
+			// Users may be logged in on multiple devices simultaneously.
+			// They can revoke individual or all other sessions explicitly
+			// via the /sessions and /logout-all endpoints.
 
 			// Create new session first to get the actual session ID
 			const sessionResult = await client.query<{
@@ -446,7 +497,10 @@ class AuthService {
 				sessionId,
 			});
 
-			// Hash refresh token for storage
+			// Hash both tokens for storage — access token stored as hash so
+			// a DB compromise cannot be used to forge authenticated requests
+			const hashedAccessToken =
+				tokenUtil.hashToken(accessToken);
 			const hashedRefreshToken =
 				tokenUtil.hashToken(refreshToken);
 
@@ -460,7 +514,7 @@ class AuthService {
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $5`,
 				[
-					accessToken,
+					hashedAccessToken,
 					hashedRefreshToken,
 					accessTokenExpiresAt,
 					refreshTokenExpiresAt,
@@ -480,6 +534,32 @@ class AuthService {
 
 			await client.query("COMMIT");
 
+			if (isFirstTimeSignup) {
+				emailService
+					.sendWelcomeEmail(normalizedEmail)
+					.then(() => {
+						logger.info(
+							"Welcome email flow completed",
+							{
+								email: normalizedEmail,
+								userId: user.id,
+							},
+						);
+					})
+					.catch((welcomeError) => {
+						const err =
+							welcomeError as Error;
+						logger.warn(
+							"Welcome email failed after signup",
+							{
+								email: normalizedEmail,
+								userId: user.id,
+								error: err.message,
+							},
+						);
+					});
+			}
+
 			logger.info("User verified and logged in", {
 				email: normalizedEmail,
 				userId: user.id,
@@ -491,7 +571,10 @@ class AuthService {
 				message: "Login successful",
 				accessToken,
 				refreshToken,
-				user: this.formatUserResponse(user),
+				user: this.formatUserResponse(
+					updatedUser,
+					sessionId,
+				),
 			};
 		} catch (error) {
 			await client.query("ROLLBACK");
@@ -535,13 +618,20 @@ class AuthService {
 			const { userId, sessionId } =
 				verification.payload;
 
+			// Hash the incoming token before comparing with the stored hash
+			const hashedAccessToken = tokenUtil.hashToken(accessToken);
+
 			// Check if session exists and is not revoked
 			const sessionResult = await pool.query(
-				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified
+				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified, u.plan_type,
+				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
+				        u.job_title, u.industry, u.company_website, u.profile_completed,
+				        u.profile_prompt_required_at, u.profile_completed_at,
+				        u.onboarding_step, u.onboarding_completed
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1 AND s.user_id = $2 AND s.access_token = $3 AND s.is_revoked = FALSE`,
-				[sessionId, userId, accessToken],
+				[sessionId, userId, hashedAccessToken],
 			);
 
 			if (sessionResult.rows.length === 0) {
@@ -560,7 +650,31 @@ class AuthService {
 					id: session.user_id,
 					email: session.email,
 					isVerified: session.is_verified,
+					plan_type: session.plan_type,
 					sessionId,
+					loginCount: session.login_count,
+					fullName: session.full_name,
+					companyName: session.company_name,
+					phoneNumber: session.phone_number,
+					country: session.country,
+					jobTitle: session.job_title,
+					industry: session.industry,
+					companyWebsite:
+						session.company_website,
+					profileCompleted:
+						session.profile_completed,
+					requiresProfileCompletion:
+						!session.profile_completed &&
+						session.login_count >
+							PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD,
+					profilePromptRequiredAt:
+						session.profile_prompt_required_at,
+					profileCompletedAt:
+						session.profile_completed_at,
+					onboardingStep:
+						session.onboarding_step,
+					onboardingCompleted:
+						session.onboarding_completed,
 				},
 			};
 		} catch (error) {
@@ -626,9 +740,27 @@ class AuthService {
 				user_id: string;
 				email: string;
 				is_verified: boolean;
+				plan_type: PlanType;
 				refresh_token_expires_at: Date;
+				login_count: number;
+				full_name: string | null;
+				company_name: string | null;
+				phone_number: string | null;
+				country: string | null;
+				job_title: string | null;
+				industry: string | null;
+				company_website: string | null;
+				profile_completed: boolean;
+				profile_prompt_required_at: Date | null;
+				profile_completed_at: Date | null;
+				onboarding_step: number;
+				onboarding_completed: boolean;
 			}>(
-				`SELECT s.id, s.user_id, u.email, u.is_verified, s.refresh_token_expires_at
+				`SELECT s.id, s.user_id, u.email, u.is_verified, u.plan_type, s.refresh_token_expires_at,
+				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
+				        u.job_title, u.industry, u.company_website, u.profile_completed,
+				        u.profile_prompt_required_at, u.profile_completed_at,
+				        u.onboarding_step, u.onboarding_completed
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1
@@ -670,10 +802,12 @@ class AuthService {
 				sessionId: session.id,
 			});
 
+			const hashedNewAccessToken =
+				tokenUtil.hashToken(newAccessToken);
 			const hashedNewRefreshToken =
 				tokenUtil.hashToken(newRefreshToken);
 
-			// Update session with new tokens
+			// Update session with new hashed tokens
 			await client.query(
 				`UPDATE sessions
          SET access_token = $1,
@@ -683,7 +817,7 @@ class AuthService {
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $5`,
 				[
-					newAccessToken,
+					hashedNewAccessToken,
 					hashedNewRefreshToken,
 					accessTokenExpiresAt,
 					refreshTokenExpiresAt,
@@ -707,7 +841,31 @@ class AuthService {
 					id: session.user_id,
 					email: session.email,
 					isVerified: session.is_verified,
+					plan_type: session.plan_type,
 					sessionId: session.id,
+					loginCount: session.login_count,
+					fullName: session.full_name,
+					companyName: session.company_name,
+					phoneNumber: session.phone_number,
+					country: session.country,
+					jobTitle: session.job_title,
+					industry: session.industry,
+					companyWebsite:
+						session.company_website,
+					profileCompleted:
+						session.profile_completed,
+					requiresProfileCompletion:
+						!session.profile_completed &&
+						session.login_count >
+							PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD,
+					profilePromptRequiredAt:
+						session.profile_prompt_required_at,
+					profileCompletedAt:
+						session.profile_completed_at,
+					onboardingStep:
+						session.onboarding_step,
+					onboardingCompleted:
+						session.onboarding_completed,
 				},
 			};
 		} catch (error) {
@@ -781,6 +939,160 @@ class AuthService {
 			});
 			throw new Error("Failed to logout");
 		}
+	}
+
+	async getProfileStatus(userId: string): Promise<UserResponse> {
+		const result = await pool.query<User>(
+			"SELECT * FROM users WHERE id = $1 LIMIT 1",
+			[userId],
+		);
+
+		if (result.rows.length === 0) {
+			throw this.createHttpError("User not found", 404);
+		}
+
+		return this.formatUserResponse(result.rows[0]);
+	}
+
+	async updateUserProfile(
+		userId: string,
+		payload: {
+			full_name: unknown;
+			company_name: unknown;
+			phone_number: unknown;
+			country: unknown;
+			job_title: unknown;
+			industry: unknown;
+			company_website: unknown;
+		},
+	): Promise<UserResponse> {
+		const fullName = this.normalizeOptionalText(
+			payload.full_name,
+		);
+		const companyName = this.normalizeOptionalText(
+			payload.company_name,
+		);
+		const phoneNumber = this.normalizeOptionalText(
+			payload.phone_number,
+		);
+		const country = this.normalizeOptionalText(
+			payload.country,
+		);
+		const jobTitle = this.normalizeOptionalText(
+			payload.job_title,
+		);
+		const industry = this.normalizeOptionalText(
+			payload.industry,
+		);
+		const companyWebsite = this.normalizeOptionalText(
+			payload.company_website,
+		);
+
+		if (
+			!fullName ||
+			!companyName ||
+			!phoneNumber ||
+			!country ||
+			!jobTitle ||
+			!industry ||
+			!companyWebsite
+		) {
+			throw this.createHttpError(
+				"All profile fields are required",
+				400,
+			);
+		}
+
+		const normalizedPhone = phoneNumber.replace(
+			/\s+/g,
+			" ",
+		);
+		if (!/^[+0-9() -]{7,20}$/.test(normalizedPhone)) {
+			throw this.createHttpError(
+				"Invalid phone number format",
+				400,
+			);
+		}
+
+		let normalizedWebsite = companyWebsite.toLowerCase();
+		if (
+			!normalizedWebsite.startsWith("http://") &&
+			!normalizedWebsite.startsWith("https://")
+		) {
+			normalizedWebsite = `https://${normalizedWebsite}`;
+		}
+
+		try {
+			new URL(normalizedWebsite);
+		} catch {
+			throw this.createHttpError(
+				"Invalid company website URL",
+				400,
+			);
+		}
+
+		const result = await pool.query<User>(
+			`UPDATE users
+       SET full_name = $2,
+           company_name = $3,
+           phone_number = $4,
+           country = $5,
+           job_title = $6,
+           industry = $7,
+           company_website = $8,
+           profile_completed = TRUE,
+           profile_completed_at = COALESCE(profile_completed_at, CURRENT_TIMESTAMP),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+			[
+				userId,
+				fullName,
+				companyName,
+				normalizedPhone,
+				country,
+				jobTitle,
+				industry,
+				normalizedWebsite,
+			],
+		);
+
+		if (result.rows.length === 0) {
+			throw this.createHttpError("User not found", 404);
+		}
+
+		return this.formatUserResponse(result.rows[0]);
+	}
+
+	/**
+	 * Record the completion of an onboarding step for a user.
+	 * Step 3 automatically marks onboarding as fully completed.
+	 */
+	async updateOnboardingStep(
+		userId: string,
+		step: number,
+	): Promise<UserResponse> {
+		const completed = step >= 3;
+		const result = await pool.query<User>(
+			`UPDATE users
+       SET onboarding_step         = GREATEST(onboarding_step, $2),
+           onboarding_completed    = CASE WHEN $3 THEN TRUE ELSE onboarding_completed END,
+           onboarding_completed_at = CASE
+             WHEN $3 AND onboarding_completed = FALSE
+             THEN CURRENT_TIMESTAMP
+             ELSE onboarding_completed_at
+           END,
+           updated_at              = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING *`,
+			[userId, step, completed],
+		);
+
+		if (result.rows.length === 0) {
+			throw this.createHttpError("User not found", 404);
+		}
+
+		return this.formatUserResponse(result.rows[0]);
 	}
 
 	/**
