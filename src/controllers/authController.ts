@@ -11,7 +11,9 @@ import {
 	setCookies,
 } from "../middleware/auth";
 import authService from "../services/authService";
-import { GoogleProfile } from "../services/googleAuthService";
+import googleAuthService, {
+	GoogleProfile,
+} from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
 	RequestCodeBody,
@@ -26,7 +28,6 @@ const GOOGLE_OAUTH_CLIENT_STATE_COOKIE =
 const GOOGLE_OTP_PENDING_COOKIE =
 	"google_otp_pending";
 const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const GOOGLE_OTP_PENDING_TTL_MS = 10 * 60 * 1000;
 
 const getFrontendUrl = (): string =>
 	process.env.FRONTEND_URL ||
@@ -60,27 +61,6 @@ const encodeBase64Url = (value: string): string =>
 
 const decodeBase64Url = (value: string): string =>
 	Buffer.from(value, "base64url").toString("utf-8");
-
-const createGooglePendingToken = (
-	email: string,
-): string => {
-	const payload: GooglePendingPayload = {
-		email: email.toLowerCase().trim(),
-		iat: Date.now(),
-		exp: Date.now() + GOOGLE_OTP_PENDING_TTL_MS,
-		nonce: crypto
-			.randomBytes(16)
-			.toString("hex"),
-	};
-	const encodedPayload = encodeBase64Url(
-		JSON.stringify(payload),
-	);
-	const signature = crypto
-		.createHmac("sha256", config.COOKIE_SECRET)
-		.update(encodedPayload)
-		.digest("base64url");
-	return `${encodedPayload}.${signature}`;
-};
 
 const createGoogleOAuthStateToken = (
 	clientState: string,
@@ -760,7 +740,7 @@ export const validateGoogleOAuthState = async (
 
 /**
  * @route   GET /api/auth/google/callback
- * @desc    Handle Google OAuth callback and trigger OTP verification
+ * @desc    Handle Google OAuth callback and complete login
  * @access  Public
  */
 export const googleCallback = async (
@@ -783,38 +763,43 @@ export const googleCallback = async (
 			ip: req.ip,
 		});
 
-		const otpResult =
-			await authService.requestVerificationCode(
-				profile.email,
-			);
-		if (otpResult.success) {
-			const normalizedEmail = profile.email
-				.toLowerCase()
-				.trim();
-			const pendingToken =
-				createGooglePendingToken(
-					normalizedEmail,
-				);
-			res.cookie(
-				GOOGLE_OTP_PENDING_COOKIE,
-				pendingToken,
-				{
-					...authFlowCookieOptions,
-					maxAge: GOOGLE_OTP_PENDING_TTL_MS,
-				},
-			);
+		if (!profile.verified_email) {
 			res.redirect(
-				`${getFrontendUrl()}/?auth=google_otp&email=${encodeURIComponent(normalizedEmail)}`,
+				`${getFrontendUrl()}/?error=google_email_not_verified`,
 			);
-		} else {
-			const errorMessage = encodeURIComponent(
-				otpResult.message ||
-					"Failed to send verification code",
-			);
-			res.redirect(
-				`${getFrontendUrl()}/?error=${errorMessage}`,
-			);
+			return;
 		}
+
+		const result =
+			await googleAuthService.authenticateWithGoogle(
+				profile,
+				req.ip,
+				req.get("user-agent"),
+			);
+
+		if (
+			!result.success ||
+			!result.accessToken ||
+			!result.refreshToken
+		) {
+			res.redirect(
+				`${getFrontendUrl()}/?error=google_auth_failed`,
+			);
+			return;
+		}
+
+		setCookies(
+			res,
+			result.accessToken,
+			result.refreshToken,
+		);
+		res.clearCookie(
+			GOOGLE_OTP_PENDING_COOKIE,
+			{
+				...authFlowCookieOptions,
+			},
+		);
+		res.redirect(`${getFrontendUrl()}/dashboard`);
 	} catch (error) {
 		next(error);
 	}
@@ -832,10 +817,17 @@ export const verifyGoogleCode = async (
 ): Promise<void> => {
 	try {
 		const { code } = req.body;
+		const bodyPendingToken =
+			typeof req.body.pendingToken ===
+			"string"
+				? req.body.pendingToken.trim()
+				: "";
 		const pendingToken =
+			bodyPendingToken ||
 			req.cookies?.[
 				GOOGLE_OTP_PENDING_COOKIE
-			];
+			] ||
+			"";
 
 		if (!pendingToken) {
 			res.status(401).json({

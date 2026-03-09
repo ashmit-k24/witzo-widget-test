@@ -151,6 +151,7 @@ export interface VerifyCodeBody {
 
 export interface VerifyGoogleCodeBody {
 	code: string;
+	pendingToken?: string;
 }
 
 // Database query result types

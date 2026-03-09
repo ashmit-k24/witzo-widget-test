@@ -67,6 +67,13 @@ export const validationRules: Record<
 			.withMessage(
 				"Verification code must contain only numbers",
 			),
+		body("pendingToken")
+			.optional()
+			.isString()
+			.withMessage(
+				"Pending token must be a string",
+			)
+			.trim(),
 	],
 
 	adminLogin: [
