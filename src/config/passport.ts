@@ -34,8 +34,8 @@ export const configurePassport = (): void => {
 						email:
 							profile.emails?.[0]?.value || "",
 						verified_email:
-							profile.emails?.[0]?.verified ||
-							false,
+							profile.emails?.[0]?.verified ??
+							true,
 						name: profile.displayName || "",
 						given_name:
 							profile.name?.givenName || "",

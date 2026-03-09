@@ -158,12 +158,6 @@ class GoogleAuthService {
 				updatedUserResult.rows[0] ??
 				userResult.rows[0];
 
-			// Revoke old sessions for this user
-			await client.query(
-				"UPDATE sessions SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE",
-				[userId],
-			);
-
 			// Create new session
 			const sessionResult = await client.query<{
 				id: number;
