@@ -69,6 +69,12 @@ export interface CreateWidgetKeyParams {
 	widgetConfig?: WidgetConfig;
 }
 
+export interface WidgetInstallationStatus {
+	installationStatus: "installed" | "not_installed";
+	installedAt: string | null;
+	installedDomain: string | null;
+}
+
 class WidgetService {
 	private readonly originTokenTtlMs =
 		12 * 60 * 60 * 1000;
@@ -148,6 +154,27 @@ class WidgetService {
 	): string[] | null {
 		return this.normalizeAllowedDomains(
 			widget.allowed_domains,
+		);
+	}
+
+	private getInternalWidgetDomains(): Set<string> {
+		const candidates = [
+			config.FRONTEND_URL,
+			config.ADMIN_FRONTEND_URL,
+			process.env.WIDGET_API_URL,
+		];
+
+		return new Set(
+			candidates
+				.map((value) =>
+					typeof value === "string"
+						? this.normalizeDomain(value)
+						: null,
+				)
+				.filter(
+					(domain): domain is string =>
+						Boolean(domain),
+				),
 		);
 	}
 
@@ -682,6 +709,131 @@ class WidgetService {
 				widgetKey,
 				eventType,
 			});
+		}
+	}
+
+	async trackWidgetEventImmediate(
+		widgetKey: string,
+		eventType: string,
+		eventData: any = {},
+		metadata?: {
+			ipAddress?: string;
+			userAgent?: string;
+			refererUrl?: string;
+		},
+	): Promise<void> {
+		try {
+			const widget =
+				await this.getWidgetKeyByKey(widgetKey);
+			if (!widget) {
+				return;
+			}
+
+			await pool.query(
+				`INSERT INTO widget_analytics
+					(widget_key_id, event_type, event_data, ip_address, user_agent, referer_url, created_at)
+				 VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
+				[
+					widget.id,
+					eventType,
+					JSON.stringify(eventData || {}),
+					metadata?.ipAddress || null,
+					metadata?.userAgent || null,
+					metadata?.refererUrl || null,
+				],
+			);
+		} catch (error) {
+			logger.error(
+				"Error tracking immediate widget event",
+				{
+					error,
+					widgetKey,
+					eventType,
+				},
+			);
+		}
+	}
+
+	async getWidgetInstallationStatus(
+		widget: WidgetKey,
+	): Promise<WidgetInstallationStatus> {
+		try {
+			const result = await pool.query<{
+				event_type: string;
+				referer_url: string | null;
+				created_at: Date;
+			}>(
+				`SELECT event_type, referer_url, created_at
+				 FROM widget_analytics
+				 WHERE widget_key_id = $1
+				   AND event_type IN ('embed_script_loaded', 'widget_key_regenerated')
+				 ORDER BY created_at DESC`,
+				[widget.id],
+			);
+
+			const internalDomains =
+				this.getInternalWidgetDomains();
+			const latestRegeneratedAt =
+				result.rows.find(
+					(row) =>
+						row.event_type ===
+						"widget_key_regenerated",
+				)?.created_at ?? null;
+
+			for (const row of result.rows) {
+				if (
+					row.event_type !==
+					"embed_script_loaded"
+				) {
+					continue;
+				}
+
+				if (
+					latestRegeneratedAt &&
+					row.created_at <= latestRegeneratedAt
+				) {
+					break;
+				}
+
+				const domain = row.referer_url
+					? this.normalizeDomain(
+							row.referer_url,
+					  )
+					: null;
+				if (!domain) {
+					continue;
+				}
+
+				if (internalDomains.has(domain)) {
+					continue;
+				}
+
+				return {
+					installationStatus: "installed",
+					installedAt:
+						row.created_at.toISOString(),
+					installedDomain: domain,
+				};
+			}
+
+			return {
+				installationStatus: "not_installed",
+				installedAt: null,
+				installedDomain: null,
+			};
+		} catch (error) {
+			logger.error(
+				"Error fetching widget installation status",
+				{
+					error,
+					widgetKeyId: widget.id,
+				},
+			);
+			return {
+				installationStatus: "not_installed",
+				installedAt: null,
+				installedDomain: null,
+			};
 		}
 	}
 

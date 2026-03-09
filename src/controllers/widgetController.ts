@@ -8,8 +8,48 @@ import { chatService } from "../services/chatService";
 import { leadService } from "../services/leadService";
 import usageTrackingService from "../services/usageTrackingService";
 import { widgetIconStorageService } from "../services/widgetIconStorageService";
-import widgetService from "../services/widgetService";
+import widgetService, {
+	WidgetKey,
+} from "../services/widgetService";
 import logger from "../utils/logger";
+
+async function buildWidgetResponse(
+	req: Request,
+	widgetKey: WidgetKey,
+) {
+	const publicUrls = getWidgetPublicUrls(
+		widgetKey.widget_key,
+	);
+	const previewOriginToken =
+		getPreviewOriginToken(
+			req,
+			widgetKey.widget_key,
+		);
+	const installation =
+		await widgetService.getWidgetInstallationStatus(
+			widgetKey,
+		);
+
+	return {
+		widgetKey: widgetKey.widget_key,
+		widgetName: widgetKey.widget_name,
+		isActive: widgetKey.is_active,
+		allowedDomains:
+			widgetKey.allowed_domains || [],
+		widgetConfig: widgetKey.widget_config,
+		apiBaseUrl: publicUrls.apiUrl,
+		embedScriptUrl:
+			publicUrls.embedScriptUrl,
+		widgetScriptUrl:
+			publicUrls.widgetScriptUrl,
+		previewOriginToken,
+		embedCode: generateEmbedCode(
+			widgetKey.widget_key,
+			widgetKey.widget_config,
+		),
+		...installation,
+	};
+}
 
 /**
  * @route   POST /api/auth/widget/create
@@ -40,36 +80,13 @@ export const createWidgetKey = async (
 				allowedDomains,
 				widgetConfig,
 			});
-		const publicUrls = getWidgetPublicUrls(
-			widgetKey.widget_key,
-		);
-		const previewOriginToken =
-			getPreviewOriginToken(
-				req,
-				widgetKey.widget_key,
-			);
 
 		res.status(201).json({
 			success: true,
-			data: {
-				widgetKey: widgetKey.widget_key,
-				widgetName: widgetKey.widget_name,
-				isActive: widgetKey.is_active,
-				allowedDomains:
-					widgetKey.allowed_domains || [],
-				widgetConfig: widgetKey.widget_config,
-				apiBaseUrl: publicUrls.apiUrl,
-				embedScriptUrl:
-					publicUrls.embedScriptUrl,
-				widgetScriptUrl:
-					publicUrls.widgetScriptUrl,
-				previewOriginToken:
-					previewOriginToken,
-				embedCode: generateEmbedCode(
-					widgetKey.widget_key,
-					widgetKey.widget_config,
-				),
-			},
+			data: await buildWidgetResponse(
+				req,
+				widgetKey,
+			),
 		});
 	} catch (error) {
 		next(error);
@@ -107,35 +124,12 @@ export const getWidgetKey = async (
 			return;
 		}
 
-		const publicUrls = getWidgetPublicUrls(
-			widgetKey.widget_key,
-		);
-		const previewOriginToken =
-			getPreviewOriginToken(
-				req,
-				widgetKey.widget_key,
-			);
-
 		res.status(200).json({
 			success: true,
-			data: {
-				widgetKey: widgetKey.widget_key,
-				widgetName: widgetKey.widget_name,
-				isActive: widgetKey.is_active,
-				allowedDomains:
-					widgetKey.allowed_domains || [],
-				widgetConfig: widgetKey.widget_config,
-				apiBaseUrl: publicUrls.apiUrl,
-				embedScriptUrl:
-					publicUrls.embedScriptUrl,
-				widgetScriptUrl:
-					publicUrls.widgetScriptUrl,
-				previewOriginToken,
-				embedCode: generateEmbedCode(
-					widgetKey.widget_key,
-					widgetKey.widget_config,
-				),
-			},
+			data: await buildWidgetResponse(
+				req,
+				widgetKey,
+			),
 		});
 	} catch (error) {
 		next(error);
@@ -175,35 +169,12 @@ export const updateWidgetKey = async (
 					widgetConfig,
 				},
 			);
-		const publicUrls = getWidgetPublicUrls(
-			updatedWidget.widget_key,
-		);
-		const previewOriginToken =
-			getPreviewOriginToken(
-				req,
-				updatedWidget.widget_key,
-			);
-
 		res.status(200).json({
 			success: true,
-			data: {
-				widgetKey: updatedWidget.widget_key,
-				widgetName: updatedWidget.widget_name,
-				isActive: updatedWidget.is_active,
-				allowedDomains:
-					updatedWidget.allowed_domains || [],
-				widgetConfig: updatedWidget.widget_config,
-				apiBaseUrl: publicUrls.apiUrl,
-				embedScriptUrl:
-					publicUrls.embedScriptUrl,
-				widgetScriptUrl:
-					publicUrls.widgetScriptUrl,
-				previewOriginToken,
-				embedCode: generateEmbedCode(
-					updatedWidget.widget_key,
-					updatedWidget.widget_config,
-				),
-			},
+			data: await buildWidgetResponse(
+				req,
+				updatedWidget,
+			),
 		});
 	} catch (error) {
 		next(error);
@@ -231,35 +202,22 @@ export const regenerateWidgetKey = async (
 			await widgetService.regenerateWidgetKey(
 				userId,
 			);
-		const publicUrls = getWidgetPublicUrls(
+		await widgetService.trackWidgetEventImmediate(
 			newWidget.widget_key,
+			"widget_key_regenerated",
+			{},
+			{
+				ipAddress: req.ip,
+				userAgent: req.get("user-agent"),
+			},
 		);
-		const previewOriginToken =
-			getPreviewOriginToken(
-				req,
-				newWidget.widget_key,
-			);
 
 		res.status(200).json({
 			success: true,
-			data: {
-				widgetKey: newWidget.widget_key,
-				widgetName: newWidget.widget_name,
-				isActive: newWidget.is_active,
-				allowedDomains:
-					newWidget.allowed_domains || [],
-				widgetConfig: newWidget.widget_config,
-				apiBaseUrl: publicUrls.apiUrl,
-				embedScriptUrl:
-					publicUrls.embedScriptUrl,
-				widgetScriptUrl:
-					publicUrls.widgetScriptUrl,
-				previewOriginToken,
-				embedCode: generateEmbedCode(
-					newWidget.widget_key,
-					newWidget.widget_config,
-				),
-			},
+			data: await buildWidgetResponse(
+				req,
+				newWidget,
+			),
 		});
 	} catch (error) {
 		next(error);
@@ -985,8 +943,8 @@ ${configAttrs}
 })();
 `;
 
-		// Track widget load event
-		await widgetService.trackWidgetEvent(
+		// Track widget load event immediately so installation status updates without analytics flush lag.
+		await widgetService.trackWidgetEventImmediate(
 			widgetKey,
 			"embed_script_loaded",
 			{},
