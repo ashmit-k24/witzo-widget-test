@@ -773,6 +773,8 @@ class WidgetService {
 
 			const internalDomains =
 				this.getInternalWidgetDomains();
+			const allowedDomains =
+				this.getEffectiveAllowedDomains(widget);
 			const latestRegeneratedAt =
 				result.rows.find(
 					(row) =>
@@ -805,6 +807,17 @@ class WidgetService {
 				}
 
 				if (internalDomains.has(domain)) {
+					continue;
+				}
+
+				if (
+					allowedDomains &&
+					allowedDomains.length > 0 &&
+					!this.matchesAllowedDomain(
+						domain,
+						allowedDomains,
+					)
+				) {
 					continue;
 				}
 
