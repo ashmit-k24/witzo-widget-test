@@ -143,6 +143,17 @@ const verifyPasswordHash = (
 	return safeTimingEqual(actualHash, expectedHash);
 };
 
+const isLegacyPlaintextPasswordMatch = (
+	password: string,
+	storedHash: string,
+): boolean => {
+	if (!storedHash || storedHash.includes("$")) {
+		return false;
+	}
+
+	return safeTimingEqual(password, storedHash);
+};
+
 const toAdminUser = (
 	admin: Pick<
 		AdminUserRow,
@@ -511,8 +522,14 @@ const authenticateWithDatabase = async (
 		password,
 		admin.password_hash,
 	);
+	const plaintextPasswordMatches =
+		!passwordMatches &&
+		isLegacyPlaintextPasswordMatch(
+			password,
+			admin.password_hash,
+		);
 
-	if (!passwordMatches) {
+	if (!passwordMatches && !plaintextPasswordMatches) {
 		const nextFailedAttempts =
 			admin.failed_login_attempts + 1;
 		const shouldLock =
@@ -573,12 +590,23 @@ const authenticateWithDatabase = async (
 		`
 			UPDATE admin_users
 			SET
+				password_hash = $2,
 				failed_login_attempts = 0,
 				locked_until = NULL,
-				last_login_at = NOW()
+				last_login_at = NOW(),
+				password_changed_at = CASE
+					WHEN password_changed_at IS NULL OR password_hash <> $2
+					THEN NOW()
+					ELSE password_changed_at
+				END
 			WHERE id = $1
 		`,
-		[admin.id],
+		[
+			admin.id,
+			passwordMatches
+				? admin.password_hash
+				: createPasswordHash(password),
+		],
 	);
 
 	const authenticatedAdmin: AdminUser = {
