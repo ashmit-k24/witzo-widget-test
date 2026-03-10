@@ -285,6 +285,39 @@ const ensureBootstrapAdmin = async (): Promise<void> => {
 	}
 };
 
+const syncLegacyAdminRecord = async (): Promise<void> => {
+	if (!(await isSchemaReady()) || !isLegacyAdminConfigured()) {
+		return;
+	}
+
+	await pool.query(
+		`
+			INSERT INTO admin_users (
+				email,
+				password_hash,
+				role,
+				is_active,
+				failed_login_attempts,
+				locked_until,
+				password_changed_at
+			)
+			VALUES ($1, $2, 'super_admin', TRUE, 0, NULL, NOW())
+			ON CONFLICT ((LOWER(email))) DO UPDATE
+			SET
+				password_hash = EXCLUDED.password_hash,
+				is_active = TRUE,
+				failed_login_attempts = 0,
+				locked_until = NULL,
+				password_changed_at = NOW(),
+				updated_at = NOW()
+		`,
+		[
+			normalizeEmail(config.ADMIN_EMAIL),
+			createPasswordHash(config.ADMIN_PASSWORD),
+		],
+	);
+};
+
 const initializeAdminAuth = async (): Promise<void> => {
 	try {
 		await ensureBootstrapAdmin();
@@ -576,13 +609,14 @@ const authenticateAdmin = async (
 	context: LoginAuditContext,
 ): Promise<AdminLoginResult> => {
 	try {
+		const normalizedEmail = normalizeEmail(email);
 		if (!(await isSchemaReady())) {
 			await recordAuditEvent({
 				action: "admin.login.failed",
 				ipAddress: context.ipAddress,
 				userAgent: context.userAgent,
 				metadata: {
-					email: normalizeEmail(email),
+					email: normalizedEmail,
 					reason: "admin_auth_schema_not_ready",
 				},
 			});
@@ -594,6 +628,27 @@ const authenticateAdmin = async (
 			};
 		}
 
+		const loginResult = await authenticateWithDatabase(
+			email,
+			password,
+			context,
+		);
+		if (loginResult.success) {
+			return loginResult;
+		}
+
+		const isLegacyCredentialMatch =
+			loginResult.status === 401 &&
+			isLegacyAdminConfigured() &&
+			normalizedEmail ===
+				normalizeEmail(config.ADMIN_EMAIL) &&
+			password === config.ADMIN_PASSWORD;
+
+		if (!isLegacyCredentialMatch) {
+			return loginResult;
+		}
+
+		await syncLegacyAdminRecord();
 		return authenticateWithDatabase(
 			email,
 			password,
