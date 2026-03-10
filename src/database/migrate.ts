@@ -152,6 +152,12 @@ const migrations: Migration[] = [
 			"Create Razorpay-backed plans, subscriptions, and payments tables",
 		file: "20260305_022_razorpay_billing.sql",
 	},
+	{
+		id: "20260310_023_standard_plan_pricing_refresh",
+		description:
+			"Add standard plan support and refresh plan pricing/limits",
+		file: "20260310_023_standard_plan_pricing_refresh.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

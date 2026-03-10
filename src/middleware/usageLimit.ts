@@ -9,15 +9,18 @@ import usageTrackingService from "../services/usageTrackingService";
 import logger from "../utils/logger";
 
 const getScraperUpgradeMessage = (
-	planType: "free" | "basic" | "enterprise",
+	planType: "free" | "basic" | "standard" | "enterprise",
 ): string => {
 	if (planType === "free") {
 		return "Upgrade to Basic plan for 30 website pages";
 	}
 	if (planType === "basic") {
-		return "Upgrade to Enterprise plan for up to 300 website pages";
+		return "Upgrade to Standard plan for 100 website pages";
 	}
-	return "You have reached the maximum limit for Enterprise plan (300 pages)";
+	if (planType === "standard") {
+		return "Upgrade to Enterprise plan for unlimited website pages";
+	}
+	return "Your enterprise limits are managed through your custom plan.";
 };
 
 /**
@@ -158,7 +161,7 @@ export const addUsageToResponse = async (
 /**
  * Middleware to check if user has reached scraper page limit
  * Blocks request if user has exceeded their plan's page limit
- * Free users: 15 pages, Basic users: 30 pages
+ * Free users: 15 pages, Basic users: 30 pages, Standard users: 100 pages
  */
 export const checkScraperLimit = async (
 	req: Request,

@@ -54,6 +54,10 @@ export class WitzoChatWidget extends HTMLElement {
     this.config           = { ...DEFAULT_CONFIG };
   }
 
+  _hasPaidFeatures() {
+    return this.config.planType && this.config.planType !== 'free';
+  }
+
   connectedCallback() {
     // 1. Read HTML attributes into config
     this.apiUrl     = this.getAttribute('api-url')      || '';
@@ -210,7 +214,7 @@ export class WitzoChatWidget extends HTMLElement {
     msg.appendMessage(text, 'user', this.elements.messagesContainer);
     this.userMessageCount++;
     this._wasEndIntent          = msg.isConversationEndMessage(text);
-    this.pendingEndIntentRating = this.config.planType === 'basic'
+    this.pendingEndIntentRating = this._hasPaidFeatures()
       && this._wasEndIntent
       && !this.ratingShown && !this.ratingSubmitted;
     this.elements.input.value = '';
@@ -269,7 +273,7 @@ export class WitzoChatWidget extends HTMLElement {
       // — Error response —
       try {
         const err = JSON.parse(rawText);
-        if (err.limitReached && err.data?.planType === 'basic') {
+        if (err.limitReached && err.data?.planType !== 'free') {
           msg.updateBubble(typingEl, "You've reached the conversation limit. Please use the form below to get in touch.", this.config.logoIcon);
           this.pendingEndIntentRating = false;
           this.showContactForm();
@@ -298,7 +302,7 @@ export class WitzoChatWidget extends HTMLElement {
       setTimeout(() => this._lockSession(), 800);
     }
 
-    const shouldRate = this.config.planType === 'basic'
+    const shouldRate = this._hasPaidFeatures()
       && this.pendingEndIntentRating
       && !this.ratingShown && !this.ratingSubmitted
       && this.userMessageCount > 0 && this.botMessageCount > 0;

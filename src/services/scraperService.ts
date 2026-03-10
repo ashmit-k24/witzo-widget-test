@@ -25,6 +25,7 @@ interface ScrapeResult {
 	visitedPages: number;
 	storedPages: number;
 	pages: ScrapedPage[];
+	failureReason?: string;
 }
 
 class ScraperService {
@@ -109,16 +110,40 @@ class ScraperService {
 		url: string,
 	): Promise<string> {
 		let currentUrl = url;
+		const visitedRedirectStates = new Set<string>();
+		const maxRedirects = 10;
+		const cookieJar = new Map<string, string>();
 
-		for (let redirectCount = 0; redirectCount < 5; redirectCount += 1) {
+		for (
+			let redirectCount = 0;
+			redirectCount < maxRedirects;
+			redirectCount += 1
+		) {
 			const safeUrl =
 				await assertSafeOutgoingUrl(currentUrl, {
 					allowHttp: true,
 				});
+			const cookieHeader = Array.from(
+				cookieJar.entries(),
+			)
+				.map(([name, value]) => `${name}=${value}`)
+				.join("; ");
+			const requestStateKey = `${safeUrl.toString()}|${cookieHeader}`;
+			if (visitedRedirectStates.has(requestStateKey)) {
+				throw new Error(
+					"Redirect loop detected while scraping",
+				);
+			}
+			visitedRedirectStates.add(requestStateKey);
 			const response = await axios.get(safeUrl.toString(), {
 				headers: {
 					"User-Agent":
 						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+					...(cookieHeader
+						? {
+								Cookie: cookieHeader,
+						  }
+						: {}),
 				},
 				timeout: 10000,
 				maxRedirects: 0,
@@ -126,6 +151,25 @@ class ScraperService {
 					(status >= 200 && status < 300) ||
 					(status >= 300 && status < 400),
 			});
+			const setCookieHeaders = response.headers["set-cookie"];
+			const cookies = Array.isArray(setCookieHeaders)
+				? setCookieHeaders
+				: typeof setCookieHeaders === "string"
+					? [setCookieHeaders]
+					: [];
+			for (const setCookie of cookies) {
+				const [cookiePair] = setCookie.split(";");
+				const separatorIndex = cookiePair.indexOf("=");
+				if (separatorIndex <= 0) {
+					continue;
+				}
+				const name = cookiePair.slice(0, separatorIndex).trim();
+				const value = cookiePair.slice(separatorIndex + 1).trim();
+				if (!name) {
+					continue;
+				}
+				cookieJar.set(name, value);
+			}
 
 			if (response.status >= 300 && response.status < 400) {
 				const location =
@@ -145,7 +189,9 @@ class ScraperService {
 			return response.data;
 		}
 
-		throw new Error("Too many redirects while scraping");
+		throw new Error(
+			`Too many redirects while scraping (>${maxRedirects})`,
+		);
 	}
 
 	private extractPageData(
@@ -161,10 +207,20 @@ class ScraperService {
 			$("title").text().trim() ||
 			$("h1").first().text().trim() ||
 			"No Title";
-		const content = $("body")
+		const description =
+			$('meta[name="description"]').attr("content")?.trim() ||
+			$('meta[property="og:description"]').attr("content")?.trim() ||
+			$('meta[name="twitter:description"]').attr("content")?.trim() ||
+			"";
+		const primaryText = $("main, article, body")
+			.first()
 			.text()
 			.replace(/\s+/g, " ")
 			.trim();
+		const content = (
+			primaryText ||
+			[title, description].filter(Boolean).join(". ")
+		).trim();
 
 		const links: string[] = [];
 		$("a[href]").each((_, element) => {
@@ -185,9 +241,6 @@ class ScraperService {
 		});
 
 		const metadata: any = {};
-		const description = $(
-			'meta[name="description"]',
-		).attr("content");
 		if (description)
 			metadata.description = description;
 
@@ -222,6 +275,7 @@ class ScraperService {
 			depth: number;
 		}> = [{ url: rootUrl, depth: 0 }];
 		const scrapedPages: ScrapedPage[] = [];
+		let firstFailureReason: string | null = null;
 
 		logger.info(
 			`Starting synchronous scrape for user ${userId} on ${url}`,
@@ -305,9 +359,16 @@ class ScraperService {
 					}
 				}
 			} catch (error) {
+				const errorMessage =
+					error instanceof Error
+						? error.message
+						: String(error);
+				if (!firstFailureReason) {
+					firstFailureReason = errorMessage;
+				}
 				logger.error(
 					`Error scraping ${normalizedUrl}`,
-					{ error },
+					{ error, errorMessage },
 				);
 			} finally {
 				await reportProgress?.({
@@ -340,11 +401,15 @@ class ScraperService {
 			success: wasSuccessful,
 			message: wasSuccessful
 				? `Successfully scraped ${scrapedPages.length} page(s)`
-				: "Failed to scrape any pages from the provided website",
+				: firstFailureReason
+					? `Failed to scrape any pages from the provided website: ${firstFailureReason}`
+					: "Failed to scrape any pages from the provided website",
 			pagesScraped: scrapedPages.length,
 			visitedPages: visitedUrls.size,
 			storedPages: scrapedPages.length,
 			pages: scrapedPages,
+			failureReason:
+				wasSuccessful ? undefined : firstFailureReason ?? undefined,
 		};
 	}
 }

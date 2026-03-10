@@ -13,19 +13,22 @@ const SCRAPER_MAX_DEPTH = 10;
 const SCRAPER_MAX_PAGES = 300;
 
 const getScraperUpgradeMessage = (
-	planType: "free" | "basic" | "enterprise",
+	planType: "free" | "basic" | "standard" | "enterprise",
 ): string => {
 	if (planType === "free") {
 		return "Upgrade to Basic plan for 30 website pages";
 	}
 	if (planType === "basic") {
-		return "Upgrade to Enterprise plan for up to 300 website pages";
+		return "Upgrade to Standard plan for 100 website pages";
 	}
-	return "You have reached the maximum limit for Enterprise plan (300 pages)";
+	if (planType === "standard") {
+		return "Upgrade to Enterprise plan for unlimited website pages";
+	}
+	return "Your enterprise limits are managed through your custom plan.";
 };
 
 const getScraperLimitPayload = (
-	planType: "free" | "basic" | "enterprise",
+	planType: "free" | "basic" | "standard" | "enterprise",
 	scraperUsage: Awaited<
 		ReturnType<typeof pineconeService.getScraperUsageStats>
 	>,

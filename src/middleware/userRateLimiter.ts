@@ -137,6 +137,7 @@ export const createTieredRateLimiter = (options: {
 	windowMs: number;
 	freeMax: number;
 	basicMax: number;
+	standardMax?: number;
 	enterpriseMax?: number;
 	message: string;
 	keyPrefix: string;
@@ -160,7 +161,11 @@ export const createTieredRateLimiter = (options: {
 			const max =
 				planType === "enterprise"
 					? options.enterpriseMax ??
-					  options.basicMax * 2
+					  (options.standardMax ??
+							options.basicMax * 2) * 2
+					: planType === "standard"
+					  ? options.standardMax ??
+							options.basicMax * 2
 					: planType === "basic"
 					  ? options.basicMax
 					  : options.freeMax;
@@ -192,6 +197,8 @@ export const createTieredRateLimiter = (options: {
 					upgradeMessage:
 						planType === "free"
 							? "Upgrade to Basic plan for higher limits"
+							: planType === "basic"
+							  ? "Upgrade to Standard plan for higher limits"
 							: undefined,
 				});
 				return;
@@ -244,6 +251,8 @@ export const globalRateLimiter =
 		windowMs: config.RATE_LIMIT_WINDOW_MS,
 		freeMax: config.RATE_LIMIT_MAX_REQUESTS,
 		basicMax: config.RATE_LIMIT_MAX_REQUESTS * 2, // 2x for paid users
+		standardMax:
+			config.RATE_LIMIT_MAX_REQUESTS * 3,
 		enterpriseMax:
 			config.RATE_LIMIT_MAX_REQUESTS * 5,
 		message:
@@ -278,6 +287,7 @@ export const chatRateLimiter =
 		windowMs: 60000, // 1 minute window
 		freeMax: 10, // 10 requests per minute for free
 		basicMax: 30, // 30 requests per minute for basic
+		standardMax: 45, // 45 requests per minute for standard
 		enterpriseMax: 60, // 60 requests per minute for enterprise
 		message:
 			"Chat rate limit exceeded. Please slow down.",
@@ -290,6 +300,7 @@ export const scraperRateLimiter =
 		windowMs: 300000, // 5 minute window
 		freeMax: 5, // 5 scraping jobs per 5 minutes for free
 		basicMax: 20, // 20 scraping jobs per 5 minutes for basic
+		standardMax: 40, // 40 scraping jobs per 5 minutes for standard
 		enterpriseMax: 60, // 60 scraping jobs per 5 minutes for enterprise
 		message:
 			"Scraping rate limit exceeded. Please try again later.",

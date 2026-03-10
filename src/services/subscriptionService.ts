@@ -181,6 +181,7 @@ const CANCELLABLE_SUBSCRIPTION_STATUSES = [
 const KNOWN_PLAN_NAMES: PlanType[] = [
 	"free",
 	"basic",
+	"standard",
 	"enterprise",
 ];
 
@@ -396,12 +397,13 @@ class SubscriptionService {
 		if (
 			normalized === "free" ||
 			normalized === "basic" ||
+			normalized === "standard" ||
 			normalized === "enterprise"
 		) {
 			return normalized;
 		}
 		throw new Error(
-			"Plan name must be one of: free, basic, enterprise.",
+			"Plan name must be one of: free, basic, standard, enterprise.",
 		);
 	}
 
@@ -722,8 +724,9 @@ class SubscriptionService {
          CASE name
            WHEN 'free' THEN 1
            WHEN 'basic' THEN 2
-           WHEN 'enterprise' THEN 3
-           ELSE 4
+           WHEN 'standard' THEN 3
+           WHEN 'enterprise' THEN 4
+           ELSE 5
          END,
          id ASC`,
 		);

@@ -177,10 +177,21 @@ class PineconeService {
 		text: string,
 		maxChunkSize: number = 8000,
 	): string[] {
+		const normalizedText = text
+			.replace(/\s+/g, " ")
+			.trim();
+		if (!normalizedText) {
+			return [];
+		}
+
 		const chunks: string[] = [];
-		const sentences = text.match(
+		const sentenceMatches = normalizedText.match(
 			/[^.!?]+[.!?]+/g,
-		) || [text];
+		);
+		const sentences =
+			sentenceMatches && sentenceMatches.length > 0
+				? sentenceMatches
+				: [normalizedText];
 
 		let currentChunk = "";
 
@@ -204,7 +215,7 @@ class PineconeService {
 			chunks.push(currentChunk.trim());
 		}
 
-		return chunks;
+		return chunks.filter(Boolean);
 	}
 
 	private async forEachUserRecord(
@@ -349,6 +360,11 @@ class PineconeService {
 			const index =
 				this.getNamespaceIndex(userId);
 			chunks = this.chunkText(content);
+			if (chunks.length === 0) {
+				throw new Error(
+					"No usable text content found for this page",
+				);
+			}
 
 			const vectors: PineconeRecord[] = [];
 

@@ -31,8 +31,8 @@ import adminRoutes from "./routes/adminRoutes";
 import healthRoutes from "./routes/healthRoutes";
 import publicRoutes from "./routes/publicRoutes";
 import authRoutes from "./routes/routes";
-import authService from "./services/authService";
 import adminAuthService from "./services/adminAuthService";
+import authService from "./services/authService";
 import { leadWebhookService } from "./services/leadWebhookService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
@@ -51,21 +51,33 @@ app.set("trust proxy", 1);
 configurePassport();
 
 // Security middleware with relaxed CSP for widget embedding
-
 app.use(
 	helmet({
 		contentSecurityPolicy: {
 			directives: {
 				defaultSrc: ["'self'"],
 				scriptSrc: ["'self'", "'unsafe-inline'"],
-				styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+				styleSrc: [
+					"'self'",
+					"'unsafe-inline'",
+					"https://fonts.googleapis.com",
+				],
 				imgSrc: ["'self'", "data:", "https:"],
 				connectSrc: ["'self'"],
-				fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+				fontSrc: [
+					"'self'",
+					"data:",
+					"https://fonts.gstatic.com",
+				],
 				objectSrc: ["'none'"],
 				mediaSrc: ["'self'"],
 				frameSrc: ["'self'"],
-				frameAncestors: ["'self'", "http://localhost:*", "https://witzo.ai", "https://*.witzo.ai"],
+				frameAncestors: [
+					"'self'",
+					"http://localhost:*",
+					"https://witzo.ai",
+					"https://*.witzo.ai",
+				],
 			},
 		},
 		crossOriginEmbedderPolicy: false,
@@ -90,7 +102,8 @@ const rawOrigins = configuredOrigins
 	.split(",")
 	.map((origin) => origin.trim())
 	.filter(Boolean);
-const hasWildcardOrigin = rawOrigins.includes("*");
+const hasWildcardOrigin =
+	rawOrigins.includes("*");
 const allowedOriginSet = new Set(
 	rawOrigins
 		.filter((origin) => origin !== "*")
@@ -104,64 +117,44 @@ if (hasWildcardOrigin) {
 }
 
 app.use(
-	cors(
-		(
-			req: Request,
-			callback,
-		) => {
-			const requestPath = req.path.toLowerCase();
-			const isPublicWidgetRoute =
-				requestPath === "/api/v1" ||
-				requestPath.startsWith(
-					"/api/v1/",
-				);
+	cors((req: Request, callback) => {
+		const requestPath = req.path.toLowerCase();
+		const isPublicWidgetRoute =
+			requestPath === "/api/v1" ||
+			requestPath.startsWith("/api/v1/");
 
-			if (isPublicWidgetRoute) {
-				callback(null, {
-					origin: true,
-					credentials: false,
-				});
-				return;
-			}
-
+		if (isPublicWidgetRoute) {
 			callback(null, {
-				origin: (
-					origin,
-					originCallback,
-				) => {
-					if (!origin) {
-						originCallback(
-							null,
-							true,
-						);
-						return;
-					}
-
-					const normalizedOrigin =
-						origin.toLowerCase();
-
-					if (
-						allowedOriginSet.has(
-							normalizedOrigin,
-						)
-					) {
-						originCallback(
-							null,
-							true,
-						);
-						return;
-					}
-
-					originCallback(
-						new Error(
-							"Not allowed by CORS",
-						),
-					);
-				},
-				credentials: true,
+				origin: true,
+				credentials: false,
 			});
-		},
-	),
+			return;
+		}
+
+		callback(null, {
+			origin: (origin, originCallback) => {
+				if (!origin) {
+					originCallback(null, true);
+					return;
+				}
+
+				const normalizedOrigin =
+					origin.toLowerCase();
+
+				if (
+					allowedOriginSet.has(normalizedOrigin)
+				) {
+					originCallback(null, true);
+					return;
+				}
+
+				originCallback(
+					new Error("Not allowed by CORS"),
+				);
+			},
+			credentials: true,
+		});
+	}),
 );
 
 // Cookie parser middleware
@@ -219,7 +212,8 @@ const limiter = rateLimit({
 	},
 	standardHeaders: true,
 	legacyHeaders: false,
-	skip: (req: Request) => !req.path.startsWith("/api"),
+	skip: (req: Request) =>
+		!req.path.startsWith("/api"),
 });
 
 app.use(limiter);
@@ -241,7 +235,10 @@ app.use(
 	express.static("public/widget", {
 		setHeaders: (res, filePath) => {
 			if (filePath.endsWith("witzo-chat.js")) {
-				res.setHeader("Cache-Control", "no-store, must-revalidate");
+				res.setHeader(
+					"Cache-Control",
+					"no-store, must-revalidate",
+				);
 				res.setHeader("Pragma", "no-cache");
 				res.setHeader("Expires", "0");
 			}
