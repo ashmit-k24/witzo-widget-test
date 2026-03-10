@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import pool from "../config/database";
+import { config } from "../config/env";
 import adminAuthService from "../services/adminAuthService";
 import { signAdminToken } from "../middleware/adminAuth";
 import logger from "../utils/logger";
@@ -240,6 +241,8 @@ export const getInsights = async (
 		try {
 			const [
 				revenueResult,
+				tokenUsageResult,
+				securityResult,
 				qualityResult,
 				funnelResult,
 				operationsResult,
@@ -286,6 +289,45 @@ export const getInsights = async (
 						  AND status IN ('active', 'authenticated'))::text AS churn_risk_subscriptions
 				`),
 				client.query<{
+					prompt_tokens_30d: string;
+					completion_tokens_30d: string;
+					total_tokens_30d: string;
+				}>(`
+					SELECT
+						COALESCE(SUM((metadata->>'promptTokens')::int), 0)::text AS prompt_tokens_30d,
+						COALESCE(SUM((metadata->>'completionTokens')::int), 0)::text AS completion_tokens_30d,
+						COALESCE(SUM(token_count), 0)::text AS total_tokens_30d
+					FROM chat_messages
+					WHERE role = 'assistant'
+					  AND created_at >= NOW() - INTERVAL '30 days'
+				`),
+				client.query<{
+					suspicious_ip_count_24h: string;
+					top_suspicious_ip: string | null;
+					top_suspicious_ip_events: string | null;
+				}>(`
+					WITH ip_counts AS (
+						SELECT ip_address, COUNT(*) AS events
+						FROM widget_analytics
+						WHERE created_at >= NOW() - INTERVAL '24 hours'
+						  AND ip_address IS NOT NULL
+						GROUP BY ip_address
+					),
+					stats AS (
+						SELECT COALESCE(AVG(events), 0) AS avg_events,
+						       COALESCE(STDDEV_POP(events), 0) AS std_events
+						FROM ip_counts
+					),
+					threshold AS (
+						SELECT (avg_events + std_events * 3) AS threshold_value
+						FROM stats
+					)
+					SELECT
+						(SELECT COUNT(*) FROM ip_counts, threshold WHERE events >= threshold_value)::text AS suspicious_ip_count_24h,
+						(SELECT ip_address FROM ip_counts ORDER BY events DESC LIMIT 1) AS top_suspicious_ip,
+						(SELECT events FROM ip_counts ORDER BY events DESC LIMIT 1)::text AS top_suspicious_ip_events
+				`),
+				client.query<{
 					total_ratings: string;
 					positive_ratings: string;
 					negative_ratings: string;
@@ -304,8 +346,15 @@ export const getInsights = async (
 							)
 							ELSE 0
 						END AS rating_positive_pct,
-						0 AS fallback_reply_count_30d,
-						0 AS avg_response_chars_30d
+						(SELECT COUNT(*)
+							FROM chat_messages
+							WHERE role = 'assistant'
+							  AND COALESCE((metadata->>'isFallback')::boolean, false) = true
+							  AND created_at >= NOW() - INTERVAL '30 days') AS fallback_reply_count_30d,
+						(SELECT COALESCE(ROUND(AVG(LENGTH(content))::numeric, 1), 0)
+							FROM chat_messages
+							WHERE role = 'assistant'
+							  AND created_at >= NOW() - INTERVAL '30 days') AS avg_response_chars_30d
 				`),
 				client.query<{
 					widget_loads_30d: string;
@@ -316,7 +365,7 @@ export const getInsights = async (
 				}>(`
 					SELECT
 						(SELECT COUNT(*) FROM widget_analytics
-							WHERE event_type = 'load'
+							WHERE event_type IN ('widget_loaded', 'embed_script_loaded')
 							AND created_at >= NOW() - INTERVAL '30 days') AS widget_loads_30d,
 						(SELECT COUNT(*) FROM chat_conversations
 							WHERE created_at >= NOW() - INTERVAL '30 days'
@@ -352,9 +401,17 @@ export const getInsights = async (
 					website_chunks_indexed: string;
 					avg_sources_per_reply_30d: string;
 				}>(`
-					SELECT 0 AS document_chunks_indexed,
-					       0 AS website_chunks_indexed,
-					       0 AS avg_sources_per_reply_30d
+					SELECT
+						(SELECT COALESCE(SUM(chunks), 0)
+							FROM rag_source_pages
+							WHERE source_type = 'document') AS document_chunks_indexed,
+						(SELECT COALESCE(SUM(chunks), 0)
+							FROM rag_source_pages
+							WHERE source_type = 'website') AS website_chunks_indexed,
+						(SELECT COALESCE(ROUND(AVG((metadata->>'sourcesCount')::int)::numeric, 1), 0)
+							FROM chat_messages
+							WHERE role = 'assistant'
+							  AND created_at >= NOW() - INTERVAL '30 days') AS avg_sources_per_reply_30d
 				`),
 				client.query<{
 					feedback_count_30d: string;
@@ -382,13 +439,30 @@ export const getInsights = async (
 							WHERE status = 'dead'
 							AND created_at >= NOW() - INTERVAL '30 days') AS webhook_delivery_dead_30d
 				`),
-				// Feature flags: not implemented yet, return zeros
-				Promise.resolve({ rows: [{ totalFlags: 0, activeFlags: 0 }] }),
-				// Compliance: not implemented yet, return zeros
-				Promise.resolve({ rows: [{ openRequests: 0, completedRequests30d: 0 }] }),
+				client.query<{
+					total_flags: string;
+					active_flags: string;
+				}>(`
+					SELECT
+						COUNT(*)::text AS total_flags,
+						COUNT(*) FILTER (WHERE is_active = TRUE)::text AS active_flags
+					FROM feature_flags
+				`),
+				client.query<{
+					open_requests: string;
+					completed_requests_30d: string;
+				}>(`
+					SELECT
+						(SELECT COUNT(*) FROM compliance_requests
+							WHERE status <> 'completed')::text AS open_requests,
+						(SELECT COUNT(*) FROM compliance_requests
+							WHERE completed_at >= NOW() - INTERVAL '30 days')::text AS completed_requests_30d
+				`),
 			]);
 
 			const revenue = revenueResult.rows[0];
+			const tokenUsage = tokenUsageResult.rows[0];
+			const security = securityResult.rows[0];
 			const quality = qualityResult.rows[0];
 			const funnel = funnelResult.rows[0];
 			const ops = operationsResult.rows[0];
@@ -397,6 +471,18 @@ export const getInsights = async (
 			const webhooks = webhookResult.rows[0];
 			const flags = featureFlagResult.rows[0];
 			const compliance = complianceResult.rows[0];
+
+			const promptTokens =
+				Number(tokenUsage.prompt_tokens_30d);
+			const completionTokens =
+				Number(tokenUsage.completion_tokens_30d);
+			const totalTokens =
+				Number(tokenUsage.total_tokens_30d);
+			const estimatedCostUsd =
+				(promptTokens / 1000) *
+					config.LLM_PROMPT_COST_PER_1K_USD +
+				(completionTokens / 1000) *
+					config.LLM_COMPLETION_COST_PER_1K_USD;
 
 			res.json({
 				data: {
@@ -409,18 +495,24 @@ export const getInsights = async (
 						churn_risk_subscriptions: Number(revenue.churn_risk_subscriptions),
 					},
 					tokens: {
-						prompt_tokens_estimated_30d: 0,
-						completion_tokens_estimated_30d: 0,
-						total_tokens_estimated_30d: 0,
-						estimated_llm_cost_30d_usd: 0,
+						prompt_tokens_estimated_30d: promptTokens,
+						completion_tokens_estimated_30d: completionTokens,
+						total_tokens_estimated_30d: totalTokens,
+						estimated_llm_cost_30d_usd: Number(
+							estimatedCostUsd.toFixed(4),
+						),
 					},
 					quality: {
 						total_ratings: Number(quality.total_ratings),
 						positive_ratings: Number(quality.positive_ratings),
 						negative_ratings: Number(quality.negative_ratings),
 						rating_positive_pct: Number(quality.rating_positive_pct),
-						fallback_reply_count_30d: 0,
-						avg_response_chars_30d: 0,
+						fallback_reply_count_30d: Number(
+							quality.fallback_reply_count_30d,
+						),
+						avg_response_chars_30d: Number(
+							quality.avg_response_chars_30d,
+						),
 					},
 					funnel: {
 						widget_loads_30d: Number(funnel.widget_loads_30d),
@@ -430,9 +522,13 @@ export const getInsights = async (
 						converted_leads_30d: Number(funnel.converted_leads_30d),
 					},
 					security: {
-						suspicious_ip_count_24h: 0,
-						top_suspicious_ip: null,
-						top_suspicious_ip_events: 0,
+						suspicious_ip_count_24h: Number(
+							security.suspicious_ip_count_24h,
+						),
+						top_suspicious_ip: security.top_suspicious_ip ?? null,
+						top_suspicious_ip_events: Number(
+							security.top_suspicious_ip_events ?? 0,
+						),
 					},
 					operations: {
 						db_active_connections: Number(ops.db_active_connections),
@@ -457,12 +553,14 @@ export const getInsights = async (
 						webhook_delivery_dead_30d: Number(webhooks.webhook_delivery_dead_30d),
 					},
 					featureFlags: {
-						totalFlags: Number(flags.totalFlags),
-						activeFlags: Number(flags.activeFlags),
+						totalFlags: Number(flags.total_flags),
+						activeFlags: Number(flags.active_flags),
 					},
 					compliance: {
-						openRequests: Number(compliance.openRequests),
-						completedRequests30d: Number(compliance.completedRequests30d),
+						openRequests: Number(compliance.open_requests),
+						completedRequests30d: Number(
+							compliance.completed_requests_30d,
+						),
 					},
 					generatedAt: new Date().toISOString(),
 				},

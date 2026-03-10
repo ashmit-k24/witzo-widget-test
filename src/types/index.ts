@@ -214,6 +214,8 @@ export interface EnvConfig {
 	RAZORPAY_KEY_ID: string;
 	RAZORPAY_KEY_SECRET: string;
 	RAZORPAY_WEBHOOK_SECRET: string;
+	LLM_PROMPT_COST_PER_1K_USD: number;
+	LLM_COMPLETION_COST_PER_1K_USD: number;
 
 	// Redis
 	REDIS_HOST: string;

@@ -486,6 +486,81 @@ export const validationRules: Record<
 			.withMessage("isActive must be boolean"),
 	],
 
+	adminUserIdParam: [
+		param("id")
+			.isUUID()
+			.withMessage("id must be a valid UUID"),
+	],
+
+	adminUserCreate: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid admin email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+		body("password")
+			.isString()
+			.withMessage("password is required")
+			.isLength({ min: 8, max: 256 })
+			.withMessage("password must be 8-256 characters"),
+		body("role")
+			.isIn(["super_admin", "ops_admin", "support_admin"])
+			.withMessage("role must be a supported admin role"),
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("permissionKeys")
+			.optional({ nullable: true })
+			.isArray()
+			.withMessage("permissionKeys must be an array"),
+		body("permissionKeys.*")
+			.optional()
+			.isString()
+			.withMessage("permissionKeys entries must be strings"),
+	],
+
+	adminUserUpdate: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid admin email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+		body("password")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("password must be a string")
+			.isLength({ min: 8, max: 256 })
+			.withMessage("password must be 8-256 characters"),
+		body("role")
+			.isIn(["super_admin", "ops_admin", "support_admin"])
+			.withMessage("role must be a supported admin role"),
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("permissionKeys")
+			.optional({ nullable: true })
+			.isArray()
+			.withMessage("permissionKeys must be an array"),
+		body("permissionKeys.*")
+			.optional()
+			.isString()
+			.withMessage("permissionKeys entries must be strings"),
+	],
+
+	adminDisallowedDomainsUpdate: [
+		body("domains")
+			.isArray({ max: 500 })
+			.withMessage("domains must be an array"),
+		body("domains.*")
+			.isString()
+			.isLength({ min: 1, max: 255 })
+			.withMessage("each domain must be 1-255 characters"),
+	],
+
 	publicWebhook: [
 		body("widgetKey")
 			.matches(WIDGET_KEY_REGEX)

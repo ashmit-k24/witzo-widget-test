@@ -5,6 +5,7 @@ import {
 import { pineconeService } from "../services/pineconeService";
 import { scraperService } from "../services/scraperService";
 import { scraperStatusService } from "../services/scraperStatusService";
+import { domainPolicyService } from "../services/domainPolicyService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
@@ -71,6 +72,16 @@ export const scrapeWebsite = async (
 			res.status(400).json({
 				success: false,
 				message: "URL is required",
+			});
+			return;
+		}
+
+		const policyCheck =
+			await domainPolicyService.isDomainDisallowed(url);
+		if (policyCheck.blocked) {
+			res.status(403).json({
+				success: false,
+				message: `${policyCheck.matchedDomain} is not allowed for scraping.`,
 			});
 			return;
 		}
@@ -308,6 +319,16 @@ export const deleteDocuments = async (
 			res.status(400).json({
 				success: false,
 				message: "URL is required",
+			});
+			return;
+		}
+
+		const policyCheck =
+			await domainPolicyService.isDomainDisallowed(url);
+		if (policyCheck.blocked) {
+			res.status(403).json({
+				success: false,
+				message: `${policyCheck.matchedDomain} is not allowed for scraping.`,
 			});
 			return;
 		}

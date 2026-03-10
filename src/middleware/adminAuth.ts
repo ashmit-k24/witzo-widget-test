@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextFunction, Request, Response } from "express";
 import { config } from "../config/env";
 import adminAuthService, {
+	AdminPermissionKey,
 	AdminRole,
 	AdminUser,
 } from "../services/adminAuthService";
@@ -218,4 +219,36 @@ export const requireAdminRole =
 		}
 
 		next();
+	};
+
+export const requireAdminPermission =
+	(...permissions: AdminPermissionKey[]) =>
+	(
+		req: Request,
+		res: Response,
+		next: NextFunction,
+	): void => {
+		const admin = req.admin;
+		if (!admin) {
+			res.status(401).json({
+				message: "Admin authentication required",
+			});
+			return;
+		}
+
+		if (
+			permissions.some((permission) =>
+				adminAuthService.hasAdminPermission(
+					admin,
+					permission,
+				),
+			)
+		) {
+			next();
+			return;
+		}
+
+		res.status(403).json({
+			message: "Insufficient admin permissions",
+		});
 	};

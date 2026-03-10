@@ -2,9 +2,11 @@ import { Router } from "express";
 import { adminLoginLimiter } from "../config/rateLimiters";
 import * as adminController from "../controllers/adminController";
 import * as adminPlanController from "../controllers/adminPlanController";
+import * as adminSettingsController from "../controllers/adminSettingsController";
+import * as adminUserController from "../controllers/adminUserController";
 import {
 	adminAuth,
-	requireAdminRole,
+	requireAdminPermission,
 } from "../middleware/adminAuth";
 import {
 	validate,
@@ -26,39 +28,100 @@ router.post(
 router.use(adminAuth);
 
 router.get("/me", adminController.getCurrentAdmin);
-router.get("/dashboard", adminController.getDashboard);
-router.get("/insights", adminController.getInsights);
-router.get("/users", adminController.getUsers);
-router.get("/plans", adminPlanController.listPlans);
+router.get(
+	"/dashboard",
+	requireAdminPermission("dashboard.view"),
+	adminController.getDashboard,
+);
+router.get(
+	"/insights",
+	requireAdminPermission("insights.view"),
+	adminController.getInsights,
+);
+router.get(
+	"/users",
+	requireAdminPermission("users.view"),
+	adminController.getUsers,
+);
+router.get(
+	"/plans",
+	requireAdminPermission("plans.view"),
+	adminPlanController.listPlans,
+);
 router.post(
 	"/plans",
-	requireAdminRole("super_admin"),
+	requireAdminPermission("plans.manage"),
 	validationRules.adminPlanUpsert,
 	validate,
 	adminPlanController.createPlan,
 );
 router.put(
 	"/plans/:id",
-	requireAdminRole("super_admin"),
+	requireAdminPermission("plans.manage"),
 	validationRules.adminPlanIdParam,
 	validationRules.adminPlanUpsert,
 	validate,
 	adminPlanController.updatePlan,
 );
+router.get(
+	"/admin-users",
+	requireAdminPermission("admins.view"),
+	adminUserController.listAdminUsers,
+);
+
+router.get(
+	"/settings/disallowed-domains",
+	requireAdminPermission("settings.view"),
+	adminSettingsController.listDisallowedDomains,
+);
+router.put(
+	"/settings/disallowed-domains",
+	requireAdminPermission("settings.manage"),
+	validationRules.adminDisallowedDomainsUpdate,
+	validate,
+	adminSettingsController.updateDisallowedDomains,
+);
+router.get(
+	"/permissions",
+	requireAdminPermission("admins.view"),
+	adminUserController.listAdminPermissions,
+);
+router.post(
+	"/admin-users",
+	requireAdminPermission("admins.manage"),
+	validationRules.adminUserCreate,
+	validate,
+	adminUserController.createAdminUser,
+);
+router.put(
+	"/admin-users/:id",
+	requireAdminPermission("admins.manage"),
+	validationRules.adminUserIdParam,
+	validationRules.adminUserUpdate,
+	validate,
+	adminUserController.updateAdminUser,
+);
+router.delete(
+	"/admin-users/:id",
+	requireAdminPermission("admins.manage"),
+	validationRules.adminUserIdParam,
+	validate,
+	adminUserController.deleteAdminUser,
+);
 
 router.post(
 	"/actions/reset-usage",
-	requireAdminRole("super_admin", "ops_admin"),
+	requireAdminPermission("actions.reset_usage"),
 	adminController.resetUsage,
 );
 router.post(
 	"/actions/force-logout",
-	requireAdminRole("super_admin", "ops_admin"),
+	requireAdminPermission("actions.force_logout"),
 	adminController.forceLogout,
 );
 router.post(
 	"/actions/set-plan",
-	requireAdminRole("super_admin"),
+	requireAdminPermission("actions.set_plan"),
 	adminController.setUserPlan,
 );
 
