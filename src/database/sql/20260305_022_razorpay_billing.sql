@@ -91,25 +91,46 @@ VALUES
   ),
   (
     'basic',
-    'Growth plan for SMB teams',
-    2900,
-    29000,
+    'Best for small businesses',
+    2000,
+    20000,
     '[
-      "Up to 1000 monthly conversations",
-      "Lead capture and dashboard analytics",
-      "Priority email support"
+      "30 website pages",
+      "10 documents",
+      "1000 monthly conversations",
+      "Fallback lead form",
+      "Chat rating",
+      "Auto follow-up email"
+    ]'::jsonb,
+    TRUE
+  ),
+  (
+    'standard',
+    'Best for growing teams',
+    6000,
+    60000,
+    '[
+      "100 website pages",
+      "50 documents",
+      "5000 monthly conversations",
+      "Unlimited leads",
+      "CRM integrations",
+      "Advanced analytics"
     ]'::jsonb,
     TRUE
   ),
   (
     'enterprise',
-    'Advanced plan for high-volume teams',
-    9900,
-    99000,
+    'Built for scaling businesses',
+    0,
+    0,
     '[
-      "Unlimited conversations",
-      "CRM and webhook integrations",
-      "Dedicated support"
+      "Unlimited website pages",
+      "Unlimited documents",
+      "Custom conversation limits",
+      "White-label",
+      "API access",
+      "Custom AI behavior"
     ]'::jsonb,
     TRUE
   )

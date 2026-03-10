@@ -76,7 +76,7 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
       <!-- Messages -->
       <div id="textMessagesArea" class="chat-messages"></div>
 
-      <!-- Contact Form (basic plan fallback) -->
+      <!-- Contact Form (paid plan fallback) -->
       <div id="contactFormSlot" class="contact-form hidden">
         <h3>Get in Touch</h3>
         <p>Our team will respond as soon as possible.</p>
@@ -86,7 +86,7 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
         <button id="cf-submit" class="contact-form-submit">Send Message</button>
       </div>
 
-      <!-- Conversation rating slot (basic plan) -->
+      <!-- Conversation rating slot (paid plans) -->
       <div id="conversationRatingSlot" class="hidden"></div>
 
       <!-- Input area -->

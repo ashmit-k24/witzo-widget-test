@@ -631,7 +631,12 @@ export const setUserPlan = async (
 			return;
 		}
 
-		const allowedPlans = ["free", "basic", "enterprise"];
+		const allowedPlans = [
+			"free",
+			"basic",
+			"standard",
+			"enterprise",
+		];
 		if (!allowedPlans.includes(planType)) {
 			res
 				.status(400)

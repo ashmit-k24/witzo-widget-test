@@ -390,6 +390,8 @@ export const SCRAPER_PAGE_LIMITS: Record<
 > = {
 	free: PLAN_CAPABILITIES.free.websitePagesLimit,
 	basic: PLAN_CAPABILITIES.basic.websitePagesLimit,
+	standard:
+		PLAN_CAPABILITIES.standard.websitePagesLimit,
 	enterprise:
 		PLAN_CAPABILITIES.enterprise.websitePagesLimit,
 };
@@ -401,6 +403,8 @@ export const DOCUMENT_LIMITS: Record<
 > = {
 	free: PLAN_CAPABILITIES.free.documentLimit,
 	basic: PLAN_CAPABILITIES.basic.documentLimit,
+	standard:
+		PLAN_CAPABILITIES.standard.documentLimit,
 	enterprise:
 		PLAN_CAPABILITIES.enterprise.documentLimit,
 };

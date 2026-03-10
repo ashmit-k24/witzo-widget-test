@@ -172,7 +172,7 @@ class LeadWebhookService {
 		return result.rows[0]?.plan_type ?? null;
 	}
 
-	private async ensureEnterpriseAccess(
+	private async ensureCrmAccess(
 		userId: string,
 	): Promise<void> {
 		const planType = await this.getUserPlanType(
@@ -182,7 +182,7 @@ class LeadWebhookService {
 			getPlanCapabilities(planType);
 		if (!capabilities.crmIntegration) {
 			throw new Error(
-				"This feature is available only for enterprise plan",
+				"This feature is available on the Standard and Enterprise plans",
 			);
 		}
 	}
@@ -190,7 +190,7 @@ class LeadWebhookService {
 	async getConfig(
 		userId: string,
 	): Promise<LeadWebhookConfigResponse | null> {
-		await this.ensureEnterpriseAccess(userId);
+		await this.ensureCrmAccess(userId);
 		const result = await pool.query<LeadWebhookConfigRow>(
 			`SELECT *
 			 FROM lead_webhook_configs
@@ -210,7 +210,7 @@ class LeadWebhookService {
 			rotateSecret?: boolean;
 		},
 	): Promise<LeadWebhookConfigResponse> {
-		await this.ensureEnterpriseAccess(userId);
+		await this.ensureCrmAccess(userId);
 		const existing = await pool.query<LeadWebhookConfigRow>(
 			`SELECT *
 			 FROM lead_webhook_configs
@@ -300,7 +300,7 @@ class LeadWebhookService {
 		userId: string,
 		limit = 50,
 	): Promise<LeadWebhookEventResponse[]> {
-		await this.ensureEnterpriseAccess(userId);
+		await this.ensureCrmAccess(userId);
 		const boundedLimit = Math.max(
 			1,
 			Math.min(100, limit),
@@ -369,7 +369,7 @@ class LeadWebhookService {
 	async sendTestEvent(
 		userId: string,
 	): Promise<void> {
-		await this.ensureEnterpriseAccess(userId);
+		await this.ensureCrmAccess(userId);
 		const activeConfig =
 			await this.getActiveConfigRow(userId);
 		if (!activeConfig) {
@@ -394,7 +394,7 @@ class LeadWebhookService {
 		userId: string,
 		eventId: string,
 	): Promise<void> {
-		await this.ensureEnterpriseAccess(userId);
+		await this.ensureCrmAccess(userId);
 		const result = await pool.query<LeadWebhookEventRow>(
 			`UPDATE lead_webhook_events
 			 SET status = 'pending',
