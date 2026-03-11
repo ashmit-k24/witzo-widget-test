@@ -406,7 +406,7 @@ export const getWidgetConfig = async (
 				widgetKey: widget.widget_key,
 				widgetName: widget.widget_name,
 				config: widget.widget_config,
-				webhookUrl: `${req.protocol}://${req.get("host")}/webhook`,
+				webhookUrl: `${req.protocol}://${req.get("host")}/api/v1/webhook`,
 			},
 		});
 	} catch (error) {
@@ -913,7 +913,7 @@ export const generateEmbedScript = async (
 
       const widget = document.createElement('witzo-chat');
       widget.id = 'witzoChat';
-      widget.setAttribute('api-url', '${joinPublicUrl(apiUrl, "/webhook")}');
+      widget.setAttribute('api-url', '${joinPublicUrl(apiUrl, "/api/v1/webhook")}');
       widget.setAttribute('widget-key', '${widgetKey}');
       widget.setAttribute('api-base-url', '${apiUrl}');
       widget.__witzoPlanType = '${planType}';
@@ -1091,13 +1091,13 @@ function generateEmbedCode(
 
 	// Return both options: single-script and manual embed
 	return `<!-- Witzo Chat Widget - Single Script (Recommended) -->
-<script src="${joinPublicUrl(apiUrl, `/embed/${widgetKey}.js`)}"></script>
+<script src="${joinPublicUrl(apiUrl, `/api/v1/embed/${widgetKey}.js`)}"></script>
 
 <!-- OR Manual Embed -->
 <!--
 <witzo-chat
       id="witzoChat"
-      api-url="${joinPublicUrl(apiUrl, "/webhook")}"
+      api-url="${joinPublicUrl(apiUrl, "/api/v1/webhook")}"
       widget-key="${widgetKey}"
       ${configAttrs}
     ></witzo-chat>
@@ -1118,7 +1118,7 @@ function getWidgetPublicUrls(widgetKey: string): {
 		`${apiUrl}/widget/witzo-chat.js`;
 	const embedScriptUrl = joinPublicUrl(
 		apiUrl,
-		`/embed/${widgetKey}.js`,
+		`/api/v1/embed/${widgetKey}.js`,
 	);
 
 	return {

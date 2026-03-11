@@ -13,7 +13,7 @@ export async function sendMessage({ apiUrl, widgetKey, sessionId, message, langu
 
 /** Submit a thumbs-up / thumbs-down rating */
 export async function submitRating({ apiBaseUrl, widgetKey, sessionId, rating }) {
-  return fetch(`${apiBaseUrl}/widget/rating`, {
+  return fetch(`${apiBaseUrl}/api/v1/widget/rating`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ widgetKey, sessionId, rating }),
@@ -22,7 +22,7 @@ export async function submitRating({ apiBaseUrl, widgetKey, sessionId, rating })
 
 /** Submit the contact form (basic plan fallback) */
 export async function submitContact({ apiBaseUrl, widgetKey, sessionId, name, email, message }) {
-  return fetch(`${apiBaseUrl}/widget/contact`, {
+  return fetch(`${apiBaseUrl}/api/v1/widget/contact`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ widgetKey, sessionId, name, email, message }),

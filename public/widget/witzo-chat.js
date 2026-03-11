@@ -118,7 +118,7 @@
 			this.apiBaseUrl =
 				this.getAttribute("api-base-url") ||
 				this.apiUrl.replace(
-					"/webhook",
+					"/api/v1/webhook",
 					"",
 				);
 			this.widgetKey =
@@ -612,7 +612,7 @@
 
 		getDefaultIconUrl() {
 			if (!this.apiBaseUrl) return "";
-			return `${this.apiBaseUrl.replace(/\/+$/, "")}/widget/assets/images/witzo.png`;
+			return `${this.apiBaseUrl.replace(/\/+$/, "")}/assets/images/witzo.png`;
 		}
 
 		getDisplayIconUrl() {
@@ -3760,7 +3760,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/widget/rating",
+						"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3828,7 +3828,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/widget/contact",
+						"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
