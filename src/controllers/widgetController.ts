@@ -905,10 +905,12 @@ export const generateEmbedScript = async (
   }
   window.witzoWidgetLoaded = true;
 
-  // Wait for DOM to be ready
-  function initWidget() {
+  function mountWidget() {
     try {
-      // Create widget element
+      if (document.getElementById('witzoChat')) {
+        return;
+      }
+
       const widget = document.createElement('witzo-chat');
       widget.id = 'witzoChat';
       widget.setAttribute('api-url', '${joinPublicUrl(apiUrl, "/webhook")}');
@@ -924,26 +926,38 @@ export const generateEmbedScript = async (
       // Apply custom configuration
 ${configAttrs}
 
-      // Append to body
       document.body.appendChild(widget);
-
-      // Load the widget component library
-      const script = document.createElement('script');
-      script.src = '${widgetScriptUrl}';
-      script.onerror = function() {
-        console.error('Witzo Widget: Failed to load widget component library from ${widgetScriptUrl}');
-      };
-      document.head.appendChild(script);
-
       console.log('Witzo Widget: Initialized successfully');
     } catch (error) {
       console.error('Witzo Widget: Initialization error', error);
     }
   }
 
-  // Initialize when DOM is ready
+  function initWidget() {
+    if (window.customElements && window.customElements.get('witzo-chat')) {
+      mountWidget();
+      return;
+    }
+
+    const existingScript = document.querySelector('script[data-witzo-widget-lib="true"]');
+    if (existingScript) {
+      existingScript.addEventListener('load', mountWidget, { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = '${widgetScriptUrl}';
+    script.async = true;
+    script.dataset.witzoWidgetLib = 'true';
+    script.onload = mountWidget;
+    script.onerror = function() {
+      console.error('Witzo Widget: Failed to load widget component library from ${widgetScriptUrl}');
+    };
+    document.head.appendChild(script);
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initWidget);
+    document.addEventListener('DOMContentLoaded', initWidget, { once: true });
   } else {
     initWidget();
   }

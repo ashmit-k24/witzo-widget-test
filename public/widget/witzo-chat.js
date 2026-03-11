@@ -118,7 +118,7 @@
 			this.apiBaseUrl =
 				this.getAttribute("api-base-url") ||
 				this.apiUrl.replace(
-					"/api/v1/webhook",
+					"/webhook",
 					"",
 				);
 			this.widgetKey =
@@ -3760,7 +3760,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+						"/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3828,7 +3828,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+						"/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
