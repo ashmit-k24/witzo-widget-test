@@ -27,7 +27,10 @@ router.post(
 // All routes below require a valid admin bearer token
 router.use(adminAuth);
 
-router.get("/me", adminController.getCurrentAdmin);
+router.get(
+	"/me",
+	adminController.getCurrentAdmin,
+);
 router.get(
 	"/dashboard",
 	requireAdminPermission("dashboard.view"),

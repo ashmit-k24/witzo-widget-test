@@ -69,11 +69,8 @@ class LeadService {
 		const phone = this.normalizeOptionalValue(
 			extracted.phone,
 		);
-		const company = this.normalizeOptionalValue(
-			extracted.company,
-		);
 
-		return Boolean(email || phone || company);
+		return Boolean(email || phone);
 	}
 
 	private async extractContactFromMessages(
@@ -165,11 +162,11 @@ ${conversation}`;
 					messages,
 				);
 
-			// Only persist leads we can actually follow up with.
-			// Name-only or summary-only records are ignored.
+			// Only persist leads when there is a direct contact method.
+			// Name, company, or summary alone should not create a lead.
 			if (!this.hasConnectableChannel(extracted)) {
 				logger.info(
-					"Skipping lead upsert: no connectable channel found",
+					"Skipping lead upsert: no email or phone found",
 					{
 						userId,
 						sessionId,
