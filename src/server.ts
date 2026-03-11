@@ -231,6 +231,11 @@ app.use((req: Request, _res: Response, next) => {
 
 // Serve widget static files from public directory
 app.use(
+	"/widget/assets",
+	express.static("public/assets"),
+);
+
+app.use(
 	"/widget",
 	express.static("public/widget", {
 		setHeaders: (res, filePath) => {

@@ -612,7 +612,7 @@
 
 		getDefaultIconUrl() {
 			if (!this.apiBaseUrl) return "";
-			return `${this.apiBaseUrl.replace(/\/+$/, "")}/assets/images/witzo.png`;
+			return `${this.apiBaseUrl.replace(/\/+$/, "")}/widget/assets/images/witzo.png`;
 		}
 
 		getDisplayIconUrl() {

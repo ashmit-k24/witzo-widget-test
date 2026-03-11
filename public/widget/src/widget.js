@@ -61,7 +61,7 @@ export class WitzoChatWidget extends HTMLElement {
   connectedCallback() {
     // 1. Read HTML attributes into config
     this.apiUrl     = this.getAttribute('api-url')      || '';
-    this.apiBaseUrl = this.getAttribute('api-base-url') || this.apiUrl.replace('/api/v1/webhook', '');
+    this.apiBaseUrl = this.getAttribute('api-base-url') || this.apiUrl.replace('/webhook', '');
     this.widgetKey  = this.getAttribute('widget-key')   || '';
 
     ATTR_LIST.forEach(attr => {
@@ -88,9 +88,9 @@ export class WitzoChatWidget extends HTMLElement {
     this.config.defaultLanguage = this.selectedLanguage;
     sessionStorage.setItem(langKey, this.selectedLanguage);
 
-    // 3b. Default logo icon → witzo.png served from the same origin as the API
+    // 3b. Default logo icon → witzo.png served from the widget-scoped public path
     if (!this.config.logoIcon) {
-      this.config.logoIcon = `${this.apiBaseUrl}/assets/images/witzo.png`;
+      this.config.logoIcon = `${this.apiBaseUrl.replace(/\/+$/, '')}/widget/assets/images/witzo.png`;
     }
     // Preload bot icon so it's cached before first message typing indicator
     if (this.config.logoIcon) {
