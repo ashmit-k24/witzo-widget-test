@@ -1292,7 +1292,7 @@
 
 
           .chat-text-input {
-            padding-right: 65px !important;
+            padding-right: 80px !important;
           }
           .chat-input-container{
             display: flex;
