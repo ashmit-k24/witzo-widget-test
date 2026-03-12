@@ -6,6 +6,7 @@ import crypto from "crypto";
 import OpenAI from "openai";
 import {
 	coercePlanType,
+	PLAN_CAPABILITIES,
 	PlanType,
 } from "../config/planConfig";
 import { config } from "../config/env";
@@ -16,7 +17,6 @@ import {
 	DOCUMENT_LIMITS,
 	PineconeMetadata,
 	ScraperUsageStats,
-	SCRAPER_PAGE_LIMITS,
 } from "../types";
 import {
 	openAICircuitBreaker,
@@ -27,6 +27,7 @@ import {
 	retryOnRateLimit,
 	retryWithBackoff,
 } from "../utils/retry";
+import { subscriptionService } from "./subscriptionService";
 
 class PineconeService {
 	private pinecone: Pinecone;
@@ -1140,7 +1141,11 @@ class PineconeService {
 		const pagesUsed =
 			await this.getScrapedWebsiteCount(userId);
 		const pagesLimit =
-			SCRAPER_PAGE_LIMITS[resolvedPlan];
+			await subscriptionService.getWebsitePagesLimitForPlan(
+				resolvedPlan,
+				PLAN_CAPABILITIES[resolvedPlan]
+					.websitePagesLimit,
+			);
 		const pagesRemaining =
 			pagesLimit === null
 				? null

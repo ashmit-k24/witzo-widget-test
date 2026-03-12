@@ -512,6 +512,32 @@ export const validationRules: Record<
 			.withMessage(
 				"razorpayYearlyPlanId must be <= 255 characters",
 			),
+		body("websitePagesLimit")
+			.optional({ nullable: true })
+			.custom((value) => {
+				if (
+					value === null ||
+					value === undefined ||
+					value === ""
+				) {
+					return true;
+				}
+
+				const normalized =
+					typeof value === "number"
+						? value
+						: Number(value);
+				if (
+					!Number.isInteger(normalized) ||
+					normalized < 1
+				) {
+					throw new Error(
+						"websitePagesLimit must be a positive integer or empty for unlimited",
+					);
+				}
+
+				return true;
+			}),
 		body("isActive")
 			.optional()
 			.isBoolean()
