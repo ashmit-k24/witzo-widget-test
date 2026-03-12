@@ -175,6 +175,12 @@ const migrations: Migration[] = [
 		description: "Add disallowed domain policy table",
 		file: "20260310_026_disallowed_domains.sql",
 	},
+	{
+		id: "20260312_027_user_system_messages",
+		description:
+			"Add per-user system message settings and onboarding backfill",
+		file: "20260312_027_user_system_messages.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

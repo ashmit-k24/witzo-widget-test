@@ -475,7 +475,7 @@ export const updateProfile = async (
 
 /**
  * @route   PUT /api/auth/onboarding
- * @desc    Mark an onboarding step as complete (step 3 auto-completes onboarding)
+ * @desc    Mark an onboarding step as complete (step 4 auto-completes onboarding)
  * @access  Protected
  */
 export const updateOnboarding = async (

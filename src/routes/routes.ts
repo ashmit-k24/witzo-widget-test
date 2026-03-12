@@ -11,6 +11,7 @@ import * as csrfController from "../controllers/csrfController";
 import * as documentController from "../controllers/documentController";
 import * as overviewController from "../controllers/overviewController";
 import * as scraperController from "../controllers/scraperController";
+import * as systemMessageController from "../controllers/systemMessageController";
 import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
@@ -164,6 +165,37 @@ router.put(
 	validationRules.updateOnboarding,
 	validate,
 	authController.updateOnboarding,
+);
+
+router.get(
+	"/system-message",
+	authenticateToken,
+	systemMessageController.getSystemMessage,
+);
+
+router.put(
+	"/system-message/custom",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.systemMessageCustomUpdate,
+	validate,
+	systemMessageController.saveCustomSystemMessage,
+);
+
+router.post(
+	"/system-message/use-default",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.systemMessageDefaultUpdate,
+	validate,
+	systemMessageController.useDefaultSystemMessage,
+);
+
+router.post(
+	"/system-message/complete",
+	verifyCsrfToken,
+	authenticateToken,
+	systemMessageController.completeSystemMessageSetup,
 );
 
 // ============================================

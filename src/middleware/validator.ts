@@ -10,7 +10,10 @@ import {
 	ValidationChain,
 	validationResult,
 } from "express-validator";
-import { CHAT_SUPPORTED_LANGUAGE_CODES } from "../constants";
+import {
+	CHAT_SUPPORTED_LANGUAGE_CODES,
+	SYSTEM_MESSAGE_MAX_LENGTH,
+} from "../constants";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
@@ -136,8 +139,37 @@ export const validationRules: Record<
 
 	updateOnboarding: [
 		body("step")
-			.isInt({ min: 1, max: 3 })
-			.withMessage("step must be an integer between 1 and 3"),
+			.isInt({ min: 1, max: 4 })
+			.withMessage("step must be an integer between 1 and 4"),
+	],
+
+	systemMessageCustomUpdate: [
+		body("systemMessage")
+			.isString()
+			.withMessage("systemMessage must be a string")
+			.trim()
+			.isLength({
+				min: 1,
+				max: SYSTEM_MESSAGE_MAX_LENGTH,
+			})
+			.withMessage(
+				`systemMessage must be between 1 and ${SYSTEM_MESSAGE_MAX_LENGTH} characters`,
+			),
+		body("completeOnboarding")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"completeOnboarding must be boolean",
+			),
+	],
+
+	systemMessageDefaultUpdate: [
+		body("completeOnboarding")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"completeOnboarding must be boolean",
+			),
 	],
 
 	revokeSession: [

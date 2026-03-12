@@ -19,6 +19,7 @@ import logger from "../utils/logger";
 import tokenUtil from "../utils/token";
 import uuidUtil from "../utils/uuid";
 import emailService from "./emailService";
+import { getUserSystemMessageSelectFields } from "./userSystemMessageSchemaService";
 
 /**
  * Authentication Service
@@ -82,6 +83,11 @@ class AuthService {
 				user.profile_completed_at,
 			onboardingStep: user.onboarding_step,
 			onboardingCompleted: user.onboarding_completed,
+			useDefaultSystemMessage:
+				user.use_default_system_message ?? true,
+			systemMessageConfigured:
+				user.system_message_configured ??
+				user.onboarding_completed,
 		};
 	}
 
@@ -622,12 +628,15 @@ class AuthService {
 			const hashedAccessToken = tokenUtil.hashToken(accessToken);
 
 			// Check if session exists and is not revoked
+			const systemMessageFields =
+				await getUserSystemMessageSelectFields("u");
 			const sessionResult = await pool.query(
 				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified, u.plan_type,
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
 				        u.profile_prompt_required_at, u.profile_completed_at,
 				        u.onboarding_step, u.onboarding_completed
+				        ${systemMessageFields}
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1 AND s.user_id = $2 AND s.access_token = $3 AND s.is_revoked = FALSE`,
@@ -675,6 +684,10 @@ class AuthService {
 						session.onboarding_step,
 					onboardingCompleted:
 						session.onboarding_completed,
+					useDefaultSystemMessage:
+						session.use_default_system_message,
+					systemMessageConfigured:
+						session.system_message_configured,
 				},
 			};
 		} catch (error) {
@@ -733,6 +746,8 @@ class AuthService {
 				verification.payload;
 			const hashedRefreshToken =
 				tokenUtil.hashToken(refreshToken);
+			const systemMessageFields =
+				await getUserSystemMessageSelectFields("u");
 
 			// Verify session and refresh token
 			const sessionResult = await client.query<{
@@ -755,12 +770,15 @@ class AuthService {
 				profile_completed_at: Date | null;
 				onboarding_step: number;
 				onboarding_completed: boolean;
+				use_default_system_message: boolean;
+				system_message_configured: boolean;
 			}>(
 				`SELECT s.id, s.user_id, u.email, u.is_verified, u.plan_type, s.refresh_token_expires_at,
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
 				        u.profile_prompt_required_at, u.profile_completed_at,
 				        u.onboarding_step, u.onboarding_completed
+				        ${systemMessageFields}
          FROM sessions s
          JOIN users u ON s.user_id = u.id
          WHERE s.id = $1
@@ -866,6 +884,10 @@ class AuthService {
 						session.onboarding_step,
 					onboardingCompleted:
 						session.onboarding_completed,
+					useDefaultSystemMessage:
+						session.use_default_system_message,
+					systemMessageConfigured:
+						session.system_message_configured,
 				},
 			};
 		} catch (error) {
@@ -1066,13 +1088,13 @@ class AuthService {
 
 	/**
 	 * Record the completion of an onboarding step for a user.
-	 * Step 3 automatically marks onboarding as fully completed.
+	 * Step 4 automatically marks onboarding as fully completed.
 	 */
 	async updateOnboardingStep(
 		userId: string,
 		step: number,
 	): Promise<UserResponse> {
-		const completed = step >= 3;
+		const completed = step >= 4;
 		const result = await pool.query<User>(
 			`UPDATE users
        SET onboarding_step         = GREATEST(onboarding_step, $2),

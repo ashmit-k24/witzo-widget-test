@@ -30,6 +30,9 @@ export interface User {
 	onboarding_step: number;
 	onboarding_completed: boolean;
 	onboarding_completed_at: Date | null;
+	custom_system_message: string | null;
+	use_default_system_message: boolean;
+	system_message_configured: boolean;
 }
 
 export interface UserResponse {
@@ -52,6 +55,8 @@ export interface UserResponse {
 	profileCompletedAt?: Date | null;
 	onboardingStep?: number;
 	onboardingCompleted?: boolean;
+	useDefaultSystemMessage?: boolean;
+	systemMessageConfigured?: boolean;
 }
 
 export interface UpdateProfileBody {
