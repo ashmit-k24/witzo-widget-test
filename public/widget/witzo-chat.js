@@ -227,7 +227,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-					"string" &&
+				"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -677,8 +677,8 @@
             bottom: 6em;
             right: 2em;
             z-index: 2147483647;
-            width: 27rem;
-            height: 554px;
+            width: 25.5rem;
+    		height: 584px;
             max-width: 90vw;
             max-height: 80vh;
             min-height: 460px;
@@ -908,7 +908,7 @@
             gap:20px;
             border-radius: 10px 10px 0 0;
             position: relative;
-            z-index: 1;
+            z-index: 20;
           }
           .chat-header-left {
             display: flex;
@@ -939,13 +939,20 @@
             font-size: 11px;
             line-height: 1;
           }
+
+		  .intro-mode .header-online-dot {
+			display: none !important;
+		  }
           .header-online-dot {
-            width: 7px;
-            height: 7px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
             background: #10b981;
             box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
             animation: onlineDotGlow 1.8s ease-out infinite;
+			position: absolute;
+    		right: 4px;
+    		top: 4px;
           }
           @keyframes onlineDotGlow {
             0% {
@@ -962,11 +969,11 @@
             width: 40px;
             height: 40px;
             border-radius: 50%;
-            overflow: hidden;
             flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
+			position: relative;
           }
           .bot-msg-chat-icon {
             width: 32px;
@@ -998,6 +1005,12 @@
             position: relative;
 			gap:2px
           }
+
+		  .chat-action-row{
+		  	display: flex;
+            align-items: center;
+            position: relative;
+		  }
           .chat-action-btn {
             border: none;
             background: transparent;
@@ -1559,12 +1572,12 @@
     		color: #9f9f9f;
     		font-weight: 300;
     		letter-spacing: 0.01em;
-    		margin-bottom: 10px;
+    		margin-bottom: 13px;
           }
           .powered-by-brand {
-            color: #A0A0A0;
+            color: #454545;
             text-decoration: none;
-            font-weight: 500;
+            font-weight: 600;
           }
 		  .help-link-content {
 			display: flex;
@@ -2110,46 +2123,47 @@
             <div id="chat-header" class="chat-header">
                 
                 <div class="chat-header-left" data-intro-anim="fade" style="--fade-order:0">
-                    <button id="backToIntroBtn" class="chat-action-btn back-btn hidden icon-stroke" aria-label="Back to intro">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left h-5 w-5" aria-hidden="true"><path d="m15 18-6-6 6-6"></path>
-						</svg>
-                    </button>
+                   <div class="chat-action-row">
+ 						<button id="backToIntroBtn" class="chat-action-btn back-btn hidden icon-stroke" aria-label="Back to intro">
+                        	<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left h-5 w-5" aria-hidden="true"><path d="m15 18-6-6 6-6"></path>
+							</svg>
+                    	</button>
+						<button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
+                        	<!-- Expand Icon -->
+                       		 <svg class="expand-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            	<path d="M15 3h6v6"></path>
+                            	<path d="m21 3-7 7"></path>
+                            	<path d="m3 21 7-7"></path>
+                            	<path d="M9 21H3v-6"></path>
+                        	</svg>
+                        	<!-- Collapse Icon -->
+                        	<svg class="collapse-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                            	<path d="m14 10 7-7"></path>
+                            	<path d="M20 10h-6V4"></path>
+                            	<path d="m3 21 7-7"></path>
+                            	<path d="M4 14h6v6"></path>
+                        	</svg>
+                   		 </button>
+				   </div>
+
+
                     <div class="chat-header-identity">
                       <div class="chat-icon">
-                          ${
-														this.getDisplayIconUrl()
-															? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-															: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-													}
+                    ${this.getDisplayIconUrl() ? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
+
+					  <span class="header-online-dot"></span>
                       </div>
                       <div class="online-ready">
                         <div class="online-ready-text">
                         <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || "#fff"}">${this.config.bannerText}</h3>
-                        <div class="header-online-status">
-                          <span class="header-online-dot"></span>
-                          <span>Online</span>
-                        </div>
                         </div>
                       </div>
                     </div>
                 </div>
                 <div class="chat-header-right">
-                    <button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
-                        <!-- Expand Icon -->
-                        <svg class="expand-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M15 3h6v6"></path>
-                            <path d="m21 3-7 7"></path>
-                            <path d="m3 21 7-7"></path>
-                            <path d="M9 21H3v-6"></path>
-                        </svg>
-                        <!-- Collapse Icon -->
-                        <svg class="collapse-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
-                            <path d="m14 10 7-7"></path>
-                            <path d="M20 10h-6V4"></path>
-                            <path d="m3 21 7-7"></path>
-                            <path d="M4 14h6v6"></path>
-                        </svg>
-                    </button>
+                    
                     <button id="headerMenuBtn" class="chat-action-btn icon-stroke" aria-label="Header options">
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis h-5 w-5" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
                     </button>
@@ -2287,15 +2301,15 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-													.map(
-														(language) => `
+					.map(
+						(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-													)
-													.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
@@ -3251,7 +3265,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) {}
+					} catch (e) { }
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -3357,11 +3371,10 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${
-													this.getDisplayIconUrl()
-														? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
-														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-												}
+                        ${this.getDisplayIconUrl()
+					? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
                     </div>`;
 		}
 
@@ -3537,7 +3550,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) {}
+						} catch (_) { }
 					}
 				}
 			}
@@ -3549,7 +3562,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) {}
+					} catch (_) { }
 				}
 			}
 
@@ -3760,7 +3773,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+					"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3828,7 +3841,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+					"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3839,12 +3852,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-									null
+								null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-									null
+								null
 								: null,
 						}),
 					},
