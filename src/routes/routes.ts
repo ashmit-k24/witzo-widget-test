@@ -344,7 +344,7 @@ router.delete(
 	"/scraper/delete",
 	verifyCsrfToken,
 	authenticateToken,
-	validationRules.deleteByUrl,
+	validationRules.deleteSourceByUrl,
 	validate,
 	scraperController.deleteDocuments,
 );

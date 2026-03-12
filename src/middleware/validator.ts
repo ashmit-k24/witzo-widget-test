@@ -212,6 +212,31 @@ export const validationRules: Record<
 			.withMessage("url must be a valid http/https URL"),
 	],
 
+	deleteSourceByUrl: [
+		body("url")
+			.isString()
+			.withMessage("url is required")
+			.isLength({ min: 10, max: 2048 })
+			.withMessage("url length is invalid")
+			.custom((value) => {
+				if (typeof value !== "string") {
+					return false;
+				}
+
+				if (value.startsWith("document://")) {
+					return true;
+				}
+
+				try {
+					const parsedUrl = new URL(value);
+					return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:";
+				} catch {
+					return false;
+				}
+			})
+			.withMessage("url must be a valid http/https URL or document source"),
+	],
+
 	queryDocuments: [
 		body("query")
 			.isString()
