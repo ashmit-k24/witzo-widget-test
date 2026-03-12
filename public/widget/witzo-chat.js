@@ -44,6 +44,7 @@
 			this._wasEndIntent = false;
 			this._idleTimer = null;
 			this._pendingHopeBanner = false;
+			this._ratingToastTimer = null;
 			this.selectedLanguage = "en";
 			this.isExpanded = false;
 			this.date = new Date();
@@ -1988,6 +1989,36 @@
             .rating-btn:hover { background: #f1f5f9; }
             .rating-btn.active { background: #dbeafe; border-color: #93c5fd; }
             .rating-label { font-size: 0.7rem; color: #94a3b8; }
+            .rating-feedback-toast {
+              margin: 0.75rem auto 0;
+              max-width: calc(100% - 1.5rem);
+              padding: 0.75rem 0.95rem;
+              border-radius: 0.9rem;
+              font-size: 0.8rem;
+              font-weight: 500;
+              line-height: 1.45;
+              color: #f8fafc;
+              background: linear-gradient(135deg, rgba(24, 24, 27, 0.96) 0%, rgba(47, 47, 55, 0.92) 100%);
+              border: 1px solid rgba(255, 255, 255, 0.09);
+              box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+              text-align: center;
+              animation: ratingFeedbackIn 0.2s ease-out;
+            }
+            .rating-feedback-toast--up {
+              border-color: rgba(34, 197, 94, 0.28);
+            }
+            .rating-feedback-toast--down {
+              border-color: rgba(251, 191, 36, 0.3);
+            }
+            .rating-feedback-toast.is-hiding {
+              opacity: 0;
+              transform: translateY(6px);
+              transition: opacity 0.2s ease, transform 0.2s ease;
+            }
+            @keyframes ratingFeedbackIn {
+              from { opacity: 0; transform: translateY(8px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
 
             /* Hope Banner */
             @keyframes hopeBannerSlideIn {
@@ -2643,20 +2674,6 @@
 							"active",
 						);
 						this.submitRating("up");
-						setTimeout(() => {
-							this.elements.hopeBanner.classList.add(
-								"hidden",
-							);
-							const firstMessage =
-								this.elements.messagesContainer?.querySelector(
-									".chat-message.mt-space",
-								);
-							if (firstMessage) {
-								firstMessage.classList.remove(
-									"mt-space",
-								);
-							}
-						}, 2000);
 					},
 				);
 			}
@@ -2671,20 +2688,6 @@
 							"active",
 						);
 						this.submitRating("down");
-						setTimeout(() => {
-							this.elements.hopeBanner.classList.add(
-								"hidden",
-							);
-							const firstMessage =
-								this.elements.messagesContainer?.querySelector(
-									".chat-message.mt-space",
-								);
-							if (firstMessage) {
-								firstMessage.classList.remove(
-									"mt-space",
-								);
-							}
-						}, 2000);
 					},
 				);
 			}
@@ -3731,6 +3734,7 @@
 		}
 
 		_scheduleHopeBanner() {
+			if (this.ratingSubmitted) return;
 			this._clearHopeBannerTimer();
 			this._idleTimer = setTimeout(() => {
 				if (this.isOpen) {
@@ -3748,6 +3752,7 @@
 		}
 
 		_showHopeBanner() {
+			if (this.ratingSubmitted) return;
 			if (
 				this.userMessageCount <= 0 ||
 				this.botMessageCount <= 0
@@ -3770,6 +3775,9 @@
 		}
 
 		async submitRating(rating) {
+			this.setRatingSubmittedState(true);
+			this._hideHopeBanner();
+			this.showRatingAcknowledgement(rating);
 			try {
 				await fetch(
 					this.apiBaseUrl +
@@ -3786,7 +3794,6 @@
 						}),
 					},
 				);
-				this.setRatingSubmittedState(true);
 				if (
 					this.elements.conversationRatingSlot
 				) {
@@ -3799,6 +3806,36 @@
 			} catch (e) {
 				// Non-fatal — silently ignore
 			}
+		}
+
+		showRatingAcknowledgement(rating) {
+			if (!this.elements.messagesContainer) return;
+
+			clearTimeout(this._ratingToastTimer);
+			const existingToast = this.shadowRoot.querySelector(
+				".rating-feedback-toast",
+			);
+			if (existingToast) {
+				existingToast.remove();
+			}
+
+			const toast = document.createElement("div");
+			toast.className = `rating-feedback-toast rating-feedback-toast--${rating === "down" ? "down" : "up"}`;
+			toast.textContent =
+				rating === "down"
+					? "Thanks for your feedback. We'll use it to make the experience better."
+					: "Thanks for your feedback. Glad that helped.";
+
+			this.elements.messagesContainer.appendChild(
+				toast,
+			);
+			this.elements.messagesContainer.scrollTop =
+				this.elements.messagesContainer.scrollHeight;
+
+			this._ratingToastTimer = setTimeout(() => {
+				toast.classList.add("is-hiding");
+				setTimeout(() => toast.remove(), 220);
+			}, 2400);
 		}
 
 		showContactForm() {
