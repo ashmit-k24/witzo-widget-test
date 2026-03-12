@@ -10,7 +10,10 @@ import {
 	ValidationChain,
 	validationResult,
 } from "express-validator";
-import { CHAT_SUPPORTED_LANGUAGE_CODES } from "../constants";
+import {
+	CHAT_SUPPORTED_LANGUAGE_CODES,
+	SYSTEM_MESSAGE_MAX_LENGTH,
+} from "../constants";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
@@ -136,8 +139,37 @@ export const validationRules: Record<
 
 	updateOnboarding: [
 		body("step")
-			.isInt({ min: 1, max: 3 })
-			.withMessage("step must be an integer between 1 and 3"),
+			.isInt({ min: 1, max: 4 })
+			.withMessage("step must be an integer between 1 and 4"),
+	],
+
+	systemMessageCustomUpdate: [
+		body("systemMessage")
+			.isString()
+			.withMessage("systemMessage must be a string")
+			.trim()
+			.isLength({
+				min: 1,
+				max: SYSTEM_MESSAGE_MAX_LENGTH,
+			})
+			.withMessage(
+				`systemMessage must be between 1 and ${SYSTEM_MESSAGE_MAX_LENGTH} characters`,
+			),
+		body("completeOnboarding")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"completeOnboarding must be boolean",
+			),
+	],
+
+	systemMessageDefaultUpdate: [
+		body("completeOnboarding")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"completeOnboarding must be boolean",
+			),
 	],
 
 	revokeSession: [
@@ -178,6 +210,31 @@ export const validationRules: Record<
 				require_protocol: true,
 			})
 			.withMessage("url must be a valid http/https URL"),
+	],
+
+	deleteSourceByUrl: [
+		body("url")
+			.isString()
+			.withMessage("url is required")
+			.isLength({ min: 10, max: 2048 })
+			.withMessage("url length is invalid")
+			.custom((value) => {
+				if (typeof value !== "string") {
+					return false;
+				}
+
+				if (value.startsWith("document://")) {
+					return true;
+				}
+
+				try {
+					const parsedUrl = new URL(value);
+					return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:";
+				} catch {
+					return false;
+				}
+			})
+			.withMessage("url must be a valid http/https URL or document source"),
 	],
 
 	queryDocuments: [
@@ -480,10 +537,111 @@ export const validationRules: Record<
 			.withMessage(
 				"razorpayYearlyPlanId must be <= 255 characters",
 			),
+		body("websitePagesLimit")
+			.optional({ nullable: true })
+			.custom((value) => {
+				if (
+					value === null ||
+					value === undefined ||
+					value === ""
+				) {
+					return true;
+				}
+
+				const normalized =
+					typeof value === "number"
+						? value
+						: Number(value);
+				if (
+					!Number.isInteger(normalized) ||
+					normalized < 1
+				) {
+					throw new Error(
+						"websitePagesLimit must be a positive integer or empty for unlimited",
+					);
+				}
+
+				return true;
+			}),
 		body("isActive")
 			.optional()
 			.isBoolean()
 			.withMessage("isActive must be boolean"),
+	],
+
+	adminUserIdParam: [
+		param("id")
+			.isUUID()
+			.withMessage("id must be a valid UUID"),
+	],
+
+	adminUserCreate: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid admin email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+		body("password")
+			.isString()
+			.withMessage("password is required")
+			.isLength({ min: 8, max: 256 })
+			.withMessage("password must be 8-256 characters"),
+		body("role")
+			.isIn(["super_admin", "ops_admin", "support_admin"])
+			.withMessage("role must be a supported admin role"),
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("permissionKeys")
+			.optional({ nullable: true })
+			.isArray()
+			.withMessage("permissionKeys must be an array"),
+		body("permissionKeys.*")
+			.optional()
+			.isString()
+			.withMessage("permissionKeys entries must be strings"),
+	],
+
+	adminUserUpdate: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid admin email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+		body("password")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("password must be a string")
+			.isLength({ min: 8, max: 256 })
+			.withMessage("password must be 8-256 characters"),
+		body("role")
+			.isIn(["super_admin", "ops_admin", "support_admin"])
+			.withMessage("role must be a supported admin role"),
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("permissionKeys")
+			.optional({ nullable: true })
+			.isArray()
+			.withMessage("permissionKeys must be an array"),
+		body("permissionKeys.*")
+			.optional()
+			.isString()
+			.withMessage("permissionKeys entries must be strings"),
+	],
+
+	adminDisallowedDomainsUpdate: [
+		body("domains")
+			.isArray({ max: 500 })
+			.withMessage("domains must be an array"),
+		body("domains.*")
+			.isString()
+			.isLength({ min: 1, max: 255 })
+			.withMessage("each domain must be 1-255 characters"),
 	],
 
 	publicWebhook: [

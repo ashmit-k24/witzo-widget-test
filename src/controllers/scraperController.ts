@@ -2,9 +2,10 @@ import { Request, Response } from "express";
 import {
 	coercePlanType,
 } from "../config/planConfig";
+import { scraperQueue } from "../config/queue";
 import { pineconeService } from "../services/pineconeService";
-import { scraperService } from "../services/scraperService";
 import { scraperStatusService } from "../services/scraperStatusService";
+import { domainPolicyService } from "../services/domainPolicyService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
@@ -71,6 +72,16 @@ export const scrapeWebsite = async (
 			res.status(400).json({
 				success: false,
 				message: "URL is required",
+			});
+			return;
+		}
+
+		const policyCheck =
+			await domainPolicyService.isDomainDisallowed(url);
+		if (policyCheck.blocked) {
+			res.status(403).json({
+				success: false,
+				message: `${policyCheck.matchedDomain} is not allowed for scraping.`,
 			});
 			return;
 		}
@@ -156,50 +167,21 @@ export const scrapeWebsite = async (
 				});
 			jobId = job.jobId;
 
-			// Scrape synchronously while exposing progress through status endpoints.
-			const result =
-				await scraperService.scrapeWebsite(
-					userId,
-					url,
-					{
-						maxDepth:
-							normalizedMaxDepth,
-						maxPages:
-							effectiveMaxPages,
-						onProgress: async (
-							progress,
-						) => {
-							await scraperStatusService.updateProgress(
-								job.jobId,
-								progress,
-							);
-						},
-					},
-				);
-			const finalProgress = {
-				totalPages: result.visitedPages,
-				scrapedPages: result.visitedPages,
-				storedPages: result.storedPages,
-				currentUrl: url,
-			};
-			const finalJob = result.success
-				? await scraperStatusService.completeJob(
-						job.jobId,
-						finalProgress,
-				  )
-				: await scraperStatusService.failJob(
-						job.jobId,
-						result.message,
-						finalProgress,
-				  );
-		res.status(result.success ? 200 : 500).json({
-			success: result.success,
-			message: result.message,
+			await scraperQueue.add("scrape-website", {
+				jobId: job.jobId,
+				userId,
+				url,
+				maxDepth: normalizedMaxDepth,
+				maxPages: effectiveMaxPages,
+				mode: "scrape",
+			});
+
+		res.status(202).json({
+			success: true,
+			message:
+				"Website training started. Progress is available through the scrape status endpoint.",
 			data: {
-				job: finalJob ?? job,
-				pagesScraped: result.pagesScraped,
-				visitedPages: result.visitedPages,
-				storedPages: result.storedPages,
+				job,
 			},
 		});
 	} catch (error) {
@@ -308,6 +290,16 @@ export const deleteDocuments = async (
 			res.status(400).json({
 				success: false,
 				message: "URL is required",
+			});
+			return;
+		}
+
+		const policyCheck =
+			await domainPolicyService.isDomainDisallowed(url);
+		if (policyCheck.blocked) {
+			res.status(403).json({
+				success: false,
+				message: `${policyCheck.matchedDomain} is not allowed for scraping.`,
 			});
 			return;
 		}
@@ -823,51 +815,21 @@ export const retrainWebsite = async (
 				});
 			jobId = job.jobId;
 
-			// Re-scrape the website
-			const result =
-				await scraperService.scrapeWebsite(
-					userId,
-					url,
-					{
-						maxDepth:
-							normalizedMaxDepth,
-						maxPages:
-							effectiveMaxPages,
-						onProgress: async (
-							progress,
-						) => {
-							await scraperStatusService.updateProgress(
-								job.jobId,
-								progress,
-							);
-						},
-					},
-				);
-			const finalProgress = {
-				totalPages: result.visitedPages,
-				scrapedPages: result.visitedPages,
-				storedPages: result.storedPages,
-				currentUrl: url,
-			};
-			const finalJob = result.success
-				? await scraperStatusService.completeJob(
-						job.jobId,
-						finalProgress,
-				  )
-				: await scraperStatusService.failJob(
-						job.jobId,
-						result.message,
-						finalProgress,
-				  );
+			await scraperQueue.add("retrain-website", {
+				jobId: job.jobId,
+				userId,
+				url,
+				maxDepth: normalizedMaxDepth,
+				maxPages: effectiveMaxPages,
+				mode: "retrain",
+			});
 
-		res.status(result.success ? 200 : 500).json({
-			success: result.success,
-			message: `Website retrained successfully: ${result.message}`,
+		res.status(202).json({
+			success: true,
+			message:
+				"Website retraining started. Progress is available through the scrape status endpoint.",
 			data: {
-				job: finalJob ?? job,
-				pagesScraped: result.pagesScraped,
-				visitedPages: result.visitedPages,
-				storedPages: result.storedPages,
+				job,
 			},
 		});
 	} catch (error) {

@@ -310,6 +310,14 @@ export const config: EnvConfig = {
 		"RAZORPAY_WEBHOOK_SECRET",
 		"",
 	),
+	LLM_PROMPT_COST_PER_1K_USD: getEnvNumber(
+		"LLM_PROMPT_COST_PER_1K_USD",
+		0,
+	),
+	LLM_COMPLETION_COST_PER_1K_USD: getEnvNumber(
+		"LLM_COMPLETION_COST_PER_1K_USD",
+		0,
+	),
 
 	// Redis
 	REDIS_HOST: getEnvStringFromKeys(

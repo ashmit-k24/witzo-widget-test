@@ -85,6 +85,7 @@ export interface BillingPlan {
 	razorpayMonthlyPlanId: string | null;
 	razorpayYearlyPlanId: string | null;
 	features: unknown;
+	websitePagesLimit: number | null;
 	isActive: boolean;
 	createdAt: string;
 	updatedAt: string;
@@ -164,6 +165,7 @@ export interface UpsertPlanInput {
 	razorpayMonthlyPlanId?: string | null;
 	razorpayYearlyPlanId?: string | null;
 	features?: unknown;
+	websitePagesLimit?: number | null;
 	isActive?: boolean;
 }
 
@@ -327,6 +329,11 @@ class SubscriptionService {
 	}
 
 	private mapPlan(row: PlanRow): BillingPlan {
+		const websitePagesLimit =
+			this.resolveWebsitePagesLimitFromFeatures(
+				row.features,
+			);
+
 		return {
 			id: row.id,
 			name: row.name,
@@ -338,6 +345,7 @@ class SubscriptionService {
 			razorpayYearlyPlanId:
 				row.razorpay_yearly_plan_id,
 			features: row.features,
+			websitePagesLimit,
 			isActive: row.is_active,
 			createdAt: row.created_at.toISOString(),
 			updatedAt: row.updated_at.toISOString(),
@@ -347,6 +355,11 @@ class SubscriptionService {
 	private mapPlanFromSubscription(
 		row: SubscriptionWithPlanRow,
 	): BillingPlan {
+		const websitePagesLimit =
+			this.resolveWebsitePagesLimitFromFeatures(
+				row.features,
+			);
+
 		return {
 			id: row.plan_id,
 			name: row.plan_name,
@@ -358,6 +371,7 @@ class SubscriptionService {
 			razorpayYearlyPlanId:
 				row.razorpay_yearly_plan_id,
 			features: row.features,
+			websitePagesLimit,
 			isActive: row.is_active,
 			createdAt: row.created_at.toISOString(),
 			updatedAt: row.updated_at.toISOString(),
@@ -407,6 +421,27 @@ class SubscriptionService {
 		);
 	}
 
+	private normalizeWebsitePagesLimit(
+		value: unknown,
+	): number | null {
+		if (value === null || value === undefined || value === "") {
+			return null;
+		}
+
+		const normalized =
+			typeof value === "number"
+				? value
+				: Number(value);
+
+		if (!Number.isFinite(normalized) || normalized < 1) {
+			throw new Error(
+				"websitePagesLimit must be a positive integer or null.",
+			);
+		}
+
+		return Math.trunc(normalized);
+	}
+
 	private normalizeFeatures(features: unknown): unknown {
 		if (features === undefined) {
 			return [];
@@ -421,6 +456,40 @@ class SubscriptionService {
 		throw new Error(
 			"features must be a JSON array or object",
 		);
+	}
+
+	private resolveWebsitePagesLimitFromFeatures(
+		features: unknown,
+	): number | null {
+		if (!features || typeof features !== "object" || Array.isArray(features)) {
+			return null;
+		}
+
+		const candidate = (features as Record<string, unknown>).websitePagesLimit;
+		return this.normalizeWebsitePagesLimit(candidate);
+	}
+
+	private mergePlanFeatures(
+		features: unknown,
+		websitePagesLimit: number | null | undefined,
+	): unknown {
+		const normalizedFeatures = this.normalizeFeatures(features);
+		const resolvedWebsitePagesLimit =
+			websitePagesLimit === undefined
+				? this.resolveWebsitePagesLimitFromFeatures(normalizedFeatures)
+				: this.normalizeWebsitePagesLimit(websitePagesLimit);
+
+		if (Array.isArray(normalizedFeatures)) {
+			return {
+				items: normalizedFeatures,
+				websitePagesLimit: resolvedWebsitePagesLimit,
+			};
+		}
+
+		return {
+			...this.toObject(normalizedFeatures),
+			websitePagesLimit: resolvedWebsitePagesLimit,
+		};
 	}
 
 	private toObject(
@@ -742,7 +811,10 @@ class SubscriptionService {
 			input.name,
 		);
 		const normalizedFeatures =
-			this.normalizeFeatures(input.features);
+			this.mergePlanFeatures(
+				input.features,
+				input.websitePagesLimit,
+			);
 		const result = await pool.query<PlanRow>(
 			`INSERT INTO plans (
          name,
@@ -778,7 +850,10 @@ class SubscriptionService {
 			input.name,
 		);
 		const normalizedFeatures =
-			this.normalizeFeatures(input.features);
+			this.mergePlanFeatures(
+				input.features,
+				input.websitePagesLimit,
+			);
 		const result = await pool.query<PlanRow>(
 			`UPDATE plans
        SET
@@ -809,6 +884,36 @@ class SubscriptionService {
 			throw new Error("Plan not found.");
 		}
 		return this.mapPlan(result.rows[0]);
+	}
+
+	async getWebsitePagesLimitForPlan(
+		planType: PlanType,
+		defaultLimit: number | null,
+	): Promise<number | null> {
+		try {
+			const plan = await this.findPlanByNameOrId({
+				planName: planType,
+				includeInactive: true,
+			});
+			return (
+				this.resolveWebsitePagesLimitFromFeatures(
+					plan.features,
+				) ?? defaultLimit
+			);
+		} catch (error) {
+			logger.warn(
+				"Falling back to default website page limit for plan",
+				{
+					planType,
+					defaultLimit,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+			return defaultLimit;
+		}
 	}
 
 	async getCurrentSubscription(

@@ -14,9 +14,48 @@ const SUPPORTED_ADMIN_ROLES = [
 	"ops_admin",
 	"support_admin",
 ] as const;
+export const ADMIN_PERMISSION_DEFINITIONS = [
+	{ key: "dashboard.view", label: "Dashboard Overview", category: "overview" },
+	{ key: "insights.view", label: "Insights Pages", category: "overview" },
+	{ key: "users.view", label: "View Users", category: "users" },
+	{ key: "actions.reset_usage", label: "Reset User Usage", category: "users" },
+	{ key: "actions.force_logout", label: "Force User Logout", category: "users" },
+	{ key: "actions.set_plan", label: "Change User Plan", category: "users" },
+	{ key: "plans.view", label: "View Plans", category: "billing" },
+	{ key: "plans.manage", label: "Manage Plans", category: "billing" },
+	{ key: "settings.view", label: "View Settings", category: "settings" },
+	{ key: "settings.manage", label: "Manage Settings", category: "settings" },
+	{ key: "admins.view", label: "View Admin Accounts", category: "admins" },
+	{ key: "admins.manage", label: "Manage Admin Accounts", category: "admins" },
+] as const;
+const ADMIN_PERMISSION_KEYS = ADMIN_PERMISSION_DEFINITIONS.map(
+	(permission) => permission.key,
+);
+const DEFAULT_ROLE_PERMISSIONS: Record<AdminRole, readonly string[]> = {
+	super_admin: ADMIN_PERMISSION_KEYS,
+	ops_admin: [
+		"dashboard.view",
+		"insights.view",
+		"users.view",
+		"actions.reset_usage",
+		"actions.force_logout",
+		"plans.view",
+		"settings.view",
+	],
+	support_admin: [
+		"dashboard.view",
+		"users.view",
+		"actions.force_logout",
+		"settings.view",
+	],
+};
 
 export type AdminRole =
 	(typeof SUPPORTED_ADMIN_ROLES)[number];
+export type AdminPermissionKey =
+	(typeof ADMIN_PERMISSION_DEFINITIONS)[number]["key"];
+export type AdminPermissionDefinition =
+	(typeof ADMIN_PERMISSION_DEFINITIONS)[number];
 
 export interface AdminUser {
 	id: string;
@@ -24,6 +63,9 @@ export interface AdminUser {
 	role: AdminRole;
 	isActive: boolean;
 	lastLoginAt: string | null;
+	permissions: AdminPermissionKey[];
+	hasCustomPermissions: boolean;
+	createdBy: string | null;
 }
 
 type AdminUserRow = {
@@ -35,6 +77,8 @@ type AdminUserRow = {
 	failed_login_attempts: number;
 	locked_until: Date | null;
 	last_login_at: Date | null;
+	permissions: unknown;
+	created_by: string | null;
 };
 
 type LoginAuditContext = {
@@ -52,6 +96,14 @@ type AdminLoginResult =
 			status: 401 | 423 | 500;
 			message: string;
 	  };
+
+type AdminAccountInput = {
+	email: string;
+	password?: string;
+	role: AdminRole;
+	isActive: boolean;
+	permissionKeys?: AdminPermissionKey[] | null;
+};
 
 let schemaReadyCache:
 	| {
@@ -154,10 +206,53 @@ const isLegacyPlaintextPasswordMatch = (
 	return safeTimingEqual(password, storedHash);
 };
 
+const normalizePermissionKeys = (
+	rawPermissions: unknown,
+): AdminPermissionKey[] => {
+	if (!Array.isArray(rawPermissions)) {
+		return [];
+	}
+
+	return rawPermissions
+		.filter(
+			(permission): permission is AdminPermissionKey =>
+				typeof permission === "string" &&
+				(ADMIN_PERMISSION_KEYS as readonly string[]).includes(
+					permission,
+				),
+		)
+		.sort();
+};
+
+const getEffectivePermissionKeys = (
+	role: AdminRole,
+	customPermissions: unknown,
+): AdminPermissionKey[] => {
+	if (role === "super_admin") {
+		return [...ADMIN_PERMISSION_KEYS];
+	}
+
+	const normalizedCustomPermissions =
+		normalizePermissionKeys(customPermissions);
+	if (normalizedCustomPermissions.length > 0) {
+		return normalizedCustomPermissions;
+	}
+
+	return [
+		...(DEFAULT_ROLE_PERMISSIONS[role] as AdminPermissionKey[]),
+	];
+};
+
 const toAdminUser = (
 	admin: Pick<
 		AdminUserRow,
-		"id" | "email" | "role" | "is_active" | "last_login_at"
+		| "id"
+		| "email"
+		| "role"
+		| "is_active"
+		| "last_login_at"
+		| "permissions"
+		| "created_by"
 	>,
 ): AdminUser => ({
 	id: admin.id,
@@ -167,6 +262,14 @@ const toAdminUser = (
 	lastLoginAt: admin.last_login_at
 		? admin.last_login_at.toISOString()
 		: null,
+	permissions: getEffectivePermissionKeys(
+		admin.role,
+		admin.permissions,
+	),
+	hasCustomPermissions:
+		Array.isArray(admin.permissions) &&
+		admin.permissions.length > 0,
+	createdBy: admin.created_by ?? null,
 });
 
 const isAdminTableMissingError = (
@@ -379,7 +482,9 @@ const getAdminByIdentity = async (
 				is_active,
 				failed_login_attempts,
 				locked_until,
-				last_login_at
+				last_login_at,
+				permissions,
+				created_by
 			FROM admin_users
 			WHERE ${clauses.join(" OR ")}
 			ORDER BY id
@@ -470,7 +575,9 @@ const authenticateWithDatabase = async (
 				is_active,
 				failed_login_attempts,
 				locked_until,
-				last_login_at
+				last_login_at,
+				permissions,
+				created_by
 			FROM admin_users
 			WHERE LOWER(email) = $1
 			LIMIT 1
@@ -738,12 +845,188 @@ const resolveAuthenticatedAdmin = async (
 	}
 };
 
+const listAdminUsers = async (): Promise<AdminUser[]> => {
+	const result = await pool.query<AdminUserRow>(
+		`
+			SELECT
+				id,
+				email,
+				password_hash,
+				role,
+				is_active,
+				failed_login_attempts,
+				locked_until,
+				last_login_at,
+				permissions,
+				created_by
+			FROM admin_users
+			ORDER BY created_at ASC, email ASC
+		`,
+	);
+
+	return result.rows.map((row) => toAdminUser(row));
+};
+
+const createAdminUser = async (
+	input: AdminAccountInput & { createdBy: string },
+): Promise<AdminUser> => {
+	const normalizedEmail = normalizeEmail(input.email);
+	if (!input.password) {
+		throw new Error("Password is required");
+	}
+
+	const permissionKeys =
+		input.role === "super_admin"
+			? null
+			: normalizePermissionKeys(input.permissionKeys);
+
+	const result = await pool.query<AdminUserRow>(
+		`
+			INSERT INTO admin_users (
+				email,
+				password_hash,
+				role,
+				is_active,
+				password_changed_at,
+				permissions,
+				created_by
+			)
+			VALUES ($1, $2, $3, $4, NOW(), $5::jsonb, $6)
+			RETURNING
+				id,
+				email,
+				password_hash,
+				role,
+				is_active,
+				failed_login_attempts,
+				locked_until,
+				last_login_at,
+				permissions,
+				created_by
+		`,
+		[
+			normalizedEmail,
+			createPasswordHash(input.password),
+			input.role,
+			input.isActive,
+			permissionKeys ? JSON.stringify(permissionKeys) : null,
+			input.createdBy,
+		],
+	);
+
+	return toAdminUser(result.rows[0]);
+};
+
+const updateAdminUser = async (
+	adminId: string,
+	input: AdminAccountInput,
+): Promise<AdminUser | null> => {
+	const existingResult = await pool.query<AdminUserRow>(
+		`
+			SELECT
+				id,
+				email,
+				password_hash,
+				role,
+				is_active,
+				failed_login_attempts,
+				locked_until,
+				last_login_at,
+				permissions,
+				created_by
+			FROM admin_users
+			WHERE id = $1
+			LIMIT 1
+		`,
+		[adminId],
+	);
+	const existing = existingResult.rows[0];
+	if (!existing) {
+		return null;
+	}
+
+	const permissionKeys =
+		input.role === "super_admin"
+			? null
+			: normalizePermissionKeys(input.permissionKeys);
+	const result = await pool.query<AdminUserRow>(
+		`
+			UPDATE admin_users
+			SET
+				email = $2,
+				role = $3,
+				is_active = $4,
+				permissions = $5::jsonb,
+				password_hash = CASE
+					WHEN $6::text IS NULL OR LENGTH($6::text) = 0
+					THEN password_hash
+					ELSE $6::text
+				END,
+				password_changed_at = CASE
+					WHEN $6::text IS NULL OR LENGTH($6::text) = 0
+					THEN password_changed_at
+					ELSE NOW()
+				END,
+				updated_at = NOW()
+			WHERE id = $1
+			RETURNING
+				id,
+				email,
+				password_hash,
+				role,
+				is_active,
+				failed_login_attempts,
+				locked_until,
+				last_login_at,
+				permissions,
+				created_by
+		`,
+		[
+			adminId,
+			normalizeEmail(input.email),
+			input.role,
+			input.isActive,
+			permissionKeys ? JSON.stringify(permissionKeys) : null,
+			input.password ? createPasswordHash(input.password) : null,
+		],
+	);
+
+	return toAdminUser(result.rows[0]);
+};
+
+const deleteAdminUser = async (
+	adminId: string,
+): Promise<boolean> => {
+	const result = await pool.query(
+		"DELETE FROM admin_users WHERE id = $1",
+		[adminId],
+	);
+	return (result.rowCount ?? 0) > 0;
+};
+
+const hasAdminPermission = (
+	admin: AdminUser,
+	permission: AdminPermissionKey,
+): boolean => {
+	if (admin.role === "super_admin") {
+		return true;
+	}
+
+	return admin.permissions.includes(permission);
+};
+
 export const adminAuthService = {
 	SUPPORTED_ADMIN_ROLES,
+	ADMIN_PERMISSION_DEFINITIONS,
 	authenticateAdmin,
 	resolveAuthenticatedAdmin,
 	recordAuditEvent,
 	initializeAdminAuth,
+	listAdminUsers,
+	createAdminUser,
+	updateAdminUser,
+	deleteAdminUser,
+	hasAdminPermission,
 };
 
 export default adminAuthService;

@@ -30,6 +30,9 @@ export interface User {
 	onboarding_step: number;
 	onboarding_completed: boolean;
 	onboarding_completed_at: Date | null;
+	custom_system_message: string | null;
+	use_default_system_message: boolean;
+	system_message_configured: boolean;
 }
 
 export interface UserResponse {
@@ -52,6 +55,8 @@ export interface UserResponse {
 	profileCompletedAt?: Date | null;
 	onboardingStep?: number;
 	onboardingCompleted?: boolean;
+	useDefaultSystemMessage?: boolean;
+	systemMessageConfigured?: boolean;
 }
 
 export interface UpdateProfileBody {
@@ -214,6 +219,8 @@ export interface EnvConfig {
 	RAZORPAY_KEY_ID: string;
 	RAZORPAY_KEY_SECRET: string;
 	RAZORPAY_WEBHOOK_SECRET: string;
+	LLM_PROMPT_COST_PER_1K_USD: number;
+	LLM_COMPLETION_COST_PER_1K_USD: number;
 
 	// Redis
 	REDIS_HOST: string;

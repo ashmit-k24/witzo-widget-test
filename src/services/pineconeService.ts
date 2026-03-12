@@ -6,16 +6,17 @@ import crypto from "crypto";
 import OpenAI from "openai";
 import {
 	coercePlanType,
+	PLAN_CAPABILITIES,
 	PlanType,
 } from "../config/planConfig";
 import { config } from "../config/env";
+import pool from "../config/database";
 import { redisCache } from "../config/redis";
 import {
 	DocumentUsageStats,
 	DOCUMENT_LIMITS,
 	PineconeMetadata,
 	ScraperUsageStats,
-	SCRAPER_PAGE_LIMITS,
 } from "../types";
 import {
 	openAICircuitBreaker,
@@ -26,6 +27,7 @@ import {
 	retryOnRateLimit,
 	retryWithBackoff,
 } from "../utils/retry";
+import { subscriptionService } from "./subscriptionService";
 
 class PineconeService {
 	private pinecone: Pinecone;
@@ -284,6 +286,53 @@ class PineconeService {
 		return `${this.sanitizeId(userId)}_${sanitizedUrl}_chunk_${chunkIndex}`;
 	}
 
+	private async upsertRagSourcePage(
+		userId: string,
+		url: string,
+		title: string,
+		chunks: number,
+		metadata?: Record<string, any>,
+	): Promise<void> {
+		const sourceType = url.startsWith("document://")
+			? "document"
+			: "website";
+		const sourceRoot =
+			sourceType === "website"
+				? (metadata?.sourceRoot as string | undefined) ??
+				  url
+				: null;
+		const scrapedAtRaw =
+			(metadata?.scrapedAt as string | undefined) ??
+			(metadata?.uploadedAt as string | undefined);
+		const scrapedAt =
+			scrapedAtRaw && !Number.isNaN(Date.parse(scrapedAtRaw))
+				? new Date(scrapedAtRaw)
+				: new Date();
+
+		await pool.query(
+			`INSERT INTO rag_source_pages
+				(user_id, source_type, source_root, source_url, title, chunks, scraped_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+			 ON CONFLICT (user_id, source_url)
+			 DO UPDATE SET
+				source_type = EXCLUDED.source_type,
+				source_root = EXCLUDED.source_root,
+				title = EXCLUDED.title,
+				chunks = EXCLUDED.chunks,
+				scraped_at = EXCLUDED.scraped_at,
+				updated_at = CURRENT_TIMESTAMP`,
+			[
+				userId,
+				sourceType,
+				sourceRoot,
+				url,
+				title,
+				Math.max(0, Math.trunc(chunks)),
+				scrapedAt,
+			],
+		);
+	}
+
 	private async deleteVectorIds(
 		index: any,
 		ids: string[],
@@ -420,6 +469,13 @@ class PineconeService {
 					);
 				},
 			);
+			await this.upsertRagSourcePage(
+				userId,
+				url,
+				title,
+				chunks.length,
+				metadata,
+			);
 			logger.info(
 				`Upserted ${chunks.length} chunks for URL: ${url} (user: ${userId})`,
 			);
@@ -494,6 +550,11 @@ class PineconeService {
 				logger.info(
 					`Deleting document: ${logLabel} (user: ${userId})`,
 				);
+				await pool.query(
+					`DELETE FROM rag_source_pages
+					 WHERE user_id = $1 AND source_url = $2`,
+					[userId, url],
+				);
 			} else {
 				let baseUrl: string;
 				try {
@@ -512,6 +573,13 @@ class PineconeService {
 					);
 				logger.info(
 					`Deleting all documents from domain: ${logLabel} (user: ${userId})`,
+				);
+				await pool.query(
+					`DELETE FROM rag_source_pages
+					 WHERE user_id = $1
+					   AND source_type = 'website'
+					   AND (source_root = $2 OR source_url LIKE $3)`,
+					[userId, baseUrl, `${baseUrl}%`],
 				);
 			}
 
@@ -577,6 +645,12 @@ class PineconeService {
 				`Deleting exact page: ${exactUrl} (user: ${userId})`,
 			);
 
+			await pool.query(
+				`DELETE FROM rag_source_pages
+				 WHERE user_id = $1 AND source_url = $2`,
+				[userId, exactUrl],
+			);
+
 			const matchingIds: string[] = [];
 			await this.forEachUserRecord(
 				userId,
@@ -635,6 +709,10 @@ class PineconeService {
 				.namespace(namespace);
 
 			await index.deleteAll();
+			await pool.query(
+				`DELETE FROM rag_source_pages WHERE user_id = $1`,
+				[userId],
+			);
 
 			logger.info(
 				`Deleted all documents for user: ${userId}`,
@@ -1063,7 +1141,11 @@ class PineconeService {
 		const pagesUsed =
 			await this.getScrapedWebsiteCount(userId);
 		const pagesLimit =
-			SCRAPER_PAGE_LIMITS[resolvedPlan];
+			await subscriptionService.getWebsitePagesLimitForPlan(
+				resolvedPlan,
+				PLAN_CAPABILITIES[resolvedPlan]
+					.websitePagesLimit,
+			);
 		const pagesRemaining =
 			pagesLimit === null
 				? null

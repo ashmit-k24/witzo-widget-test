@@ -44,6 +44,7 @@
 			this._wasEndIntent = false;
 			this._idleTimer = null;
 			this._pendingHopeBanner = false;
+			this._ratingToastTimer = null;
 			this.selectedLanguage = "en";
 			this.isExpanded = false;
 			this.date = new Date();
@@ -227,7 +228,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-					"string" &&
+				"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -677,8 +678,8 @@
             bottom: 6em;
             right: 2em;
             z-index: 2147483647;
-            width: 27rem;
-            height: 554px;
+            width: 25.5rem;
+    		height: 584px;
             max-width: 90vw;
             max-height: 80vh;
             min-height: 460px;
@@ -908,7 +909,7 @@
             gap:20px;
             border-radius: 10px 10px 0 0;
             position: relative;
-            z-index: 1;
+            z-index: 20;
           }
           .chat-header-left {
             display: flex;
@@ -939,13 +940,20 @@
             font-size: 11px;
             line-height: 1;
           }
+
+		  .intro-mode .header-online-dot {
+			display: none !important;
+		  }
           .header-online-dot {
-            width: 7px;
-            height: 7px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
             background: #10b981;
             box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
             animation: onlineDotGlow 1.8s ease-out infinite;
+			position: absolute;
+    		right: 4px;
+    		top: 4px;
           }
           @keyframes onlineDotGlow {
             0% {
@@ -962,11 +970,11 @@
             width: 40px;
             height: 40px;
             border-radius: 50%;
-            overflow: hidden;
             flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
+			position: relative;
           }
           .bot-msg-chat-icon {
             width: 32px;
@@ -998,6 +1006,12 @@
             position: relative;
 			gap:2px
           }
+
+		  .chat-action-row{
+		  	display: flex;
+            align-items: center;
+            position: relative;
+		  }
           .chat-action-btn {
             border: none;
             background: transparent;
@@ -1279,7 +1293,7 @@
 
 
           .chat-text-input {
-            padding-right: 65px !important;
+            padding-right: 80px !important;
           }
           .chat-input-container{
             display: flex;
@@ -1559,12 +1573,12 @@
     		color: #9f9f9f;
     		font-weight: 300;
     		letter-spacing: 0.01em;
-    		margin-bottom: 10px;
+    		margin-bottom: 13px;
           }
           .powered-by-brand {
-            color: #A0A0A0;
+            color: #454545;
             text-decoration: none;
-            font-weight: 500;
+            font-weight: 600;
           }
 		  .help-link-content {
 			display: flex;
@@ -1975,6 +1989,36 @@
             .rating-btn:hover { background: #f1f5f9; }
             .rating-btn.active { background: #dbeafe; border-color: #93c5fd; }
             .rating-label { font-size: 0.7rem; color: #94a3b8; }
+            .rating-feedback-toast {
+              margin: 0.75rem auto 0;
+              max-width: calc(100% - 1.5rem);
+              padding: 0.75rem 0.95rem;
+              border-radius: 0.9rem;
+              font-size: 0.8rem;
+              font-weight: 500;
+              line-height: 1.45;
+              color: #f8fafc;
+              background: linear-gradient(135deg, rgba(24, 24, 27, 0.96) 0%, rgba(47, 47, 55, 0.92) 100%);
+              border: 1px solid rgba(255, 255, 255, 0.09);
+              box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+              text-align: center;
+              animation: ratingFeedbackIn 0.2s ease-out;
+            }
+            .rating-feedback-toast--up {
+              border-color: rgba(34, 197, 94, 0.28);
+            }
+            .rating-feedback-toast--down {
+              border-color: rgba(251, 191, 36, 0.3);
+            }
+            .rating-feedback-toast.is-hiding {
+              opacity: 0;
+              transform: translateY(6px);
+              transition: opacity 0.2s ease, transform 0.2s ease;
+            }
+            @keyframes ratingFeedbackIn {
+              from { opacity: 0; transform: translateY(8px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
 
             /* Hope Banner */
             @keyframes hopeBannerSlideIn {
@@ -2110,46 +2154,47 @@
             <div id="chat-header" class="chat-header">
                 
                 <div class="chat-header-left" data-intro-anim="fade" style="--fade-order:0">
-                    <button id="backToIntroBtn" class="chat-action-btn back-btn hidden icon-stroke" aria-label="Back to intro">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left h-5 w-5" aria-hidden="true"><path d="m15 18-6-6 6-6"></path>
-						</svg>
-                    </button>
+                   <div class="chat-action-row">
+ 						<button id="backToIntroBtn" class="chat-action-btn back-btn hidden icon-stroke" aria-label="Back to intro">
+                        	<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left h-5 w-5" aria-hidden="true"><path d="m15 18-6-6 6-6"></path>
+							</svg>
+                    	</button>
+						<button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
+                        	<!-- Expand Icon -->
+                       		 <svg class="expand-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            	<path d="M15 3h6v6"></path>
+                            	<path d="m21 3-7 7"></path>
+                            	<path d="m3 21 7-7"></path>
+                            	<path d="M9 21H3v-6"></path>
+                        	</svg>
+                        	<!-- Collapse Icon -->
+                        	<svg class="collapse-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                            	<path d="m14 10 7-7"></path>
+                            	<path d="M20 10h-6V4"></path>
+                            	<path d="m3 21 7-7"></path>
+                            	<path d="M4 14h6v6"></path>
+                        	</svg>
+                   		 </button>
+				   </div>
+
+
                     <div class="chat-header-identity">
                       <div class="chat-icon">
-                          ${
-														this.getDisplayIconUrl()
-															? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-															: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-													}
+                    ${this.getDisplayIconUrl() ? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
+
+					  <span class="header-online-dot"></span>
                       </div>
                       <div class="online-ready">
                         <div class="online-ready-text">
                         <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || "#fff"}">${this.config.bannerText}</h3>
-                        <div class="header-online-status">
-                          <span class="header-online-dot"></span>
-                          <span>Online</span>
-                        </div>
                         </div>
                       </div>
                     </div>
                 </div>
                 <div class="chat-header-right">
-                    <button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
-                        <!-- Expand Icon -->
-                        <svg class="expand-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M15 3h6v6"></path>
-                            <path d="m21 3-7 7"></path>
-                            <path d="m3 21 7-7"></path>
-                            <path d="M9 21H3v-6"></path>
-                        </svg>
-                        <!-- Collapse Icon -->
-                        <svg class="collapse-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
-                            <path d="m14 10 7-7"></path>
-                            <path d="M20 10h-6V4"></path>
-                            <path d="m3 21 7-7"></path>
-                            <path d="M4 14h6v6"></path>
-                        </svg>
-                    </button>
+                    
                     <button id="headerMenuBtn" class="chat-action-btn icon-stroke" aria-label="Header options">
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis h-5 w-5" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
                     </button>
@@ -2287,15 +2332,15 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-													.map(
-														(language) => `
+					.map(
+						(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-													)
-													.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
@@ -2629,20 +2674,6 @@
 							"active",
 						);
 						this.submitRating("up");
-						setTimeout(() => {
-							this.elements.hopeBanner.classList.add(
-								"hidden",
-							);
-							const firstMessage =
-								this.elements.messagesContainer?.querySelector(
-									".chat-message.mt-space",
-								);
-							if (firstMessage) {
-								firstMessage.classList.remove(
-									"mt-space",
-								);
-							}
-						}, 2000);
 					},
 				);
 			}
@@ -2657,20 +2688,6 @@
 							"active",
 						);
 						this.submitRating("down");
-						setTimeout(() => {
-							this.elements.hopeBanner.classList.add(
-								"hidden",
-							);
-							const firstMessage =
-								this.elements.messagesContainer?.querySelector(
-									".chat-message.mt-space",
-								);
-							if (firstMessage) {
-								firstMessage.classList.remove(
-									"mt-space",
-								);
-							}
-						}, 2000);
 					},
 				);
 			}
@@ -3251,7 +3268,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) {}
+					} catch (e) { }
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -3357,11 +3374,10 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${
-													this.getDisplayIconUrl()
-														? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
-														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-												}
+                        ${this.getDisplayIconUrl()
+					? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
                     </div>`;
 		}
 
@@ -3537,7 +3553,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) {}
+						} catch (_) { }
 					}
 				}
 			}
@@ -3549,7 +3565,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) {}
+					} catch (_) { }
 				}
 			}
 
@@ -3718,6 +3734,7 @@
 		}
 
 		_scheduleHopeBanner() {
+			if (this.ratingSubmitted) return;
 			this._clearHopeBannerTimer();
 			this._idleTimer = setTimeout(() => {
 				if (this.isOpen) {
@@ -3735,6 +3752,7 @@
 		}
 
 		_showHopeBanner() {
+			if (this.ratingSubmitted) return;
 			if (
 				this.userMessageCount <= 0 ||
 				this.botMessageCount <= 0
@@ -3757,10 +3775,13 @@
 		}
 
 		async submitRating(rating) {
+			this.setRatingSubmittedState(true);
+			this._hideHopeBanner();
+			this.showRatingAcknowledgement(rating);
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+					"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3773,7 +3794,6 @@
 						}),
 					},
 				);
-				this.setRatingSubmittedState(true);
 				if (
 					this.elements.conversationRatingSlot
 				) {
@@ -3786,6 +3806,36 @@
 			} catch (e) {
 				// Non-fatal — silently ignore
 			}
+		}
+
+		showRatingAcknowledgement(rating) {
+			if (!this.elements.messagesContainer) return;
+
+			clearTimeout(this._ratingToastTimer);
+			const existingToast = this.shadowRoot.querySelector(
+				".rating-feedback-toast",
+			);
+			if (existingToast) {
+				existingToast.remove();
+			}
+
+			const toast = document.createElement("div");
+			toast.className = `rating-feedback-toast rating-feedback-toast--${rating === "down" ? "down" : "up"}`;
+			toast.textContent =
+				rating === "down"
+					? "Thanks for your feedback. We'll use it to make the experience better."
+					: "Thanks for your feedback. Glad that helped.";
+
+			this.elements.messagesContainer.appendChild(
+				toast,
+			);
+			this.elements.messagesContainer.scrollTop =
+				this.elements.messagesContainer.scrollHeight;
+
+			this._ratingToastTimer = setTimeout(() => {
+				toast.classList.add("is-hiding");
+				setTimeout(() => toast.remove(), 220);
+			}, 2400);
 		}
 
 		showContactForm() {
@@ -3828,7 +3878,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+					"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3839,12 +3889,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-									null
+								null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-									null
+								null
 								: null,
 						}),
 					},

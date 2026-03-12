@@ -60,6 +60,11 @@ class GoogleAuthService {
 				user.profile_completed_at,
 			onboardingStep: user.onboarding_step,
 			onboardingCompleted: user.onboarding_completed,
+			useDefaultSystemMessage:
+				user.use_default_system_message ?? true,
+			systemMessageConfigured:
+				user.system_message_configured ??
+				user.onboarding_completed,
 		};
 	}
 

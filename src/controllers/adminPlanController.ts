@@ -48,6 +48,12 @@ const toUpsertPayload = (
 				? body.razorpayYearlyPlanId.trim()
 				: null,
 		features: parseFeatures(body.features),
+		websitePagesLimit:
+			body.websitePagesLimit === "" ||
+			body.websitePagesLimit === null ||
+			body.websitePagesLimit === undefined
+				? null
+				: Number(body.websitePagesLimit),
 		isActive:
 			typeof body.isActive === "boolean"
 				? body.isActive

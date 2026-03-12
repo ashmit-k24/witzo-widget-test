@@ -42,14 +42,12 @@ export function bindEvents(widget) {
     elements.hopeBannerUp.classList.add('active');
     elements.hopeBannerDown.classList.remove('active');
     widget.doSubmitRating('up');
-    setTimeout(() => hideBanner(widget), 2000);
   });
 
   elements.hopeBannerDown?.addEventListener('click', () => {
     elements.hopeBannerDown.classList.add('active');
     elements.hopeBannerUp.classList.remove('active');
     widget.doSubmitRating('down');
-    setTimeout(() => hideBanner(widget), 2000);
   });
 }
 
@@ -97,9 +95,3 @@ export function handleLanguageSelect(widget, code) {
   widget.elements.langDropdown?.classList.remove('show');
 }
 
-/* --- internal helper --- */
-function hideBanner(widget) {
-  widget.elements.hopeBanner.classList.add('hidden');
-  const firstMsg = widget.elements.messagesContainer?.querySelector('.chat-message.mt-space');
-  if (firstMsg) firstMsg.classList.remove('mt-space');
-}

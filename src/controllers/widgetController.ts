@@ -13,6 +13,13 @@ import widgetService, {
 } from "../services/widgetService";
 import logger from "../utils/logger";
 
+function joinPublicUrl(
+	baseUrl: string,
+	path: string,
+): string {
+	return `${baseUrl.replace(/\/+$/, "")}${path}`;
+}
+
 async function buildWidgetResponse(
 	req: Request,
 	widgetKey: WidgetKey,
@@ -898,13 +905,15 @@ export const generateEmbedScript = async (
   }
   window.witzoWidgetLoaded = true;
 
-  // Wait for DOM to be ready
-  function initWidget() {
+  function mountWidget() {
     try {
-      // Create widget element
+      if (document.getElementById('witzoChat')) {
+        return;
+      }
+
       const widget = document.createElement('witzo-chat');
       widget.id = 'witzoChat';
-      widget.setAttribute('api-url', '${apiUrl}/api/v1/webhook');
+      widget.setAttribute('api-url', '${joinPublicUrl(apiUrl, "/api/v1/webhook")}');
       widget.setAttribute('widget-key', '${widgetKey}');
       widget.setAttribute('api-base-url', '${apiUrl}');
       widget.__witzoPlanType = '${planType}';
@@ -917,26 +926,38 @@ export const generateEmbedScript = async (
       // Apply custom configuration
 ${configAttrs}
 
-      // Append to body
       document.body.appendChild(widget);
-
-      // Load the widget component library
-      const script = document.createElement('script');
-      script.src = '${widgetScriptUrl}';
-      script.onerror = function() {
-        console.error('Witzo Widget: Failed to load widget component library from ${widgetScriptUrl}');
-      };
-      document.head.appendChild(script);
-
       console.log('Witzo Widget: Initialized successfully');
     } catch (error) {
       console.error('Witzo Widget: Initialization error', error);
     }
   }
 
-  // Initialize when DOM is ready
+  function initWidget() {
+    if (window.customElements && window.customElements.get('witzo-chat')) {
+      mountWidget();
+      return;
+    }
+
+    const existingScript = document.querySelector('script[data-witzo-widget-lib="true"]');
+    if (existingScript) {
+      existingScript.addEventListener('load', mountWidget, { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = '${widgetScriptUrl}';
+    script.async = true;
+    script.dataset.witzoWidgetLib = 'true';
+    script.onload = mountWidget;
+    script.onerror = function() {
+      console.error('Witzo Widget: Failed to load widget component library from ${widgetScriptUrl}');
+    };
+    document.head.appendChild(script);
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initWidget);
+    document.addEventListener('DOMContentLoaded', initWidget, { once: true });
   } else {
     initWidget();
   }
@@ -1070,13 +1091,13 @@ function generateEmbedCode(
 
 	// Return both options: single-script and manual embed
 	return `<!-- Witzo Chat Widget - Single Script (Recommended) -->
-<script src="${apiUrl}/api/v1/embed/${widgetKey}.js"></script>
+<script src="${joinPublicUrl(apiUrl, `/api/v1/embed/${widgetKey}.js`)}"></script>
 
 <!-- OR Manual Embed -->
 <!--
 <witzo-chat
       id="witzoChat"
-      api-url="${apiUrl}/api/v1/webhook"
+      api-url="${joinPublicUrl(apiUrl, "/api/v1/webhook")}"
       widget-key="${widgetKey}"
       ${configAttrs}
     ></witzo-chat>
@@ -1095,7 +1116,10 @@ function getWidgetPublicUrls(widgetKey: string): {
 	const widgetScriptUrl =
 		process.env.WIDGET_SCRIPT_URL ||
 		`${apiUrl}/widget/witzo-chat.js`;
-	const embedScriptUrl = `${apiUrl}/api/v1/embed/${widgetKey}.js`;
+	const embedScriptUrl = joinPublicUrl(
+		apiUrl,
+		`/api/v1/embed/${widgetKey}.js`,
+	);
 
 	return {
 		apiUrl,

@@ -43,6 +43,7 @@ export class WitzoChatWidget extends HTMLElement {
     this._wasEndIntent = false;
     this._idleTimer    = null;
     this._pendingHopeBanner = false;
+    this._ratingToastTimer = null;
 
     // Auto-open timer (cleared on first manual interaction)
     this._autoOpenTimer = null;
@@ -88,9 +89,9 @@ export class WitzoChatWidget extends HTMLElement {
     this.config.defaultLanguage = this.selectedLanguage;
     sessionStorage.setItem(langKey, this.selectedLanguage);
 
-    // 3b. Default logo icon → witzo.png served from the same origin as the API
+    // 3b. Default logo icon → witzo.png served from the widget-scoped public path
     if (!this.config.logoIcon) {
-      this.config.logoIcon = `${this.apiBaseUrl}/assets/images/witzo.png`;
+      this.config.logoIcon = `${this.apiBaseUrl.replace(/\/+$/, '')}/assets/images/witzo.png`;
     }
     // Preload bot icon so it's cached before first message typing indicator
     if (this.config.logoIcon) {
@@ -346,12 +347,36 @@ export class WitzoChatWidget extends HTMLElement {
 
   // ── Rating submission ────────────────────────────────────────────
   async doSubmitRating(rating) {
+    session.setRatingSubmitted(this.sessionId, true);
+    this.ratingSubmitted = true;
+    this._hideHopeBanner();
+    this.showRatingAcknowledgement(rating);
+
     try {
       await api.submitRating({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId, rating });
-      session.setRatingSubmitted(this.sessionId, true);
-      this.ratingSubmitted = true;
       this.elements.conversationRatingSlot?.classList.add('hidden');
     } catch (_) {}
+  }
+
+  showRatingAcknowledgement(rating) {
+    if (!this.elements.messagesContainer) return;
+
+    clearTimeout(this._ratingToastTimer);
+    this.shadowRoot.querySelector('.rating-feedback-toast')?.remove();
+
+    const toast = document.createElement('div');
+    toast.className = `rating-feedback-toast rating-feedback-toast--${rating === 'down' ? 'down' : 'up'}`;
+    toast.textContent = rating === 'down'
+      ? "Thanks for your feedback. We'll use it to make the experience better."
+      : 'Thanks for your feedback. Glad that helped.';
+
+    this.elements.messagesContainer.appendChild(toast);
+    this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+
+    this._ratingToastTimer = setTimeout(() => {
+      toast.classList.add('is-hiding');
+      setTimeout(() => toast.remove(), 220);
+    }, 2400);
   }
 
   // ── Contact form ─────────────────────────────────────────────────
@@ -441,6 +466,7 @@ export class WitzoChatWidget extends HTMLElement {
   }
 
   _scheduleHopeBanner() {
+    if (this.ratingSubmitted) return;
     this._clearHopeBannerTimer();
     this._idleTimer = setTimeout(() => {
       if (this.isOpen) {
@@ -458,6 +484,7 @@ export class WitzoChatWidget extends HTMLElement {
   }
 
   _showHopeBanner() {
+    if (this.ratingSubmitted) return;
     this._clearHopeBannerTimer();
     if (this.userMessageCount === 0 || this.botMessageCount === 0) return;
     if (this.elements.hopeBanner) {

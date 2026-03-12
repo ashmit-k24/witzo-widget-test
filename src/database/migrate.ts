@@ -158,6 +158,29 @@ const migrations: Migration[] = [
 			"Add standard plan support and refresh plan pricing/limits",
 		file: "20260310_023_standard_plan_pricing_refresh.sql",
 	},
+	{
+		id: "20260310_024_admin_permissions",
+		description:
+			"Add per-admin permissions and creator tracking",
+		file: "20260310_024_admin_permissions.sql",
+	},
+	{
+		id: "20260310_025_admin_insights_dynamic",
+		description:
+			"Add RAG source tracking, feature flags, and compliance request tables",
+		file: "20260310_025_admin_insights_dynamic.sql",
+	},
+	{
+		id: "20260310_026_disallowed_domains",
+		description: "Add disallowed domain policy table",
+		file: "20260310_026_disallowed_domains.sql",
+	},
+	{
+		id: "20260312_027_user_system_messages",
+		description:
+			"Add per-user system message settings and onboarding backfill",
+		file: "20260312_027_user_system_messages.sql",
+	},
 ];
 
 const ensureMigrationTable = async (
