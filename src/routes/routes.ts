@@ -17,6 +17,7 @@ import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
 import * as leadWebhookController from "../controllers/leadWebhookController";
 import * as feedbackController from "../controllers/feedbackController";
+import * as promptBuilderController from "../controllers/promptBuilderController";
 import * as subscriptionController from "../controllers/subscriptionController";
 import { authenticateToken } from "../middleware/auth";
 import {
@@ -712,6 +713,22 @@ router.post(
 	validationRules.feedbackCreate,
 	validate,
 	feedbackController.createFeedback,
+);
+
+// ============================================
+// Prompt Builder Routes (Protected)
+// ============================================
+
+/**
+ * @route   POST /api/auth/prompt-builder/generate
+ * @desc    Generate a system prompt using AI based on user configuration
+ * @access  Protected
+ */
+router.post(
+	"/prompt-builder/generate",
+	verifyCsrfToken,
+	authenticateToken,
+	promptBuilderController.generatePrompt,
 );
 
 export default router;
