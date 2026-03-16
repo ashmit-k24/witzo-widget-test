@@ -182,20 +182,15 @@ export const checkScraperLimit = async (
 			return;
 		}
 
-		// Check if user can scrape more pages
-		const canScrape = await pineconeService.canUserScrape(
-			userId,
-			planType,
-		);
+		// Fetch usage stats once and cache on res.locals so the controller
+		// can reuse them without making a second Pinecone round-trip.
+		const usage =
+			await pineconeService.getScraperUsageStats(
+				userId,
+				planType,
+			);
 
-		if (!canScrape) {
-			// Get usage stats to provide helpful info
-			const usage =
-				await pineconeService.getScraperUsageStats(
-					userId,
-					planType,
-				);
-
+		if (usage.isAtLimit) {
 			logger.warn("User has reached scraper page limit", {
 				userId,
 				planType,
@@ -205,7 +200,7 @@ export const checkScraperLimit = async (
 
 			res.status(403).json({
 				success: false,
-			message: `You've reached your website scraping limit. ${planType} plan allows ${usage.pagesLimit ?? "unlimited"} websites.`,
+				message: `You've reached your website scraping limit. ${planType} plan allows ${usage.pagesLimit ?? "unlimited"} websites.`,
 				data: {
 					planType: usage.planType,
 					pagesUsed: usage.pagesUsed,
@@ -219,6 +214,9 @@ export const checkScraperLimit = async (
 			});
 			return;
 		}
+
+		// Pass usage stats to controller so it doesn't need another Pinecone call
+		(res.locals as any).scraperUsage = usage;
 
 		// User can scrape, proceed
 		next();
