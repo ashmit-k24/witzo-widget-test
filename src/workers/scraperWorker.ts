@@ -114,6 +114,7 @@ export const createScraperWorker = () => {
 		SCRAPER_QUEUE_NAME,
 		processScrapeJob,
 		{
+			prefix: "{bull}",
 			connection: {
 				host: config.REDIS_HOST,
 				port: config.REDIS_PORT,
