@@ -9,7 +9,13 @@ export const scraperQueue = new Queue(
 		connection: {
 			host: config.REDIS_HOST,
 			port: config.REDIS_PORT,
+			username: config.REDIS_USERNAME,
 			password: config.REDIS_PASSWORD,
+			tls: config.REDIS_TLS_ENABLED ? {} : undefined,
+			keepAlive: 30000,
+			maxRetriesPerRequest: null,
+			retryStrategy: (times: number) =>
+				Math.min(times * 50, 2000),
 		},
 		defaultJobOptions: {
 			attempts: 3,

@@ -117,7 +117,13 @@ export const createScraperWorker = () => {
 			connection: {
 				host: config.REDIS_HOST,
 				port: config.REDIS_PORT,
+				username: config.REDIS_USERNAME,
 				password: config.REDIS_PASSWORD,
+				tls: config.REDIS_TLS_ENABLED ? {} : undefined,
+				keepAlive: 30000,
+				maxRetriesPerRequest: null,
+				retryStrategy: (times: number) =>
+					Math.min(times * 50, 2000),
 			},
 			concurrency: config.SCRAPER_CONCURRENCY,
 		},
@@ -135,5 +141,28 @@ export const createScraperWorker = () => {
 		});
 	});
 
+	worker.on("error", (err) => {
+		logger.error("Scraper worker error", { error: err.message });
+	});
+
 	return worker;
 };
+
+// Self-execute when run as a standalone script (e.g. via PM2 ecosystem.config.js)
+if (require.main === module) {
+	const worker = createScraperWorker();
+	logger.info("Scraper worker started as standalone process", {
+		concurrency: config.SCRAPER_CONCURRENCY,
+		redisHost: config.REDIS_HOST,
+		redisPort: config.REDIS_PORT,
+	});
+
+	const shutdown = async () => {
+		logger.info("Scraper worker shutting down...");
+		await worker.close();
+		process.exit(0);
+	};
+
+	process.on("SIGTERM", shutdown);
+	process.on("SIGINT", shutdown);
+}
