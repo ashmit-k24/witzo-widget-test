@@ -120,6 +120,8 @@ jobs:
           ADMIN_JWT_SECRET=${{ secrets.ADMIN_JWT_SECRET }}
           ADMIN_TOKEN_EXPIRY_HOURS=${{ secrets.ADMIN_TOKEN_EXPIRY_HOURS }}
 
+          EMAIL_LIST_VERIFY_API_KEY=${{ secrets.EMAIL_LIST_VERIFY_API_KEY }}
+
           S3_WIDGET_ICON_BUCKET=${{ secrets.S3_WIDGET_ICON_BUCKET }}
           S3_WIDGET_ICON_REGION=${{ secrets.S3_WIDGET_ICON_REGION }}    
           AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}  

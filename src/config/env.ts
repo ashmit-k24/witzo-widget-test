@@ -485,6 +485,9 @@ export const config: EnvConfig = {
 	AWS_ACCESS_KEY_ID: getOptionalEnvString("AWS_ACCESS_KEY_ID"),
 	AWS_SECRET_ACCESS_KEY: getOptionalEnvString("AWS_SECRET_ACCESS_KEY"),
 	AWS_SESSION_TOKEN: getOptionalEnvString("AWS_SESSION_TOKEN"),
+
+	// Email verification
+	EMAIL_LIST_VERIFY_API_KEY: getOptionalEnvString("EMAIL_LIST_VERIFY_API_KEY"),
 };
 
 export default config;

@@ -264,6 +264,9 @@ export interface EnvConfig {
 	AWS_ACCESS_KEY_ID?: string;
 	AWS_SECRET_ACCESS_KEY?: string;
 	AWS_SESSION_TOKEN?: string;
+
+	// Email verification
+	EMAIL_LIST_VERIFY_API_KEY?: string;
 }
 
 // Web Scraper types

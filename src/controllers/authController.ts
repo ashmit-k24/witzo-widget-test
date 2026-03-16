@@ -4,6 +4,7 @@ import {
 	Response,
 } from "express";
 import crypto from "crypto";
+import axios from "axios";
 import passport from "../config/passport";
 import { config } from "../config/env";
 import {
@@ -184,6 +185,39 @@ const parseGooglePendingToken = (
  * @desc    Request verification code for email authentication
  * @access  Public
  */
+const verifyEmailDeliverability = async (
+	email: string,
+): Promise<boolean> => {
+	const apiKey = config.EMAIL_LIST_VERIFY_API_KEY;
+	if (!apiKey) {
+		return true; // Skip if not configured
+	}
+
+	try {
+		const response = await axios.get<string>(
+			"https://apps.emaillistverify.com/api/verifyEmail",
+			{
+				params: {
+					secret: apiKey,
+					email,
+					timeout: 15,
+				},
+				timeout: 20000,
+				responseType: "text",
+			},
+		);
+		const result = String(response.data).trim().toLowerCase();
+		logger.info("Email deliverability check", { email, result });
+		return result === "ok";
+	} catch (err) {
+		logger.warn("Email deliverability check failed, allowing through", {
+			email,
+			error: err instanceof Error ? err.message : String(err),
+		});
+		return true; // Fail open — don't block users if the API is down
+	}
+};
+
 export const requestCode = async (
 	req: Request<{}, {}, RequestCodeBody>,
 	res: Response,
@@ -197,6 +231,15 @@ export const requestCode = async (
 			ip: req.ip,
 			userAgent: req.get("user-agent"),
 		});
+
+		const isDeliverable = await verifyEmailDeliverability(email);
+		if (!isDeliverable) {
+			res.status(422).json({
+				success: false,
+				message: "Please provide a valid email address.",
+			});
+			return;
+		}
 
 		const result =
 			await authService.requestVerificationCode(
