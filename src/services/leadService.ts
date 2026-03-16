@@ -76,7 +76,14 @@ class LeadService {
 	private async extractContactFromMessages(
 		messages: ChatMessage[],
 	): Promise<ExtractedContact> {
-		const conversation = messages
+		// Only include user messages — never extract contact info from assistant responses
+		const userConversation = messages
+			.filter((m) => m.role === "user")
+			.map((m) => `Visitor: ${m.content}`)
+			.join("\n");
+
+		// Use full conversation (labelled) only for the summary
+		const fullConversation = messages
 			.filter((m) => m.role !== "system")
 			.map(
 				(m) =>
@@ -84,20 +91,23 @@ class LeadService {
 			)
 			.join("\n");
 
-		const prompt = `You are a data extraction assistant. Analyze the following chat conversation and extract any contact information the visitor may have mentioned. Also write a brief summary of what the visitor was asking about or interested in.
+		const prompt = `You are a data extraction assistant. Extract contact information ONLY from the Visitor messages below. Do NOT extract any email, phone, name, or company that appears only in Assistant messages.
 
 Return ONLY a valid JSON object with these exact keys (use null for any field not found):
 {
-  "name": "full name if mentioned",
-  "email": "email address if mentioned",
-  "phone": "phone number if mentioned",
-  "country": "country if mentioned",
-  "company": "company or organization if mentioned",
+  "name": "full name if the visitor mentioned it",
+  "email": "email address if the visitor provided it",
+  "phone": "phone number if the visitor provided it",
+  "country": "country if the visitor mentioned it",
+  "company": "company or organization if the visitor mentioned it",
   "summary": "2-3 sentence summary of the visitor's main intent or inquiry"
 }
 
-Chat conversation:
-${conversation}`;
+Visitor messages (use ONLY these for name/email/phone/country/company extraction):
+${userConversation}
+
+Full conversation (use ONLY for writing the summary):
+${fullConversation}`;
 
 		try {
 			const completion =

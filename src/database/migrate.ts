@@ -264,10 +264,17 @@ const readMigrationSql = async (
 const runMigrations = async (): Promise<void> => {
 	const client = await pool.connect();
 
+	let ranCount = 0;
+	let skippedCount = 0;
+	let failedMigration: string | null = null;
+
 	try {
 		await acquireMigrationLock(client);
 		await ensureMigrationTable(client);
 
+		console.log(
+			`\n[Migrations] Starting — ${migrations.length} migrations registered\n`,
+		);
 		logger.info("Starting database migrations", {
 			totalMigrations: migrations.length,
 		});
@@ -279,10 +286,14 @@ const runMigrations = async (): Promise<void> => {
 			);
 
 			if (alreadyRan) {
+				console.log(
+					`  — SKIP  ${migration.id}  (${migration.description})`,
+				);
 				logger.info("Skipping migration", {
 					id: migration.id,
 					file: migration.file,
 				});
+				skippedCount++;
 				continue;
 			}
 
@@ -291,6 +302,9 @@ const runMigrations = async (): Promise<void> => {
 			);
 			const start = Date.now();
 
+			console.log(
+				`  > RUN   ${migration.id}  (${migration.description})`,
+			);
 			logger.info("Running migration", {
 				id: migration.id,
 				description: migration.description,
@@ -307,23 +321,37 @@ const runMigrations = async (): Promise<void> => {
 				);
 				await client.query("COMMIT");
 
-				logger.info(
-					"Migration completed",
-					{
-						id: migration.id,
-						durationMs:
-							Date.now() - start,
-					},
+				const durationMs = Date.now() - start;
+				console.log(
+					`  ✓ DONE  ${migration.id}  (${durationMs}ms)`,
 				);
+				logger.info("Migration completed", {
+					id: migration.id,
+					durationMs,
+				});
+				ranCount++;
 			} catch (error) {
 				await client.query("ROLLBACK");
+				failedMigration = migration.id;
+				console.error(
+					`  ✗ FAIL  ${migration.id}  — ${(error as Error).message}`,
+				);
 				throw error;
 			}
 		}
 
+		console.log(
+			`\n[Migrations] Done — ran: ${ranCount}, skipped: ${skippedCount}, failed: 0\n`,
+		);
 		logger.info(
 			"Database migrations completed successfully",
+			{ ranCount, skippedCount },
 		);
+	} catch (error) {
+		console.error(
+			`\n[Migrations] FAILED at ${failedMigration ?? "unknown"} — ran: ${ranCount}, skipped: ${skippedCount}\n`,
+		);
+		throw error;
 	} finally {
 		await releaseMigrationLock(client).catch(
 			() => {
