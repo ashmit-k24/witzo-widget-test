@@ -86,95 +86,79 @@ export const scrapeWebsite = async (
 			return;
 		}
 
-		// Check if URL has already been scraped for this user
-		const existingSource =
-			await pineconeService.checkSourceExists(
-				userId,
-				url,
-			);
-		if (existingSource.exists) {
-			logger.info(
-				`URL already scraped for user; allowing incremental re-scrape: ${userId}`,
-				{
-					url,
-					chunks: existingSource.chunks,
+		// Reuse usage stats already fetched by checkScraperLimit middleware;
+		// fall back to a fresh Pinecone call only if the middleware was bypassed.
+		const scraperUsage =
+			(res.locals as any).scraperUsage ??
+			(await pineconeService.getScraperUsageStats(userId, planType));
+
+		if (
+			scraperUsage.pagesRemaining !== null &&
+			scraperUsage.pagesRemaining <= 0
+		) {
+			res.status(403).json({
+				success: false,
+				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+				data: {
+					...getScraperLimitPayload(
+						planType,
+						scraperUsage,
+					),
 				},
-			);
+			});
+			return;
 		}
 
-		// Get current scraper usage stats
-			const scraperUsage =
-				await pineconeService.getScraperUsageStats(
-					userId,
-					planType,
-				);
-			if (
-				scraperUsage.pagesRemaining !== null &&
-				scraperUsage.pagesRemaining <= 0
-			) {
-				res.status(403).json({
-					success: false,
-					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
-					data: {
-						...getScraperLimitPayload(
-							planType,
-							scraperUsage,
-						),
-					},
-				});
-				return;
-			}
-
-			const normalizedMaxDepth = Math.max(
-				0,
-				Math.min(
-					SCRAPER_MAX_DEPTH,
-					Number(maxDepth) || 3,
-				),
-			);
-			const normalizedMaxPages = Math.max(
-				1,
-				Math.min(
-					SCRAPER_MAX_PAGES,
-					Number(maxPages) ||
-						SCRAPER_DEFAULT_MAX_PAGES,
-				),
-			);
-			const effectiveMaxPages = Math.min(
+		const normalizedMaxDepth = Math.max(
+			0,
+			Math.min(
+				SCRAPER_MAX_DEPTH,
+				Number(maxDepth) || 3,
+			),
+		);
+		const normalizedMaxPages = Math.max(
+			1,
+			Math.min(
+				SCRAPER_MAX_PAGES,
+				Number(maxPages) ||
+					SCRAPER_DEFAULT_MAX_PAGES,
+			),
+		);
+		const effectiveMaxPages = Math.min(
+			normalizedMaxPages,
+			scraperUsage.pagesRemaining ??
 				normalizedMaxPages,
-				scraperUsage.pagesRemaining ??
-					normalizedMaxPages,
-			);
+		);
 
-			logger.info(
-				`Starting scrape for URL: ${url}`,
-				{
-					maxDepth: normalizedMaxDepth,
-					maxPages: normalizedMaxPages,
-					effectiveMaxPages,
-					userId,
-					planType,
-				},
-			);
+		logger.info(
+			`Starting scrape for URL: ${url}`,
+			{
+				maxDepth: normalizedMaxDepth,
+				maxPages: normalizedMaxPages,
+				effectiveMaxPages,
+				userId,
+				planType,
+			},
+		);
 
-			const job =
-				await scraperStatusService.startJob({
-					userId,
-					url,
-					mode: "scrape",
-					maxDepth: normalizedMaxDepth,
-					maxPages: effectiveMaxPages,
-				});
-			jobId = job.jobId;
-
-			await scraperQueue.add("scrape-website", {
-				jobId: job.jobId,
+		const job =
+			await scraperStatusService.startJob({
 				userId,
 				url,
+				mode: "scrape",
 				maxDepth: normalizedMaxDepth,
 				maxPages: effectiveMaxPages,
-				mode: "scrape",
 			});
+		jobId = job.jobId;
+
+		await scraperQueue.add("scrape-website", {
+			jobId: job.jobId,
+			userId,
+			url,
+			maxDepth: normalizedMaxDepth,
+			maxPages: effectiveMaxPages,
+			mode: "scrape",
+		});
 
 		res.status(202).json({
 			success: true,
