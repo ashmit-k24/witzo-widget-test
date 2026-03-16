@@ -6,6 +6,7 @@ export const SCRAPER_QUEUE_NAME = "scraper-queue";
 export const scraperQueue = new Queue(
 	SCRAPER_QUEUE_NAME,
 	{
+		prefix: "{bull}",
 		connection: {
 			host: config.REDIS_HOST,
 			port: config.REDIS_PORT,
