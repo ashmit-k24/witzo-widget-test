@@ -17,6 +17,8 @@ import googleAuthService, {
 } from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
+	LoginPasswordBody,
+	RegisterBody,
 	RequestCodeBody,
 	UpdateProfileBody,
 	VerifyGoogleCodeBody,
@@ -937,6 +939,107 @@ export const verifyGoogleCode = async (
 			remainingAttempts:
 				result.remainingAttempts,
 		});
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/register
+ * @desc    Register a new account with email + password
+ * @access  Public
+ */
+export const register = async (
+	req: Request<{}, {}, RegisterBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { email, password } = req.body;
+
+		logger.info("Password registration attempt", {
+			email,
+			ip: req.ip,
+		});
+
+		const isDeliverable = await verifyEmailDeliverability(email);
+		if (!isDeliverable) {
+			res.status(422).json({
+				success: false,
+				message: "Please provide a valid email address.",
+			});
+			return;
+		}
+
+		const result = await authService.registerWithPassword(
+			email,
+			password,
+			req.ip,
+			req.get("user-agent"),
+		);
+
+		if (result.success && result.accessToken && result.refreshToken) {
+			setCookies(res, result.accessToken, result.refreshToken);
+			res.status(201).json({
+				success: true,
+				message: result.message,
+				expiresIn: result.expiresIn,
+			});
+		} else if (result.success) {
+			// OTP sent — no tokens yet, user must verify email
+			res.status(200).json({
+				success: true,
+				message: result.message,
+			});
+		} else {
+			res.status(409).json({
+				success: false,
+				message: result.message,
+			});
+		}
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/login-password
+ * @desc    Log in with email + password
+ * @access  Public
+ */
+export const loginWithPassword = async (
+	req: Request<{}, {}, LoginPasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { email, password } = req.body;
+
+		logger.info("Password login attempt", {
+			email,
+			ip: req.ip,
+		});
+
+		const result = await authService.loginWithPassword(
+			email,
+			password,
+			req.ip,
+			req.get("user-agent"),
+		);
+
+		if (result.success && result.accessToken && result.refreshToken) {
+			setCookies(res, result.accessToken, result.refreshToken);
+			res.status(200).json({
+				success: true,
+				message: result.message,
+				expiresIn: result.expiresIn,
+			});
+		} else {
+			res.status(401).json({
+				success: false,
+				message: result.message,
+			});
+		}
 	} catch (error) {
 		next(error);
 	}

@@ -1117,6 +1117,311 @@ class AuthService {
 		return this.formatUserResponse(result.rows[0]);
 	}
 
+	// ── Password helpers ──────────────────────────────────────────────────────
+
+	private readonly PW_ALGORITHM = "pbkdf2_sha512";
+	private readonly PW_ITERATIONS = 210_000;
+	private readonly PW_KEY_LENGTH = 64;
+
+	private async hashPassword(password: string): Promise<string> {
+		const salt = crypto.randomBytes(16).toString("hex");
+		const hash = await new Promise<string>((resolve, reject) => {
+			crypto.pbkdf2(
+				password,
+				salt,
+				this.PW_ITERATIONS,
+				this.PW_KEY_LENGTH,
+				"sha512",
+				(err, key) => {
+					if (err) reject(err);
+					else resolve(key.toString("hex"));
+				},
+			);
+		});
+		return `${this.PW_ALGORITHM}$${this.PW_ITERATIONS}$${salt}$${hash}`;
+	}
+
+	private async verifyPassword(
+		password: string,
+		storedHash: string,
+	): Promise<boolean> {
+		const parts = storedHash.split("$");
+		if (parts.length !== 4) return false;
+		const [, iterationsStr, salt, expectedHash] = parts;
+		const iterations = parseInt(iterationsStr, 10);
+		return new Promise((resolve, reject) => {
+			crypto.pbkdf2(
+				password,
+				salt,
+				iterations,
+				this.PW_KEY_LENGTH,
+				"sha512",
+				(err, key) => {
+					if (err) return reject(err);
+					try {
+						const keyBuf = Buffer.from(key.toString("hex"));
+						const expectedBuf = Buffer.from(expectedHash);
+						resolve(
+							keyBuf.length === expectedBuf.length &&
+								crypto.timingSafeEqual(keyBuf, expectedBuf),
+						);
+					} catch {
+						resolve(false);
+					}
+				},
+			);
+		});
+	}
+
+	/** Shared helper: create session + tokens for an already-authenticated user */
+	private async createSessionForUser(
+		client: PoolClient,
+		user: User,
+		ipAddress?: string,
+		userAgent?: string,
+	): Promise<{
+		accessToken: string;
+		refreshToken: string;
+		sessionId: number;
+		expiresIn: number;
+	}> {
+		const sessionResult = await client.query<{ id: number }>(
+			`INSERT INTO sessions (
+        user_id, access_token, refresh_token,
+        access_token_expires_at, refresh_token_expires_at,
+        ip_address, user_agent
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id`,
+			[
+				user.id,
+				"pending",
+				"pending",
+				new Date(Date.now() + config.ACCESS_TOKEN_EXPIRY_MINUTES * 60 * 1000),
+				new Date(
+					Date.now() +
+						config.REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+				),
+				ipAddress || null,
+				userAgent || null,
+			],
+		);
+
+		const sessionId = sessionResult.rows[0].id;
+
+		const { token: accessToken, expiresAt: accessTokenExpiresAt } =
+			tokenUtil.generateAccessToken({
+				userId: user.id,
+				email: user.email,
+				sessionId,
+			});
+		const { token: refreshToken, expiresAt: refreshTokenExpiresAt } =
+			tokenUtil.generateRefreshToken({
+				userId: user.id,
+				email: user.email,
+				sessionId,
+			});
+
+		const updateResult = await client.query(
+			`UPDATE sessions
+       SET access_token = $1, refresh_token = $2,
+           access_token_expires_at = $3, refresh_token_expires_at = $4,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5`,
+			[
+				tokenUtil.hashToken(accessToken),
+				tokenUtil.hashToken(refreshToken),
+				accessTokenExpiresAt,
+				refreshTokenExpiresAt,
+				sessionId,
+			],
+		);
+
+		if (!updateResult.rowCount) {
+			throw new Error("Failed to update session with tokens");
+		}
+
+		return {
+			accessToken,
+			refreshToken,
+			sessionId,
+			expiresIn: config.ACCESS_TOKEN_EXPIRY_MINUTES * 60,
+		};
+	}
+
+	// ── Password-based register ───────────────────────────────────────────────
+
+	async registerWithPassword(
+		email: string,
+		password: string,
+		ipAddress?: string,
+		userAgent?: string,
+	): Promise<
+		VerifyCodeResponse & {
+			accessToken?: string;
+			refreshToken?: string;
+			expiresIn?: number;
+		}
+	> {
+		const normalizedEmail = email.toLowerCase().trim();
+		const client: PoolClient = await pool.connect();
+
+		try {
+			await client.query("BEGIN");
+
+			// Check if email already registered
+			const existing = await client.query<User>(
+				"SELECT id, password_hash FROM users WHERE email = $1",
+				[normalizedEmail],
+			);
+
+			if (existing.rows.length > 0) {
+				await client.query("ROLLBACK");
+				return {
+					success: false,
+					message: "An account with this email already exists. Please log in.",
+				};
+			}
+
+			const passwordHash = await this.hashPassword(password);
+			const userId = uuidUtil.generateUuid();
+
+			await client.query(
+				`INSERT INTO users (id, email, is_verified, password_hash)
+         VALUES ($1, $2, FALSE, $3)`,
+				[userId, normalizedEmail, passwordHash],
+			);
+
+			await client.query("COMMIT");
+
+			logger.info("User registered with password (pending OTP verification)", {
+				email: normalizedEmail,
+				userId,
+			});
+
+			// Send OTP for email verification
+			await this.requestVerificationCode(normalizedEmail);
+
+			return {
+				success: true,
+				message: "Verification code sent to your email",
+			};
+		} catch (error) {
+			await client.query("ROLLBACK");
+			const err = error as Error;
+			logger.error("Error in registerWithPassword", {
+				email,
+				error: err.message,
+				stack: err.stack,
+			});
+			throw new Error("Failed to create account");
+		} finally {
+			client.release();
+		}
+	}
+
+	// ── Password-based login ──────────────────────────────────────────────────
+
+	async loginWithPassword(
+		email: string,
+		password: string,
+		ipAddress?: string,
+		userAgent?: string,
+	): Promise<
+		VerifyCodeResponse & {
+			accessToken?: string;
+			refreshToken?: string;
+			expiresIn?: number;
+		}
+	> {
+		const normalizedEmail = email.toLowerCase().trim();
+		const client: PoolClient = await pool.connect();
+
+		try {
+			await client.query("BEGIN");
+
+			const userResult = await client.query<User & { password_hash: string }>(
+				"SELECT * FROM users WHERE email = $1",
+				[normalizedEmail],
+			);
+
+			if (userResult.rows.length === 0) {
+				await client.query("ROLLBACK");
+				return {
+					success: false,
+					message: "Invalid email or password.",
+				};
+			}
+
+			const user = userResult.rows[0];
+			const storedHash: string | null = (user as any).password_hash;
+
+			if (!storedHash) {
+				await client.query("ROLLBACK");
+				return {
+					success: false,
+					message:
+						"This account uses a different sign-in method. Please use Google or email OTP.",
+				};
+			}
+
+			const isValid = await this.verifyPassword(password, storedHash);
+			if (!isValid) {
+				await client.query("ROLLBACK");
+				return {
+					success: false,
+					message: "Invalid email or password.",
+				};
+			}
+
+			// Update last_login + login_count
+			const updatedUserResult = await client.query<User>(
+				`UPDATE users
+         SET last_login = CURRENT_TIMESTAMP,
+             login_count = login_count + 1,
+             profile_prompt_required_at = CASE
+               WHEN (login_count + 1) > $2 AND profile_completed = FALSE
+                 THEN COALESCE(profile_prompt_required_at, CURRENT_TIMESTAMP)
+               ELSE profile_prompt_required_at
+             END
+         WHERE id = $1
+         RETURNING *`,
+				[user.id, PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD],
+			);
+			const updatedUser = updatedUserResult.rows[0] ?? user;
+
+			const { accessToken, refreshToken, sessionId, expiresIn } =
+				await this.createSessionForUser(client, user, ipAddress, userAgent);
+
+			await client.query("COMMIT");
+
+			logger.info("User logged in with password", {
+				email: normalizedEmail,
+				userId: user.id,
+				sessionId,
+			});
+
+			return {
+				success: true,
+				message: "Login successful",
+				accessToken,
+				refreshToken,
+				expiresIn,
+				user: this.formatUserResponse(updatedUser, sessionId),
+			};
+		} catch (error) {
+			await client.query("ROLLBACK");
+			const err = error as Error;
+			logger.error("Error in loginWithPassword", {
+				email,
+				error: err.message,
+				stack: err.stack,
+			});
+			throw new Error("Failed to log in");
+		} finally {
+			client.release();
+		}
+	}
+
 	/**
 	 * Clean up expired sessions and verification codes
 	 */

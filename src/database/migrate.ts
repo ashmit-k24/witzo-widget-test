@@ -181,6 +181,12 @@ const migrations: Migration[] = [
 			"Add per-user system message settings and onboarding backfill",
 		file: "20260312_027_user_system_messages.sql",
 	},
+	{
+		id: "20260317_028_user_password_hash",
+		description:
+			"Add password_hash column to users for password-based authentication",
+		file: "20260317_028_user_password_hash.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

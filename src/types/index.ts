@@ -159,6 +159,16 @@ export interface VerifyGoogleCodeBody {
 	pendingToken?: string;
 }
 
+export interface RegisterBody {
+	email: string;
+	password: string;
+}
+
+export interface LoginPasswordBody {
+	email: string;
+	password: string;
+}
+
 // Database query result types
 export interface QueryResult<T> {
 	rows: T[];
