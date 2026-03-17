@@ -708,6 +708,10 @@
             min-height: 420px;
             z-index: 2;
           }
+          :host([preview-mode="embedded"][launcher-type="compact"]) #textChatWidget {
+            bottom: 116px;
+            max-height: calc(100% - 132px);
+          }
           #textChatWidget.intro-mode {
             background:#FBFBFB;
             height: auto;
