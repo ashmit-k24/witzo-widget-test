@@ -72,6 +72,24 @@ router.post(
  * @access  Public
  */
 router.post(
+	"/register",
+	verifyCsrfToken,
+	authLimiter,
+	validationRules.register,
+	validate,
+	authController.register,
+);
+
+router.post(
+	"/login-password",
+	verifyCsrfToken,
+	verifyLimiter,
+	validationRules.loginWithPassword,
+	validate,
+	authController.loginWithPassword,
+);
+
+router.post(
 	"/request-code",
 	verifyCsrfToken,
 	authLimiter,

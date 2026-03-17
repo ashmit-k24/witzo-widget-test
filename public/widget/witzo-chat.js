@@ -96,7 +96,6 @@
 				introMessage:
 					"We're ready to help. Ask anything, from quick questions to complex topics.",
 				introPrimaryButtonText: "Let's Chat!",
-				introSecondaryButtonText: "Just browsing",
 				introPrimaryButtonColor: "#111827",
 				introSecondaryButtonColor: "#f3f4f6",
 				introPrimaryButtonBackgroundColor:
@@ -125,8 +124,7 @@
 			this.widgetKey =
 				this.getAttribute("widget-key") || "";
 			this.originToken =
-				this.getAttribute("origin-token") ||
-				"";
+				this.getAttribute("origin-token") || "";
 			this.isEmbeddedPreview =
 				this.getAttribute("preview-mode") ===
 				"embedded";
@@ -212,6 +210,8 @@
 					"intro-secondary-button-background-color",
 					"introSecondaryButtonBackgroundColor",
 				],
+				["show-quick-options", "showQuickOptions"],
+				["show-intro-screen", "showIntroScreen"],
 			];
 
 			ATTR_TO_CONFIG_KEY.forEach(
@@ -228,7 +228,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-				"string" &&
+					"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -289,6 +289,9 @@
 			this.render();
 			this.bindEvents();
 			this.updateSendButtonState();
+			if (this.config.showIntroScreen === false) {
+				this.hasStartedChat = true;
+			}
 			this.showIntroScreen(!this.hasStartedChat);
 
 			// Process default message
@@ -308,22 +311,25 @@
 				);
 			}
 
-			// Show floating button after delay
+			// Preload logo icon; only reveal the floating button once the image
+			// is fully loaded so the icon is never seen mid-load.
+			this._logoReady = false;
+			this._floatingBtnTimerFired = false;
+			const _iconUrl = this.getDisplayIconUrl();
+			if (_iconUrl) {
+				const _preload = new Image();
+				_preload.onload  = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
+				_preload.onerror = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
+				_preload.src = _iconUrl;
+			} else {
+				this._logoReady = true;
+			}
+
+			// Show floating button after delay AND once logo is ready
 			setTimeout(
 				() => {
-					if (this.elements.floatingBtn) {
-						this.elements.floatingBtn.classList.remove(
-							"hidden",
-						);
-						this.elements.floatingBtn.classList.add(
-							"entering",
-						);
-						setTimeout(() => {
-							this.elements.floatingBtn?.classList.remove(
-								"entering",
-							);
-						}, 550);
-					}
+					this._floatingBtnTimerFired = true;
+					this._maybeRevealFloatingBtn();
 				},
 				this.isEmbeddedPreview ? 0 : 2000,
 			);
@@ -603,6 +609,15 @@
 			);
 		}
 
+		_maybeRevealFloatingBtn() {
+			if (!this._logoReady || !this._floatingBtnTimerFired) return;
+			const btn = this.elements.floatingBtn;
+			if (!btn || !btn.classList.contains("hidden")) return;
+			btn.classList.remove("hidden");
+			btn.classList.add("entering");
+			setTimeout(() => btn.classList.remove("entering"), 550);
+		}
+
 		getUnifiedIconUrl() {
 			return (
 				this.config.logoIcon ||
@@ -705,15 +720,20 @@
             min-height: 420px;
             z-index: 2;
           }
+          :host([preview-mode="embedded"][launcher-type="compact"]) #textChatWidget {
+            bottom: 116px;
+            max-height: calc(100% - 132px);
+          }
           #textChatWidget.intro-mode {
             background:#FBFBFB;
+            height: auto;
+            min-height: 0;
           }
           :host([preview-mode="embedded"]) #textChatWidget.intro-mode {
             width: min(25.5rem, calc(100% - 32px));
           }
           #textChatWidget.intro-mode .intro-screen {
             flex: 0 0 auto;
-			padding-bottom: 64px;
           }
           
           #textChatWidget.intro-mode #backToIntroBtn,
@@ -1517,9 +1537,9 @@
 			border-bottom: 1px solid rgb(234, 234, 234);
 		  }
 		  .intro-mode .chat-footer{
-			position:absolute;
+			position:relative;
 			width:100%;
-			bottom:-5px;
+			bottom:auto;
 			padding-bottom: 0;
 		  }
 
@@ -2180,9 +2200,11 @@
 
                     <div class="chat-header-identity">
                       <div class="chat-icon">
-                    ${this.getDisplayIconUrl() ? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
+                    ${
+											this.getDisplayIconUrl()
+												? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+												: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+										}
 
 					  <span class="header-online-dot"></span>
                       </div>
@@ -2268,19 +2290,14 @@
 						${sanitizeHTML(this.config.introPrimaryButtonText || "Let's Chat!")}
 
 						</button>
-              		  <button id="introBrowseBtn" class="intro-action-btn" data-intro-anim="scale" style="--fade-order:6">
-						<span class="intro-action-icon second">
-							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-globe-icon lucide-globe"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
-						</span>
-						${sanitizeHTML(this.config.introSecondaryButtonText || "Just browsing")}
-						</button>
+              		 
               		</div>
 			  	</div>
 				
+				${this.config.showQuickOptions !== false ? `
 				<div class="help-links-list" data-intro-anim="fade-up" style="--fade-order:7">
 					<div id="introHelpOptionOne" class="help-link-item" data-intro-anim="soft" style="--fade-order:8" data-url="${sanitizeHTML(sanitizeURL(this.config.introHelpOptionOneUrl) || "")}">
 						<div class="help-link-content">
-							<span class="help-link-icon">💡</span>
 							<span id="introHelpOptionOneText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionOneText || "How Witzo works")}</span>
 						</div>
 						<span class="help-link-arrow">
@@ -2289,14 +2306,13 @@
 					</div>
 					<div id="introHelpOptionTwo" class="help-link-item" data-intro-anim="soft" style="--fade-order:9" data-url="${sanitizeHTML(sanitizeURL(this.config.introHelpOptionTwoUrl) || "")}">
 						<div class="help-link-content">
-							<span class="help-link-icon">🚀</span>
 							<span id="introHelpOptionTwoText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionTwoText || "Explore AI features")}</span>
 						</div>
 						<span class="help-link-arrow">
 							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right h-3.5 w-3.5" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
 						</span>
 					</div>
-				</div>
+				</div>` : ""}
             </div>
 
             <div id="chatMainView" class="chat-main-view hidden">
@@ -2332,15 +2348,15 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-					.map(
-						(language) => `
+													.map(
+														(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-					)
-					.join("")}
+													)
+													.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
@@ -3268,7 +3284,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) { }
+					} catch (e) {}
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -3374,10 +3390,11 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${this.getDisplayIconUrl()
-					? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
+                        ${
+													this.getDisplayIconUrl()
+														? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
+														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+												}
                     </div>`;
 		}
 
@@ -3416,9 +3433,7 @@
 						text || "",
 					);
 				streamingTextNode.innerHTML =
-					this.parseMarkdown(
-						normalizedText,
-					);
+					this.parseMarkdown(normalizedText);
 			}
 			this.queueScrollToBottom();
 		}
@@ -3553,7 +3568,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) { }
+						} catch (_) {}
 					}
 				}
 			}
@@ -3565,7 +3580,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) { }
+					} catch (_) {}
 				}
 			}
 
@@ -3781,7 +3796,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/rating",
+						"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3809,12 +3824,14 @@
 		}
 
 		showRatingAcknowledgement(rating) {
-			if (!this.elements.messagesContainer) return;
+			if (!this.elements.messagesContainer)
+				return;
 
 			clearTimeout(this._ratingToastTimer);
-			const existingToast = this.shadowRoot.querySelector(
-				".rating-feedback-toast",
-			);
+			const existingToast =
+				this.shadowRoot.querySelector(
+					".rating-feedback-toast",
+				);
 			if (existingToast) {
 				existingToast.remove();
 			}
@@ -3878,7 +3895,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/contact",
+						"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3889,12 +3906,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-								null
+									null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-								null
+									null
 								: null,
 						}),
 					},
@@ -3979,9 +3996,7 @@
 			);
 			var originToken =
 				this.originToken ||
-				this.getAttribute(
-					"origin-token",
-				) ||
+				this.getAttribute("origin-token") ||
 				"";
 			if (originToken) {
 				headers["X-Witzo-Origin-Token"] =

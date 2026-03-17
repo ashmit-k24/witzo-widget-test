@@ -59,6 +59,30 @@ export const validationRules: Record<
 			),
 	],
 
+	register: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+		body("password")
+			.isLength({ min: 8 })
+			.withMessage("Password must be at least 8 characters"),
+	],
+
+	loginWithPassword: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+		body("password")
+			.notEmpty()
+			.withMessage("Password is required"),
+	],
+
 	verifyGoogleCode: [
 		body("code")
 			.trim()
