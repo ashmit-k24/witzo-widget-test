@@ -93,9 +93,13 @@ export class WitzoChatWidget extends HTMLElement {
     if (!this.config.logoIcon) {
       this.config.logoIcon = `${this.apiBaseUrl.replace(/\/+$/, '')}/assets/images/witzo.png`;
     }
-    // Preload bot icon so it's cached before first message typing indicator
+    // Preload logo icon and track readiness so the floating button is only
+    // revealed once the image is fully loaded (prevents icon-flash on first show).
+    this._logoReady = !this.config.logoIcon; // instantly ready when using the default SVG
     if (this.config.logoIcon) {
       const _preload = new Image();
+      _preload.onload  = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
+      _preload.onerror = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
       _preload.src = this.config.logoIcon;
     }
 
@@ -171,13 +175,11 @@ export class WitzoChatWidget extends HTMLElement {
       this._autoOpenTimer = setTimeout(() => { if (!this.isOpen) this.toggleChat(); }, 5000);
     }
 
-    // 9. Reveal floating button after 2 s with entrance animation
+    // 9. Reveal floating button after 2 s AND once the logo image is ready
+    this._floatingBtnTimerFired = false;
     setTimeout(() => {
-      const btn = this.elements.floatingBtn;
-      if (!btn) return;
-      btn.classList.remove('hidden');
-      btn.classList.add('entering');
-      setTimeout(() => btn.classList.remove('entering'), 550);
+      this._floatingBtnTimerFired = true;
+      this._maybeRevealFloatingBtn();
     }, 2000);
   }
 
@@ -491,6 +493,15 @@ export class WitzoChatWidget extends HTMLElement {
       this.elements.hopeBanner.classList.remove('hidden');
       this.elements.messagesContainer?.querySelector('.chat-message')?.classList.add('mt-space');
     }
+  }
+
+  _maybeRevealFloatingBtn() {
+    if (!this._logoReady || !this._floatingBtnTimerFired) return;
+    const btn = this.elements.floatingBtn;
+    if (!btn || !btn.classList.contains('hidden')) return;
+    btn.classList.remove('hidden');
+    btn.classList.add('entering');
+    setTimeout(() => btn.classList.remove('entering'), 550);
   }
 
   _lockSession() {

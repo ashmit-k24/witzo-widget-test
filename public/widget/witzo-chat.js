@@ -311,22 +311,25 @@
 				);
 			}
 
-			// Show floating button after delay
+			// Preload logo icon; only reveal the floating button once the image
+			// is fully loaded so the icon is never seen mid-load.
+			this._logoReady = false;
+			this._floatingBtnTimerFired = false;
+			const _iconUrl = this.getDisplayIconUrl();
+			if (_iconUrl) {
+				const _preload = new Image();
+				_preload.onload  = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
+				_preload.onerror = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
+				_preload.src = _iconUrl;
+			} else {
+				this._logoReady = true;
+			}
+
+			// Show floating button after delay AND once logo is ready
 			setTimeout(
 				() => {
-					if (this.elements.floatingBtn) {
-						this.elements.floatingBtn.classList.remove(
-							"hidden",
-						);
-						this.elements.floatingBtn.classList.add(
-							"entering",
-						);
-						setTimeout(() => {
-							this.elements.floatingBtn?.classList.remove(
-								"entering",
-							);
-						}, 550);
-					}
+					this._floatingBtnTimerFired = true;
+					this._maybeRevealFloatingBtn();
 				},
 				this.isEmbeddedPreview ? 0 : 2000,
 			);
@@ -604,6 +607,15 @@
 			return endPatterns.some((pattern) =>
 				pattern.test(normalized),
 			);
+		}
+
+		_maybeRevealFloatingBtn() {
+			if (!this._logoReady || !this._floatingBtnTimerFired) return;
+			const btn = this.elements.floatingBtn;
+			if (!btn || !btn.classList.contains("hidden")) return;
+			btn.classList.remove("hidden");
+			btn.classList.add("entering");
+			setTimeout(() => btn.classList.remove("entering"), 550);
 		}
 
 		getUnifiedIconUrl() {
