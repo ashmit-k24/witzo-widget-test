@@ -41,12 +41,16 @@ class UsageTrackingService {
 				user.conversations_used / limit >=
 					USAGE_APPROACHING_LIMIT_THRESHOLD;
 
+		// plan_reset_date is the date of the last reset; next reset is +1 month
+		const nextResetDate = new Date(user.plan_reset_date);
+		nextResetDate.setMonth(nextResetDate.getMonth() + 1);
+
 		return {
 			planType: coercePlanType(user.plan_type),
 			conversationsUsed: user.conversations_used,
 			conversationsLimit: limit,
 			conversationsRemaining,
-			resetDate: user.plan_reset_date,
+			resetDate: nextResetDate,
 			isApproachingLimit:
 				isApproachingLimit && !isAtLimit,
 			isAtLimit,
