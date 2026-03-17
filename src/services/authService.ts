@@ -1253,8 +1253,8 @@ class AuthService {
 	async registerWithPassword(
 		email: string,
 		password: string,
-		ipAddress?: string,
-		userAgent?: string,
+		_ipAddress?: string,
+		_userAgent?: string,
 	): Promise<
 		VerifyCodeResponse & {
 			accessToken?: string;
