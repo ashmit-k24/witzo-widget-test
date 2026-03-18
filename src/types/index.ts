@@ -277,6 +277,14 @@ export interface EnvConfig {
 
 	// Email verification
 	EMAIL_LIST_VERIFY_API_KEY?: string;
+
+	// Cohere (reranker)
+	COHERE_API_KEY?: string;
+
+	// Langfuse (observability)
+	LANGFUSE_SECRET_KEY?: string;
+	LANGFUSE_PUBLIC_KEY?: string;
+	LANGFUSE_HOST?: string;
 }
 
 // Web Scraper types

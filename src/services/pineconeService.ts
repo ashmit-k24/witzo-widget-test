@@ -19,6 +19,11 @@ import {
 	ScraperUsageStats,
 } from "../types";
 import {
+	CHUNK_MAX_CHARS,
+	CHUNK_OVERLAP_CHARS,
+	CHAT_RETRIEVAL_SCORE_THRESHOLD,
+} from "../constants";
+import {
 	openAICircuitBreaker,
 	pineconeCircuitBreaker,
 } from "../utils/circuitBreaker";
@@ -177,7 +182,8 @@ class PineconeService {
 
 	chunkText(
 		text: string,
-		maxChunkSize: number = 8000,
+		maxChunkSize: number = CHUNK_MAX_CHARS,
+		overlapChars: number = CHUNK_OVERLAP_CHARS,
 	): string[] {
 		const normalizedText = text
 			.replace(/\s+/g, " ")
@@ -186,7 +192,7 @@ class PineconeService {
 			return [];
 		}
 
-		const chunks: string[] = [];
+		// Split into sentences
 		const sentenceMatches = normalizedText.match(
 			/[^.!?]+[.!?]+/g,
 		);
@@ -195,25 +201,26 @@ class PineconeService {
 				? sentenceMatches
 				: [normalizedText];
 
+		const chunks: string[] = [];
 		let currentChunk = "";
 
 		for (const sentence of sentences) {
 			if (
-				(currentChunk + sentence).length >
-				maxChunkSize
+				currentChunk.length > 0 &&
+				(currentChunk + sentence).length > maxChunkSize
 			) {
-				if (currentChunk) {
-					chunks.push(currentChunk.trim());
-					currentChunk = sentence;
-				} else {
-					chunks.push(sentence.trim());
-				}
+				chunks.push(currentChunk.trim());
+				// Start next chunk with overlap from end of current
+				const overlap = currentChunk.length > overlapChars
+					? currentChunk.slice(-overlapChars)
+					: currentChunk;
+				currentChunk = overlap + sentence;
 			} else {
 				currentChunk += sentence;
 			}
 		}
 
-		if (currentChunk) {
+		if (currentChunk.trim()) {
 			chunks.push(currentChunk.trim());
 		}
 
@@ -501,6 +508,7 @@ class PineconeService {
 		userId: string,
 		query: string,
 		topK: number = 10,
+		scoreThreshold: number = CHAT_RETRIEVAL_SCORE_THRESHOLD,
 	): Promise<any[]> {
 		try {
 			const index =
@@ -520,7 +528,11 @@ class PineconeService {
 					},
 				);
 
-			return queryResponse.matches || [];
+			const matches = queryResponse.matches || [];
+			// Filter out low-relevance chunks
+			return matches.filter(
+				(m: any) => (m.score ?? 0) >= scoreThreshold,
+			);
 		} catch (error) {
 			logger.error("Error querying Pinecone", {
 				error,

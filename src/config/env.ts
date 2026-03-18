@@ -488,6 +488,14 @@ export const config: EnvConfig = {
 
 	// Email verification
 	EMAIL_LIST_VERIFY_API_KEY: getOptionalEnvString("EMAIL_LIST_VERIFY_API_KEY"),
+
+	// Cohere (reranker)
+	COHERE_API_KEY: getOptionalEnvString("COHERE_API_KEY"),
+
+	// Langfuse (observability)
+	LANGFUSE_SECRET_KEY: getOptionalEnvString("LANGFUSE_SECRET_KEY"),
+	LANGFUSE_PUBLIC_KEY: getOptionalEnvString("LANGFUSE_PUBLIC_KEY"),
+	LANGFUSE_HOST: getOptionalEnvString("LANGFUSE_HOST"),
 };
 
 export default config;

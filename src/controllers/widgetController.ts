@@ -858,6 +858,8 @@ export const generateEmbedScript = async (
 			// Layout / behavior
 			floatingType:              "launcher-type",
 			autoOpen:                  "auto-open",
+			showQuickOptions:          "show-quick-options",
+			showIntroScreen:           "show-intro-screen",
 			// Language
 			defaultLanguage:           "default-language",
 		};
@@ -1050,6 +1052,8 @@ function generateEmbedCode(
 			"intro-secondary-button-background-color",
 		floatingType:              "launcher-type",
 		autoOpen:                  "auto-open",
+		showQuickOptions:          "show-quick-options",
+		showIntroScreen:           "show-intro-screen",
 		defaultLanguage:           "default-language",
 	};
 
