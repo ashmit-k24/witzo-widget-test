@@ -112,7 +112,7 @@ class QueryTransformService {
 	 * Detects contact-info related queries that are often vague but need specific retrieval.
 	 */
 	private isContactQuery(query: string): boolean {
-		return /\b(contact|address(es)?|phone|email|location(s)?|office(s)?|branch(es)?|reach|get in touch|headquarter(s)?|hq|number|call us|mail us|where are you|how to reach|all location|list location)\b/i.test(
+		return /\b(contact|address(es)?|phone|email|location(s)?|office(s)?|branch(es)?|reach|get in touch|headquarter(s)?|hq|number|call us|mail us|where are you|how to reach|all location|list location|consult(ation)?|get in contact|schedule|appointment|book a call|talk to|speak to|meet with)\b/i.test(
 			query,
 		);
 	}
@@ -124,13 +124,20 @@ class QueryTransformService {
 		_standaloneQuery: string,
 		isContactQuery: boolean = false,
 	): TransformResult {
+		// Contact queries need much more space than factual_short defaults
+		const formatHint = isContactQuery
+			? "List ALL contact details found in the context. For EACH office or location, include the complete address, ALL phone numbers, and the email. Present each office as its own labelled section. Do NOT truncate, omit, or summarise any office. Do NOT invent any phone number, email, or address — only use what is explicitly in the context. This response may be longer than usual."
+			: INTENT_FORMAT_HINTS[intent];
+		const wordLimit = isContactQuery ? 300 : INTENT_WORD_LIMITS[intent];
+		const maxParagraphs = isContactQuery ? 10 : INTENT_MAX_PARAGRAPHS[intent];
+
 		return {
 			intent,
 			retrievalQuery,
 			subQueries,
-			formatHint: INTENT_FORMAT_HINTS[intent],
-			wordLimit: INTENT_WORD_LIMITS[intent],
-			maxParagraphs: INTENT_MAX_PARAGRAPHS[intent],
+			formatHint,
+			wordLimit,
+			maxParagraphs,
 			isContactQuery,
 		};
 	}
