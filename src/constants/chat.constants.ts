@@ -1,10 +1,14 @@
-export const CHAT_RETRIEVAL_CACHE_TTL_SECONDS = 120;
+export const CHAT_RETRIEVAL_CACHE_TTL_SECONDS = 300; // 5 min (was 2 min)
 export const CHAT_DEFAULT_TIMEOUT_MS = 25_000;
 export const CHAT_SESSION_CACHE_TTL_SECONDS = 60 * 30;
 
 // Retrieval quality
 export const CHAT_RETRIEVAL_SCORE_THRESHOLD = 0.40; // filter out chunks below this cosine score
 export const CHAT_RETRIEVAL_FETCH_MULTIPLIER = 2;   // fetch N×topK then rerank down to topK
+
+// Contact query retrieval — use a higher topK so ALL offices are captured
+export const CHAT_CONTACT_QUERY_TOP_K = 15;
+export const CHAT_CONTACT_RERANK_TOP_N = 10;
 
 // Chunking
 export const CHUNK_MAX_CHARS = 600;
@@ -19,11 +23,11 @@ export const CHAT_SUMMARY_KEEP_RECENT = 6;        // always keep this many recen
 export const CHAT_SUMMARY_CACHE_TTL_SECONDS = 60 * 60; // 1 hour
 
 // Intent-specific word limits
-export const CHAT_WORD_LIMIT_FACTUAL = 60;
-export const CHAT_WORD_LIMIT_LIST = 200;
-export const CHAT_WORD_LIMIT_EXPLANATION = 170;
-export const CHAT_WORD_LIMIT_COMPARISON = 220;
-export const CHAT_WORD_LIMIT_DEFAULT = 150;
+export const CHAT_WORD_LIMIT_FACTUAL = 80;
+export const CHAT_WORD_LIMIT_LIST = 250;
+export const CHAT_WORD_LIMIT_EXPLANATION = 200;
+export const CHAT_WORD_LIMIT_COMPARISON = 260;
+export const CHAT_WORD_LIMIT_DEFAULT = 200;
 
 // Agentic RAG
 export const CHAT_AGENTIC_MAX_SUB_QUERIES = 3;
@@ -58,7 +62,7 @@ export const CHAT_SESSION_CACHE_MESSAGE_LIMIT = parseBoundedInt(
 export const CHAT_COMPLETION_MODEL =
 	process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4o";
 export const CHAT_COMPLETION_TEMPERATURE = 0.3;
-export const CHAT_COMPLETION_MAX_TOKENS = 600;
+export const CHAT_COMPLETION_MAX_TOKENS = 1000;
 
 export const UUID_V1_TO_V5_REGEX =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

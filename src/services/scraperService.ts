@@ -7,6 +7,8 @@ import {
 	assertSafeOutgoingUrl,
 } from "../utils/networkSafety";
 
+const SCRAPER_CONCURRENCY = 5; // pages processed in parallel
+
 interface CrawlOptions {
 	maxDepth?: number;
 	maxPages?: number;
@@ -294,96 +296,92 @@ class ScraperService {
 			urlQueue.length > 0 &&
 			visitedUrls.size < maxPages
 		) {
-			const { url: currentUrl, depth } =
-				urlQueue.shift()!;
-			const normalizedUrl =
-				this.normalizeUrl(currentUrl);
-
-			if (visitedUrls.has(normalizedUrl))
-				continue;
-			if (depth > maxDepth) continue;
-
-			visitedUrls.add(normalizedUrl);
-
-			try {
-				const html =
-					await this.fetchPageContent(
-						normalizedUrl,
-					);
-				const pageData =
-					this.extractPageData(
-						html,
-						normalizedUrl,
-					);
-
-				if (depth === 0 && pageData.title) {
-					rootTitle = pageData.title;
-				}
-
-				// Store in Pinecone
-				await pineconeService.upsertDocument(
-					userId,
-					pageData.url,
-					pageData.title,
-					pageData.content,
-					{
-						...pageData.metadata,
-						sourceRoot: rootUrl,
-						sourceRootTitle:
-							rootTitle ||
-							pageData.title ||
-							rootUrl,
-					},
-				);
-
-				scrapedPages.push(pageData);
-
-				if (depth < maxDepth) {
-					for (const link of pageData.links) {
-						const normalizedLink =
-							this.normalizeUrl(link);
-						if (
-							!visitedUrls.has(
-								normalizedLink,
-							) &&
-							this.isValidInternalUrl(
-								normalizedLink,
-								url,
-							)
-						) {
-							urlQueue.push({
-								url: normalizedLink,
-								depth: depth + 1,
-							});
-						}
-					}
-				}
-			} catch (error) {
-				const errorMessage =
-					error instanceof Error
-						? error.message
-						: String(error);
-				if (!firstFailureReason) {
-					firstFailureReason = errorMessage;
-				}
-				logger.error(
-					`Error scraping ${normalizedUrl}`,
-					{ error, errorMessage },
-				);
-			} finally {
-				await reportProgress?.({
-					totalPages: Math.min(
-						maxPages,
-						Math.max(
-							visitedUrls.size + urlQueue.length,
-							visitedUrls.size,
-						),
-					),
-					scrapedPages: visitedUrls.size,
-					storedPages: scrapedPages.length,
-					currentUrl: normalizedUrl,
-				});
+			// Collect a batch of unique, valid URLs to process concurrently
+			const batch: Array<{ url: string; depth: number }> = [];
+			while (
+				urlQueue.length > 0 &&
+				batch.length < SCRAPER_CONCURRENCY &&
+				visitedUrls.size + batch.length < maxPages
+			) {
+				const item = urlQueue.shift()!;
+				const normalizedUrl = this.normalizeUrl(item.url);
+				if (visitedUrls.has(normalizedUrl)) continue;
+				if (item.depth > maxDepth) continue;
+				visitedUrls.add(normalizedUrl);
+				batch.push({ url: normalizedUrl, depth: item.depth });
 			}
+
+			if (batch.length === 0) break;
+
+			// Process the batch in parallel
+			await Promise.allSettled(
+				batch.map(async ({ url: currentUrl, depth }) => {
+					try {
+						const html = await this.fetchPageContent(currentUrl);
+						const pageData = this.extractPageData(html, currentUrl);
+
+						if (depth === 0 && pageData.title) {
+							rootTitle = pageData.title;
+						}
+
+						// Store in Pinecone
+						await pineconeService.upsertDocument(
+							userId,
+							pageData.url,
+							pageData.title,
+							pageData.content,
+							{
+								...pageData.metadata,
+								sourceRoot: rootUrl,
+								sourceRootTitle:
+									rootTitle || pageData.title || rootUrl,
+							},
+						);
+
+						scrapedPages.push(pageData);
+
+						if (depth < maxDepth) {
+							for (const link of pageData.links) {
+								const normalizedLink = this.normalizeUrl(link);
+								if (
+									!visitedUrls.has(normalizedLink) &&
+									this.isValidInternalUrl(normalizedLink, url)
+								) {
+									urlQueue.push({
+										url: normalizedLink,
+										depth: depth + 1,
+									});
+								}
+							}
+						}
+					} catch (error) {
+						const errorMessage =
+							error instanceof Error
+								? error.message
+								: String(error);
+						if (!firstFailureReason) {
+							firstFailureReason = errorMessage;
+						}
+						logger.error(`Error scraping ${currentUrl}`, {
+							error,
+							errorMessage,
+						});
+					} finally {
+						await reportProgress?.({
+							totalPages: Math.min(
+								maxPages,
+								Math.max(
+									visitedUrls.size + urlQueue.length,
+									visitedUrls.size,
+								),
+							),
+							scrapedPages: visitedUrls.size,
+							storedPages: scrapedPages.length,
+							currentUrl,
+						});
+					}
+				}),
+			);
 		}
 
 		logger.info(

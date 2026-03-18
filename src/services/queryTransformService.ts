@@ -25,13 +25,13 @@ export type TransformResult = {
 
 const INTENT_WORD_LIMITS: Record<QueryIntent, number> = {
 	small_talk: 40,
-	factual_short: 60,
-	list_request: 200,
-	explanation: 170,
-	comparison: 220,
-	complex: 220,
-	lead_capture: 50,
-	general: 150,
+	factual_short: 80,
+	list_request: 250,
+	explanation: 200,
+	comparison: 260,
+	complex: 260,
+	lead_capture: 80,
+	general: 200,
 };
 
 const INTENT_MAX_PARAGRAPHS: Record<QueryIntent, number> = {

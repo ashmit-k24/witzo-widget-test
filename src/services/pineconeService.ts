@@ -293,6 +293,27 @@ class PineconeService {
 		return `${this.sanitizeId(userId)}_${sanitizedUrl}_chunk_${chunkIndex}`;
 	}
 
+	/**
+	 * Infers the page type from the URL path so chunks can be filtered
+	 * at retrieval time (e.g. contact queries → only 'contact' chunks).
+	 */
+	private detectPageType(url: string): string {
+		try {
+			const pathname = new URL(url).pathname.toLowerCase();
+			if (/\/(contact|reach|get-in-touch|location|office|map)/.test(pathname)) return "contact";
+			if (/\/(service|solution|product|offering|what-we-do)/.test(pathname)) return "services";
+			if (/\/(price|pricing|plan|cost|rate|package)/.test(pathname)) return "pricing";
+			if (/\/(about|team|history|who-we-are|company|our-story|founder)/.test(pathname)) return "about";
+			if (/\/(faq|help|support|question|answer|kb|knowledge)/.test(pathname)) return "faq";
+			if (/\/(blog|article|news|post|insight|update|resource)/.test(pathname)) return "blog";
+			if (/\/(portfolio|case-stud|work|project|client)/.test(pathname)) return "portfolio";
+			if (/\/(career|job|hiring|join|vacanc)/.test(pathname)) return "careers";
+		} catch {
+			// invalid URL — fall through to general
+		}
+		return "general";
+	}
+
 	private async upsertRagSourcePage(
 		userId: string,
 		url: string,
@@ -440,6 +461,7 @@ class PineconeService {
 					totalChunks: chunks.length,
 					content: chunk,
 					userId,
+					pageType: this.detectPageType(url),
 					...metadata,
 				};
 
@@ -890,13 +912,34 @@ class PineconeService {
 				`Fetching all sources for user: ${userId}`,
 			);
 
+			// Query postgres directly — far faster than paginating Pinecone
+			const result = await pool.query(
+				`SELECT source_type, source_root, source_url, title, chunks, scraped_at
+				 FROM rag_source_pages
+				 WHERE user_id = $1
+				 ORDER BY scraped_at DESC NULLS LAST`,
+				[userId],
+			);
+
+			const rows: Array<{
+				source_type: string;
+				source_root: string | null;
+				source_url: string;
+				title: string | null;
+				chunks: number;
+				scraped_at: Date | null;
+			}> = result.rows;
+
+			if (rows.length === 0) {
+				return { documents: [], websites: [], totalChunks: 0 };
+			}
+
 			const documentMap = new Map<
 				string,
 				{
 					url: string;
 					title: string;
 					uploadedAt: string;
-					fileType?: string;
 					chunks: number;
 				}
 			>();
@@ -919,105 +962,36 @@ class PineconeService {
 				}
 			>();
 
-			await this.forEachUserRecord(
-				userId,
-				async (records) => {
-					for (const record of Object.values(
-						records,
-					)) {
-						const metadata = record.metadata as
-							| (PineconeMetadata & {
-									fileType?: string;
-									uploadedAt?: string;
-									sourceRoot?: string;
-									sourceRootTitle?: string;
-							  })
-							| undefined;
+			for (const row of rows) {
+				const scrapedAt = row.scraped_at
+					? row.scraped_at.toISOString()
+					: new Date().toISOString();
 
-						const sourceUrl = metadata?.url;
-						if (!sourceUrl) {
-							continue;
-						}
-
-						const isDocument =
-							sourceUrl.startsWith("document://");
-
-						if (isDocument) {
-							if (!documentMap.has(sourceUrl)) {
-								documentMap.set(sourceUrl, {
-									url: sourceUrl,
-									title:
-										metadata?.title || sourceUrl,
-									uploadedAt:
-										metadata?.scrapedAt ||
-										metadata?.uploadedAt ||
-										new Date().toISOString(),
-									fileType: metadata?.fileType,
-									chunks: 0,
-								});
-							}
-							const doc =
-								documentMap.get(sourceUrl);
-							if (doc) {
-								doc.chunks += 1;
-							}
-						} else {
-							// Group website pages by sourceRoot
-							const rootUrl =
-								metadata?.sourceRoot || sourceUrl;
-							const rootTitle =
-								metadata?.sourceRootTitle ||
-								metadata?.title ||
-								rootUrl;
-
-							if (!websiteMap.has(rootUrl)) {
-								websiteMap.set(rootUrl, {
-									rootUrl,
-									title: rootTitle,
-									scrapedAt:
-										metadata?.scrapedAt ||
-										new Date().toISOString(),
-									pagesMap: new Map(),
-								});
-							}
-
-							const website =
-								websiteMap.get(rootUrl)!;
-
-							// Track individual page entry
-							if (
-								!website.pagesMap.has(sourceUrl)
-							) {
-								website.pagesMap.set(sourceUrl, {
-									url: sourceUrl,
-									title:
-										metadata?.title || sourceUrl,
-									chunks: 0,
-									scrapedAt:
-										metadata?.scrapedAt ||
-										new Date().toISOString(),
-								});
-							}
-
-							const page =
-								website.pagesMap.get(sourceUrl);
-							if (page) {
-								page.chunks += 1;
-							}
-						}
+				if (row.source_type === "document") {
+					documentMap.set(row.source_url, {
+						url: row.source_url,
+						title: row.title || row.source_url,
+						uploadedAt: scrapedAt,
+						chunks: row.chunks,
+					});
+				} else {
+					const rootUrl = row.source_root || row.source_url;
+					if (!websiteMap.has(rootUrl)) {
+						websiteMap.set(rootUrl, {
+							rootUrl,
+							title: row.title || rootUrl,
+							scrapedAt,
+							pagesMap: new Map(),
+						});
 					}
-				},
-			);
-
-			if (
-				documentMap.size === 0 &&
-				websiteMap.size === 0
-			) {
-				return {
-					documents: [],
-					websites: [],
-					totalChunks: 0,
-				};
+					const website = websiteMap.get(rootUrl)!;
+					website.pagesMap.set(row.source_url, {
+						url: row.source_url,
+						title: row.title || row.source_url,
+						chunks: row.chunks,
+						scrapedAt,
+					});
+				}
 			}
 
 			const documents: Array<{
@@ -1033,12 +1007,9 @@ class PineconeService {
 			for (const doc of documentMap.values()) {
 				totalChunks += doc.chunks;
 				documents.push({
-					filename: doc.url.replace(
-						"document://",
-						"",
-					),
+					filename: doc.url.replace("document://", ""),
 					url: doc.url,
-					fileType: doc.fileType || "unknown",
+					fileType: "unknown",
 					uploadedAt: doc.uploadedAt,
 					chunks: doc.chunks,
 				});
@@ -1058,9 +1029,7 @@ class PineconeService {
 			}> = [];
 
 			for (const website of websiteMap.values()) {
-				const pages = Array.from(
-					website.pagesMap.values(),
-				).sort(
+				const pages = Array.from(website.pagesMap.values()).sort(
 					(a, b) =>
 						new Date(a.scrapedAt).getTime() -
 						new Date(b.scrapedAt).getTime(),
