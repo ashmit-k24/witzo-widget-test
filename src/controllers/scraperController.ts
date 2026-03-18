@@ -51,7 +51,7 @@ export const scrapeWebsite = async (
 	let jobId: string | null = null;
 	try {
 		const {
-			url,
+			url: rawUrl,
 			maxDepth = 3,
 			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
 		} = req.body as ScrapeRequest;
@@ -68,13 +68,18 @@ export const scrapeWebsite = async (
 			return;
 		}
 
-		if (!url) {
+		if (!rawUrl) {
 			res.status(400).json({
 				success: false,
 				message: "URL is required",
 			});
 			return;
 		}
+
+		// Normalize bare domains (e.g. "example.com" → "https://example.com")
+		const url = /^https?:\/\//i.test(rawUrl.trim())
+			? rawUrl.trim()
+			: `https://${rawUrl.trim().replace(/^\/\//, "")}`;
 
 		const policyCheck =
 			await domainPolicyService.isDomainDisallowed(url);
@@ -711,7 +716,7 @@ export const retrainWebsite = async (
 	let jobId: string | null = null;
 	try {
 		const {
-			url,
+			url: rawUrl,
 			maxDepth = 3,
 			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
 		} = req.body as ScrapeRequest;
@@ -728,13 +733,18 @@ export const retrainWebsite = async (
 			return;
 		}
 
-		if (!url) {
+		if (!rawUrl) {
 			res.status(400).json({
 				success: false,
 				message: "URL is required",
 			});
 			return;
 		}
+
+		// Normalize bare domains (e.g. "example.com" → "https://example.com")
+		const url = /^https?:\/\//i.test(rawUrl.trim())
+			? rawUrl.trim()
+			: `https://${rawUrl.trim().replace(/^\/\//, "")}`;
 
 		logger.info(
 			`Retraining website: ${url}`,

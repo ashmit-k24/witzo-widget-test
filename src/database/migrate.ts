@@ -187,6 +187,12 @@ const migrations: Migration[] = [
 			"Add password_hash column to users for password-based authentication",
 		file: "20260317_028_user_password_hash.sql",
 	},
+	{
+		id: "20260317_029_plans_seed_all",
+		description:
+			"Upsert all plans (free, basic, standard, enterprise) with full capabilities",
+		file: "20260317_029_plans_seed_all.sql",
+	},
 ];
 
 const ensureMigrationTable = async (
