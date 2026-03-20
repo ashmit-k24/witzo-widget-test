@@ -7,6 +7,8 @@ import { config } from "../config/env";
 import {
 	CleanupResult,
 	LogoutResponse,
+	PasswordResetResponse,
+	PasswordResetToken,
 	RefreshTokenResponse,
 	RequestCodeResponse,
 	User,
@@ -97,6 +99,30 @@ class AuthService {
 		if (typeof value !== "string") return null;
 		const normalized = value.trim();
 		return normalized.length > 0 ? normalized : null;
+	}
+
+	private readonly PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = 30;
+	private readonly PASSWORD_RESET_REQUEST_MESSAGE =
+		"If an account with that email exists, we sent a password reset link.";
+
+	private generatePasswordResetToken(): string {
+		return crypto.randomBytes(32).toString("hex");
+	}
+
+	private hashOpaqueToken(token: string): string {
+		return crypto
+			.createHash("sha256")
+			.update(token, "utf8")
+			.digest("hex");
+	}
+
+	private buildPasswordResetUrl(token: string): string {
+		const resetUrl = new URL(
+			"/reset-password",
+			config.FRONTEND_URL,
+		);
+		resetUrl.searchParams.set("token", token);
+		return resetUrl.toString();
 	}
 
 	/**
@@ -1422,8 +1448,278 @@ class AuthService {
 		}
 	}
 
+	async requestPasswordReset(
+		email: string,
+	): Promise<PasswordResetResponse> {
+		const normalizedEmail = email.toLowerCase().trim();
+		const client: PoolClient = await pool.connect();
+		const genericResponse: PasswordResetResponse = {
+			success: true,
+			message: this.PASSWORD_RESET_REQUEST_MESSAGE,
+		};
+
+		try {
+			await client.query("BEGIN");
+
+			const userResult = await client.query<
+				User & {
+					password_hash: string | null;
+				}
+			>(
+				`SELECT *
+         FROM users
+         WHERE email = $1
+         LIMIT 1`,
+				[normalizedEmail],
+			);
+
+			const user = userResult.rows[0];
+			if (!user || !user.is_verified) {
+				await client.query("COMMIT");
+				return genericResponse;
+			}
+
+			const recentRequestsResult =
+				await client.query<{ count: string }>(
+					`SELECT COUNT(*)::text AS count
+           FROM password_reset_tokens
+           WHERE user_id = $1
+             AND created_at > NOW() - INTERVAL '1 hour'`,
+					[user.id],
+				);
+			const recentRequests = parseInt(
+				recentRequestsResult.rows[0]?.count ?? "0",
+				10,
+			);
+
+			if (recentRequests >= 3) {
+				logger.warn(
+					"Rate limit exceeded for password reset requests",
+					{
+						email: normalizedEmail,
+						userId: user.id,
+						requests: recentRequests,
+					},
+				);
+				await client.query("COMMIT");
+				return genericResponse;
+			}
+
+			await client.query(
+				`UPDATE password_reset_tokens
+         SET used_at = COALESCE(used_at, CURRENT_TIMESTAMP)
+         WHERE user_id = $1
+           AND used_at IS NULL`,
+				[user.id],
+			);
+
+			const resetToken =
+				this.generatePasswordResetToken();
+			const tokenHash =
+				this.hashOpaqueToken(resetToken);
+			const expiresAt = new Date(
+				Date.now() +
+					this
+						.PASSWORD_RESET_TOKEN_EXPIRY_MINUTES *
+						60 *
+						1000,
+			);
+
+			await client.query(
+				`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3)`,
+				[user.id, tokenHash, expiresAt],
+			);
+
+			const resetUrl =
+				this.buildPasswordResetUrl(resetToken);
+
+			try {
+				await emailService.sendPasswordResetEmail(
+					normalizedEmail,
+					resetUrl,
+					this
+						.PASSWORD_RESET_TOKEN_EXPIRY_MINUTES,
+				);
+			} catch (emailError) {
+				const err = emailError as Error;
+				logger.error(
+					"Failed to send password reset email",
+					{
+						email: normalizedEmail,
+						userId: user.id,
+						error: err.message,
+						stack: err.stack,
+					},
+				);
+				throw new Error(
+					"Failed to send password reset email. Please try again.",
+				);
+			}
+
+			await client.query("COMMIT");
+
+			logger.info("Password reset requested", {
+				email: normalizedEmail,
+				userId: user.id,
+			});
+
+			return genericResponse;
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// Transaction may already be closed.
+			}
+
+			const err = error as Error;
+			logger.error("Error requesting password reset", {
+				email: normalizedEmail,
+				error: err.message,
+				stack: err.stack,
+			});
+
+			if ("statusCode" in err) {
+				throw err;
+			}
+
+			throw this.createHttpError(
+				"Failed to process password reset request",
+				500,
+			);
+		} finally {
+			client.release();
+		}
+	}
+
+	async resetPassword(
+		token: string,
+		password: string,
+	): Promise<PasswordResetResponse> {
+		const client: PoolClient = await pool.connect();
+		const invalidTokenResponse: PasswordResetResponse =
+			{
+				success: false,
+				message:
+					"This password reset link is invalid or has expired. Please request a new one.",
+			};
+
+		try {
+			await client.query("BEGIN");
+
+			const tokenHash = this.hashOpaqueToken(token);
+			const tokenResult = await client.query<
+				PasswordResetToken & {
+					email: string;
+					is_verified: boolean;
+				}
+			>(
+				`SELECT prt.*, u.email, u.is_verified
+         FROM password_reset_tokens prt
+         JOIN users u ON u.id = prt.user_id
+         WHERE prt.token_hash = $1
+         LIMIT 1`,
+				[tokenHash],
+			);
+
+			if (tokenResult.rows.length === 0) {
+				await client.query("ROLLBACK");
+				return invalidTokenResponse;
+			}
+
+			const resetRecord = tokenResult.rows[0];
+			const isExpired =
+				new Date() >
+				new Date(resetRecord.expires_at);
+
+			if (
+				!resetRecord.is_verified ||
+				resetRecord.used_at ||
+				isExpired
+			) {
+				if (!resetRecord.used_at) {
+					await client.query(
+						`UPDATE password_reset_tokens
+             SET used_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+						[resetRecord.id],
+					);
+				}
+
+				await client.query("COMMIT");
+				return invalidTokenResponse;
+			}
+
+			const passwordHash =
+				await this.hashPassword(password);
+
+			await client.query(
+				`UPDATE users
+         SET password_hash = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+				[resetRecord.user_id, passwordHash],
+			);
+
+			await client.query(
+				`UPDATE password_reset_tokens
+         SET used_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+				[resetRecord.id],
+			);
+
+			await client.query(
+				`UPDATE password_reset_tokens
+         SET used_at = COALESCE(used_at, CURRENT_TIMESTAMP)
+         WHERE user_id = $1
+           AND used_at IS NULL`,
+				[resetRecord.user_id],
+			);
+
+			await client.query(
+				`UPDATE sessions
+         SET is_revoked = TRUE,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $1
+           AND is_revoked = FALSE`,
+				[resetRecord.user_id],
+			);
+
+			await client.query("COMMIT");
+
+			logger.info("Password reset completed", {
+				email: resetRecord.email,
+				userId: resetRecord.user_id,
+			});
+
+			return {
+				success: true,
+				message:
+					"Password updated successfully. Please log in with your new password.",
+			};
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// Transaction may already be closed.
+			}
+
+			const err = error as Error;
+			logger.error("Error resetting password", {
+				error: err.message,
+				stack: err.stack,
+			});
+			throw this.createHttpError(
+				"Failed to reset password",
+				500,
+			);
+		} finally {
+			client.release();
+		}
+	}
+
 	/**
-	 * Clean up expired sessions and verification codes
+	 * Clean up expired sessions, verification codes, and password reset tokens
 	 */
 	async cleanupExpired(): Promise<CleanupResult> {
 		try {
@@ -1449,15 +1745,25 @@ class AuthService {
            AND created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'`,
 			);
 
+			const resetTokensResult = await pool.query(
+				`DELETE FROM password_reset_tokens
+         WHERE (expires_at < CURRENT_TIMESTAMP OR used_at IS NOT NULL)
+           AND created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'`,
+			);
+
 			logger.info("Cleanup completed", {
 				sessionsRevoked: sessionsResult.rowCount,
 				codesDeleted: codesResult.rowCount,
+				resetTokensDeleted:
+					resetTokensResult.rowCount,
 			});
 
 			return {
 				sessionsDeleted:
 					sessionsResult.rowCount || 0,
-				codesDeleted: codesResult.rowCount || 0,
+				codesDeleted:
+					(codesResult.rowCount || 0) +
+					(resetTokensResult.rowCount || 0),
 			};
 		} catch (error) {
 			const err = error as Error;

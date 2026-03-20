@@ -10,6 +10,10 @@ export const CHAT_RETRIEVAL_FETCH_MULTIPLIER = 2;   // fetch N×topK then rerank
 export const CHAT_CONTACT_QUERY_TOP_K = 15;
 export const CHAT_CONTACT_RERANK_TOP_N = 10;
 
+// Case study / portfolio retrieval — fetch more candidates, but keep named examples focused
+export const CHAT_CASE_STUDY_QUERY_TOP_K = 12;
+export const CHAT_CASE_STUDY_RERANK_TOP_N = 8;
+
 // Chunking
 export const CHUNK_MAX_CHARS = 600;
 export const CHUNK_OVERLAP_CHARS = 150;

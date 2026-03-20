@@ -193,6 +193,12 @@ const migrations: Migration[] = [
 			"Upsert all plans (free, basic, standard, enterprise) with full capabilities",
 		file: "20260317_029_plans_seed_all.sql",
 	},
+	{
+		id: "20260320_030_password_reset_tokens",
+		description:
+			"Create password reset tokens table and indexes",
+		file: "20260320_030_password_reset_tokens.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

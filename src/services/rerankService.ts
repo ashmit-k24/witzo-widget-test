@@ -20,6 +20,46 @@ class RerankService {
 		}
 	}
 
+	private buildRerankDocument(match: any): string {
+		const metadata = match?.metadata ?? {};
+		const parts: string[] = [];
+		const title = String(metadata.title ?? "").trim();
+		const pageType = String(
+			metadata.pageType ?? "",
+		).trim();
+		const blockType = String(
+			metadata.blockType ?? "",
+		).trim();
+		const sectionTitle = String(
+			metadata.sectionTitle ?? "",
+		).trim();
+		const url = String(metadata.url ?? "").trim();
+		const content = String(
+			metadata.content ?? "",
+		).trim();
+
+		if (title) {
+			parts.push(`Title: ${title}`);
+		}
+		if (pageType) {
+			parts.push(`Page Type: ${pageType}`);
+		}
+		if (sectionTitle) {
+			parts.push(`Section: ${sectionTitle}`);
+		}
+		if (blockType) {
+			parts.push(`Block Type: ${blockType}`);
+		}
+		if (url) {
+			parts.push(`URL: ${url}`);
+		}
+		if (content) {
+			parts.push(`Content: ${content}`);
+		}
+
+		return parts.join("\n");
+	}
+
 	/**
 	 * Rerank Pinecone matches using Cohere's cross-encoder.
 	 * Falls back to original cosine order if Cohere is not configured or fails.
@@ -34,8 +74,8 @@ class RerankService {
 		}
 
 		// Extract text content for each match
-		const documents = matches.map((m) =>
-			String(m.metadata?.content || ""),
+		const documents = matches.map((match) =>
+			this.buildRerankDocument(match),
 		);
 
 		// Filter out empty docs (keep track of originals)

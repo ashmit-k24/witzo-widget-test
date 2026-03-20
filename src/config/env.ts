@@ -288,6 +288,9 @@ export const config: EnvConfig = {
 		"PINECONE_INDEX_NAME",
 		"website-scraper",
 	),
+	PINECONE_HOST: getOptionalEnvString(
+		"PINECONE_HOST",
+	),
 
 	// OpenAI
 	OPENAI_API_KEY: getEnvString(
@@ -296,7 +299,11 @@ export const config: EnvConfig = {
 	),
 	OPENAI_MODEL: getEnvString(
 		"OPENAI_MODEL",
-		"text-embedding-3-small",
+		"text-embedding-3-large",
+	),
+	OPENAI_EMBEDDING_DIMENSIONS: getEnvNumber(
+		"OPENAI_EMBEDDING_DIMENSIONS",
+		3072,
 	),
 	RAZORPAY_KEY_ID: getEnvString(
 		"RAZORPAY_KEY_ID",

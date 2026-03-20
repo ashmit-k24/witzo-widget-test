@@ -22,6 +22,8 @@ import {
 	CHAT_WORD_LIMIT_EXPLANATION,
 	CHAT_WORD_LIMIT_COMPARISON,
 	CHAT_WORD_LIMIT_DEFAULT,
+	CHAT_CASE_STUDY_QUERY_TOP_K,
+	CHAT_CASE_STUDY_RERANK_TOP_N,
 	CHAT_CONTACT_QUERY_TOP_K,
 	CHAT_CONTACT_RERANK_TOP_N,
 	UUID_V1_TO_V5_REGEX,
@@ -52,6 +54,11 @@ type ContextResult = {
 		title: string;
 		relevanceScore: number;
 	}>;
+};
+
+type RetrievalFilters = {
+	pageTypes?: string[];
+	blockTypes?: string[];
 };
 
 type ChatTiming = {
@@ -99,9 +106,16 @@ class ChatService {
 	private getRetrievalCacheKey(
 		userId: string,
 		query: string,
+		options?: {
+			intent?: QueryIntent;
+			isContactQuery?: boolean;
+			topK?: number;
+			scoreThreshold?: number;
+			filters?: RetrievalFilters;
+		},
 	): string {
-		// Keyed on userId + query only — retrieval results don't depend on session,
-		// so cross-session cache hits are valid and reduce redundant Pinecone calls.
+		// Keyed on userId + normalized query + retrieval strategy so cache hits
+		// stay valid even when filters or thresholds change between requests.
 		const normalized = query
 			.toLowerCase()
 			.trim()
@@ -110,7 +124,25 @@ class ChatService {
 			.createHash("sha1")
 			.update(normalized)
 			.digest("hex");
-		return `chat:retrieval:${userId}:${digest}`;
+		const filterPayload = JSON.stringify({
+			intent: options?.intent ?? "general",
+			isContactQuery:
+				options?.isContactQuery ?? false,
+			topK: options?.topK ?? null,
+			scoreThreshold:
+				options?.scoreThreshold ?? null,
+			pageTypes: [
+				...(options?.filters?.pageTypes ?? []),
+			].sort(),
+			blockTypes: [
+				...(options?.filters?.blockTypes ?? []),
+			].sort(),
+		});
+		const filterDigest = crypto
+			.createHash("sha1")
+			.update(filterPayload)
+			.digest("hex");
+		return `chat:retrieval:${userId}:${digest}:${filterDigest}`;
 	}
 
 	private normalizeSessionId(sessionId?: string): string | null {
@@ -138,12 +170,35 @@ class ChatService {
 				const sourceUrl = String(
 					match.metadata?.url || "",
 				);
+				const pageType = String(
+					match.metadata?.pageType || "",
+				);
+				const blockType = String(
+					match.metadata?.blockType || "",
+				);
+				const sectionTitle = String(
+					match.metadata?.sectionTitle || "",
+				);
+				const sectionPath = Array.isArray(
+					match.metadata?.sectionPath,
+				)
+					? match.metadata.sectionPath
+							.map((value: unknown) =>
+								String(value),
+							)
+							.filter(Boolean)
+							.join(" > ")
+					: "";
 				const content = String(
 					match.metadata?.content || "",
 				);
 				return `<document index="${index + 1}">
 <title>${this.escapePromptBlock(title)}</title>
 <source>${this.escapePromptBlock(sourceUrl)}</source>
+${pageType ? `<page_type>${this.escapePromptBlock(pageType)}</page_type>` : ""}
+${blockType ? `<block_type>${this.escapePromptBlock(blockType)}</block_type>` : ""}
+${sectionTitle ? `<section>${this.escapePromptBlock(sectionTitle)}</section>` : ""}
+${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_path>` : ""}
 <content>${this.escapePromptBlock(content)}</content>
 </document>`;
 			})
@@ -202,11 +257,147 @@ class ChatService {
 		topK: number,
 		scoreThreshold?: number,
 		rerankTopN?: number,
+		filters?: RetrievalFilters,
 	): Promise<any[]> {
 		const fetchK = topK * CHAT_RETRIEVAL_FETCH_MULTIPLIER;
-		const raw = await pineconeService.queryDocuments(userId, retrievalQuery, fetchK, scoreThreshold);
+		const raw = await pineconeService.queryDocuments(
+			userId,
+			retrievalQuery,
+			fetchK,
+			scoreThreshold,
+			filters,
+		);
 		if (!raw.length) return [];
 		return rerankService.rerank(retrievalQuery, raw, rerankTopN ?? topK);
+	}
+
+	private isCaseStudyQuery(query: string): boolean {
+		return /\b(case stud(?:y|ies)|portfolio|project(?:s)?|example(?:s)?|sample(?:s)?|client work|success stor(?:y|ies)|work sample(?:s)?)\b/i.test(
+			query,
+		);
+	}
+
+	private buildRetrievalFilters(
+		query: string,
+		intent: QueryIntent,
+		isContactQuery: boolean,
+	): RetrievalFilters | undefined {
+		const normalized = query.toLowerCase();
+		const pageTypes = new Set<string>();
+		const blockTypes = new Set<string>();
+
+		if (isContactQuery) {
+			pageTypes.add("contact");
+			pageTypes.add("about");
+			blockTypes.add("contact");
+			blockTypes.add("list");
+			blockTypes.add("summary");
+		}
+		if (
+			/\b(price|pricing|plan|plans|cost|costs|package|packages|quote)\b/.test(
+				normalized,
+			)
+		) {
+			pageTypes.add("pricing");
+			blockTypes.add("table");
+			blockTypes.add("list");
+		}
+		if (
+			intent === "list_request" &&
+			/\b(service|services|solution|solutions|product|products|feature|features|offering|offerings|capabilities)\b/.test(
+				normalized,
+			)
+		) {
+			pageTypes.add("services");
+			pageTypes.add("portfolio");
+			blockTypes.add("list");
+		}
+		if (this.isCaseStudyQuery(query)) {
+			pageTypes.add("portfolio");
+			blockTypes.add("list");
+			blockTypes.add("summary");
+		}
+		if (
+			/\b(faq|faqs|question|questions|answer|answers|help|support)\b/.test(
+				normalized,
+			)
+		) {
+			pageTypes.add("faq");
+			blockTypes.add("faq");
+		}
+		if (
+			/\b(about|team|company|founder|history|mission|vision|who are you|who we are)\b/.test(
+				normalized,
+			)
+		) {
+			pageTypes.add("about");
+			blockTypes.add("summary");
+		}
+		if (
+			/\b(career|careers|job|jobs|hiring|vacancy|vacancies)\b/.test(
+				normalized,
+			)
+		) {
+			pageTypes.add("careers");
+		}
+
+		if (pageTypes.size === 0 && blockTypes.size === 0) {
+			return undefined;
+		}
+
+		return {
+			pageTypes:
+				pageTypes.size > 0
+					? Array.from(pageTypes).sort()
+					: undefined,
+			blockTypes:
+				blockTypes.size > 0
+					? Array.from(blockTypes).sort()
+					: undefined,
+		};
+	}
+
+	private async retrieveWithFallback(
+		userId: string,
+		retrievalQuery: string,
+		topK: number,
+		scoreThreshold?: number,
+		rerankTopN?: number,
+		filters?: RetrievalFilters,
+	): Promise<any[]> {
+		if (!filters) {
+			return this.retrieveAndRerank(
+				userId,
+				retrievalQuery,
+				topK,
+				scoreThreshold,
+				rerankTopN,
+			);
+		}
+
+		const focused = await this.retrieveAndRerank(
+			userId,
+			retrievalQuery,
+			topK,
+			scoreThreshold,
+			rerankTopN,
+			filters,
+		);
+		if (focused.length >= Math.max(2, Math.ceil(topK / 2))) {
+			return focused;
+		}
+
+		const broad = await this.retrieveAndRerank(
+			userId,
+			retrievalQuery,
+			topK,
+			scoreThreshold,
+			rerankTopN,
+		);
+		return this.deduplicateMatches(
+			[...focused, ...broad],
+			rerankTopN ?? topK,
+		);
 	}
 
 	private getFallbackResponse(): string {
@@ -701,7 +892,7 @@ class ChatService {
 		return "Thanks for sharing your **contact details**. Could you also share your **company name**?";
 	}
 
-private normalizeLanguagePreference(
+	private normalizeLanguagePreference(
 		language?: string,
 	): string | undefined {
 		if (!language) return undefined;
@@ -883,17 +1074,49 @@ private normalizeLanguagePreference(
 		isContactQuery: boolean = false,
 	): Promise<ContextResult> {
 		try {
-			const cacheKey = this.getRetrievalCacheKey(userId, retrievalQuery);
+			const isCaseStudyQuery =
+				this.isCaseStudyQuery(
+					retrievalQuery,
+				);
+			// Contact queries need more chunks to capture all office locations
+			const topK = isContactQuery
+				? CHAT_CONTACT_QUERY_TOP_K
+				: isCaseStudyQuery
+					? Math.max(
+							this.getTopKForQuery(
+								retrievalQuery,
+							),
+							CHAT_CASE_STUDY_QUERY_TOP_K,
+					  )
+					: this.getTopKForQuery(
+							retrievalQuery,
+					  );
+			const rerankTopN = isContactQuery
+				? CHAT_CONTACT_RERANK_TOP_N
+				: isCaseStudyQuery
+					? CHAT_CASE_STUDY_RERANK_TOP_N
+					: undefined;
+			const retrievalFilters =
+				this.buildRetrievalFilters(
+					retrievalQuery,
+					intent,
+					isContactQuery,
+				);
+			const cacheKey = this.getRetrievalCacheKey(
+				userId,
+				retrievalQuery,
+				{
+					intent,
+					isContactQuery,
+					topK,
+					scoreThreshold,
+					filters: retrievalFilters,
+				},
+			);
 			const cached = await redisCache.get(cacheKey);
 			if (cached) {
 				return JSON.parse(cached) as ContextResult;
 			}
-
-			// Contact queries need more chunks to capture all office locations
-			const topK = isContactQuery
-				? CHAT_CONTACT_QUERY_TOP_K
-				: this.getTopKForQuery(retrievalQuery);
-			const rerankTopN = isContactQuery ? CHAT_CONTACT_RERANK_TOP_N : undefined;
 
 			const retrievalSpan = startSpan(trace, "retrieval", { query: retrievalQuery, intent, isContactQuery });
 
@@ -913,17 +1136,21 @@ private normalizeLanguagePreference(
 								sq,
 								Math.ceil(topK / 2),
 								CHAT_AGENTIC_TIMEOUT_MS,
+								scoreThreshold,
+								rerankTopN,
+								retrievalFilters,
 							),
 						),
 				);
 
 				// Primary query + sub-queries
-				const primaryMatches = await this.retrieveAndRerank(
+				const primaryMatches = await this.retrieveWithFallback(
 					userId,
 					retrievalQuery,
 					topK,
 					scoreThreshold,
 					rerankTopN,
+					retrievalFilters,
 				);
 				allMatches = [...primaryMatches];
 
@@ -937,7 +1164,14 @@ private normalizeLanguagePreference(
 				allMatches = this.deduplicateMatches(allMatches, topK * 2);
 			} else {
 				// Standard single-query retrieval with reranking
-				allMatches = await this.retrieveAndRerank(userId, retrievalQuery, topK, scoreThreshold, rerankTopN);
+				allMatches = await this.retrieveWithFallback(
+					userId,
+					retrievalQuery,
+					topK,
+					scoreThreshold,
+					rerankTopN,
+					retrievalFilters,
+				);
 			}
 
 			// Remove chunks whose opening content is already present in a higher-ranked
@@ -945,6 +1179,11 @@ private normalizeLanguagePreference(
 			if (allMatches.length > 1) {
 				allMatches = this.deduplicateContextOverlap(allMatches);
 			}
+			allMatches = this.diversifyMatchesByUrl(
+				allMatches,
+				isContactQuery ? 4 : 2,
+				rerankTopN ?? topK,
+			);
 
 			endSpan(retrievalSpan, { matchCount: allMatches.length });
 
@@ -989,9 +1228,19 @@ private normalizeLanguagePreference(
 		query: string,
 		topK: number,
 		timeoutMs: number,
+		scoreThreshold?: number,
+		rerankTopN?: number,
+		filters?: RetrievalFilters,
 	): Promise<any[]> {
 		return Promise.race([
-			this.retrieveAndRerank(userId, query, topK),
+			this.retrieveWithFallback(
+				userId,
+				query,
+				topK,
+				scoreThreshold,
+				rerankTopN,
+				filters,
+			),
 			new Promise<any[]>((_, reject) =>
 				setTimeout(() => reject(new Error("Sub-query timeout")), timeoutMs),
 			),
@@ -1028,6 +1277,42 @@ private normalizeLanguagePreference(
 		}
 
 		return result;
+	}
+
+	private diversifyMatchesByUrl(
+		matches: any[],
+		maxPerUrl: number,
+		limit: number,
+	): any[] {
+		if (maxPerUrl <= 0 || matches.length <= limit) {
+			return matches.slice(0, limit);
+		}
+
+		const counts = new Map<string, number>();
+		const selected: any[] = [];
+		const overflow: any[] = [];
+
+		for (const match of matches) {
+			const url = String(match.metadata?.url ?? "");
+			const nextCount =
+				(counts.get(url) ?? 0) + 1;
+
+			if (!url || nextCount <= maxPerUrl) {
+				counts.set(url, nextCount);
+				selected.push(match);
+			} else {
+				overflow.push(match);
+			}
+		}
+
+		for (const match of overflow) {
+			if (selected.length >= limit) {
+				break;
+			}
+			selected.push(match);
+		}
+
+		return selected.slice(0, limit);
 	}
 
 	/**
@@ -1092,6 +1377,7 @@ IMPORTANT RULES:
 2. **Context-Based Answers**: For specific questions, answer ONLY using the provided context.
 3. **Out of Scope**: If the user asks for tasks outside the scope of the website context (e.g., "write an email", "explain quantum physics", "write code"), politely refuse. Say: "I am designed to answer questions about ${websiteRef} and cannot assist with that request."
 4. **Partial Answers**: If you find *some* relevant information (like project examples) but not a definitive "best" or complete list, SHARE what you found. Do NOT say "I don't have enough information" if you have at least one relevant example. Instead say: "Based on the available data, here are some projects..."
+4a. **Case Studies / Portfolio Consistency**: If the user asks for case studies, projects, portfolio items, or examples, list only exact named case studies/projects when they are explicitly present in the context. Do NOT turn generic service categories or industries into named case studies. If the context only contains industry-level examples, say that clearly and keep every item at industry level consistently.
 5. **Contact Information**: If the user asks for contact details, phone, email, address, location, or wants to consult/schedule — scan ALL provided context carefully. Provide ALL offices, ALL phone numbers, and ALL emails found. Do NOT omit or truncate any office location. Do NOT say "I don't have contact details" if contact info exists anywhere in the context.
 6. **No Hallucinations**: NEVER invent, guess, or approximate any information — especially phone numbers, email addresses, prices, or dates. Copy ALL phone numbers and email addresses EXACTLY as they appear in the provided context — do not change any digit, reorder digits, add dashes, or reformat them. If a phone number is not found verbatim in the context, do NOT include one; instead say the phone number is not available.
 7. **No Citations**: Do NOT mention the source, filename, or URL in your response. Provide the answer directly as if it is your own knowledge.

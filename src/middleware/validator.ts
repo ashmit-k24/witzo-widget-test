@@ -40,6 +40,15 @@ export const validationRules: Record<
 			.toLowerCase(),
 	],
 
+	forgotPassword: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+	],
+
 	verifyCode: [
 		body("email")
 			.trim()
@@ -81,6 +90,18 @@ export const validationRules: Record<
 		body("password")
 			.notEmpty()
 			.withMessage("Password is required"),
+	],
+
+	resetPassword: [
+		body("token")
+			.trim()
+			.matches(/^[a-f0-9]{64}$/i)
+			.withMessage("Reset token is invalid"),
+		body("password")
+			.isString()
+			.withMessage("Password is required")
+			.isLength({ min: 8, max: 256 })
+			.withMessage("Password must be 8-256 characters"),
 	],
 
 	verifyGoogleCode: [

@@ -16,6 +16,7 @@ import {
 	DocumentUsageStats,
 	DOCUMENT_LIMITS,
 	PineconeMetadata,
+	ScrapedPageContentBlock,
 	ScraperUsageStats,
 } from "../types";
 import {
@@ -34,10 +35,27 @@ import {
 } from "../utils/retry";
 import { subscriptionService } from "./subscriptionService";
 
+interface PineconeQueryOptions {
+	pageTypes?: string[];
+	blockTypes?: string[];
+	sourceRoot?: string;
+	sourceUrl?: string;
+}
+
+const EMBEDDING_BATCH_SIZE = 16;
+const EMBEDDING_BATCH_CONCURRENCY = 2;
+const STRUCTURED_PARAGRAPH_MIN_CHARS = 80;
+const STRUCTURED_NONPARAGRAPH_MIN_CHARS = 40;
+const STRUCTURED_MERGE_TARGET_CHARS = Math.max(
+	CHUNK_MAX_CHARS,
+	1200,
+);
+
 class PineconeService {
 	private pinecone: Pinecone;
 	private openai: OpenAI;
 	private indexName: string;
+	private indexHost?: string;
 	private namespaceIndexCache: Map<
 		string,
 		any
@@ -51,23 +69,39 @@ class PineconeService {
 			apiKey: config.OPENAI_API_KEY,
 		});
 		this.indexName = config.PINECONE_INDEX_NAME;
+		this.indexHost = config.PINECONE_HOST
+			? config.PINECONE_HOST.replace(
+					/^https?:\/\//i,
+					"",
+			  ).replace(/\/+$/, "")
+			: undefined;
+	}
+
+	private getBaseIndex(): any {
+		return this.indexHost
+			? this.pinecone.index(
+					this.indexName,
+					this.indexHost,
+			  )
+			: this.pinecone.index(this.indexName);
 	}
 
 	async ensureIndexExists(): Promise<void> {
 		try {
 			const indexes =
 				await this.pinecone.listIndexes();
-			const indexExists = indexes.indexes?.some(
+			const existingIndex = indexes.indexes?.find(
 				(index) => index.name === this.indexName,
 			);
 
-			if (!indexExists) {
+			if (!existingIndex) {
 				logger.info(
 					`Creating Pinecone index: ${this.indexName}`,
 				);
 				await this.pinecone.createIndex({
 					name: this.indexName,
-					dimension: 1024, // Using 1024 dimensions for compatibility
+					dimension:
+						config.OPENAI_EMBEDDING_DIMENSIONS,
 					metric: "cosine",
 					spec: {
 						serverless: {
@@ -83,6 +117,14 @@ class PineconeService {
 				// Wait for index to be ready
 				await new Promise((resolve) =>
 					setTimeout(resolve, 10000),
+				);
+			} else if (
+				typeof existingIndex.dimension === "number" &&
+				existingIndex.dimension !==
+					config.OPENAI_EMBEDDING_DIMENSIONS
+			) {
+				throw new Error(
+					`Pinecone index "${this.indexName}" uses dimension ${existingIndex.dimension}, but the configured embedding dimension is ${config.OPENAI_EMBEDDING_DIMENSIONS}. Point PINECONE_INDEX_NAME to a new index or recreate the existing index.`,
 				);
 			}
 		} catch (error) {
@@ -110,9 +152,9 @@ class PineconeService {
 				namespace,
 			);
 		}
-		const index = this.pinecone
-			.index(this.indexName)
-			.namespace(namespace);
+		const index = this.getBaseIndex().namespace(
+			namespace,
+		);
 		this.namespaceIndexCache.set(
 			namespace,
 			index,
@@ -128,49 +170,178 @@ class PineconeService {
 			.replace(/^_|_$/g, "");
 	}
 
-	async generateEmbedding(
-		text: string,
-	): Promise<number[]> {
-		try {
-			const normalized = text
-				.trim()
-				.toLowerCase()
-				.replace(/\s+/g, " ");
-			const digest = crypto
-				.createHash("sha1")
-				.update(normalized)
-				.digest("hex");
-			const cacheKey = `emb:${digest}`;
-			const cached =
-				await redisCache.get(cacheKey);
-			if (cached) {
-				return JSON.parse(cached) as number[];
-			}
+	private buildEmbeddingCacheEntry(text: string): {
+		cacheKey: string;
+		normalized: string;
+	} {
+		const normalized = text
+			.trim()
+			.toLowerCase()
+			.replace(/\s+/g, " ");
+		const digest = crypto
+			.createHash("sha1")
+			.update(normalized)
+			.digest("hex");
+		return {
+			cacheKey: `emb:${digest}`,
+			normalized,
+		};
+	}
 
-			// Use circuit breaker and retry logic for OpenAI embeddings API
-			const response =
-				await openAICircuitBreaker.execute(
-					async () => {
-						return await retryOnRateLimit(
+	private async mapWithConcurrency<T, U>(
+		items: T[],
+		concurrency: number,
+		worker: (
+			item: T,
+			index: number,
+		) => Promise<U>,
+	): Promise<U[]> {
+		if (items.length === 0) {
+			return [];
+		}
+
+		const results = new Array<U>(items.length);
+		let cursor = 0;
+		const limit = Math.max(1, concurrency);
+		const runners = Array.from(
+			{
+				length: Math.min(limit, items.length),
+			},
+			async () => {
+				while (cursor < items.length) {
+					const currentIndex = cursor;
+					cursor += 1;
+					results[currentIndex] =
+						await worker(
+							items[currentIndex],
+							currentIndex,
+						);
+				}
+			},
+		);
+		await Promise.all(runners);
+		return results;
+	}
+
+	private async generateEmbeddings(
+		texts: string[],
+	): Promise<number[][]> {
+		if (texts.length === 0) {
+			return [];
+		}
+
+		const cacheEntries = texts.map((text) => ({
+			text,
+			...this.buildEmbeddingCacheEntry(text),
+		}));
+		const cachedValues = await Promise.all(
+			cacheEntries.map((entry) =>
+				redisCache.get(entry.cacheKey),
+			),
+		);
+		const results = new Array<number[] | undefined>(
+			texts.length,
+		);
+		const missing: Array<{
+			index: number;
+			text: string;
+			cacheKey: string;
+		}> = [];
+
+		for (let i = 0; i < cacheEntries.length; i += 1) {
+			const cached = cachedValues[i];
+			if (cached) {
+				results[i] = JSON.parse(cached) as number[];
+				continue;
+			}
+			missing.push({
+				index: i,
+				text: cacheEntries[i].text,
+				cacheKey: cacheEntries[i].cacheKey,
+			});
+		}
+
+		const batches = this.chunkArray(
+			missing,
+			EMBEDDING_BATCH_SIZE,
+		);
+		const generatedBatches =
+			await this.mapWithConcurrency(
+				batches,
+				EMBEDDING_BATCH_CONCURRENCY,
+				async (batch) => {
+					const response =
+						await openAICircuitBreaker.execute(
 							async () => {
-								return await this.openai.embeddings.create(
-									{
-										model: config.OPENAI_MODEL,
-										input: text,
-										dimensions: 1024, // Specify 1024 dimensions to match Pinecone index
+								return await retryOnRateLimit(
+									async () => {
+										return await this.openai.embeddings.create(
+											{
+												model: config.OPENAI_MODEL,
+												input: batch.map(
+													(item) =>
+														item.text,
+												),
+												dimensions:
+													config.OPENAI_EMBEDDING_DIMENSIONS,
+											},
+										);
 									},
 								);
 							},
 						);
-					},
-				);
-			const embedding =
-				response.data[0].embedding;
-			await redisCache.setex(
-				cacheKey,
-				300,
-				JSON.stringify(embedding),
+
+					return batch.map((item, index) => {
+						const embedding =
+							response.data[index]
+								?.embedding;
+						if (!embedding) {
+							throw new Error(
+								`Missing embedding for batch item ${index}`,
+							);
+						}
+						return {
+							index: item.index,
+							cacheKey: item.cacheKey,
+							embedding,
+						};
+					});
+				},
 			);
+
+		for (const batch of generatedBatches) {
+			await Promise.all(
+				batch.map(async (item) => {
+					results[item.index] =
+						item.embedding;
+					await redisCache.setex(
+						item.cacheKey,
+						300,
+						JSON.stringify(
+							item.embedding,
+						),
+					);
+				}),
+			);
+		}
+
+		if (results.some((embedding) => !embedding)) {
+			throw new Error(
+				"Failed to generate one or more embeddings",
+			);
+		}
+
+		return results as number[][];
+	}
+
+	async generateEmbedding(
+		text: string,
+	): Promise<number[]> {
+		try {
+			const [embedding] =
+				await this.generateEmbeddings([
+					text,
+				]);
 			return embedding;
 		} catch (error) {
 			logger.error("Error generating embedding", {
@@ -225,6 +396,133 @@ class PineconeService {
 		}
 
 		return chunks.filter(Boolean);
+	}
+
+	private buildStructuredChunks(
+		content: string,
+		metadata?: Record<string, any>,
+	): Array<{
+		text: string;
+		chunkKey: string;
+		metadata: Record<string, any>;
+	}> {
+		const rawBlocks = Array.isArray(
+			metadata?.contentBlocks,
+		)
+			? (metadata?.contentBlocks as ScrapedPageContentBlock[])
+			: [];
+		const compactedBlocks: ScrapedPageContentBlock[] = [];
+		const structuredChunks: Array<{
+			text: string;
+			chunkKey: string;
+			metadata: Record<string, any>;
+		}> = [];
+
+		for (let blockIndex = 0; blockIndex < rawBlocks.length; blockIndex += 1) {
+			const block = {
+				...rawBlocks[blockIndex],
+			};
+			const blockText = String(block?.text ?? "")
+				.replace(/\s+/g, " ")
+				.trim();
+			if (!blockText) {
+				continue;
+			}
+
+			const minLength =
+				block.blockType === "paragraph"
+					? STRUCTURED_PARAGRAPH_MIN_CHARS
+					: STRUCTURED_NONPARAGRAPH_MIN_CHARS;
+			const isPriorityBlock =
+				block.blockType === "contact" ||
+				block.blockType === "faq" ||
+				block.blockType === "summary";
+			if (
+				!isPriorityBlock &&
+				blockText.length < minLength
+			) {
+				continue;
+			}
+
+			block.text = blockText;
+			const previousBlock =
+				compactedBlocks[
+					compactedBlocks.length - 1
+				];
+			const canMerge =
+				Boolean(previousBlock) &&
+				previousBlock.blockType !==
+					"contact" &&
+				previousBlock.blockType !==
+					"faq" &&
+				previousBlock.blockType !==
+					"summary" &&
+				block.blockType !== "contact" &&
+				block.blockType !== "faq" &&
+				block.blockType !== "summary" &&
+				previousBlock.sectionTitle ===
+					block.sectionTitle &&
+				(previousBlock.text.length +
+					2 +
+					block.text.length <=
+					STRUCTURED_MERGE_TARGET_CHARS);
+
+			if (canMerge) {
+				previousBlock.text = `${previousBlock.text}\n\n${block.text}`;
+				if (
+					previousBlock.blockType !==
+					block.blockType
+				) {
+					previousBlock.blockType =
+						"paragraph";
+				}
+				continue;
+			}
+
+			compactedBlocks.push(block);
+		}
+
+		for (let blockIndex = 0; blockIndex < compactedBlocks.length; blockIndex += 1) {
+			const block = compactedBlocks[blockIndex];
+			const blockText = block.text;
+			const sectionTitle =
+				block.sectionTitle?.trim() || undefined;
+			const enrichedBlockText =
+				sectionTitle &&
+				!blockText
+					.toLowerCase()
+					.startsWith(sectionTitle.toLowerCase())
+					? `${sectionTitle}: ${blockText}`
+					: blockText;
+			const blockChunks =
+				this.chunkText(enrichedBlockText);
+
+			for (let subChunkIndex = 0; subChunkIndex < blockChunks.length; subChunkIndex += 1) {
+				structuredChunks.push({
+					text: blockChunks[subChunkIndex],
+					chunkKey: `${block.position ?? blockIndex}_${subChunkIndex}`,
+					metadata: {
+						blockType: block.blockType,
+						sectionTitle,
+						sectionPath: block.sectionPath,
+						position:
+							block.position ?? blockIndex,
+					},
+				});
+			}
+		}
+
+		if (structuredChunks.length > 0) {
+			return structuredChunks;
+		}
+
+		return this.chunkText(content).map(
+			(chunk, index) => ({
+				text: chunk,
+				chunkKey: String(index),
+				metadata: {},
+			}),
+		);
 	}
 
 	private async forEachUserRecord(
@@ -287,10 +585,79 @@ class PineconeService {
 	private buildVectorId(
 		userId: string,
 		url: string,
-		chunkIndex: number,
+		chunkIndex: string | number,
 	): string {
 		const sanitizedUrl = this.sanitizeId(url);
 		return `${this.sanitizeId(userId)}_${sanitizedUrl}_chunk_${chunkIndex}`;
+	}
+
+	private buildQueryFilter(
+		options?: PineconeQueryOptions,
+	): Record<string, unknown> | undefined {
+		if (!options) {
+			return undefined;
+		}
+
+		const filters: Array<Record<string, unknown>> = [];
+		const pageTypes = Array.from(
+			new Set(
+				(options.pageTypes ?? [])
+					.map((value) => value.trim())
+					.filter(Boolean),
+			),
+		).sort();
+		const blockTypes = Array.from(
+			new Set(
+				(options.blockTypes ?? [])
+					.map((value) => value.trim())
+					.filter(Boolean),
+			),
+		).sort();
+
+		if (
+			pageTypes.length > 0 ||
+			blockTypes.length > 0
+		) {
+			const semanticFilters: Array<
+				Record<string, unknown>
+			> = [];
+			if (pageTypes.length > 0) {
+				semanticFilters.push({
+					pageType: { $in: pageTypes },
+				});
+			}
+			if (blockTypes.length > 0) {
+				semanticFilters.push({
+					blockType: { $in: blockTypes },
+				});
+			}
+			if (semanticFilters.length === 1) {
+				filters.push(semanticFilters[0]);
+			} else {
+				filters.push({
+					$or: semanticFilters,
+				});
+			}
+		}
+		if (options.sourceRoot?.trim()) {
+			filters.push({
+				sourceRoot: options.sourceRoot.trim(),
+			});
+		}
+		if (options.sourceUrl?.trim()) {
+			filters.push({
+				url: options.sourceUrl.trim(),
+			});
+		}
+
+		if (filters.length === 0) {
+			return undefined;
+		}
+		if (filters.length === 1) {
+			return filters[0];
+		}
+
+		return { $and: filters };
 	}
 
 	/**
@@ -432,11 +799,18 @@ class PineconeService {
 		content: string,
 		metadata?: Record<string, any>,
 	): Promise<void> {
-		let chunks: string[] = [];
+		let chunks: Array<{
+			text: string;
+			chunkKey: string;
+			metadata: Record<string, any>;
+		}> = [];
 		try {
 			const index =
 				this.getNamespaceIndex(userId);
-			chunks = this.chunkText(content);
+			chunks = this.buildStructuredChunks(
+				content,
+				metadata,
+			);
 			if (chunks.length === 0) {
 				throw new Error(
 					"No usable text content found for this page",
@@ -444,31 +818,52 @@ class PineconeService {
 			}
 
 			const vectors: PineconeRecord[] = [];
+			const sharedMetadata = {
+				...(metadata ?? {}),
+			};
+			delete sharedMetadata.contentBlocks;
+			const providedPageType =
+				typeof sharedMetadata.pageType === "string"
+					? sharedMetadata.pageType
+					: undefined;
+			delete sharedMetadata.pageType;
+			const pageType =
+				typeof providedPageType === "string" &&
+				providedPageType.trim()
+					? providedPageType.trim()
+					: this.detectPageType(url);
+			const embeddings =
+				await this.generateEmbeddings(
+					chunks.map(
+						(chunk) => chunk.text,
+					),
+				);
 
 			for (let i = 0; i < chunks.length; i++) {
 				const chunk = chunks[i];
 				const embedding =
-					await this.generateEmbedding(chunk);
+					embeddings[i];
 
 				const pineconeMetadata: PineconeMetadata &
 					Record<string, any> = {
 					url,
 					title,
 					description:
-						metadata?.description || "",
+						sharedMetadata.description || "",
 					scrapedAt: new Date().toISOString(),
 					chunkIndex: i,
 					totalChunks: chunks.length,
-					content: chunk,
+					content: chunk.text,
 					userId,
-					pageType: this.detectPageType(url),
-					...metadata,
+					pageType,
+					...sharedMetadata,
+					...chunk.metadata,
 				};
 
 				const vectorId = this.buildVectorId(
 					userId,
 					url,
-					i,
+					chunk.chunkKey,
 				);
 
 				vectors.push({
@@ -531,12 +926,15 @@ class PineconeService {
 		query: string,
 		topK: number = 10,
 		scoreThreshold: number = CHAT_RETRIEVAL_SCORE_THRESHOLD,
+		options?: PineconeQueryOptions,
 	): Promise<any[]> {
 		try {
 			const index =
 				this.getNamespaceIndex(userId);
 			const queryEmbedding =
 				await this.generateEmbedding(query);
+			const filter =
+				this.buildQueryFilter(options);
 
 			// Use circuit breaker for Pinecone query
 			const queryResponse =
@@ -546,6 +944,9 @@ class PineconeService {
 							vector: queryEmbedding,
 							topK,
 							includeMetadata: true,
+							...(filter
+								? { filter }
+								: {}),
 						});
 					},
 				);
@@ -671,9 +1072,9 @@ class PineconeService {
 		try {
 			const namespace =
 				this.getUserNamespace(userId);
-			const index = this.pinecone
-				.index(this.indexName)
-				.namespace(namespace);
+			const index = this.getBaseIndex().namespace(
+				namespace,
+			);
 
 			logger.info(
 				`Deleting exact page: ${exactUrl} (user: ${userId})`,
@@ -738,9 +1139,9 @@ class PineconeService {
 		try {
 			const namespace =
 				this.getUserNamespace(userId);
-			const index = this.pinecone
-				.index(this.indexName)
-				.namespace(namespace);
+			const index = this.getBaseIndex().namespace(
+				namespace,
+			);
 
 			await index.deleteAll();
 			await pool.query(
@@ -765,9 +1166,7 @@ class PineconeService {
 
 	async getStats(userId?: string): Promise<any> {
 		try {
-			const index = this.pinecone.index(
-				this.indexName,
-			);
+			const index = this.getBaseIndex();
 
 			if (userId) {
 				const namespace =
@@ -801,9 +1200,9 @@ class PineconeService {
 		try {
 			const namespace =
 				this.getUserNamespace(userId);
-			const index = this.pinecone
-				.index(this.indexName)
-				.namespace(namespace);
+			const index = this.getBaseIndex().namespace(
+				namespace,
+			);
 
 			// For websites, normalize to base domain for checking
 			let urlToCheck = sourceUrl;
@@ -837,8 +1236,8 @@ class PineconeService {
 
 				const ids =
 					listResponse.vectors
-						?.map((vector) => vector.id)
-						.filter((id): id is string =>
+						?.map((vector: any) => vector.id)
+						.filter((id: any): id is string =>
 							Boolean(id),
 						) ?? [];
 
@@ -851,10 +1250,12 @@ class PineconeService {
 							await index.fetch([ids[0]]);
 						const firstRecord = Object.values(
 							fetchResponse.records ?? {},
-						)[0];
+						)[0] as
+							| { metadata?: PineconeMetadata }
+							| undefined;
 						if (firstRecord?.metadata) {
 							const metadata =
-								firstRecord.metadata as unknown as PineconeMetadata;
+								firstRecord.metadata;
 							scrapedAt = metadata.scrapedAt;
 						}
 					}

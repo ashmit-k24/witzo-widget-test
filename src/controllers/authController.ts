@@ -17,8 +17,10 @@ import googleAuthService, {
 } from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
+	ForgotPasswordBody,
 	LoginPasswordBody,
 	RegisterBody,
+	ResetPasswordBody,
 	RequestCodeBody,
 	UpdateProfileBody,
 	VerifyGoogleCodeBody,
@@ -252,6 +254,36 @@ export const requestCode = async (
 			success: result.success,
 			message: result.message,
 		});
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/forgot-password
+ * @desc    Request a password reset link
+ * @access  Public
+ */
+export const forgotPassword = async (
+	req: Request<{}, {}, ForgotPasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { email } = req.body;
+
+		logger.info("Password reset requested", {
+			email,
+			ip: req.ip,
+			userAgent: req.get("user-agent"),
+		});
+
+		const result =
+			await authService.requestPasswordReset(
+				email,
+			);
+
+		res.status(200).json(result);
 	} catch (error) {
 		next(error);
 	}
@@ -1040,6 +1072,37 @@ export const loginWithPassword = async (
 				message: result.message,
 			});
 		}
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/reset-password
+ * @desc    Reset the user's password using a reset token
+ * @access  Public
+ */
+export const resetPassword = async (
+	req: Request<{}, {}, ResetPasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { token, password } = req.body;
+
+		logger.info("Password reset attempt", {
+			ip: req.ip,
+			userAgent: req.get("user-agent"),
+		});
+
+		const result = await authService.resetPassword(
+			token,
+			password,
+		);
+
+		res.status(result.success ? 200 : 400).json(
+			result,
+		);
 	} catch (error) {
 		next(error);
 	}

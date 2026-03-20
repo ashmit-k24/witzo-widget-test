@@ -2,6 +2,7 @@ import nodemailer, {
 	Transporter,
 } from "nodemailer";
 import { config } from "../config/env";
+import { buildPasswordResetEmailTemplate } from "../templates/email/passwordResetTemplate";
 import { buildVerificationEmailTemplate } from "../templates/email/verificationCodeTemplate";
 import { buildWelcomeEmailTemplate } from "../templates/email/welcomeTemplate";
 import { buildFollowUpEmailTemplate } from "../templates/email/followUpTemplate";
@@ -89,6 +90,57 @@ class EmailService {
 			);
 			throw new Error(
 				"Failed to send verification email",
+			);
+		}
+	}
+
+	async sendPasswordResetEmail(
+		email: string,
+		resetUrl: string,
+		expiryMinutes: number,
+	): Promise<EmailResult> {
+		const emailTemplate =
+			buildPasswordResetEmailTemplate({
+				resetUrl,
+				expiryMinutes,
+			});
+
+		const mailOptions = {
+			from: config.EMAIL_FROM,
+			to: email,
+			subject: emailTemplate.subject,
+			html: emailTemplate.html,
+			text: emailTemplate.text,
+		};
+
+		try {
+			const info =
+				await this.transporter.sendMail(
+					mailOptions,
+				);
+			logger.info("Password reset email sent", {
+				email,
+				from: config.EMAIL_FROM,
+				messageId: info.messageId,
+				accepted: info.accepted,
+				rejected: info.rejected,
+				response: info.response,
+			});
+			return {
+				success: true,
+				messageId: info.messageId,
+			};
+		} catch (error) {
+			const err = error as Error;
+			logger.error(
+				"Failed to send password reset email",
+				{
+					email,
+					error: err.message,
+				},
+			);
+			throw new Error(
+				"Failed to send password reset email",
 			);
 		}
 	}

@@ -68,8 +68,11 @@ jobs:
           DB_USER=${{ secrets.DB_USER }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
           DB_MAX_CONNECTIONS=${{ secrets.DB_MAX_CONNECTIONS }}
+          DB_MIN_CONNECTIONS=${{ secrets.DB_MIN_CONNECTIONS }}
+          DB_SSL_MODE=${{ secrets.DB_SSL_MODE }}
           EMAIL_HOST=${{ secrets.EMAIL_HOST }}
           EMAIL_PORT=${{ secrets.EMAIL_PORT }}
+          EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}
           EMAIL_USER=${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}
           EMAIL_FROM=${{ secrets.EMAIL_FROM }}
@@ -93,13 +96,32 @@ jobs:
           PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
           PINECONE_ENVIRONMENT=${{ secrets.PINECONE_ENVIRONMENT }}
           PINECONE_INDEX_NAME=${{ secrets.PINECONE_INDEX_NAME }}
+          PINECONE_HOST=${{ secrets.PINECONE_HOST }}
+          OPENAI_EMBEDDING_DIMENSIONS=${{ secrets.OPENAI_EMBEDDING_DIMENSIONS }}
+          CHAT_HISTORY_WINDOW_MESSAGES=${{ secrets.CHAT_HISTORY_WINDOW_MESSAGES }}
+          CHAT_SESSION_CACHE_MESSAGE_LIMIT=${{ secrets.CHAT_SESSION_CACHE_MESSAGE_LIMIT }}
+          OPENAI_CHAT_MODEL=${{ secrets.OPENAI_CHAT_MODEL }}
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL=${{ secrets.OPENAI_MODEL }}
+          LLM_PROMPT_COST_PER_1K_USD=${{ secrets.LLM_PROMPT_COST_PER_1K_USD }}
+          LLM_COMPLETION_COST_PER_1K_USD=${{ secrets.LLM_COMPLETION_COST_PER_1K_USD }}
           REDIS_HOST=${{ secrets.REDIS_HOST }}
           REDIS_PORT=${{ secrets.REDIS_PORT }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
           REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
           REDIS_TLS_ENABLED=${{ secrets.REDIS_TLS_ENABLED }}
+          REDIS_CACHE_HOST=${{ secrets.REDIS_CACHE_HOST }}
+          REDIS_CACHE_PORT=${{ secrets.REDIS_CACHE_PORT }}
+          REDIS_CACHE_USERNAME=${{ secrets.REDIS_CACHE_USERNAME }}
+          REDIS_CACHE_PASSWORD=${{ secrets.REDIS_CACHE_PASSWORD }}
+          REDIS_QUEUE_HOST=${{ secrets.REDIS_QUEUE_HOST }}
+          REDIS_QUEUE_PORT=${{ secrets.REDIS_QUEUE_PORT }}
+          REDIS_QUEUE_USERNAME=${{ secrets.REDIS_QUEUE_USERNAME }}
+          REDIS_QUEUE_PASSWORD=${{ secrets.REDIS_QUEUE_PASSWORD }}
+          REDIS_ANALYTICS_HOST=${{ secrets.REDIS_ANALYTICS_HOST }}
+          REDIS_ANALYTICS_PORT=${{ secrets.REDIS_ANALYTICS_PORT }}
+          REDIS_ANALYTICS_USERNAME=${{ secrets.REDIS_ANALYTICS_USERNAME }}
+          REDIS_ANALYTICS_PASSWORD=${{ secrets.REDIS_ANALYTICS_PASSWORD }}
           SCRAPER_CONCURRENCY=${{ secrets.SCRAPER_CONCURRENCY }}
           ANALYTICS_BUFFER_SIZE=${{ secrets.ANALYTICS_BUFFER_SIZE }}
           ANALYTICS_FLUSH_INTERVAL_MS=${{ secrets.ANALYTICS_FLUSH_INTERVAL_MS }}
@@ -109,7 +131,17 @@ jobs:
           RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
           RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
 
+          ADMIN_FRONTEND_URL=${{ secrets.ADMIN_FRONTEND_URL }}
+          ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+          ADMIN_JWT_SECRET=${{ secrets.ADMIN_JWT_SECRET }}
+          ADMIN_TOKEN_EXPIRY_HOURS=${{ secrets.ADMIN_TOKEN_EXPIRY_HOURS }}
+
           EMAIL_LIST_VERIFY_API_KEY=${{ secrets.EMAIL_LIST_VERIFY_API_KEY }}
+          COHERE_API_KEY=${{ secrets.COHERE_API_KEY }}
+          LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
 
           S3_WIDGET_ICON_BUCKET=${{ secrets.S3_WIDGET_ICON_BUCKET }}
           S3_WIDGET_ICON_REGION=${{ secrets.S3_WIDGET_ICON_REGION }}    

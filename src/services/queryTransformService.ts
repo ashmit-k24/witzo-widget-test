@@ -104,6 +104,9 @@ class QueryTransformService {
 		if (contactQuery) {
 			retrievalQuery = `${retrievalQuery} contact address phone email location office`;
 		}
+		if (this.isCaseStudyQuery(standaloneQuery)) {
+			retrievalQuery = `${retrievalQuery} case study portfolio project client result outcome`;
+		}
 
 		return this.buildResult(intent, retrievalQuery, subQueries, standaloneQuery, contactQuery);
 	}
@@ -117,19 +120,37 @@ class QueryTransformService {
 		);
 	}
 
+	private isCaseStudyQuery(query: string): boolean {
+		return /\b(case stud(?:y|ies)|portfolio|project(?:s)?|example(?:s)?|sample(?:s)?|client work|success stor(?:y|ies)|work sample(?:s)?)\b/i.test(
+			query,
+		);
+	}
+
 	private buildResult(
 		intent: QueryIntent,
 		retrievalQuery: string,
 		subQueries: string[],
-		_standaloneQuery: string,
+		standaloneQuery: string,
 		isContactQuery: boolean = false,
 	): TransformResult {
+		const isCaseStudyQuery =
+			this.isCaseStudyQuery(standaloneQuery);
 		// Contact queries need much more space than factual_short defaults
 		const formatHint = isContactQuery
 			? "List ALL contact details found in the context. For EACH office or location, include the complete address, ALL phone numbers, and the email. Present each office as its own labelled section. Do NOT truncate, omit, or summarise any office. Do NOT invent any phone number, email, or address — only use what is explicitly in the context. This response may be longer than usual."
-			: INTENT_FORMAT_HINTS[intent];
-		const wordLimit = isContactQuery ? 300 : INTENT_WORD_LIMITS[intent];
-		const maxParagraphs = isContactQuery ? 10 : INTENT_MAX_PARAGRAPHS[intent];
+			: isCaseStudyQuery
+				? "For case studies, projects, portfolio items, or examples: list ONLY exact case study or project names when they are explicitly present in the context. Do NOT turn generic service categories or industries into named case studies. If only industry-level examples are present, say that clearly and keep every item at industry level consistently."
+				: INTENT_FORMAT_HINTS[intent];
+		const wordLimit = isContactQuery
+			? 300
+			: isCaseStudyQuery
+				? 280
+				: INTENT_WORD_LIMITS[intent];
+		const maxParagraphs = isContactQuery
+			? 10
+			: isCaseStudyQuery
+				? 6
+				: INTENT_MAX_PARAGRAPHS[intent];
 
 		return {
 			intent,

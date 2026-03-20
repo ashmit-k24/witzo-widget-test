@@ -80,6 +80,15 @@ export interface VerificationCode {
 	created_at: Date;
 }
 
+export interface PasswordResetToken {
+	id: string;
+	user_id: string;
+	token_hash: string;
+	expires_at: Date;
+	used_at: Date | null;
+	created_at: Date;
+}
+
 // Session types
 export interface Session {
 	id: number;
@@ -133,6 +142,11 @@ export interface LogoutResponse {
 	message: string;
 }
 
+export interface PasswordResetResponse {
+	success: boolean;
+	message: string;
+}
+
 export interface CleanupResult {
 	sessionsDeleted: number;
 	codesDeleted: number;
@@ -146,6 +160,10 @@ export interface EmailResult {
 
 // Request types
 export interface RequestCodeBody {
+	email: string;
+}
+
+export interface ForgotPasswordBody {
 	email: string;
 }
 
@@ -166,6 +184,11 @@ export interface RegisterBody {
 
 export interface LoginPasswordBody {
 	email: string;
+	password: string;
+}
+
+export interface ResetPasswordBody {
+	token: string;
 	password: string;
 }
 
@@ -224,8 +247,10 @@ export interface EnvConfig {
 	PINECONE_API_KEY: string;
 	PINECONE_ENVIRONMENT: string;
 	PINECONE_INDEX_NAME: string;
+	PINECONE_HOST?: string;
 	OPENAI_API_KEY: string;
 	OPENAI_MODEL: string;
+	OPENAI_EMBEDDING_DIMENSIONS: number;
 	RAZORPAY_KEY_ID: string;
 	RAZORPAY_KEY_SECRET: string;
 	RAZORPAY_WEBHOOK_SECRET: string;
@@ -288,6 +313,22 @@ export interface EnvConfig {
 }
 
 // Web Scraper types
+export type ScrapedPageBlockType =
+	| "summary"
+	| "paragraph"
+	| "list"
+	| "table"
+	| "faq"
+	| "contact";
+
+export interface ScrapedPageContentBlock {
+	text: string;
+	blockType: ScrapedPageBlockType;
+	position: number;
+	sectionTitle?: string;
+	sectionPath?: string[];
+}
+
 export interface ScrapedPage {
 	url: string;
 	title: string;
@@ -297,6 +338,10 @@ export interface ScrapedPage {
 		description?: string;
 		keywords?: string;
 		author?: string;
+		canonicalUrl?: string;
+		sourceRoot?: string;
+		sourceRootTitle?: string;
+		contentBlocks?: ScrapedPageContentBlock[];
 		[key: string]: any;
 	};
 }
@@ -338,6 +383,15 @@ export interface PineconeMetadata {
 	chunkIndex: number;
 	totalChunks: number;
 	userId: string;
+	content?: string;
+	pageType?: string;
+	blockType?: ScrapedPageBlockType | string;
+	sectionTitle?: string;
+	sectionPath?: string[];
+	position?: number;
+	sourceRoot?: string;
+	sourceRootTitle?: string;
+	canonicalUrl?: string;
 }
 
 // Chat types

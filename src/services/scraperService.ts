@@ -1,7 +1,11 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { pineconeService } from "./pineconeService";
-import { ScrapedPage } from "../types";
+import {
+	ScrapedPage,
+	ScrapedPageBlockType,
+	ScrapedPageContentBlock,
+} from "../types";
 import logger from "../utils/logger";
 import {
 	assertSafeOutgoingUrl,
@@ -31,6 +35,13 @@ interface ScrapeResult {
 }
 
 class ScraperService {
+	private normalizeText(text: string): string {
+		return text
+			.replace(/\u00a0/g, " ")
+			.replace(/\s+/g, " ")
+			.trim();
+	}
+
 	private normalizeUrl(url: string): string {
 		try {
 			const urlObj = new URL(url);
@@ -196,6 +207,220 @@ class ScraperService {
 		);
 	}
 
+	private hasContactSignals(text: string): boolean {
+		return /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s().-]{6,}|\b(address|phone|email|office|contact|call|reach us|get in touch)\b/i.test(
+			text,
+		);
+	}
+
+	private detectBlockType(
+		text: string,
+		tagName: string,
+		sectionTitle?: string,
+	): ScrapedPageBlockType {
+		const normalized = `${sectionTitle ?? ""} ${text}`.toLowerCase();
+		if (
+			tagName === "tr" ||
+			/\b(price|pricing|plan|package|fee|cost)\b/.test(normalized)
+		) {
+			return "table";
+		}
+		if (
+			tagName === "li" ||
+			tagName === "dt" ||
+			tagName === "dd"
+		) {
+			return "list";
+		}
+		if (
+			tagName === "details" ||
+			/\?$/.test(text) ||
+			/\b(faq|frequently asked|question|answer)\b/.test(normalized)
+		) {
+			return "faq";
+		}
+		if (this.hasContactSignals(normalized)) {
+			return "contact";
+		}
+		return "paragraph";
+	}
+
+	private extractContentBlocks(
+		$: ReturnType<typeof cheerio.load>,
+		title: string,
+		description: string,
+	): ScrapedPageContentBlock[] {
+		const root = $(
+			"main, [role='main'], article, body",
+		).first();
+		const candidates = root
+			.find(
+				"h1, h2, h3, h4, h5, h6, p, li, dt, dd, blockquote, tr, details",
+			)
+			.toArray();
+		const sectionStack: Array<{
+			level: number;
+			title: string;
+		}> = [];
+		const blocks: ScrapedPageContentBlock[] = [];
+		const seenText = new Set<string>();
+
+		const pushBlock = (
+			text: string,
+			tagName: string,
+		): void => {
+			const normalizedText =
+				this.normalizeText(text);
+			if (!normalizedText) {
+				return;
+			}
+
+			const normalizedKey =
+				normalizedText.toLowerCase();
+			if (seenText.has(normalizedKey)) {
+				return;
+			}
+
+			const sectionPath = sectionStack.map(
+				(entry) => entry.title,
+			);
+			const sectionTitle =
+				sectionPath[sectionPath.length - 1];
+			const isContactBlock =
+				this.hasContactSignals(normalizedText);
+			const isMeaningfulText =
+				normalizedText.length >= 30 ||
+				isContactBlock;
+
+			if (!isMeaningfulText) {
+				return;
+			}
+
+			seenText.add(normalizedKey);
+			blocks.push({
+				text: normalizedText,
+				blockType: this.detectBlockType(
+					normalizedText,
+					tagName,
+					sectionTitle,
+				),
+				position: blocks.length,
+				sectionTitle,
+				sectionPath:
+					sectionPath.length > 0
+						? sectionPath
+						: undefined,
+			});
+		};
+
+		for (const element of candidates) {
+			const tagName =
+				(
+					element as {
+						tagName?: string;
+					}
+				).tagName?.toLowerCase() ?? "";
+			if (!tagName) {
+				continue;
+			}
+
+			const $element = $(element);
+			const withinBoilerplate =
+				$element.closest(
+					"nav, header, form, aside",
+				).length > 0;
+			const withinFooter =
+				$element.closest("footer").length > 0;
+
+			if (/^h[1-6]$/.test(tagName)) {
+				const heading =
+					this.normalizeText(
+						$element.text(),
+					);
+				if (!heading) {
+					continue;
+				}
+
+				const level = Number(tagName.slice(1));
+				while (
+					sectionStack.length > 0 &&
+					sectionStack[sectionStack.length - 1].level >=
+						level
+				) {
+					sectionStack.pop();
+				}
+				sectionStack.push({
+					level,
+					title: heading,
+				});
+				continue;
+			}
+
+			if (withinBoilerplate) {
+				continue;
+			}
+
+			let text = "";
+			if (tagName === "tr") {
+				text = $element
+					.find("th, td")
+					.toArray()
+					.map((cell) =>
+						this.normalizeText(
+							$(cell).text(),
+						),
+					)
+					.filter(Boolean)
+					.join(" | ");
+			} else if (tagName === "details") {
+				const summary = this.normalizeText(
+					$element.find("summary").first().text(),
+				);
+				const body = this.normalizeText(
+					$element
+						.clone()
+						.find("summary")
+						.remove()
+						.end()
+						.text(),
+				);
+				text = [summary, body]
+					.filter(Boolean)
+					.join(" ");
+			} else {
+				text = this.normalizeText(
+					$element.text(),
+				);
+			}
+
+			if (
+				withinFooter &&
+				!this.hasContactSignals(text)
+			) {
+				continue;
+			}
+
+			pushBlock(text, tagName);
+		}
+
+		if (description) {
+			blocks.unshift({
+				text: [title, description]
+					.filter(Boolean)
+					.join(". "),
+				blockType: "summary",
+				position: 0,
+				sectionTitle: title || undefined,
+				sectionPath: title ? [title] : undefined,
+			});
+		}
+
+		return blocks.map((block, index) => ({
+			...block,
+			position: index,
+		}));
+	}
+
 	private extractPageData(
 		html: string,
 		url: string,
@@ -214,12 +439,34 @@ class ScraperService {
 			$('meta[property="og:description"]').attr("content")?.trim() ||
 			$('meta[name="twitter:description"]').attr("content")?.trim() ||
 			"";
+		const canonicalUrl =
+			$("link[rel='canonical']")
+				.attr("href")
+				?.trim() || undefined;
+		const contentBlocks =
+			this.extractContentBlocks(
+				$,
+				title,
+				description,
+			);
 		const primaryText = $("main, article, body")
 			.first()
 			.text()
 			.replace(/\s+/g, " ")
 			.trim();
 		const content = (
+			contentBlocks
+				.map((block) =>
+					block.sectionTitle &&
+					!block.text
+						.toLowerCase()
+						.startsWith(
+							block.sectionTitle.toLowerCase(),
+						)
+						? `${block.sectionTitle}: ${block.text}`
+						: block.text,
+				)
+				.join("\n\n") ||
 			primaryText ||
 			[title, description].filter(Boolean).join(". ")
 		).trim();
@@ -245,6 +492,10 @@ class ScraperService {
 		const metadata: any = {};
 		if (description)
 			metadata.description = description;
+		if (canonicalUrl)
+			metadata.canonicalUrl = canonicalUrl;
+		if (contentBlocks.length > 0)
+			metadata.contentBlocks = contentBlocks;
 
 		return {
 			url,
