@@ -14,6 +14,12 @@ import {
 	CHAT_SUPPORTED_LANGUAGE_CODES,
 	SYSTEM_MESSAGE_MAX_LENGTH,
 } from "../constants";
+import {
+	isStrongUserPassword,
+	USER_PASSWORD_MAX_LENGTH,
+	USER_PASSWORD_MIN_LENGTH,
+	USER_PASSWORD_POLICY_MESSAGE,
+} from "../utils/passwordPolicy";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
@@ -25,6 +31,9 @@ const SESSION_STATUS_VALUES = [
 ] as const;
 const SUPPORTED_LANGUAGE_LIST =
 	CHAT_SUPPORTED_LANGUAGE_CODES.join(", ");
+const USER_PASSWORD_LENGTH_MESSAGE = `Password must be ${USER_PASSWORD_MIN_LENGTH}-${USER_PASSWORD_MAX_LENGTH} characters`;
+const USER_NEW_PASSWORD_LENGTH_MESSAGE = `New password must be ${USER_PASSWORD_MIN_LENGTH}-${USER_PASSWORD_MAX_LENGTH} characters`;
+const USER_CURRENT_PASSWORD_LENGTH_MESSAGE = `Current password must be ${USER_PASSWORD_MIN_LENGTH}-${USER_PASSWORD_MAX_LENGTH} characters`;
 
 // Validation rules
 export const validationRules: Record<
@@ -76,8 +85,17 @@ export const validationRules: Record<
 			.normalizeEmail()
 			.toLowerCase(),
 		body("password")
-			.isLength({ min: 8 })
-			.withMessage("Password must be at least 8 characters"),
+			.isString()
+			.withMessage("Password is required")
+			.bail()
+			.isLength({
+				min: USER_PASSWORD_MIN_LENGTH,
+				max: USER_PASSWORD_MAX_LENGTH,
+			})
+			.withMessage(USER_PASSWORD_LENGTH_MESSAGE)
+			.bail()
+			.custom((value) => isStrongUserPassword(value))
+			.withMessage(USER_PASSWORD_POLICY_MESSAGE),
 	],
 
 	loginWithPassword: [
@@ -88,8 +106,14 @@ export const validationRules: Record<
 			.normalizeEmail()
 			.toLowerCase(),
 		body("password")
-			.notEmpty()
-			.withMessage("Password is required"),
+			.isString()
+			.withMessage("Password is required")
+			.bail()
+			.isLength({
+				min: USER_PASSWORD_MIN_LENGTH,
+				max: USER_PASSWORD_MAX_LENGTH,
+			})
+			.withMessage(USER_PASSWORD_LENGTH_MESSAGE),
 	],
 
 	resetPassword: [
@@ -100,8 +124,42 @@ export const validationRules: Record<
 		body("password")
 			.isString()
 			.withMessage("Password is required")
-			.isLength({ min: 8, max: 256 })
-			.withMessage("Password must be 8-256 characters"),
+			.bail()
+			.isLength({
+				min: USER_PASSWORD_MIN_LENGTH,
+				max: USER_PASSWORD_MAX_LENGTH,
+			})
+			.withMessage(USER_PASSWORD_LENGTH_MESSAGE)
+			.bail()
+			.custom((value) => isStrongUserPassword(value))
+			.withMessage(USER_PASSWORD_POLICY_MESSAGE),
+	],
+
+	changePassword: [
+		body("currentPassword")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("Current password must be a string")
+			.bail()
+			.isLength({
+				min: USER_PASSWORD_MIN_LENGTH,
+				max: USER_PASSWORD_MAX_LENGTH,
+			})
+			.withMessage(
+				USER_CURRENT_PASSWORD_LENGTH_MESSAGE,
+			),
+		body("newPassword")
+			.isString()
+			.withMessage("New password is required")
+			.bail()
+			.isLength({
+				min: USER_PASSWORD_MIN_LENGTH,
+				max: USER_PASSWORD_MAX_LENGTH,
+			})
+			.withMessage(USER_NEW_PASSWORD_LENGTH_MESSAGE)
+			.bail()
+			.custom((value) => isStrongUserPassword(value))
+			.withMessage(USER_PASSWORD_POLICY_MESSAGE),
 	],
 
 	verifyGoogleCode: [

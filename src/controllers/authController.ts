@@ -17,6 +17,7 @@ import googleAuthService, {
 } from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
+	ChangePasswordBody,
 	ForgotPasswordBody,
 	LoginPasswordBody,
 	RegisterBody,
@@ -284,6 +285,32 @@ export const forgotPassword = async (
 			);
 
 		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+};
+
+export const getSettings = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const settings =
+			await authService.getUserSettings(userId);
+		res.status(200).json({
+			success: true,
+			user: settings,
+		});
 	} catch (error) {
 		next(error);
 	}
@@ -1072,6 +1099,63 @@ export const loginWithPassword = async (
 				message: result.message,
 			});
 		}
+	} catch (error) {
+		next(error);
+	}
+};
+
+export const updateSettings = async (
+	req: Request<{}, {}, UpdateProfileBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const updated = await authService.updateUserSettings(
+			userId,
+			req.body,
+		);
+		res.status(200).json({
+			success: true,
+			message: "Settings updated successfully",
+			user: updated,
+		});
+	} catch (error) {
+		next(error);
+	}
+};
+
+export const changePassword = async (
+	req: Request<{}, {}, ChangePasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const result = await authService.changePassword(
+			userId,
+			req.body.currentPassword,
+			req.body.newPassword,
+			req.user?.sessionId,
+		);
+
+		res.status(200).json(result);
 	} catch (error) {
 		next(error);
 	}

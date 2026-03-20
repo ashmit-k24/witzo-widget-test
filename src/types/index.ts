@@ -8,6 +8,7 @@ export interface User {
 	id: string;
 	email: string;
 	is_verified: boolean;
+	password_hash?: string | null;
 	created_at: Date;
 	updated_at: Date;
 	last_login: Date | null;
@@ -39,6 +40,7 @@ export interface UserResponse {
 	id: string;
 	email: string;
 	isVerified: boolean;
+	hasPassword?: boolean;
 	plan_type?: PlanType;
 	sessionId?: number;
 	loginCount?: number;
@@ -190,6 +192,11 @@ export interface LoginPasswordBody {
 export interface ResetPasswordBody {
 	token: string;
 	password: string;
+}
+
+export interface ChangePasswordBody {
+	currentPassword?: string;
+	newPassword: string;
 }
 
 // Database query result types

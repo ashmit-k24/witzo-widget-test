@@ -67,6 +67,7 @@ class AuthService {
 			id: user.id,
 			email: user.email,
 			isVerified: user.is_verified,
+			hasPassword: Boolean(user.password_hash),
 			plan_type: user.plan_type,
 			sessionId,
 			loginCount: user.login_count,
@@ -658,6 +659,7 @@ class AuthService {
 				await getUserSystemMessageSelectFields("u");
 			const sessionResult = await pool.query(
 				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified, u.plan_type,
+				        u.password_hash,
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
 				        u.profile_prompt_required_at, u.profile_completed_at,
@@ -685,6 +687,7 @@ class AuthService {
 					id: session.user_id,
 					email: session.email,
 					isVerified: session.is_verified,
+					hasPassword: Boolean(session.password_hash),
 					plan_type: session.plan_type,
 					sessionId,
 					loginCount: session.login_count,
@@ -781,6 +784,7 @@ class AuthService {
 				user_id: string;
 				email: string;
 				is_verified: boolean;
+				password_hash: string | null;
 				plan_type: PlanType;
 				refresh_token_expires_at: Date;
 				login_count: number;
@@ -800,6 +804,7 @@ class AuthService {
 				system_message_configured: boolean;
 			}>(
 				`SELECT s.id, s.user_id, u.email, u.is_verified, u.plan_type, s.refresh_token_expires_at,
+				        u.password_hash,
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
 				        u.profile_prompt_required_at, u.profile_completed_at,
@@ -885,6 +890,7 @@ class AuthService {
 					id: session.user_id,
 					email: session.email,
 					isVerified: session.is_verified,
+					hasPassword: Boolean(session.password_hash),
 					plan_type: session.plan_type,
 					sessionId: session.id,
 					loginCount: session.login_count,
@@ -1002,6 +1008,12 @@ class AuthService {
 		return this.formatUserResponse(result.rows[0]);
 	}
 
+	async getUserSettings(
+		userId: string,
+	): Promise<UserResponse> {
+		return this.getProfileStatus(userId);
+	}
+
 	async updateUserProfile(
 		userId: string,
 		payload: {
@@ -1112,6 +1124,21 @@ class AuthService {
 		return this.formatUserResponse(result.rows[0]);
 	}
 
+	async updateUserSettings(
+		userId: string,
+		payload: {
+			full_name: unknown;
+			company_name: unknown;
+			phone_number: unknown;
+			country: unknown;
+			job_title: unknown;
+			industry: unknown;
+			company_website: unknown;
+		},
+	): Promise<UserResponse> {
+		return this.updateUserProfile(userId, payload);
+	}
+
 	/**
 	 * Record the completion of an onboarding step for a user.
 	 * Step 4 automatically marks onboarding as fully completed.
@@ -1141,6 +1168,137 @@ class AuthService {
 		}
 
 		return this.formatUserResponse(result.rows[0]);
+	}
+
+	async changePassword(
+		userId: string,
+		currentPassword: string | undefined,
+		newPassword: string,
+		currentSessionId?: number,
+	): Promise<{
+		success: boolean;
+		message: string;
+		hasPassword: boolean;
+	}> {
+		const client: PoolClient = await pool.connect();
+
+		try {
+			await client.query("BEGIN");
+
+			const userResult = await client.query<
+				User & {
+					password_hash: string | null;
+				}
+			>(
+				`SELECT id, email, password_hash
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
+				[userId],
+			);
+
+			if (userResult.rows.length === 0) {
+				throw this.createHttpError("User not found", 404);
+			}
+
+			const user = userResult.rows[0];
+			const storedHash = user.password_hash;
+			const normalizedCurrentPassword =
+				typeof currentPassword === "string"
+					? currentPassword.trim()
+					: "";
+
+			if (storedHash) {
+				if (!normalizedCurrentPassword) {
+					throw this.createHttpError(
+						"Current password is required",
+						400,
+					);
+				}
+
+				const isCurrentPasswordValid =
+					await this.verifyPassword(
+						normalizedCurrentPassword,
+						storedHash,
+					);
+
+				if (!isCurrentPasswordValid) {
+					throw this.createHttpError(
+						"Current password is incorrect",
+						400,
+					);
+				}
+
+				if (normalizedCurrentPassword === newPassword) {
+					throw this.createHttpError(
+						"New password must be different from the current password",
+						400,
+					);
+				}
+			}
+
+			const passwordHash =
+				await this.hashPassword(newPassword);
+
+			await client.query(
+				`UPDATE users
+         SET password_hash = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+				[userId, passwordHash],
+			);
+
+			if (currentSessionId) {
+				await client.query(
+					`UPDATE sessions
+           SET is_revoked = TRUE,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = $1
+             AND id <> $2
+             AND is_revoked = FALSE`,
+					[userId, currentSessionId],
+				);
+			}
+
+			await client.query("COMMIT");
+
+			logger.info("User password changed", {
+				userId,
+				sessionId: currentSessionId,
+			});
+
+			return {
+				success: true,
+				message: storedHash
+					? "Password updated successfully"
+					: "Password set successfully",
+				hasPassword: true,
+			};
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// Transaction may already be closed.
+			}
+
+			const err = error as Error;
+			logger.error("Error changing password", {
+				userId,
+				error: err.message,
+				stack: err.stack,
+			});
+
+			if ("statusCode" in err) {
+				throw err;
+			}
+
+			throw this.createHttpError(
+				"Failed to update password",
+				500,
+			);
+		} finally {
+			client.release();
+		}
 	}
 
 	// ── Password helpers ──────────────────────────────────────────────────────
