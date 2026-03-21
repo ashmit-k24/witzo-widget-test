@@ -149,7 +149,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}  
           S3_WIDGET_ICON_PUBLIC_BASE_URL=${{ secrets.S3_WIDGET_ICON_PUBLIC_BASE_URL }}  
           AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}  
-
+          FIRECRAWL_API_KEY=${{ secrets.FIRECRAWL_API_KEY }}
+          
           EOF
 
       - name: Login to Docker Hub
