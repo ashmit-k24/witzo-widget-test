@@ -205,6 +205,12 @@ const migrations: Migration[] = [
 			"Create structured RAG source blocks table and indexes",
 		file: "20260320_031_rag_source_blocks.sql",
 	},
+	{
+		id: "20260321_032_workspace_mode",
+		description:
+			"Add workspace_mode column to users (workspace_only / workspace_prefer)",
+		file: "20260321_032_workspace_mode.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

@@ -4,8 +4,10 @@ import pool from "../config/database";
 import { config } from "../config/env";
 import { redisCache } from "../config/redis";
 import {
+	CHAT_COMPLETION_MAX_TOKENS,
 	CHAT_COMPLETION_MODEL,
 	CHAT_COMPLETION_TEMPERATURE,
+	CHAT_CONTACT_SCORE_THRESHOLD,
 	CHAT_DEFAULT_TIMEOUT_MS,
 	CHAT_HISTORY_WINDOW_MESSAGES,
 	CHAT_LANGUAGE_LABELS,
@@ -139,12 +141,36 @@ class ChatService {
 	private buildRetrievedContextBlock(
 		results: any[],
 	): string {
+		// For HyPE vectors, substitute sourceContent (the original chunk text)
+		// and skip if the parent chunk is already represented in results.
+		const parentChunkIds = new Set(
+			results
+				.filter((m) => !m.metadata?.isHype)
+				.map((m) => m.id as string),
+		);
+
+		let docIndex = 0;
 		return results
-			.map((match, index) => {
+			.map((match) => {
+				const isHype =
+					match.metadata?.isHype === true;
+
+				// If a HyPE vector's parent content chunk is also in results,
+				// skip the HyPE entry to avoid duplicate context.
+				if (
+					isHype &&
+					parentChunkIds.has(
+						match.metadata?.sourceChunkId,
+					)
+				) {
+					return null;
+				}
+
+				docIndex++;
 				const title = String(
 					match.metadata?.title ||
 						match.metadata?.url ||
-						`Document ${index + 1}`,
+						`Document ${docIndex}`,
 				);
 				const sourceUrl = String(
 					match.metadata?.url || "",
@@ -168,10 +194,13 @@ class ChatService {
 							.filter(Boolean)
 							.join(" > ")
 					: "";
+				// HyPE: use sourceContent (the original chunk), not the question
 				const content = String(
-					match.metadata?.content || "",
+					(isHype
+						? match.metadata?.sourceContent
+						: match.metadata?.content) || "",
 				);
-				return `<document index="${index + 1}">
+				return `<document index="${docIndex}">
 <title>${this.escapePromptBlock(title)}</title>
 <source>${this.escapePromptBlock(sourceUrl)}</source>
 ${pageType ? `<page_type>${this.escapePromptBlock(pageType)}</page_type>` : ""}
@@ -181,6 +210,7 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 <content>${this.escapePromptBlock(content)}</content>
 </document>`;
 			})
+			.filter(Boolean)
 			.join("\n\n");
 	}
 
@@ -199,6 +229,7 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 		const payload: Record<string, unknown> = {
 			model: CHAT_COMPLETION_MODEL,
 			messages,
+			max_tokens: CHAT_COMPLETION_MAX_TOKENS,
 		};
 		if (!this.isGpt5FamilyModel(CHAT_COMPLETION_MODEL)) {
 			payload.temperature = CHAT_COMPLETION_TEMPERATURE;
@@ -1051,7 +1082,9 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 				userId,
 				retrievalQuery,
 				CHAT_RETRIEVAL_TOP_K,
-				CHAT_RETRIEVAL_SCORE_THRESHOLD,
+				isContactQuery
+					? CHAT_CONTACT_SCORE_THRESHOLD
+					: CHAT_RETRIEVAL_SCORE_THRESHOLD,
 			);
 			logger.info("[RAG 3/6] Pinecone search", {
 				count: raw.length,
@@ -1097,7 +1130,10 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 
 			const sources: Array<{ url: string; title: string; relevanceScore: number }> = [];
 			for (const match of allMatches) {
-				if (match.metadata?.content && !sources.find((s) => s.url === match.metadata.url)) {
+				const effectiveContent = match.metadata?.isHype
+					? match.metadata?.sourceContent
+					: match.metadata?.content;
+				if (effectiveContent && !sources.find((s) => s.url === match.metadata.url)) {
 					sources.push({
 						url: match.metadata.url,
 						title: match.metadata.title || match.metadata.url,
@@ -1248,10 +1284,20 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 			this.getLanguageLabel(languageCode);
 		const websiteRef =
 			this.getWebsiteReference(websiteName);
+		const systemSettings = await systemMessageService
+			.getSettings(userId)
+			.catch(async () => ({
+				effectiveSystemMessage:
+					await systemMessageService.resolveEffectiveSystemMessage(
+						userId,
+					),
+				workspaceMode:
+					"workspace_prefer" as const,
+			}));
 		const effectiveSystemMessage =
-			await systemMessageService.resolveEffectiveSystemMessage(
-				userId,
-			);
+			systemSettings.effectiveSystemMessage;
+		const workspaceMode =
+			systemSettings.workspaceMode ?? "workspace_prefer";
 
 		// Phase 2: Memory summarization — compress old messages
 		const {
@@ -1281,7 +1327,11 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 
 IMPORTANT RULES:
 1. **Greetings & Chit-chat**: If the user says "hey", "hello", "hi", "how are you?", etc., reply politely and professionally as an AI assistant. do NOT say "I don't have data". Be helpful and ask how you can assist them regarding the website content.
-2. **Context-Based Answers**: For specific questions, answer ONLY using the provided context. You may combine and compile details from multiple context sections to form a complete answer when the information is spread across several retrieved chunks.
+2. **Context-Based Answers**: ${
+	workspaceMode === "workspace_only"
+		? `Answer ONLY using the provided context below. If the context does not contain the answer, say clearly: "I don't have that information in my knowledge base." Never supplement with general knowledge.`
+		: `For specific questions, prefer the provided context. You may combine details from multiple context sections. If the retrieved context is insufficient, you may carefully supplement with general knowledge — but only if you are confident, and briefly note that the additional detail comes from general knowledge rather than the website's content.`
+}
 3. **Out of Scope**: If the user asks for tasks outside the scope of the website context (e.g., "write an email", "explain quantum physics", "write code"), politely refuse. Say: "I am designed to answer questions about ${websiteRef} and cannot assist with that request."
 4. **Voice**: Speak naturally on behalf of the business using "we" and "our" when appropriate. Do NOT switch awkwardly between "we", the company name, and "they". Avoid phrases like "we ${websiteRef}" or repetitive wording like "the ${websiteRef} website provides" unless naming the business is genuinely helpful.
 5. **Directness**: Answer directly. Avoid formulaic fillers like "Based on the available data" unless you need to clarify that the information is partial or incomplete.

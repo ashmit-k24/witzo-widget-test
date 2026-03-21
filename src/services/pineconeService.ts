@@ -34,6 +34,7 @@ import {
 	retryOnRateLimit,
 	retryWithBackoff,
 } from "../utils/retry";
+import { buildSparseVector } from "../utils/bm25";
 import { subscriptionService } from "./subscriptionService";
 
 interface PineconeQueryOptions {
@@ -1206,6 +1207,136 @@ class PineconeService {
 		});
 	}
 
+	/**
+	 * HyPE (Hypothetical Prompt Embeddings) — generate synthetic questions per chunk,
+	 * embed them, and upsert as separate vectors so that question-like queries
+	 * match content chunks more reliably.
+	 *
+	 * Runs fire-and-forget (non-blocking) so it never delays the main upsert.
+	 * Failures are swallowed with a warning log — HyPE is purely additive.
+	 */
+	private async generateAndUpsertHypeChunks(
+		index: any,
+		userId: string,
+		url: string,
+		chunks: Array<{ text: string; vectorId: string }>,
+	): Promise<void> {
+		const HYPE_QUESTIONS_PER_CHUNK = 2;
+		const HYPE_MAX_CHUNKS = 40; // cap to avoid excessive API usage per page
+
+		try {
+			const limited = chunks.slice(0, HYPE_MAX_CHUNKS);
+			const hypeVectors: PineconeRecord[] = [];
+
+			for (const chunk of limited) {
+				let questions: string[] = [];
+				try {
+					const resp =
+						await openAICircuitBreaker.execute(
+							async () =>
+								await this.openai.chat.completions.create({
+									model: "gpt-4o-mini",
+									temperature: 0.3,
+									max_tokens: 120,
+									messages: [
+										{
+											role: "system",
+											content:
+												"Generate exactly " +
+												HYPE_QUESTIONS_PER_CHUNK +
+												" short, distinct questions (one per line) that a website visitor might ask whose answer is contained in the following text. Output only the questions, no numbering or extra text.",
+										},
+										{
+											role: "user",
+											content: chunk.text.slice(0, 800),
+										},
+									],
+								}),
+						);
+					const raw =
+						resp.choices[0]?.message?.content ?? "";
+					questions = raw
+						.split("\n")
+						.map((q) => q.trim())
+						.filter((q) => q.length > 10)
+						.slice(0, HYPE_QUESTIONS_PER_CHUNK);
+				} catch (qErr) {
+					logger.debug(
+						"[HyPE] Question generation failed for chunk, skipping",
+						{
+							url,
+							chunkId: chunk.vectorId,
+							error:
+								qErr instanceof Error
+									? qErr.message
+									: String(qErr),
+						},
+					);
+					continue;
+				}
+
+				if (questions.length === 0) continue;
+
+				const embeddings =
+					await this.generateEmbeddings(
+						questions,
+					);
+
+				for (
+					let qi = 0;
+					qi < questions.length;
+					qi++
+				) {
+					const q = questions[qi];
+					const emb = embeddings[qi];
+					if (!emb) continue;
+
+					const hypeMetadata: PineconeMetadata &
+						Record<string, any> = {
+						url,
+						title: "",
+						scrapedAt: new Date().toISOString(),
+						chunkIndex: 0,
+						totalChunks: 0,
+						userId,
+						content: q,            // the hypothetical question (used for scoring)
+						sourceContent: chunk.text, // original chunk text (used in LLM context)
+						sourceChunkId: chunk.vectorId,
+						chunkType: "hype",
+						isHype: true,
+					};
+
+					const hypeId = `${chunk.vectorId}__hype_${qi}`;
+					hypeVectors.push({
+						id: hypeId,
+						values: emb,
+						sparseValues: buildSparseVector(q),
+						metadata: hypeMetadata,
+					});
+				}
+			}
+
+			if (hypeVectors.length === 0) return;
+
+			await pineconeCircuitBreaker.execute(
+				async () =>
+					await retryWithBackoff(
+						async () => index.upsert(hypeVectors),
+						{ name: "PineconeHypeUpsert", maxRetries: 2 },
+					),
+			);
+			logger.info(
+				`[HyPE] Upserted ${hypeVectors.length} hypothetical question vectors for ${url}`,
+			);
+		} catch (err) {
+			logger.warn("[HyPE] Background generation failed (non-fatal)", {
+				url,
+				userId,
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+
 	async upsertDocument(
 		userId: string,
 		url: string,
@@ -1280,9 +1411,12 @@ class PineconeService {
 					chunk.chunkKey,
 				);
 
+				const sparseValues = buildSparseVector(chunk.text);
+
 				vectors.push({
 					id: vectorId,
 					values: embedding,
+					sparseValues,
 					metadata: pineconeMetadata,
 				});
 			}
@@ -1316,6 +1450,18 @@ class PineconeService {
 					);
 				},
 			);
+
+			// HyPE: generate hypothetical questions in the background (non-blocking)
+			void this.generateAndUpsertHypeChunks(
+				index,
+				userId,
+				url,
+				chunks.map((c, i) => ({
+					text: c.text,
+					vectorId: vectors[i].id,
+				})),
+			);
+
 			const sourcePageId =
 				await this.upsertRagSourcePage(
 				userId,
@@ -1364,8 +1510,11 @@ class PineconeService {
 		try {
 			const index =
 				this.getNamespaceIndex(userId);
-			const queryEmbedding =
-				await this.generateEmbedding(query);
+			const [queryEmbedding, querySparse] =
+				await Promise.all([
+					this.generateEmbedding(query),
+					Promise.resolve(buildSparseVector(query)),
+				]);
 			const filter =
 				this.buildQueryFilter(options);
 
@@ -1375,6 +1524,7 @@ class PineconeService {
 					async () => {
 						return await index.query({
 							vector: queryEmbedding,
+							sparseVector: querySparse,
 							topK,
 							includeMetadata: true,
 							...(filter

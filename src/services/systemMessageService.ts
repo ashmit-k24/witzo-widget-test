@@ -15,6 +15,7 @@ export type SystemMessageSettings = {
 	effectiveSystemMessage: string;
 	mode: "default" | "custom";
 	updatedAt: Date | null;
+	workspaceMode: "workspace_only" | "workspace_prefer";
 };
 
 class SystemMessageService {
@@ -66,6 +67,10 @@ class SystemMessageService {
 				: trimmedCustom!,
 			mode: useDefault ? "default" : "custom",
 			updatedAt: user.updated_at ?? null,
+			workspaceMode:
+				user.workspace_mode === "workspace_only"
+					? "workspace_only"
+					: "workspace_prefer",
 		};
 	}
 

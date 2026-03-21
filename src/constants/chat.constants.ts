@@ -4,6 +4,7 @@ export const CHAT_SESSION_CACHE_TTL_SECONDS = 60 * 30;
 
 // Retrieval quality
 export const CHAT_RETRIEVAL_SCORE_THRESHOLD = 0.40; // filter out chunks below this cosine score
+export const CHAT_CONTACT_SCORE_THRESHOLD = 0.25;   // lower bar for contact/location queries — offices often score low
 
 // Hybrid Pinecone search — top K fetch count
 export const CHAT_RETRIEVAL_TOP_K = 50;

@@ -34,6 +34,7 @@ export interface User {
 	custom_system_message: string | null;
 	use_default_system_message: boolean;
 	system_message_configured: boolean;
+	workspace_mode: "workspace_only" | "workspace_prefer";
 }
 
 export interface UserResponse {
@@ -402,6 +403,11 @@ export interface PineconeMetadata {
 	sourceRoot?: string;
 	sourceRootTitle?: string;
 	canonicalUrl?: string;
+	// HyPE (Hypothetical Prompt Embeddings) fields
+	chunkType?: "content" | "hype";        // "hype" = synthetic question vector
+	isHype?: boolean;                        // true when this vector is a HyPE question
+	sourceChunkId?: string;                  // parent content vector id
+	sourceContent?: string;                  // original chunk text (used in LLM context instead of the question)
 }
 
 export type StructuredQueryTopic =
