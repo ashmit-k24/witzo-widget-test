@@ -1943,7 +1943,9 @@
 				font-weight: 600;
 			}
             .md-content p { margin: 0; }
-            .md-content ul, .md-content ol { padding-left: 20px; margin: 5px 0; }
+            .md-content p + p { margin-top: 10px; }
+            .md-content ul, .md-content ol { padding-left: 20px; margin: 8px 0; }
+            .md-content li { margin: 4px 0; }
             .md-content a { color: #007bff; text-decoration: none; }
             .md-content a:hover { text-decoration: underline; }
 
@@ -3340,7 +3342,7 @@
 					: "chat-bubble-ai";
 
 			// Render content
-			bubble.innerHTML = `<div class="md-content"><p>${this.parseMarkdown(text)}</p></div>`;
+			bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
 
 			wrapper.appendChild(bubble);
 
@@ -3422,7 +3424,7 @@
 				bubble.classList.remove(
 					"typing-indicator",
 				);
-				bubble.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content"><p class="streaming-text"></p></div></div>`;
+				bubble.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content streaming-text"></div></div>`;
 				streamingTextNode = bubble.querySelector(
 					".streaming-text",
 				);
@@ -3951,16 +3953,13 @@
 
 		parseMarkdown(text) {
 			if (!text) return "";
-			// Simple markdown parsing to match text-widget capabilities
 			let html = this.escapeHtml(String(text));
 
-			// Bold **text**
 			html = html.replace(
 				/\*\*(.*?)\*\*/g,
 				"<strong>$1</strong>",
 			);
 
-			// Links [text](url)
 			html = html.replace(
 				/\[([^\]]+)\]\(([^)]+)\)/g,
 				(match, txt, url) => {
@@ -3968,10 +3967,66 @@
 				},
 			);
 
-			// Newlines to br
-			html = html.replace(/\n/g, "<br>");
+			// Auto-link bare URLs not already inside a markdown link
+			html = html.replace(
+				/(^|\s)(https?:\/\/[^\s<>"\)\]]+)/g,
+				(match, before, url) => {
+					const stripped = url.replace(/[.,;:!?]+$/, "");
+					const trailing = url.slice(stripped.length);
+					const safe = sanitizeURL(stripped);
+					return safe
+						? `${before}<a href="${safe}" target="_blank" rel="noopener noreferrer">${stripped}</a>${trailing}`
+						: `${before}${url}`;
+				},
+			);
 
-			return html;
+			const blocks = html
+				.replace(/\r\n/g, "\n")
+				.split(/\n\s*\n/)
+				.map((block) => block.trim())
+				.filter(Boolean);
+
+			return blocks
+				.map((block) => {
+					const lines = block
+						.split("\n")
+						.map((line) => line.trim())
+						.filter(Boolean);
+					if (lines.length === 0) return "";
+
+					const isBulletList = lines.every((line) =>
+						/^[-*]\s+/.test(line),
+					);
+					if (isBulletList) {
+						return `<ul>${lines
+							.map(
+								(line) =>
+									`<li>${line.replace(
+										/^[-*]\s+/,
+										"",
+									)}</li>`,
+							)
+							.join("")}</ul>`;
+					}
+
+					const isNumberedList = lines.every((line) =>
+						/^\d+\.\s+/.test(line),
+					);
+					if (isNumberedList) {
+						return `<ol>${lines
+							.map(
+								(line) =>
+									`<li>${line.replace(
+										/^\d+\.\s+/,
+										"",
+									)}</li>`,
+							)
+							.join("")}</ol>`;
+					}
+
+					return `<p>${lines.join("<br>")}</p>`;
+				})
+				.join("");
 		}
 
 		escapeHtml(text) {

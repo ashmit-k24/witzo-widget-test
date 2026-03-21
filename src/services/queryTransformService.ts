@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import { config } from "../config/env";
-import { ChatMessage } from "../types";
+import {
+	ChatMessage,
+	StructuredQueryPlan,
+} from "../types";
 import logger from "../utils/logger";
 
 export type QueryIntent =
@@ -18,43 +21,43 @@ export type TransformResult = {
 	retrievalQuery: string;   // query to use for vector search (may differ from raw message)
 	subQueries: string[];     // for complex intent: decomposed sub-queries
 	formatHint: string;       // added to system prompt for response formatting
-	wordLimit: number;
-	maxParagraphs: number;
 	isContactQuery: boolean;  // true when user is asking for contact/location info → lower retrieval threshold
-};
-
-const INTENT_WORD_LIMITS: Record<QueryIntent, number> = {
-	small_talk: 40,
-	factual_short: 80,
-	list_request: 250,
-	explanation: 200,
-	comparison: 260,
-	complex: 260,
-	lead_capture: 80,
-	general: 200,
-};
-
-const INTENT_MAX_PARAGRAPHS: Record<QueryIntent, number> = {
-	small_talk: 1,
-	factual_short: 1,
-	list_request: 4,
-	explanation: 2,
-	comparison: 3,
-	complex: 3,
-	lead_capture: 1,
-	general: 2,
+	structuredPlan: StructuredQueryPlan;
 };
 
 const INTENT_FORMAT_HINTS: Record<QueryIntent, string> = {
 	small_talk: "Reply warmly and briefly in 1-2 sentences.",
-	factual_short: "Give a direct one-sentence answer with the specific fact.",
-	list_request: "Present each item as a separate bullet point on its own line using '- Item'. Start with a brief intro sentence ending with a colon, then list each item. Do NOT summarize into a paragraph.",
-	explanation: "Explain clearly in 1-2 paragraphs. Use plain language.",
-	comparison: "Use a structured format: state both options, then highlight key differences. Bullet points are preferred.",
-	complex: "Answer thoroughly. Use bullet points or short paragraphs for each part of the question.",
+	factual_short: "Answer directly with the exact fact first. If there are multiple exact values, use short bullet points instead of a paragraph. Avoid filler.",
+	list_request: "Use a short introductory line ending with a colon, then list each item on its own bullet using '- Item'. Keep names exact when possible and add only short supporting details grounded in the context.",
+	explanation: "Explain clearly in short paragraphs. Use plain language and add light structure when it improves readability.",
+	comparison: "Use a structured comparison with short bullets or mini-sections. Make the differences easy to scan.",
+	complex: "Answer thoroughly using short sections, bullets, or short paragraphs for each part of the question.",
 	lead_capture: "Acknowledge the contact info warmly and ask for the missing detail.",
-	general: "Answer concisely in 1-2 paragraphs.",
+	general: "Answer clearly with short paragraphs. Use bullets when they make the answer easier to scan.",
 };
+
+const STRUCTURED_FILTER_STOP_WORDS = new Set([
+	"a",
+	"an",
+	"and",
+	"any",
+	"are",
+	"for",
+	"from",
+	"give",
+	"industry",
+	"in",
+	"me",
+	"of",
+	"related",
+	"show",
+	"some",
+	"studies",
+	"the",
+	"to",
+	"what",
+	"with",
+]);
 
 class QueryTransformService {
 	private openai: OpenAI;
@@ -73,7 +76,14 @@ class QueryTransformService {
 		// Fast local checks first (avoid LLM call for obvious cases)
 		const localIntent = this.detectLocalIntent(message);
 		if (localIntent === "small_talk" || localIntent === "lead_capture") {
-			return this.buildResult(localIntent, message, [], message, false);
+			return this.buildResult(
+				localIntent,
+				message,
+				[],
+				message,
+				false,
+				recentMessages,
+			);
 		}
 		// Local contact detection → skip LLM, go straight to retrieval
 		if (localIntent === "factual_short") {
@@ -81,7 +91,14 @@ class QueryTransformService {
 			const boosted = isContact
 				? `${message} contact address phone email location office`
 				: message;
-			return this.buildResult("factual_short", boosted, [], message, isContact);
+			return this.buildResult(
+				"factual_short",
+				boosted,
+				[],
+				message,
+				isContact,
+				recentMessages,
+			);
 		}
 
 		// Rewrite query for multi-turn context
@@ -108,7 +125,14 @@ class QueryTransformService {
 			retrievalQuery = `${retrievalQuery} case study portfolio project client result outcome`;
 		}
 
-		return this.buildResult(intent, retrievalQuery, subQueries, standaloneQuery, contactQuery);
+		return this.buildResult(
+			intent,
+			retrievalQuery,
+			subQueries,
+			standaloneQuery,
+			contactQuery,
+			recentMessages,
+		);
 	}
 
 	/**
@@ -132,34 +156,136 @@ class QueryTransformService {
 		subQueries: string[],
 		standaloneQuery: string,
 		isContactQuery: boolean = false,
+		recentMessages: ChatMessage[] = [],
 	): TransformResult {
 		const isCaseStudyQuery =
 			this.isCaseStudyQuery(standaloneQuery);
+		const structuredPlan =
+			this.buildStructuredPlan(
+				standaloneQuery,
+				recentMessages,
+				isContactQuery,
+			);
 		// Contact queries need much more space than factual_short defaults
 		const formatHint = isContactQuery
 			? "List ALL contact details found in the context. For EACH office or location, include the complete address, ALL phone numbers, and the email. Present each office as its own labelled section. Do NOT truncate, omit, or summarise any office. Do NOT invent any phone number, email, or address — only use what is explicitly in the context. This response may be longer than usual."
 			: isCaseStudyQuery
-				? "For case studies, projects, portfolio items, or examples: list ONLY exact case study or project names when they are explicitly present in the context. Do NOT turn generic service categories or industries into named case studies. If only industry-level examples are present, say that clearly and keep every item at industry level consistently."
+				? "For case studies, projects, portfolio items, or examples: use a consistent structure for each item. For each case study include: (1) the exact name in bold, (2) a brief Overview, (3) key Results with specific numbers or metrics if available, and (4) the full case study link. If the visitor asked about a specific industry, only show matching case studies — do NOT say no case studies exist if there are any related ones; instead show the closest match. Do NOT invent case study names or results. Always end with a brief personalized follow-up question asking about the visitor's specific business, industry, or goals."
+				: structuredPlan.topic === "services"
+					? "For services: use a short introductory line ending with a colon, then list each service on its own bullet. Use the exact service name when possible and add one grounded value sentence only. Do not merge multiple services into one bullet."
 				: INTENT_FORMAT_HINTS[intent];
-		const wordLimit = isContactQuery
-			? 300
-			: isCaseStudyQuery
-				? 280
-				: INTENT_WORD_LIMITS[intent];
-		const maxParagraphs = isContactQuery
-			? 10
-			: isCaseStudyQuery
-				? 6
-				: INTENT_MAX_PARAGRAPHS[intent];
 
 		return {
 			intent,
 			retrievalQuery,
 			subQueries,
 			formatHint,
-			wordLimit,
-			maxParagraphs,
 			isContactQuery,
+			structuredPlan,
+		};
+	}
+
+	private extractFocusTerms(
+		query: string,
+		extraTerms: string[],
+	): string[] {
+		const normalizedTerms = query
+			.toLowerCase()
+			.replace(/[^a-z0-9\s-]+/g, " ")
+			.split(/\s+/)
+			.map((term) => term.trim())
+			.filter(
+				(term) =>
+					term.length >= 3 &&
+					!STRUCTURED_FILTER_STOP_WORDS.has(term),
+			);
+		return Array.from(
+			new Set([
+				...extraTerms.map((term) =>
+					term.toLowerCase(),
+				),
+				...normalizedTerms,
+			]),
+		).slice(0, 12);
+	}
+
+	private buildStructuredPlan(
+		standaloneQuery: string,
+		_recentMessages: ChatMessage[],
+		isContactQuery: boolean,
+	): StructuredQueryPlan {
+		const normalized =
+			standaloneQuery.toLowerCase();
+
+		let topic: StructuredQueryPlan["topic"] =
+			"general";
+		const pageTypes = new Set<string>();
+		const blockTypes = new Set<string>();
+
+		if (isContactQuery) {
+			topic = "contact";
+			pageTypes.add("contact");
+			pageTypes.add("about");
+			blockTypes.add("contact");
+			blockTypes.add("list");
+		} else if (
+			/\b(price|pricing|plan|plans|package|packages|cost|costs|quote)\b/.test(
+				normalized,
+			)
+		) {
+			topic = "pricing";
+			pageTypes.add("pricing");
+			blockTypes.add("table");
+			blockTypes.add("list");
+		} else if (this.isCaseStudyQuery(standaloneQuery)) {
+			topic = "case_studies";
+			pageTypes.add("portfolio");
+			blockTypes.add("summary");
+			blockTypes.add("list");
+			blockTypes.add("paragraph");
+		} else if (
+			/\b(faq|faqs|question|questions|answer|answers|support|help)\b/.test(
+				normalized,
+			)
+		) {
+			topic = "faq";
+			pageTypes.add("faq");
+			blockTypes.add("faq");
+		} else if (
+			/\b(service|services|solution|solutions|product|products|offering|offerings|capabilities)\b/.test(
+				normalized,
+			)
+		) {
+			topic = "services";
+			pageTypes.add("services");
+			blockTypes.add("list");
+			blockTypes.add("summary");
+		} else if (
+			/\b(about|team|company|founder|history|mission|vision|who are you|who we are)\b/.test(
+				normalized,
+			)
+		) {
+			topic = "about";
+			pageTypes.add("about");
+			blockTypes.add("summary");
+		}
+
+		const focusTerms = this.extractFocusTerms(
+			standaloneQuery,
+			[],
+		);
+
+		return {
+			topic,
+			pageTypes:
+				pageTypes.size > 0
+					? Array.from(pageTypes)
+					: undefined,
+			blockTypes:
+				blockTypes.size > 0
+					? Array.from(blockTypes)
+					: undefined,
+			focusTerms,
 		};
 	}
 

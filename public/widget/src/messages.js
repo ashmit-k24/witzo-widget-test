@@ -21,6 +21,18 @@ export function parseMarkdown(text) {
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, txt, url) =>
     `<a href="${sanitizeURL(url)}" target="_blank" rel="noopener noreferrer">${txt}</a>`
   );
+  // Auto-link bare URLs not already inside a markdown link
+  html = html.replace(
+    /(^|\s)(https?:\/\/[^\s<>")\]]+)/g,
+    (match, before, url) => {
+      const stripped = url.replace(/[.,;:!?]+$/, '');
+      const trailing = url.slice(stripped.length);
+      const safe = sanitizeURL(stripped);
+      return safe
+        ? `${before}<a href="${safe}" target="_blank" rel="noopener noreferrer">${stripped}</a>${trailing}`
+        : `${before}${url}`;
+    }
+  );
   html = html.replace(/\n/g, '<br>');
   return html;
 }

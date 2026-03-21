@@ -199,6 +199,12 @@ const migrations: Migration[] = [
 			"Create password reset tokens table and indexes",
 		file: "20260320_030_password_reset_tokens.sql",
 	},
+	{
+		id: "20260320_031_rag_source_blocks",
+		description:
+			"Create structured RAG source blocks table and indexes",
+		file: "20260320_031_rag_source_blocks.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

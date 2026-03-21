@@ -401,6 +401,39 @@ export interface PineconeMetadata {
 	canonicalUrl?: string;
 }
 
+export type StructuredQueryTopic =
+	| "case_studies"
+	| "contact"
+	| "pricing"
+	| "faq"
+	| "services"
+	| "about"
+	| "general";
+
+export interface StructuredQueryPlan {
+	topic: StructuredQueryTopic;
+	pageTypes?: string[];
+	blockTypes?: string[];
+	focusTerms?: string[];
+}
+
+export interface StructuredBlockSearchResult {
+	id: number;
+	sourcePageId?: number;
+	sourceType: "document" | "website";
+	sourceRoot?: string | null;
+	sourceUrl: string;
+	title: string;
+	pageType?: string | null;
+	blockType?: string | null;
+	sectionTitle?: string | null;
+	sectionPath?: string[];
+	position: number;
+	content: string;
+	scrapedAt?: string;
+	relevanceScore: number;
+}
+
 // Chat types
 export interface ChatMessage {
 	role: "user" | "assistant" | "system";
