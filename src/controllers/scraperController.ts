@@ -7,9 +7,9 @@ import { scraperStatusService } from "../services/scraperStatusService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
-const SCRAPER_DEFAULT_MAX_PAGES = 800;
+const SCRAPER_DEFAULT_MAX_PAGES = 1200;
 const SCRAPER_MAX_DEPTH = 30;
-const SCRAPER_MAX_PAGES = 800;
+const SCRAPER_MAX_PAGES = 1200;
 
 const getScraperUpgradeMessage = (
 	planType:
@@ -60,7 +60,7 @@ export const scrapeWebsite = async (
 	try {
 		const {
 			url: rawUrl,
-			maxDepth = 3,
+			maxDepth = 30,
 			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
@@ -133,7 +133,7 @@ export const scrapeWebsite = async (
 			0,
 			Math.min(
 				SCRAPER_MAX_DEPTH,
-				Number(maxDepth) || 3,
+				Number(maxDepth) || 30,
 			),
 		);
 		const normalizedMaxPages = Math.max(
@@ -725,7 +725,7 @@ export const retrainWebsite = async (
 	try {
 		const {
 			url: rawUrl,
-			maxDepth = 3,
+			maxDepth = 30,
 			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
@@ -792,7 +792,7 @@ export const retrainWebsite = async (
 			0,
 			Math.min(
 				SCRAPER_MAX_DEPTH,
-				Number(maxDepth) || 3,
+				Number(maxDepth) || 30,
 			),
 		);
 		const normalizedMaxPages = Math.max(

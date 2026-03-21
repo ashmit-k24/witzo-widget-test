@@ -1,6 +1,7 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { pineconeService } from "./pineconeService";
+import { firecrawlService } from "./firecrawlService";
 import {
 	ScrapedPage,
 	ScrapedPageBlockType,
@@ -506,6 +507,26 @@ class ScraperService {
 		};
 	}
 
+	/**
+	 * Try Firecrawl first; if unavailable or it returns empty/error,
+	 * fall back to the own Axios + Cheerio scraper.
+	 */
+	private async scrapePageWithFallback(
+		url: string,
+	): Promise<ScrapedPage> {
+		const firecrawlPage =
+			await firecrawlService.scrapePage(url);
+		if (firecrawlPage !== null) {
+			return firecrawlPage;
+		}
+		// Firecrawl not configured, failed, or returned no content
+		logger.info(
+			`[Scraper] Falling back to own scraper for ${url}`,
+		);
+		const html = await this.fetchPageContent(url);
+		return this.extractPageData(html, url);
+	}
+
 	async scrapeWebsite(
 		userId: string,
 		url: string,
@@ -519,8 +540,8 @@ class ScraperService {
 			safeRootUrl.toString(),
 		);
 		let rootTitle = "";
-		const maxDepth = options.maxDepth || 3;
-		const maxPages = options.maxPages || 300;
+		const maxDepth = options.maxDepth || 30;
+		const maxPages = options.maxPages || 1200;
 		const reportProgress = options.onProgress;
 		const visitedUrls = new Set<string>();
 		const urlQueue: Array<{
@@ -536,6 +557,43 @@ class ScraperService {
 		);
 
 		await pineconeService.ensureIndexExists();
+
+		// ── Firecrawl sitemap discovery ──────────────────────────────────────
+		// Pre-populate the queue with ALL URLs discovered via Firecrawl's /map
+		// endpoint (reads sitemap.xml + crawls links). This captures pages that
+		// are not reachable through normal HTML link-following (JS pagination,
+		// "Load More" buttons, etc.). Falls back to plain BFS if map fails.
+		if (firecrawlService.isAvailable) {
+			const mappedUrls =
+				await firecrawlService.mapWebsite(rootUrl);
+			let addedFromMap = 0;
+			for (const mappedUrl of mappedUrls) {
+				const normalized =
+					this.normalizeUrl(mappedUrl);
+				if (
+					!visitedUrls.has(normalized) &&
+					this.isValidInternalUrl(
+						normalized,
+						rootUrl,
+					) &&
+					urlQueue.length < maxPages
+				) {
+					urlQueue.push({
+						url: normalized,
+						depth: 0,
+					});
+					addedFromMap++;
+				}
+			}
+			if (addedFromMap > 0) {
+				logger.info(
+					`[Scraper] Pre-populated BFS queue with ${addedFromMap} URLs from Firecrawl map`,
+					{ rootUrl },
+				);
+			}
+		}
+		// ────────────────────────────────────────────────────────────────────
+
 		await reportProgress?.({
 			totalPages: Math.min(maxPages, urlQueue.length),
 			scrapedPages: 0,
@@ -568,8 +626,8 @@ class ScraperService {
 			await Promise.allSettled(
 				batch.map(async ({ url: currentUrl, depth }) => {
 					try {
-						const html = await this.fetchPageContent(currentUrl);
-						const pageData = this.extractPageData(html, currentUrl);
+						const pageData =
+							await this.scrapePageWithFallback(currentUrl);
 
 						if (depth === 0 && pageData.title) {
 							rootTitle = pageData.title;

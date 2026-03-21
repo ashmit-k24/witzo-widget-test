@@ -9,6 +9,8 @@ import {
 	CHAT_DEFAULT_TIMEOUT_MS,
 	CHAT_HISTORY_WINDOW_MESSAGES,
 	CHAT_LANGUAGE_LABELS,
+	CHAT_CONTACT_MAX_CHUNKS_PER_URL,
+	CHAT_CONTACT_MMR_MAX_CHUNKS,
 	CHAT_MAX_CHUNKS_PER_URL,
 	CHAT_MMR_MAX_CHUNKS,
 	CHAT_RERANK_TOP_N,
@@ -1029,6 +1031,7 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 		userId: string,
 		retrievalQuery: string,
 		trace: LangfuseTrace = null,
+		isContactQuery: boolean = false,
 	): Promise<ContextResult> {
 		try {
 			const cacheKey = this.getRetrievalCacheKey(userId, retrievalQuery);
@@ -1077,8 +1080,8 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 			}
 			allMatches = this.diversifyMatchesByUrl(
 				allMatches,
-				CHAT_MAX_CHUNKS_PER_URL,
-				CHAT_MMR_MAX_CHUNKS,
+				isContactQuery ? CHAT_CONTACT_MAX_CHUNKS_PER_URL : CHAT_MAX_CHUNKS_PER_URL,
+				isContactQuery ? CHAT_CONTACT_MMR_MAX_CHUNKS : CHAT_MMR_MAX_CHUNKS,
 			);
 
 			endSpan(retrievalSpan, { matchCount: allMatches.length });
@@ -1521,6 +1524,7 @@ ${
 						userId,
 						transformResult.retrievalQuery,
 						trace,
+						transformResult.isContactQuery,
 					);
 			timing.retrievalMs =
 				Date.now() - retrievalStart;
@@ -1749,6 +1753,7 @@ ${
 					userId,
 					transformResult.retrievalQuery,
 					trace,
+					transformResult.isContactQuery,
 				);
 		timing.retrievalMs =
 			Date.now() - retrievalStart;

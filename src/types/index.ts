@@ -313,6 +313,9 @@ export interface EnvConfig {
 	// Cohere (reranker)
 	COHERE_API_KEY?: string;
 
+	// Firecrawl (primary scraper)
+	FIRECRAWL_API_KEY?: string;
+
 	// Langfuse (observability)
 	LANGFUSE_SECRET_KEY?: string;
 	LANGFUSE_PUBLIC_KEY?: string;

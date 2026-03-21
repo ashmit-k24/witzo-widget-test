@@ -13,11 +13,15 @@ export const CHUNK_MAX_CHARS = 600;
 export const CHUNK_OVERLAP_CHARS = 150;
 
 // Reranking
-export const CHAT_RERANK_TOP_N = 15; // after reranking, keep this many chunks
+export const CHAT_RERANK_TOP_N = 20; // after reranking, keep this many chunks
 
 // MMR/dedup
-export const CHAT_MMR_MAX_CHUNKS = 8;   // final chunks sent to OpenAI
-export const CHAT_MAX_CHUNKS_PER_URL = 2; // MMR diversity cap
+export const CHAT_MMR_MAX_CHUNKS = 14;   // final chunks sent to OpenAI
+export const CHAT_MAX_CHUNKS_PER_URL = 5; // MMR diversity cap (contact pages need 4-5 chunks for multiple offices)
+
+// Contact/location queries — use higher limits so all offices/emails are included
+export const CHAT_CONTACT_MMR_MAX_CHUNKS = 20;
+export const CHAT_CONTACT_MAX_CHUNKS_PER_URL = 10;
 
 // Memory summarization
 export const CHAT_SUMMARY_TRIGGER_MESSAGES = 10; // summarize when history exceeds this

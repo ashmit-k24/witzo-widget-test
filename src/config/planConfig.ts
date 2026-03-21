@@ -49,7 +49,7 @@ export const PLAN_CAPABILITIES: Record<
 	PlanCapabilities
 > = {
 	free: {
-		websitePagesLimit: 15,
+		websitePagesLimit: 1200,
 		documentLimit: 4,
 		chatHistoryLimit: 3,
 		leadStorageLimit: 3,
@@ -70,7 +70,7 @@ export const PLAN_CAPABILITIES: Record<
 		supportTier: "email",
 	},
 	basic: {
-		websitePagesLimit: 30,
+		websitePagesLimit: 1200,
 		documentLimit: 10,
 		chatHistoryLimit: 10,
 		leadStorageLimit: 10,
@@ -91,7 +91,7 @@ export const PLAN_CAPABILITIES: Record<
 		supportTier: "priority_email",
 	},
 	standard: {
-		websitePagesLimit: 100,
+		websitePagesLimit: 1200,
 		documentLimit: 50,
 		chatHistoryLimit: null,
 		leadStorageLimit: null,
