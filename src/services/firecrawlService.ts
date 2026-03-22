@@ -4,11 +4,13 @@ import {
 	ScrapedPageBlockType,
 	ScrapedPageContentBlock,
 } from "../types";
-import logger from "../utils/logger";
 import { config } from "../config/env";
+import logger from "../utils/logger";
+import {
+	isUrlUnderSourceRoot,
+	normalizeDiscoveredUrl,
+} from "../utils/scrapeUrl";
 
-// Minimum markdown length to consider a Firecrawl response useful.
-// If below this, we fall back to the own scraper.
 const FIRECRAWL_MIN_CONTENT_LENGTH = 100;
 
 class FirecrawlService {
@@ -18,11 +20,18 @@ class FirecrawlService {
 		if (config.FIRECRAWL_API_KEY) {
 			this.client = new Firecrawl({
 				apiKey: config.FIRECRAWL_API_KEY,
+				...(config.FIRECRAWL_API_URL
+					? { apiUrl: config.FIRECRAWL_API_URL }
+					: {}),
 			});
-			logger.info("[Firecrawl] Service initialized");
+			logger.info("[Firecrawl] Service initialized", {
+				apiUrl:
+					config.FIRECRAWL_API_URL ??
+					"https://api.firecrawl.dev (default)",
+			});
 		} else {
 			logger.info(
-				"[Firecrawl] FIRECRAWL_API_KEY not set — Firecrawl disabled, using own scraper only",
+				"[Firecrawl] FIRECRAWL_API_KEY not set; built-in crawler only",
 			);
 		}
 	}
@@ -30,8 +39,6 @@ class FirecrawlService {
 	get isAvailable(): boolean {
 		return this.client !== null;
 	}
-
-	// ── Helpers ────────────────────────────────────────────────────────────
 
 	private hasContactSignals(text: string): boolean {
 		return /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s().-]{6,}|\b(address|phone|email|office|contact|call|reach us|get in touch)\b/i.test(
@@ -51,23 +58,23 @@ class FirecrawlService {
 			/\b(price|pricing|plan|package|fee|cost)\b/.test(
 				normalized,
 			)
-		)
+		) {
 			return "table";
+		}
 		if (
 			/\?$/.test(text.trim()) ||
 			/\b(faq|frequently asked|question|answer)\b/.test(
 				normalized,
 			)
-		)
+		) {
 			return "faq";
-		if (this.hasContactSignals(normalized)) return "contact";
+		}
+		if (this.hasContactSignals(normalized)) {
+			return "contact";
+		}
 		return "paragraph";
 	}
 
-	/**
-	 * Convert Firecrawl markdown output into structured content blocks
-	 * compatible with the existing ScrapedPageContentBlock format.
-	 */
 	private markdownToContentBlocks(
 		markdown: string,
 		title: string,
@@ -76,7 +83,6 @@ class FirecrawlService {
 		const blocks: ScrapedPageContentBlock[] = [];
 		const seenText = new Set<string>();
 
-		// Summary block (title + meta description)
 		if (description) {
 			const summaryText = [title, description]
 				.filter(Boolean)
@@ -95,22 +101,23 @@ class FirecrawlService {
 			level: number;
 			title: string;
 		}> = [];
-
-		// Split on blank lines to get raw blocks
 		const rawBlocks = markdown
 			.split(/\n\s*\n/)
-			.map((b) => b.trim())
+			.map((block) => block.trim())
 			.filter(Boolean);
 
 		for (const rawBlock of rawBlocks) {
 			const lines = rawBlock
 				.split("\n")
-				.map((l) => l.trim())
+				.map((line) => line.trim())
 				.filter(Boolean);
-			if (lines.length === 0) continue;
+			if (lines.length === 0) {
+				continue;
+			}
 
-			// Standalone heading → update section stack, don't store as a block
-			const headingMatch = lines[0].match(/^(#{1,6})\s+(.+)/);
+			const headingMatch = lines[0].match(
+				/^(#{1,6})\s+(.+)/,
+			);
 			if (headingMatch && lines.length === 1) {
 				const level = headingMatch[1].length;
 				const headingText = headingMatch[2].trim();
@@ -121,37 +128,50 @@ class FirecrawlService {
 				) {
 					sectionStack.pop();
 				}
-				sectionStack.push({ level, title: headingText });
+				sectionStack.push({
+					level,
+					title: headingText,
+				});
 				continue;
 			}
 
-			// Strip any inline heading lines from mixed blocks
 			const contentLines = lines.filter(
-				(l) => !/^#{1,6}\s+/.test(l),
+				(line) => !/^#{1,6}\s+/.test(line),
 			);
-			if (contentLines.length === 0) continue;
+			if (contentLines.length === 0) {
+				continue;
+			}
 
 			const isList = contentLines.every(
-				(l) =>
-					/^[-*+]\s+/.test(l) || /^\d+\.\s+/.test(l),
+				(line) =>
+					/^[-*+]\s+/.test(line) ||
+					/^\d+\.\s+/.test(line),
 			);
-
 			const text = isList
 				? contentLines
-						.map((l) =>
-							l.replace(/^[-*+\d.]+\s+/, "").trim(),
+						.map((line) =>
+							line.replace(/^[-*+\d.]+\s+/, "").trim(),
 						)
 						.filter(Boolean)
 						.join(" | ")
-				: contentLines.join(" ").replace(/\s+/g, " ").trim();
+				: contentLines
+						.join(" ")
+						.replace(/\s+/g, " ")
+						.trim();
 
-			if (!text || text.length < 30) continue;
+			if (!text || text.length < 30) {
+				continue;
+			}
 
-			const key = text.toLowerCase();
-			if (seenText.has(key)) continue;
-			seenText.add(key);
+			const normalizedKey = text.toLowerCase();
+			if (seenText.has(normalizedKey)) {
+				continue;
+			}
+			seenText.add(normalizedKey);
 
-			const sectionPath = sectionStack.map((s) => s.title);
+			const sectionPath = sectionStack.map(
+				(section) => section.title,
+			);
 			const sectionTitle =
 				sectionPath[sectionPath.length - 1];
 
@@ -177,128 +197,171 @@ class FirecrawlService {
 		}));
 	}
 
-	// ── Public API ──────────────────────────────────────────────────────────
-
-	/**
-	 * Use Firecrawl's /map endpoint to discover all URLs on a website
-	 * via sitemap + link crawling — captures pages that are not reachable
-	 * through normal HTML link following (JS-loaded content, pagination, etc.).
-	 * Returns an empty array if Firecrawl is not configured or the call fails.
-	 */
-	async mapWebsite(url: string): Promise<string[]> {
-		if (!this.client) {
-			return [];
+	private documentToScrapedPage(
+		document: any,
+		sourceRoot: string,
+	): ScrapedPage | null {
+		const markdown =
+			typeof document?.markdown === "string"
+				? document.markdown.trim()
+				: "";
+		if (markdown.length < FIRECRAWL_MIN_CONTENT_LENGTH) {
+			return null;
 		}
 
-		try {
-			logger.info(`[Firecrawl] Mapping all URLs for ${url}`);
-
-			const result = await this.client.map(url, {
-				sitemap: "include", // use sitemap.xml when available
-				ignoreQueryParameters: true, // dedupe ?page=1 vs ?page=2 variants
-				limit: 5000,
-				timeout: 60000,
-			});
-
-			const urls = (result.links ?? [])
-				.map((l) => l.url)
-				.filter((u) => /^https?:\/\//i.test(u));
-
-			logger.info(
-				`[Firecrawl] Map discovered ${urls.length} URLs for ${url}`,
-			);
-			return urls;
-		} catch (error) {
-			const message =
-				error instanceof Error
-					? error.message
-					: String(error);
-			logger.warn(
-				`[Firecrawl] Map failed for ${url}: ${message} — falling back to BFS link discovery`,
-			);
-			return [];
+		const rawUrl =
+			document?.metadata?.sourceURL ??
+			document?.metadata?.url ??
+			sourceRoot;
+		const normalizedUrl =
+			normalizeDiscoveredUrl(rawUrl) ?? sourceRoot;
+		if (!isUrlUnderSourceRoot(normalizedUrl, sourceRoot)) {
+			return null;
 		}
+
+		const title =
+			document?.metadata?.title?.trim() || "No Title";
+		const description =
+			document?.metadata?.description?.trim() || "";
+		const canonicalUrl =
+			document?.metadata?.ogUrl?.trim() ||
+			document?.metadata?.canonicalUrl?.trim() ||
+			document?.metadata?.sourceURL?.trim() ||
+			undefined;
+		const contentBlocks = this.markdownToContentBlocks(
+			markdown,
+			title,
+			description,
+		);
+		const links: string[] = [];
+		if (Array.isArray(document?.links)) {
+			for (const rawLink of document.links as unknown[]) {
+				if (typeof rawLink !== "string") {
+					continue;
+				}
+				const normalizedLink =
+					normalizeDiscoveredUrl(
+						rawLink,
+						normalizedUrl,
+					);
+				if (
+					normalizedLink &&
+					isUrlUnderSourceRoot(
+						normalizedLink,
+						sourceRoot,
+					)
+				) {
+					links.push(normalizedLink);
+				}
+			}
+		}
+
+		return {
+			url: normalizedUrl,
+			title,
+			content: markdown,
+			links: [...new Set(links)],
+			metadata: {
+				description,
+				canonicalUrl,
+				contentBlocks,
+				scrapedVia: "firecrawl",
+			},
+		};
 	}
 
-	/**
-	 * Scrape a single page via Firecrawl.
-	 * Returns null if:
-	 *   - Firecrawl is not configured (no API key)
-	 *   - The API call fails for any reason
-	 *   - The returned content is too short to be useful
-	 * Caller should fall back to the own scraper when null is returned.
-	 */
-	async scrapePage(url: string): Promise<ScrapedPage | null> {
+	async crawlWebsite(
+		url: string,
+		maxPages: number,
+		maxDepth: number,
+		onProgress?: (
+			done: number,
+			total: number,
+		) => Promise<void> | void,
+	): Promise<ScrapedPage[]> {
 		if (!this.client) {
-			return null;
+			return [];
 		}
 
-		try {
-			logger.info(`[Firecrawl] Scraping ${url}`);
+		logger.info("[Firecrawl] Starting site crawl", {
+			url,
+			maxPages,
+		});
 
-			const result = await this.client.scrape(url, {
+		const start = await this.client.startCrawl(url, {
+			limit: maxPages,
+			maxDiscoveryDepth: maxDepth,
+			ignoreQueryParameters: true,
+			deduplicateSimilarURLs: true,
+			allowExternalLinks: false,
+			scrapeOptions: {
 				formats: ["markdown", "links"],
 				onlyMainContent: true,
-				timeout: 30000,
-			});
+				timeout: config.FIRECRAWL_TIMEOUT_MS,
+			},
+		});
 
-			const markdown = result.markdown ?? "";
+		if (!start?.id) {
+			throw new Error(
+				"Firecrawl did not return a crawl job id",
+			);
+		}
 
-			if (markdown.length < FIRECRAWL_MIN_CONTENT_LENGTH) {
-				logger.warn(
-					`[Firecrawl] Insufficient content for ${url} (${markdown.length} chars) — falling back`,
+		const deadline =
+			Date.now() + config.FIRECRAWL_TIMEOUT_MS;
+		const pagesByUrl = new Map<string, ScrapedPage>();
+
+		while (Date.now() < deadline) {
+			const status = await this.client.getCrawlStatus(
+				start.id,
+			);
+			await onProgress?.(
+				status.completed ?? pagesByUrl.size,
+				status.total ?? maxPages,
+			);
+
+			for (const document of status.data ?? []) {
+				const page = this.documentToScrapedPage(
+					document,
+					url,
 				);
-				return null;
+				if (!page) {
+					continue;
+				}
+				pagesByUrl.set(page.url, page);
 			}
 
-			const title =
-				result.metadata?.title?.trim() || "No Title";
-			const description =
-				result.metadata?.description?.trim() || "";
-			const canonicalUrl =
-				result.metadata?.ogUrl?.trim() ||
-				result.metadata?.sourceURL?.trim() ||
-				undefined;
+			if (status.status === "completed") {
+				const pages = Array.from(
+					pagesByUrl.values(),
+				).slice(0, maxPages);
+				logger.info("[Firecrawl] Site crawl completed", {
+					url,
+					pages: pages.length,
+				});
+				return pages;
+			}
 
-			// Filter to absolute HTTP links only
-			const links = (result.links ?? []).filter((l) =>
-				/^https?:\/\//i.test(l),
+			if (
+				status.status === "failed" ||
+				status.status === "cancelled"
+			) {
+				throw new Error(
+					`Firecrawl crawl ended with status ${status.status}`,
+				);
+			}
+
+			await new Promise((resolve) =>
+				setTimeout(
+					resolve,
+					config.FIRECRAWL_POLL_INTERVAL_MS,
+				),
 			);
-
-			const contentBlocks = this.markdownToContentBlocks(
-				markdown,
-				title,
-				description,
-			);
-
-			const metadata: Record<string, unknown> = {};
-			if (description) metadata.description = description;
-			if (canonicalUrl) metadata.canonicalUrl = canonicalUrl;
-			if (contentBlocks.length > 0)
-				metadata.contentBlocks = contentBlocks;
-			metadata.scrapedVia = "firecrawl";
-
-			logger.info(
-				`[Firecrawl] OK ${url} — ${markdown.length} chars, ${contentBlocks.length} blocks`,
-			);
-
-			return {
-				url,
-				title,
-				content: markdown,
-				links,
-				metadata,
-			};
-		} catch (error) {
-			const message =
-				error instanceof Error
-					? error.message
-					: String(error);
-			logger.warn(
-				`[Firecrawl] Failed for ${url}: ${message} — falling back to own scraper`,
-			);
-			return null;
 		}
+
+		throw new Error(
+			`Firecrawl crawl timed out after ${config.FIRECRAWL_TIMEOUT_MS} ms`,
+		);
 	}
 }
 

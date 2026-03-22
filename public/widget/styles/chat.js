@@ -19,8 +19,35 @@ export const chatCSS = `
 
   .bot-message-row { display: flex; flex-direction: row; align-items: flex-start; gap: 0.5rem; }
 
+  .md-content { line-height: 1.6; word-break: break-word; }
+  .md-content strong { font-weight: 600; }
+  .md-content h2,
+  .md-content h3,
+  .md-content h4 {
+    margin: 0 0 0.55rem 0; color: #0f172a; line-height: 1.35; font-weight: 700;
+  }
+  .md-content h2 { font-size: 1rem; }
+  .md-content h3 { font-size: 0.94rem; }
+  .md-content h4 { font-size: 0.9rem; }
   .md-content p { margin: 0; }
-  .md-content ul, .md-content ol { padding-left: 20px; margin: 5px 0; }
+  .md-content p + p,
+  .md-content p + ul,
+  .md-content p + ol,
+  .md-content h2 + p,
+  .md-content h2 + ul,
+  .md-content h3 + p,
+  .md-content h3 + ul,
+  .md-content h4 + p,
+  .md-content h4 + ul,
+  .md-content h4 + ol,
+  .md-content ul + h2,
+  .md-content ul + h3,
+  .md-content ul + h4,
+  .md-content ol + h2,
+  .md-content ol + h3,
+  .md-content ol + h4 { margin-top: 0.55rem; }
+  .md-content ul, .md-content ol { padding-left: 20px; margin: 0.35rem 0; }
+  .md-content li { margin: 0.22rem 0; }
   .md-content a { color: #007bff; text-decoration: none; }
   .md-content a:hover { text-decoration: underline; }
 

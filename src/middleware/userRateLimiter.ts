@@ -5,12 +5,13 @@ import {
 } from "express";
 import { coercePlanType } from "../config/planConfig";
 import { config } from "../config/env";
-import { redisCache } from "../config/redis";
+import { memCache } from "../utils/memCache";
 import logger from "../utils/logger";
 
 /**
- * User-based rate limiter using Redis
- * This is more suitable for high-concurrency scenarios than IP-based limiting
+ * User-based rate limiter using in-memory cache.
+ * Suitable for single-process deployments (no Redis required).
+ * Fails open on errors.
  */
 
 interface RateLimitOptions {
@@ -41,19 +42,16 @@ export const createUserRateLimiter = (
 		next: NextFunction,
 	) => {
 		try {
-			// Get user identifier - prioritize userId from auth, fallback to IP
 			const userId = (req as any).user?.id;
 			const identifier =
 				userId || req.ip || "anonymous";
 			const key = `rate_limit:${keyPrefix}:${identifier}`;
 
-			// Get current count from Redis
-			const current = await redisCache.get(key);
+			const current = memCache.get(key);
 			const count = current
 				? parseInt(current, 10)
 				: 0;
 
-			// Check if limit exceeded
 			if (count >= max) {
 				logger.warn("Rate limit exceeded", {
 					identifier,
@@ -72,20 +70,16 @@ export const createUserRateLimiter = (
 				return;
 			}
 
-			// Increment counter
 			if (count === 0) {
-				// First request in window - set with expiry
-				await redisCache.setex(
+				memCache.setex(
 					key,
 					Math.ceil(windowMs / 1000),
 					"1",
 				);
 			} else {
-				// Subsequent request - increment
-				await redisCache.incr(key);
+				memCache.incr(key);
 			}
 
-			// Add rate limit headers
 			res.setHeader("X-RateLimit-Limit", max);
 			res.setHeader(
 				"X-RateLimit-Remaining",
@@ -96,20 +90,11 @@ export const createUserRateLimiter = (
 				Date.now() + windowMs,
 			);
 
-			// Handle skipSuccessfulRequests option
 			if (skipSuccessfulRequests) {
 				const originalJson = res.json.bind(res);
 				res.json = function (body: any) {
-					// If request was successful, decrement counter
 					if (res.statusCode < 400) {
-						redisCache.decr(key).catch((err) => {
-							logger.error(
-								"Failed to decrement rate limit counter",
-								{
-									error: err.message,
-								},
-							);
-						});
+						memCache.decr(key);
 					}
 					return originalJson(body);
 				};
@@ -117,7 +102,6 @@ export const createUserRateLimiter = (
 
 			next();
 		} catch (error) {
-			// On Redis error, allow request through (fail open)
 			logger.error("Rate limiter error", {
 				error:
 					error instanceof Error
@@ -157,7 +141,6 @@ export const createTieredRateLimiter = (options: {
 				userId || req.ip || "anonymous";
 			const key = `rate_limit:${options.keyPrefix}:${identifier}`;
 
-			// Determine max based on plan
 			const max =
 				planType === "enterprise"
 					? options.enterpriseMax ??
@@ -166,17 +149,15 @@ export const createTieredRateLimiter = (options: {
 					: planType === "standard"
 					  ? options.standardMax ??
 							options.basicMax * 2
-					: planType === "basic"
-					  ? options.basicMax
-					  : options.freeMax;
+					  : planType === "basic"
+					    ? options.basicMax
+					    : options.freeMax;
 
-			// Get current count from Redis
-			const current = await redisCache.get(key);
+			const current = memCache.get(key);
 			const count = current
 				? parseInt(current, 10)
 				: 0;
 
-			// Check if limit exceeded
 			if (count >= max) {
 				logger.warn("Rate limit exceeded", {
 					identifier,
@@ -199,23 +180,21 @@ export const createTieredRateLimiter = (options: {
 							? "Upgrade to Basic plan for higher limits"
 							: planType === "basic"
 							  ? "Upgrade to Standard plan for higher limits"
-							: undefined,
+							  : undefined,
 				});
 				return;
 			}
 
-			// Increment counter
 			if (count === 0) {
-				await redisCache.setex(
+				memCache.setex(
 					key,
 					Math.ceil(options.windowMs / 1000),
 					"1",
 				);
 			} else {
-				await redisCache.incr(key);
+				memCache.incr(key);
 			}
 
-			// Add rate limit headers
 			res.setHeader("X-RateLimit-Limit", max);
 			res.setHeader(
 				"X-RateLimit-Remaining",
@@ -228,7 +207,6 @@ export const createTieredRateLimiter = (options: {
 
 			next();
 		} catch (error) {
-			// On Redis error, allow request through (fail open)
 			logger.error("Tiered rate limiter error", {
 				error:
 					error instanceof Error
@@ -245,12 +223,11 @@ export const createTieredRateLimiter = (options: {
  * Pre-configured rate limiters for common endpoints
  */
 
-// Global rate limiter - more permissive for authenticated users
 export const globalRateLimiter =
 	createTieredRateLimiter({
 		windowMs: config.RATE_LIMIT_WINDOW_MS,
 		freeMax: config.RATE_LIMIT_MAX_REQUESTS,
-		basicMax: config.RATE_LIMIT_MAX_REQUESTS * 2, // 2x for paid users
+		basicMax: config.RATE_LIMIT_MAX_REQUESTS * 2,
 		standardMax:
 			config.RATE_LIMIT_MAX_REQUESTS * 3,
 		enterpriseMax:
@@ -260,58 +237,53 @@ export const globalRateLimiter =
 		keyPrefix: "global",
 	});
 
-// Auth endpoints - stricter limits
 export const authRateLimiter =
 	createUserRateLimiter({
 		windowMs: config.RATE_LIMIT_WINDOW_MS,
-		max: 10, // Increased from 5
+		max: 10,
 		message:
 			"Too many authentication attempts. Please try again later.",
 		keyPrefix: "auth",
 		skipSuccessfulRequests: false,
 	});
 
-// Verify endpoints
 export const verifyRateLimiter =
 	createUserRateLimiter({
 		windowMs: config.RATE_LIMIT_WINDOW_MS,
-		max: 20, // Increased from 10
+		max: 20,
 		message:
 			"Too many verification attempts. Please try again later.",
 		keyPrefix: "verify",
 	});
 
-// Chat endpoints - tiered based on plan
 export const chatRateLimiter =
 	createTieredRateLimiter({
-		windowMs: 60000, // 1 minute window
-		freeMax: 10, // 10 requests per minute for free
-		basicMax: 30, // 30 requests per minute for basic
-		standardMax: 45, // 45 requests per minute for standard
-		enterpriseMax: 60, // 60 requests per minute for enterprise
+		windowMs: 60000,
+		freeMax: 10,
+		basicMax: 30,
+		standardMax: 45,
+		enterpriseMax: 60,
 		message:
 			"Chat rate limit exceeded. Please slow down.",
 		keyPrefix: "chat",
 	});
 
-// Scraper endpoints - tiered based on plan
 export const scraperRateLimiter =
 	createTieredRateLimiter({
-		windowMs: 300000, // 5 minute window
-		freeMax: 5, // 5 scraping jobs per 5 minutes for free
-		basicMax: 20, // 20 scraping jobs per 5 minutes for basic
-		standardMax: 40, // 40 scraping jobs per 5 minutes for standard
-		enterpriseMax: 60, // 60 scraping jobs per 5 minutes for enterprise
+		windowMs: 300000,
+		freeMax: 5,
+		basicMax: 20,
+		standardMax: 40,
+		enterpriseMax: 60,
 		message:
 			"Scraping rate limit exceeded. Please try again later.",
 		keyPrefix: "scraper",
 	});
 
-// Widget public endpoints - IP-based (since no auth)
 export const widgetRateLimiter =
 	createUserRateLimiter({
-		windowMs: 60000, // 1 minute
-		max: 100, // 100 widget requests per minute per IP
+		windowMs: 60000,
+		max: 100,
 		message:
 			"Widget rate limit exceeded. Please try again later.",
 		keyPrefix: "widget",

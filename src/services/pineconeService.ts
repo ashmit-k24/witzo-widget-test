@@ -11,7 +11,7 @@ import {
 } from "../config/planConfig";
 import { config } from "../config/env";
 import pool from "../config/database";
-import { redisCache } from "../config/redis";
+import { memCache } from "../utils/memCache";
 import {
 	DocumentUsageStats,
 	DOCUMENT_LIMITS,
@@ -21,8 +21,8 @@ import {
 	StructuredBlockSearchResult,
 } from "../types";
 import {
-	CHUNK_MAX_CHARS,
-	CHUNK_OVERLAP_CHARS,
+	CHUNK_MAX_WORDS,
+	CHUNK_OVERLAP_WORDS,
 	CHAT_RETRIEVAL_SCORE_THRESHOLD,
 } from "../constants";
 import {
@@ -35,6 +35,10 @@ import {
 	retryWithBackoff,
 } from "../utils/retry";
 import { buildSparseVector } from "../utils/bm25";
+import {
+	isUrlUnderSourceRoot,
+	normalizeScrapeUrl,
+} from "../utils/scrapeUrl";
 import { subscriptionService } from "./subscriptionService";
 
 interface PineconeQueryOptions {
@@ -75,7 +79,7 @@ const EMBEDDING_BATCH_CONCURRENCY = 2;
 const STRUCTURED_PARAGRAPH_MIN_CHARS = 80;
 const STRUCTURED_NONPARAGRAPH_MIN_CHARS = 40;
 const STRUCTURED_MERGE_TARGET_CHARS = Math.max(
-	CHUNK_MAX_CHARS,
+	config.SCRAPER_CHUNK_WORDS * 8,
 	1200,
 );
 const STRUCTURED_SEARCH_STOP_WORDS = new Set([
@@ -123,6 +127,7 @@ class PineconeService {
 	private openai: OpenAI;
 	private indexName: string;
 	private indexHost?: string;
+	private hybridEnabled: boolean;
 	private namespaceIndexCache: Map<
 		string,
 		any
@@ -136,6 +141,7 @@ class PineconeService {
 			apiKey: config.OPENAI_API_KEY,
 		});
 		this.indexName = config.PINECONE_INDEX_NAME;
+		this.hybridEnabled = config.PINECONE_HYBRID;
 		this.indexHost = config.PINECONE_HOST
 			? config.PINECONE_HOST.replace(
 					/^https?:\/\//i,
@@ -160,6 +166,9 @@ class PineconeService {
 			const existingIndex = indexes.indexes?.find(
 				(index) => index.name === this.indexName,
 			);
+			const expectedMetric = this.hybridEnabled
+				? "dotproduct"
+				: "cosine";
 
 			if (!existingIndex) {
 				logger.info(
@@ -169,7 +178,7 @@ class PineconeService {
 					name: this.indexName,
 					dimension:
 						config.OPENAI_EMBEDDING_DIMENSIONS,
-					metric: "cosine",
+					metric: expectedMetric,
 					spec: {
 						serverless: {
 							cloud: "aws",
@@ -192,6 +201,13 @@ class PineconeService {
 			) {
 				throw new Error(
 					`Pinecone index "${this.indexName}" uses dimension ${existingIndex.dimension}, but the configured embedding dimension is ${config.OPENAI_EMBEDDING_DIMENSIONS}. Point PINECONE_INDEX_NAME to a new index or recreate the existing index.`,
+				);
+			} else if (
+				existingIndex.metric &&
+				existingIndex.metric !== expectedMetric
+			) {
+				throw new Error(
+					`Pinecone index "${this.indexName}" uses metric ${existingIndex.metric}, but the current configuration requires ${expectedMetric}. Hybrid BM25 requires dotproduct; dense-only search requires cosine.`,
 				);
 			}
 		} catch (error) {
@@ -303,7 +319,7 @@ class PineconeService {
 		}));
 		const cachedValues = await Promise.all(
 			cacheEntries.map((entry) =>
-				redisCache.get(entry.cacheKey).catch(() => null),
+				Promise.resolve(memCache.get(entry.cacheKey)),
 			),
 		);
 		const results = new Array<number[] | undefined>(
@@ -381,13 +397,7 @@ class PineconeService {
 				batch.map(async (item) => {
 					results[item.index] =
 						item.embedding;
-					redisCache.setex(
-						item.cacheKey,
-						300,
-						JSON.stringify(
-							item.embedding,
-						),
-					).catch(() => {});
+					memCache.setex(item.cacheKey, 300, JSON.stringify(item.embedding));
 				}),
 			);
 		}
@@ -420,8 +430,8 @@ class PineconeService {
 
 	chunkText(
 		text: string,
-		maxChunkSize: number = CHUNK_MAX_CHARS,
-		overlapChars: number = CHUNK_OVERLAP_CHARS,
+		maxChunkSize: number = CHUNK_MAX_WORDS,
+		overlapWords: number = CHUNK_OVERLAP_WORDS,
 	): string[] {
 		const normalizedText = text
 			.replace(/\s+/g, " ")
@@ -430,36 +440,26 @@ class PineconeService {
 			return [];
 		}
 
-		// Split into sentences
-		const sentenceMatches = normalizedText.match(
-			/[^.!?]+[.!?]+/g,
-		);
-		const sentences =
-			sentenceMatches && sentenceMatches.length > 0
-				? sentenceMatches
-				: [normalizedText];
-
-		const chunks: string[] = [];
-		let currentChunk = "";
-
-		for (const sentence of sentences) {
-			if (
-				currentChunk.length > 0 &&
-				(currentChunk + sentence).length > maxChunkSize
-			) {
-				chunks.push(currentChunk.trim());
-				// Start next chunk with overlap from end of current
-				const overlap = currentChunk.length > overlapChars
-					? currentChunk.slice(-overlapChars)
-					: currentChunk;
-				currentChunk = overlap + sentence;
-			} else {
-				currentChunk += sentence;
-			}
+		const words = normalizedText.split(/\s+/);
+		if (words.length === 0) {
+			return [];
 		}
 
-		if (currentChunk.trim()) {
-			chunks.push(currentChunk.trim());
+		const step = Math.max(
+			1,
+			maxChunkSize - overlapWords,
+		);
+		const chunks: string[] = [];
+
+		for (let start = 0; start < words.length; start += step) {
+			const end = Math.min(
+				start + maxChunkSize,
+				words.length,
+			);
+			chunks.push(words.slice(start, end).join(" "));
+			if (end === words.length) {
+				break;
+			}
 		}
 
 		return chunks.filter(Boolean);
@@ -726,6 +726,45 @@ class PineconeService {
 			chunks.push(items.slice(i, i + size));
 		}
 		return chunks;
+	}
+
+	private async upsertVectorsInBatches(
+		index: any,
+		vectors: PineconeRecord[],
+	): Promise<void> {
+		const batches = this.chunkArray(
+			vectors,
+			Math.max(1, config.PINECONE_UPSERT_BATCH_SIZE),
+		);
+
+		for (const batch of batches) {
+			await pineconeCircuitBreaker.execute(
+				async () => {
+					return await retryWithBackoff(
+						async () => {
+							return await index.upsert(batch);
+						},
+						{
+							name: "PineconeUpsert",
+							maxRetries: 3,
+						},
+					);
+				},
+			);
+		}
+	}
+
+	private urlMatchesSourceRoot(
+		candidateUrl: string | undefined,
+		sourceRoot: string,
+	): boolean {
+		if (!candidateUrl) {
+			return false;
+		}
+		return isUrlUnderSourceRoot(
+			candidateUrl,
+			sourceRoot,
+		);
 	}
 
 	private buildVectorId(
@@ -1221,11 +1260,18 @@ class PineconeService {
 		url: string,
 		chunks: Array<{ text: string; vectorId: string }>,
 	): Promise<void> {
-		const HYPE_QUESTIONS_PER_CHUNK = 2;
-		const HYPE_MAX_CHUNKS = 40; // cap to avoid excessive API usage per page
+		const hypeQuestionsPerChunk =
+			config.HYPE_QUESTIONS_PER_CHUNK;
+		const hypeMaxChunks = config.HYPE_MAX_CHUNKS;
+		if (
+			hypeQuestionsPerChunk <= 0 ||
+			hypeMaxChunks <= 0
+		) {
+			return;
+		}
 
 		try {
-			const limited = chunks.slice(0, HYPE_MAX_CHUNKS);
+			const limited = chunks.slice(0, hypeMaxChunks);
 			const hypeVectors: PineconeRecord[] = [];
 
 			for (const chunk of limited) {
@@ -1235,20 +1281,20 @@ class PineconeService {
 						await openAICircuitBreaker.execute(
 							async () =>
 								await this.openai.chat.completions.create({
-									model: "gpt-4o-mini",
-									temperature: 0.3,
-									max_tokens: 120,
+									model: config.OPENAI_CHAT_MODEL,
+									temperature: 0,
+									max_tokens: 200,
 									messages: [
 										{
 											role: "system",
 											content:
 												"Generate exactly " +
-												HYPE_QUESTIONS_PER_CHUNK +
-												" short, distinct questions (one per line) that a website visitor might ask whose answer is contained in the following text. Output only the questions, no numbering or extra text.",
+												hypeQuestionsPerChunk +
+												" distinct questions that are directly answered by the provided text. Output only the questions, one per line, no numbering or extra text.",
 										},
 										{
 											role: "user",
-											content: chunk.text.slice(0, 800),
+											content: `Text:\n${chunk.text.slice(0, 6000)}`,
 										},
 									],
 								}),
@@ -1259,7 +1305,7 @@ class PineconeService {
 						.split("\n")
 						.map((q) => q.trim())
 						.filter((q) => q.length > 10)
-						.slice(0, HYPE_QUESTIONS_PER_CHUNK);
+						.slice(0, hypeQuestionsPerChunk);
 				} catch (qErr) {
 					logger.debug(
 						"[HyPE] Question generation failed for chunk, skipping",
@@ -1310,7 +1356,12 @@ class PineconeService {
 					hypeVectors.push({
 						id: hypeId,
 						values: emb,
-						sparseValues: buildSparseVector(q),
+						...(this.hybridEnabled
+							? {
+									sparseValues:
+										buildSparseVector(q),
+							  }
+							: {}),
 						metadata: hypeMetadata,
 					});
 				}
@@ -1318,12 +1369,9 @@ class PineconeService {
 
 			if (hypeVectors.length === 0) return;
 
-			await pineconeCircuitBreaker.execute(
-				async () =>
-					await retryWithBackoff(
-						async () => index.upsert(hypeVectors),
-						{ name: "PineconeHypeUpsert", maxRetries: 2 },
-					),
+			await this.upsertVectorsInBatches(
+				index,
+				hypeVectors,
 			);
 			logger.info(
 				`[HyPE] Upserted ${hypeVectors.length} hypothetical question vectors for ${url}`,
@@ -1411,12 +1459,15 @@ class PineconeService {
 					chunk.chunkKey,
 				);
 
-				const sparseValues = buildSparseVector(chunk.text);
-
 				vectors.push({
 					id: vectorId,
 					values: embedding,
-					sparseValues,
+					...(this.hybridEnabled
+						? {
+								sparseValues:
+									buildSparseVector(chunk.text),
+						  }
+						: {}),
 					metadata: pineconeMetadata,
 				});
 			}
@@ -1436,19 +1487,9 @@ class PineconeService {
 				});
 			}
 
-			// Use circuit breaker and retry for Pinecone upsert
-			await pineconeCircuitBreaker.execute(
-				async () => {
-					return await retryWithBackoff(
-						async () => {
-							return await index.upsert(vectors);
-						},
-						{
-							name: "PineconeUpsert",
-							maxRetries: 3,
-						},
-					);
-				},
+			await this.upsertVectorsInBatches(
+				index,
+				vectors,
 			);
 
 			// HyPE: generate hypothetical questions in the background (non-blocking)
@@ -1513,7 +1554,11 @@ class PineconeService {
 			const [queryEmbedding, querySparse] =
 				await Promise.all([
 					this.generateEmbedding(query),
-					Promise.resolve(buildSparseVector(query)),
+					Promise.resolve(
+						this.hybridEnabled
+							? buildSparseVector(query)
+							: { indices: [], values: [] },
+					),
 				]);
 			const filter =
 				this.buildQueryFilter(options);
@@ -1524,7 +1569,11 @@ class PineconeService {
 					async () => {
 						return await index.query({
 							vector: queryEmbedding,
-							sparseVector: querySparse,
+							...(this.hybridEnabled
+								? {
+										sparseVector: querySparse,
+								  }
+								: {}),
 							topK,
 							includeMetadata: true,
 							...(filter
@@ -1574,6 +1623,7 @@ class PineconeService {
 
 			let matchFn: (
 				recordUrl?: string,
+				sourceRoot?: string,
 			) => boolean;
 			let logLabel: string;
 
@@ -1590,30 +1640,27 @@ class PineconeService {
 					[userId, url],
 				);
 			} else {
-				let baseUrl: string;
-				try {
-					const urlObj = new URL(url);
-					baseUrl = `${urlObj.protocol}//${urlObj.hostname}`;
-				} catch (error) {
-					throw new Error(
-						"Invalid URL provided for deletion",
-					);
-				}
-				logLabel = baseUrl;
-				matchFn = (recordUrl?: string) =>
-					Boolean(
-						recordUrl &&
-						recordUrl.startsWith(baseUrl),
+				const sourceRoot =
+					await normalizeScrapeUrl(url);
+				logLabel = sourceRoot;
+				matchFn = (
+					recordUrl?: string,
+					recordSourceRoot?: string,
+				) =>
+					recordSourceRoot === sourceRoot ||
+					this.urlMatchesSourceRoot(
+						recordUrl,
+						sourceRoot,
 					);
 				logger.info(
-					`Deleting all documents from domain: ${logLabel} (user: ${userId})`,
+					`Deleting website source: ${logLabel} (user: ${userId})`,
 				);
 				await pool.query(
 					`DELETE FROM rag_source_pages
 					 WHERE user_id = $1
 					   AND source_type = 'website'
-					   AND (source_root = $2 OR source_url LIKE $3)`,
-					[userId, baseUrl, `${baseUrl}%`],
+					   AND (source_root = $2 OR source_url = $2 OR source_url LIKE $3)`,
+					[userId, sourceRoot, `${sourceRoot}/%`],
 				);
 			}
 
@@ -1629,7 +1676,16 @@ class PineconeService {
 							(record.metadata?.url as
 								| string
 								| undefined) ?? undefined;
-						if (matchFn(recordUrl)) {
+						const recordSourceRoot =
+							(record.metadata?.sourceRoot as
+								| string
+								| undefined) ?? undefined;
+						if (
+							matchFn(
+								recordUrl,
+								recordSourceRoot,
+							)
+						) {
 							matchingIds.push(id);
 						}
 					}

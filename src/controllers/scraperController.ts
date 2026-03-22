@@ -1,11 +1,12 @@
 import { Request, Response } from "express";
 import { coercePlanType } from "../config/planConfig";
-import { scraperQueue } from "../config/queue";
+import { boss, SCRAPER_QUEUE_NAME } from "../config/queue";
 import { domainPolicyService } from "../services/domainPolicyService";
 import { pineconeService } from "../services/pineconeService";
 import { scraperStatusService } from "../services/scraperStatusService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
+import { normalizeScrapeUrl } from "../utils/scrapeUrl";
 
 const SCRAPER_DEFAULT_MAX_PAGES = 1200;
 const SCRAPER_MAX_DEPTH = 30;
@@ -85,11 +86,19 @@ export const scrapeWebsite = async (
 		}
 
 		// Normalize bare domains (e.g. "example.com" → "https://example.com")
-		const url = /^https?:\/\//i.test(
-			rawUrl.trim(),
-		)
-			? rawUrl.trim()
-			: `https://${rawUrl.trim().replace(/^\/\//, "")}`;
+		let url: string;
+		try {
+			url = await normalizeScrapeUrl(rawUrl);
+		} catch (error) {
+			res.status(400).json({
+				success: false,
+				message:
+					error instanceof Error
+						? error.message
+						: "URL is invalid",
+			});
+			return;
+		}
 
 		const policyCheck =
 			await domainPolicyService.isDomainDisallowed(
@@ -171,7 +180,7 @@ export const scrapeWebsite = async (
 			});
 		jobId = job.jobId;
 
-		await scraperQueue.add("scrape-website", {
+		await boss.send(SCRAPER_QUEUE_NAME, {
 			jobId: job.jobId,
 			userId,
 			url,
@@ -298,9 +307,23 @@ export const deleteDocuments = async (
 			return;
 		}
 
+		let normalizedUrl: string;
+		try {
+			normalizedUrl = await normalizeScrapeUrl(url);
+		} catch (error) {
+			res.status(400).json({
+				success: false,
+				message:
+					error instanceof Error
+						? error.message
+						: "URL is invalid",
+			});
+			return;
+		}
+
 		const policyCheck =
 			await domainPolicyService.isDomainDisallowed(
-				url,
+				normalizedUrl,
 			);
 		if (policyCheck.blocked) {
 			res.status(403).json({
@@ -311,7 +334,7 @@ export const deleteDocuments = async (
 		}
 
 		logger.info(
-			`Deleting all documents for website: ${url}`,
+			`Deleting all documents for website: ${normalizedUrl}`,
 			{
 				userId,
 			},
@@ -319,12 +342,12 @@ export const deleteDocuments = async (
 
 		await pineconeService.deleteDocumentsByUrl(
 			userId,
-			url,
+			normalizedUrl,
 		);
 
 		res.status(200).json({
 			success: true,
-			message: `All documents for website ${url} have been deleted`,
+			message: `All documents for website ${normalizedUrl} have been deleted`,
 		});
 	} catch (error) {
 		logger.error(
@@ -363,19 +386,33 @@ export const deletePage = async (
 			return;
 		}
 
+		let normalizedUrl: string;
+		try {
+			normalizedUrl = await normalizeScrapeUrl(url);
+		} catch (error) {
+			res.status(400).json({
+				success: false,
+				message:
+					error instanceof Error
+						? error.message
+						: "URL is invalid",
+			});
+			return;
+		}
+
 		logger.info(
-			`Deleting individual page: ${url}`,
+			`Deleting individual page: ${normalizedUrl}`,
 			{ userId },
 		);
 
 		await pineconeService.deletePageByExactUrl(
 			userId,
-			url,
+			normalizedUrl,
 		);
 
 		res.status(200).json({
 			success: true,
-			message: `Page ${url} has been deleted`,
+			message: `Page ${normalizedUrl} has been deleted`,
 		});
 	} catch (error) {
 		logger.error(
@@ -750,21 +787,35 @@ export const retrainWebsite = async (
 		}
 
 		// Normalize bare domains (e.g. "example.com" → "https://example.com")
-		const url = /^https?:\/\//i.test(
-			rawUrl.trim(),
-		)
-			? rawUrl.trim()
-			: `https://${rawUrl.trim().replace(/^\/\//, "")}`;
+		let url: string;
+		try {
+			url = await normalizeScrapeUrl(rawUrl);
+		} catch (error) {
+			res.status(400).json({
+				success: false,
+				message:
+					error instanceof Error
+						? error.message
+						: "URL is invalid",
+			});
+			return;
+		}
 
 		logger.info(`Retraining website: ${url}`, {
 			userId,
 		});
 
-		// Delete all existing data for this website domain first
-		await pineconeService.deleteDocumentsByUrl(
-			userId,
-			url,
-		);
+		const policyCheck =
+			await domainPolicyService.isDomainDisallowed(
+				url,
+			);
+		if (policyCheck.blocked) {
+			res.status(403).json({
+				success: false,
+				message: `${policyCheck.matchedDomain} is not allowed for scraping.`,
+			});
+			return;
+		}
 
 		const scraperUsage =
 			await pineconeService.getScraperUsageStats(
@@ -818,7 +869,7 @@ export const retrainWebsite = async (
 			});
 		jobId = job.jobId;
 
-		await scraperQueue.add("retrain-website", {
+		await boss.send(SCRAPER_QUEUE_NAME, {
 			jobId: job.jobId,
 			userId,
 			url,

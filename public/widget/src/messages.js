@@ -1,6 +1,6 @@
 import { LOGO_DEFAULT_SVG } from './icons.js';
 
-/** Sanitize a URL – only allow http/https/mailto/tel protocols */
+/** Sanitize a URL - only allow http/https/mailto/tel protocols */
 export function sanitizeURL(url) {
   if (!url) return '';
   return /^(https?|mailto|tel):/i.test(url) ? url : '';
@@ -13,18 +13,19 @@ export function escapeHtml(text) {
   }[m]));
 }
 
-/** Minimal Markdown → HTML: bold, links, newlines */
-export function parseMarkdown(text) {
-  if (!text) return '';
-  let html = text;
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, txt, url) =>
-    `<a href="${sanitizeURL(url)}" target="_blank" rel="noopener noreferrer">${txt}</a>`
-  );
-  // Auto-link bare URLs not already inside a markdown link
+function formatInlineMarkdown(text) {
+  let html = escapeHtml(String(text || ''));
+
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+    const safe = sanitizeURL(url);
+    return safe
+      ? `<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`
+      : label;
+  });
+
   html = html.replace(
     /(^|\s)(https?:\/\/[^\s<>")\]]+)/g,
-    (match, before, url) => {
+    (_, before, url) => {
       const stripped = url.replace(/[.,;:!?]+$/, '');
       const trailing = url.slice(stripped.length);
       const safe = sanitizeURL(stripped);
@@ -33,8 +34,112 @@ export function parseMarkdown(text) {
         : `${before}${url}`;
     }
   );
-  html = html.replace(/\n/g, '<br>');
+
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   return html;
+}
+
+function normalizeMarkdown(text) {
+  const lines = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n');
+
+  return lines.map(rawLine => {
+    let line = rawLine.replace(/\*{3,}/g, '**').replace(/\s+$/g, '');
+    const boldMarkers = line.match(/\*\*/g) || [];
+    if (boldMarkers.length % 2 !== 0) {
+      const lastMarkerIndex = line.lastIndexOf('**');
+      if (lastMarkerIndex >= 0) {
+        line = line.slice(0, lastMarkerIndex) + line.slice(lastMarkerIndex + 2);
+      }
+    }
+    return line;
+  }).join('\n');
+}
+
+function flushParagraph(lines, blocks) {
+  if (lines.length === 0) return;
+  blocks.push(`<p>${lines.map(formatInlineMarkdown).join('<br>')}</p>`);
+  lines.length = 0;
+}
+
+function flushList(type, items, blocks) {
+  if (!type || items.length === 0) return;
+  blocks.push(`<${type}>${items.map(item => `<li>${formatInlineMarkdown(item)}</li>`).join('')}</${type}>`);
+  items.length = 0;
+}
+
+/** Minimal Markdown -> HTML: headings, bold, links, lists, paragraphs */
+export function parseMarkdown(text) {
+  if (!text) return '';
+
+  const lines = normalizeMarkdown(text).split('\n');
+  const blocks = [];
+  const paragraphLines = [];
+  const listItems = [];
+  let currentListType = '';
+
+  const flushAll = () => {
+    flushParagraph(paragraphLines, blocks);
+    flushList(currentListType, listItems, blocks);
+    currentListType = '';
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushAll();
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{2,4})\s+(.+)$/);
+    if (headingMatch) {
+      flushAll();
+      const level = Math.min(4, headingMatch[1].length);
+      blocks.push(`<h${level}>${formatInlineMarkdown(headingMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    const strongHeadingMatch = line.match(/^\*\*(.+?)\*\*:?\s*$/);
+    if (strongHeadingMatch) {
+      flushAll();
+      blocks.push(`<h3>${formatInlineMarkdown(strongHeadingMatch[1])}</h3>`);
+      continue;
+    }
+
+    const unorderedMatch = line.match(/^[-*]\s+(.+)$/);
+    if (unorderedMatch) {
+      flushParagraph(paragraphLines, blocks);
+      if (currentListType && currentListType !== 'ul') {
+        flushList(currentListType, listItems, blocks);
+      }
+      currentListType = 'ul';
+      listItems.push(unorderedMatch[1]);
+      continue;
+    }
+
+    const orderedMatch = line.match(/^\d+\.\s+(.+)$/);
+    if (orderedMatch) {
+      flushParagraph(paragraphLines, blocks);
+      if (currentListType && currentListType !== 'ol') {
+        flushList(currentListType, listItems, blocks);
+      }
+      currentListType = 'ol';
+      listItems.push(orderedMatch[1]);
+      continue;
+    }
+
+    if (currentListType) {
+      flushList(currentListType, listItems, blocks);
+      currentListType = '';
+    }
+
+    paragraphLines.push(line);
+  }
+
+  flushAll();
+  return blocks.join('');
 }
 
 /** Returns bot avatar HTML (logo image or default SVG) */
@@ -51,7 +156,7 @@ export function appendMessage(text, type, container) {
 
   const bubble = document.createElement('div');
   bubble.className = type === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai';
-  bubble.innerHTML = `<div class="md-content"><p>${parseMarkdown(escapeHtml(text))}</p></div>`;
+  bubble.innerHTML = `<div class="md-content">${parseMarkdown(text)}</div>`;
 
   wrapper.appendChild(bubble);
   container.appendChild(wrapper);
@@ -112,13 +217,13 @@ export function updateStreamingBubble(wrapper, text, logoIcon) {
   let streamTextNode = bubble.querySelector('.streaming-text');
   if (!streamTextNode) {
     bubble.classList.remove('typing-indicator');
-    bubble.innerHTML = `<div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content"><p class="streaming-text"></p></div></div>`;
+    bubble.innerHTML = `<div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content"><div class="streaming-text"></div></div></div>`;
     streamTextNode = bubble.querySelector('.streaming-text');
   }
 
   if (streamTextNode) {
     const normalizedText = normalizeStreamingMarkdown(text || '');
-    streamTextNode.innerHTML = parseMarkdown(escapeHtml(normalizedText));
+    streamTextNode.innerHTML = parseMarkdown(normalizedText);
   }
   queueScrollToBottom(wrapper);
 }
@@ -130,6 +235,58 @@ export function updateBubble(wrapper, text, logoIcon) {
   bubble.classList.remove('typing-indicator');
   bubble.innerHTML = `<div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content">${parseMarkdown(text)}</div></div>`;
   queueScrollToBottom(wrapper);
+}
+
+/**
+ * Append a compact "Sources" block below a bot message wrapper.
+ * sources: Array<{ url: string, title: string, relevanceScore?: number }>
+ * Only shows unique http/https URLs, max 5, sorted by relevance score desc.
+ */
+export function appendSources(wrapper, sources) {
+  if (!Array.isArray(sources) || sources.length === 0) return;
+
+  const seen = new Set();
+  const unique = [];
+  for (const s of sources) {
+    const url = sanitizeURL(String(s.url || '').trim());
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    unique.push({ url, title: String(s.title || url).trim() || url });
+    if (unique.length >= 5) break;
+  }
+  if (unique.length === 0) return;
+
+  const block = document.createElement('div');
+  block.style.cssText = [
+    'margin-top:5px',
+    'padding:5px 10px',
+    'font-size:11px',
+    'line-height:1.7',
+    'opacity:0.65',
+    'border-top:1px solid rgba(128,128,128,0.2)',
+  ].join(';');
+
+  const label = document.createElement('span');
+  label.textContent = 'Sources: ';
+  label.style.fontWeight = '600';
+  block.appendChild(label);
+
+  unique.forEach((s, i) => {
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.textContent = '  ·  ';
+      block.appendChild(sep);
+    }
+    const a = document.createElement('a');
+    a.href = s.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = s.title;
+    a.style.cssText = 'color:inherit;text-decoration:underline;text-underline-offset:2px;word-break:break-all;';
+    block.appendChild(a);
+  });
+
+  wrapper.appendChild(block);
 }
 
 /** Check if user message signals end of conversation (for rating prompt) */

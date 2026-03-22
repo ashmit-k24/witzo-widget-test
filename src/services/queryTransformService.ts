@@ -224,10 +224,9 @@ class QueryTransformService {
 
 		if (isContactQuery) {
 			topic = "contact";
-			pageTypes.add("contact");
-			pageTypes.add("about");
-			blockTypes.add("contact");
-			blockTypes.add("list");
+			// No pageType/blockType filter — contact info can live anywhere on a website
+			// (footer, home page, about page, general paragraph). Let score threshold
+			// and reranking surface the right content instead of hardcoded restrictions.
 		} else if (
 			/\b(price|pricing|plan|plans|package|packages|cost|costs|quote)\b/.test(
 				normalized,

@@ -4,7 +4,7 @@ import {
 	USAGE_APPROACHING_LIMIT_THRESHOLD,
 	USAGE_CACHE_TTL_SECONDS,
 } from "../constants";
-import { redisCache } from "../config/redis";
+import { memCache } from "../utils/memCache";
 import logger from "../utils/logger";
 import { UsageStats } from "../types";
 
@@ -64,7 +64,7 @@ class UsageTrackingService {
 	async getUserUsage(userId: string): Promise<UsageStats> {
 		try {
 			const cacheKey = usageCacheKey(userId);
-			const cached = await redisCache.get(cacheKey);
+			const cached = memCache.get(cacheKey);
 			if (cached) {
 				return JSON.parse(cached) as UsageStats;
 			}
@@ -87,7 +87,7 @@ class UsageTrackingService {
 			const user = result.rows[0];
 			const stats = this.buildUsageStats(user);
 
-			await redisCache.setex(
+			memCache.setex(
 				cacheKey,
 				USAGE_CACHE_TTL_SECONDS,
 				JSON.stringify(stats),
@@ -140,7 +140,7 @@ class UsageTrackingService {
 			const usage = this.buildUsageStats(user);
 
 			// Invalidate cached stats since the counter just changed
-			await redisCache.del(usageCacheKey(userId));
+			memCache.del(usageCacheKey(userId));
 
 			if (usage.isApproachingLimit) {
 				logger.warn("User approaching conversation limit", {
@@ -177,7 +177,7 @@ class UsageTrackingService {
 				[userId],
 			);
 
-			await redisCache.del(usageCacheKey(userId));
+			memCache.del(usageCacheKey(userId));
 
 			logger.info("Conversation tracked", { userId });
 		} catch (error) {
@@ -317,11 +317,9 @@ class UsageTrackingService {
 			);
 
 			if (result.rows.length > 0) {
-				const pipeline = redisCache.pipeline();
 				for (const user of result.rows) {
-					pipeline.del(usageCacheKey(user.id));
+					memCache.del(usageCacheKey(user.id));
 				}
-				await pipeline.exec();
 			}
 
 			logger.info("Monthly usage reset completed", {

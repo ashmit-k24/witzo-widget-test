@@ -36,11 +36,13 @@ import authService from "./services/authService";
 import { leadWebhookService } from "./services/leadWebhookService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
+import {
+	startQueue,
+	stopQueue,
+} from "./config/queue";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 import { createScraperWorker } from "./workers/scraperWorker";
 
-// Start background workers and keep references for graceful shutdown
-const scraperWorker = createScraperWorker();
 const maintenanceWorker =
 	createMaintenanceWorker();
 
@@ -323,10 +325,10 @@ const gracefulShutdown = (server: Server) => {
 		);
 		try {
 			await Promise.all([
-				scraperWorker.close(),
+				stopQueue(),
 				maintenanceWorker.close(),
 			]);
-			logger.info("BullMQ workers closed");
+			logger.info("Workers closed");
 		} catch (err) {
 			logger.error("Error closing workers", {
 				error: (err as Error).message,
@@ -346,9 +348,17 @@ const server: Server = app.listen(
 			`Server running in ${config.NODE_ENV} mode on port ${config.PORT}`,
 		);
 		logger.info(
-			`🚀 Server is running on http://localhost:${config.PORT}`,
+			`Server is running on http://localhost:${config.PORT}`,
 		);
 		void adminAuthService.initializeAdminAuth();
+		// Start pg-boss queue and register the scraper worker
+		startQueue()
+			.then(() => createScraperWorker())
+			.catch((err: Error) => {
+				logger.error("Failed to start job queue", {
+					error: err.message,
+				});
+			});
 	},
 );
 server.keepAliveTimeout =

@@ -10,8 +10,12 @@ export const CHAT_CONTACT_SCORE_THRESHOLD = 0.25;   // lower bar for contact/loc
 export const CHAT_RETRIEVAL_TOP_K = 50;
 
 // Chunking
-export const CHUNK_MAX_CHARS = 600;
-export const CHUNK_OVERLAP_CHARS = 150;
+export const CHUNK_MAX_WORDS = Number(
+	process.env.SCRAPER_CHUNK_WORDS ?? 800,
+);
+export const CHUNK_OVERLAP_WORDS = Number(
+	process.env.SCRAPER_CHUNK_OVERLAP_WORDS ?? 120,
+);
 
 // Reranking
 export const CHAT_RERANK_TOP_N = 20; // after reranking, keep this many chunks
@@ -68,8 +72,12 @@ export const CHAT_SESSION_CACHE_MESSAGE_LIMIT = parseBoundedInt(
 
 export const CHAT_COMPLETION_MODEL =
 	process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4o";
-export const CHAT_COMPLETION_TEMPERATURE = 0.2;
-export const CHAT_COMPLETION_MAX_TOKENS = 1600;
+export const CHAT_COMPLETION_TEMPERATURE = Number(
+	process.env.OPENAI_CHAT_TEMPERATURE ?? 0.3,
+);
+export const CHAT_COMPLETION_MAX_TOKENS = Number(
+	process.env.OPENAI_CHAT_MAX_TOKENS ?? 1500,
+);
 
 export const UUID_V1_TO_V5_REGEX =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

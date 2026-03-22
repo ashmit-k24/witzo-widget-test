@@ -1,18 +1,26 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { pineconeService } from "./pineconeService";
-import { firecrawlService } from "./firecrawlService";
+import { config } from "../config/env";
 import {
 	ScrapedPage,
 	ScrapedPageBlockType,
 	ScrapedPageContentBlock,
 } from "../types";
 import logger from "../utils/logger";
+import { firecrawlService } from "./firecrawlService";
+import { pineconeService } from "./pineconeService";
 import {
-	assertSafeOutgoingUrl,
-} from "../utils/networkSafety";
+	isUrlUnderSourceRoot,
+	normalizeDiscoveredUrl,
+	normalizeScrapeUrl,
+	shouldSkipScrapeUrl,
+} from "../utils/scrapeUrl";
 
-const SCRAPER_CONCURRENCY = 5; // pages processed in parallel
+const BUILT_IN_CRAWLER_CONCURRENCY = Math.max(
+	1,
+	Math.min(config.SCRAPER_CONCURRENCY, 10),
+);
+const BUILT_IN_FETCH_TIMEOUT_MS = 15000;
 
 interface CrawlOptions {
 	maxDepth?: number;
@@ -35,6 +43,11 @@ interface ScrapeResult {
 	failureReason?: string;
 }
 
+type RobotsRules = {
+	disallowPaths: string[];
+	sitemapUrls: string[];
+};
+
 class ScraperService {
 	private normalizeText(text: string): string {
 		return text
@@ -43,173 +56,8 @@ class ScraperService {
 			.trim();
 	}
 
-	private normalizeUrl(url: string): string {
-		try {
-			const urlObj = new URL(url);
-			urlObj.hash = "";
-			return urlObj.href.replace(/\/$/, "");
-		} catch {
-			return url;
-		}
-	}
-
-	private isValidInternalUrl(
-		url: string,
-		baseUrl: string,
-	): boolean {
-		try {
-			const urlObj = new URL(url);
-			const baseUrlObj = new URL(baseUrl);
-
-			const normalizeHostname = (
-				hostname: string,
-			) => hostname.replace(/^www\./, "");
-			const urlHostname = normalizeHostname(
-				urlObj.hostname,
-			);
-			const baseHostname = normalizeHostname(
-				baseUrlObj.hostname,
-			);
-
-			if (urlHostname !== baseHostname)
-				return false;
-
-			const excludeExtensions = [
-				".pdf",
-				".jpg",
-				".jpeg",
-				".png",
-				".gif",
-				".svg",
-				".webp",
-				".zip",
-				".rar",
-				".exe",
-				".dmg",
-				".doc",
-				".docx",
-				".xls",
-				".xlsx",
-				".ppt",
-				".pptx",
-				".mp4",
-				".mp3",
-				".avi",
-				".mov",
-				".wav",
-				".css",
-				".js",
-				".json",
-				".xml",
-			];
-
-			if (
-				excludeExtensions.some((ext) =>
-					urlObj.pathname
-						.toLowerCase()
-						.endsWith(ext),
-				)
-			)
-				return false;
-			if (!urlObj.protocol.startsWith("http"))
-				return false;
-
-			return true;
-		} catch {
-			return false;
-		}
-	}
-
-	private async fetchPageContent(
-		url: string,
-	): Promise<string> {
-		let currentUrl = url;
-		const visitedRedirectStates = new Set<string>();
-		const maxRedirects = 10;
-		const cookieJar = new Map<string, string>();
-
-		for (
-			let redirectCount = 0;
-			redirectCount < maxRedirects;
-			redirectCount += 1
-		) {
-			const safeUrl =
-				await assertSafeOutgoingUrl(currentUrl, {
-					allowHttp: true,
-				});
-			const cookieHeader = Array.from(
-				cookieJar.entries(),
-			)
-				.map(([name, value]) => `${name}=${value}`)
-				.join("; ");
-			const requestStateKey = `${safeUrl.toString()}|${cookieHeader}`;
-			if (visitedRedirectStates.has(requestStateKey)) {
-				throw new Error(
-					"Redirect loop detected while scraping",
-				);
-			}
-			visitedRedirectStates.add(requestStateKey);
-			const response = await axios.get(safeUrl.toString(), {
-				headers: {
-					"User-Agent":
-						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-					...(cookieHeader
-						? {
-								Cookie: cookieHeader,
-						  }
-						: {}),
-				},
-				timeout: 10000,
-				maxRedirects: 0,
-				validateStatus: (status) =>
-					(status >= 200 && status < 300) ||
-					(status >= 300 && status < 400),
-			});
-			const setCookieHeaders = response.headers["set-cookie"];
-			const cookies = Array.isArray(setCookieHeaders)
-				? setCookieHeaders
-				: typeof setCookieHeaders === "string"
-					? [setCookieHeaders]
-					: [];
-			for (const setCookie of cookies) {
-				const [cookiePair] = setCookie.split(";");
-				const separatorIndex = cookiePair.indexOf("=");
-				if (separatorIndex <= 0) {
-					continue;
-				}
-				const name = cookiePair.slice(0, separatorIndex).trim();
-				const value = cookiePair.slice(separatorIndex + 1).trim();
-				if (!name) {
-					continue;
-				}
-				cookieJar.set(name, value);
-			}
-
-			if (response.status >= 300 && response.status < 400) {
-				const location =
-					response.headers.location;
-				if (!location) {
-					throw new Error(
-						"Redirect response missing location header",
-					);
-				}
-				currentUrl = new URL(
-					location,
-					safeUrl,
-				).toString();
-				continue;
-			}
-
-			return response.data;
-		}
-
-		throw new Error(
-			`Too many redirects while scraping (>${maxRedirects})`,
-		);
-	}
-
 	private hasContactSignals(text: string): boolean {
-		return /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s().-]{6,}|\b(address|phone|email|office|contact|call|reach us|get in touch)\b/i.test(
+		return /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s().-]{6,}|\b(address|phone|email|office|contact|call|reach us|get in touch|pin code|pincode|zip code|zip|postal code|floor|building|suite|unit|branch office|regional office|corporate office|head office|registered office)\b/i.test(
 			text,
 		);
 	}
@@ -425,10 +273,11 @@ class ScraperService {
 	private extractPageData(
 		html: string,
 		url: string,
+		sourceRoot: string,
 	): ScrapedPage {
 		const $ = cheerio.load(html);
 		$(
-			"script, style, noscript, iframe",
+			"script, style, noscript, iframe, svg",
 		).remove();
 
 		const title =
@@ -476,27 +325,35 @@ class ScraperService {
 		$("a[href]").each((_, element) => {
 			const href = $(element).attr("href");
 			if (
-				href &&
-				href.trim() &&
-				!href.startsWith("#") &&
-				!href.startsWith("javascript:") &&
-				!href.startsWith("mailto:")
+				!href ||
+				href.startsWith("#") ||
+				href.startsWith("javascript:") ||
+				href.startsWith("mailto:")
 			) {
-				try {
-					links.push(new URL(href, url).href);
-				} catch {
-					// ignore invalid urls
-				}
+				return;
+			}
+
+			const normalized = normalizeDiscoveredUrl(
+				href,
+				url,
+			);
+			if (
+				normalized &&
+				isUrlUnderSourceRoot(normalized, sourceRoot) &&
+				!shouldSkipScrapeUrl(normalized)
+			) {
+				links.push(normalized);
 			}
 		});
 
-		const metadata: any = {};
-		if (description)
-			metadata.description = description;
+		const metadata: Record<string, unknown> = {};
+		if (description) metadata.description = description;
 		if (canonicalUrl)
 			metadata.canonicalUrl = canonicalUrl;
-		if (contentBlocks.length > 0)
+		if (contentBlocks.length > 0) {
 			metadata.contentBlocks = contentBlocks;
+		}
+		metadata.scrapedVia = "builtin";
 
 		return {
 			url,
@@ -507,24 +364,451 @@ class ScraperService {
 		};
 	}
 
-	/**
-	 * Try Firecrawl first; if unavailable or it returns empty/error,
-	 * fall back to the own Axios + Cheerio scraper.
-	 */
-	private async scrapePageWithFallback(
+	private async fetchTextResponse(
 		url: string,
-	): Promise<ScrapedPage> {
-		const firecrawlPage =
-			await firecrawlService.scrapePage(url);
-		if (firecrawlPage !== null) {
-			return firecrawlPage;
+	): Promise<{ html: string; contentType: string }> {
+		const response = await axios.get(url, {
+			timeout: BUILT_IN_FETCH_TIMEOUT_MS,
+			headers: {
+				"User-Agent": "WitzoCrawler/2.0",
+			},
+			maxRedirects: 5,
+			validateStatus: (status) =>
+				status >= 200 && status < 400,
+		});
+
+		const contentType =
+			String(response.headers["content-type"] ?? "");
+		return {
+			html:
+				typeof response.data === "string"
+					? response.data
+					: "",
+			contentType,
+		};
+	}
+
+	private parseSitemapXml(
+		xml: string,
+		sourceRoot: string,
+		seen = new Set<string>(),
+	): string[] {
+		const discovered: string[] = [];
+		const normalizedXml = xml.trim();
+
+		if (/<sitemapindex/i.test(normalizedXml)) {
+			const nestedSitemaps = [
+				...normalizedXml.matchAll(
+					/<loc>(.*?)<\/loc>/gi,
+				),
+			]
+				.map((match) =>
+					normalizeDiscoveredUrl(match[1] ?? ""),
+				)
+				.filter((url): url is string => {
+					return typeof url === "string" && !seen.has(url);
+				});
+			for (const sitemapUrl of nestedSitemaps) {
+				seen.add(sitemapUrl);
+			}
+			return nestedSitemaps;
 		}
-		// Firecrawl not configured, failed, or returned no content
-		logger.info(
-			`[Scraper] Falling back to own scraper for ${url}`,
+
+		for (const match of normalizedXml.matchAll(
+			/<loc>(.*?)<\/loc>/gi,
+		)) {
+			const normalized = normalizeDiscoveredUrl(
+				match[1] ?? "",
+			);
+			if (
+				normalized &&
+				isUrlUnderSourceRoot(normalized, sourceRoot) &&
+				!shouldSkipScrapeUrl(normalized)
+			) {
+				discovered.push(normalized);
+			}
+		}
+
+		return discovered;
+	}
+
+	private async readRobotsRules(
+		sourceRoot: string,
+	): Promise<RobotsRules> {
+		if (config.SCRAPER_IGNORE_ROBOTS) {
+			return {
+				disallowPaths: [],
+				sitemapUrls: [],
+			};
+		}
+
+		try {
+			const base = new URL(sourceRoot);
+			const robotsUrl = `${base.origin}/robots.txt`;
+			const response = await axios.get(robotsUrl, {
+				timeout: 8000,
+				headers: {
+					"User-Agent": "WitzoCrawler/2.0",
+				},
+				validateStatus: (status) =>
+					status >= 200 && status < 300,
+			});
+			const text =
+				typeof response.data === "string"
+					? response.data
+					: "";
+			const lines = text
+				.split(/\r?\n/)
+				.map((line) => line.trim())
+				.filter(Boolean);
+
+			const disallowPaths: string[] = [];
+			const sitemapUrls: string[] = [];
+			let appliesToWildcard = false;
+
+			for (const line of lines) {
+				const commentStripped = line
+					.split("#")[0]
+					.trim();
+				if (!commentStripped) {
+					continue;
+				}
+
+				const separatorIndex =
+					commentStripped.indexOf(":");
+				if (separatorIndex <= 0) {
+					continue;
+				}
+
+				const key = commentStripped
+					.slice(0, separatorIndex)
+					.trim()
+					.toLowerCase();
+				const value = commentStripped
+					.slice(separatorIndex + 1)
+					.trim();
+
+				if (key === "user-agent") {
+					appliesToWildcard =
+						value === "*" ||
+						value.toLowerCase() ===
+							"witzocrawler";
+					continue;
+				}
+
+				if (key === "sitemap" && value) {
+					const normalized =
+						normalizeDiscoveredUrl(value);
+					if (normalized) {
+						sitemapUrls.push(normalized);
+					}
+					continue;
+				}
+
+				if (
+					appliesToWildcard &&
+					key === "disallow" &&
+					value &&
+					value !== "/"
+				) {
+					disallowPaths.push(value);
+				}
+			}
+
+			return {
+				disallowPaths,
+				sitemapUrls,
+			};
+		} catch {
+			return {
+				disallowPaths: [],
+				sitemapUrls: [],
+			};
+		}
+	}
+
+	private isBlockedByRobots(
+		url: string,
+		rules: RobotsRules,
+	): boolean {
+		if (config.SCRAPER_IGNORE_ROBOTS) {
+			return false;
+		}
+
+		try {
+			const pathname = new URL(url).pathname;
+			return rules.disallowPaths.some((path) => {
+				if (!path || path === "/") {
+					return false;
+				}
+				return pathname.startsWith(path);
+			});
+		} catch {
+			return false;
+		}
+	}
+
+	private async discoverSitemapUrls(
+		sourceRoot: string,
+	): Promise<string[]> {
+		const rules =
+			await this.readRobotsRules(sourceRoot);
+		const sitemapCandidates = new Set<string>(
+			rules.sitemapUrls,
 		);
-		const html = await this.fetchPageContent(url);
-		return this.extractPageData(html, url);
+
+		try {
+			const root = new URL(sourceRoot);
+			sitemapCandidates.add(
+				`${root.origin}/sitemap.xml`,
+			);
+		} catch {
+			// sourceRoot has already been normalized earlier
+		}
+
+		const discovered = new Set<string>();
+		const pending = [...sitemapCandidates];
+		const seenSitemaps = new Set<string>();
+
+		while (pending.length > 0) {
+			const sitemapUrl = pending.shift()!;
+			if (seenSitemaps.has(sitemapUrl)) {
+				continue;
+			}
+			seenSitemaps.add(sitemapUrl);
+
+			try {
+				const response = await axios.get(sitemapUrl, {
+					timeout: 10000,
+					headers: {
+						"User-Agent": "WitzoCrawler/2.0",
+					},
+					validateStatus: (status) =>
+						status >= 200 && status < 300,
+				});
+				const xml =
+					typeof response.data === "string"
+						? response.data
+						: "";
+				const parsed = this.parseSitemapXml(
+					xml,
+					sourceRoot,
+					seenSitemaps,
+				);
+
+				for (const item of parsed) {
+					if (/\.xml(\?|$)/i.test(item)) {
+						if (!seenSitemaps.has(item)) {
+							pending.push(item);
+						}
+						continue;
+					}
+					discovered.add(item);
+				}
+			} catch {
+				// Ignore sitemap failures; HTML crawl is the fallback.
+			}
+		}
+
+		return [...discovered];
+	}
+
+	private async builtInCrawl(
+		startURL: string,
+		maxPages: number,
+		maxDepth: number,
+		onProgress?: (
+			scraped: number,
+			total: number,
+		) => Promise<void> | void,
+	): Promise<ScrapedPage[]> {
+		const visited = new Set<string>();
+		const enqueued = new Set<string>([startURL]);
+		const queue: Array<{
+			url: string;
+			depth: number;
+		}> = [{ url: startURL, depth: 0 }];
+		const pages: ScrapedPage[] = [];
+		const robotsRules =
+			await this.readRobotsRules(startURL);
+		const sitemapUrls =
+			await this.discoverSitemapUrls(startURL);
+
+		for (const url of sitemapUrls) {
+			if (!enqueued.has(url)) {
+				queue.push({ url, depth: 0 });
+				enqueued.add(url);
+			}
+		}
+
+		while (
+			queue.length > 0 &&
+			pages.length < maxPages
+		) {
+			const batch: Array<{
+				url: string;
+				depth: number;
+			}> = [];
+			while (
+				queue.length > 0 &&
+				batch.length <
+					BUILT_IN_CRAWLER_CONCURRENCY &&
+				visited.size + batch.length < maxPages
+			) {
+				const nextItem = queue.shift()!;
+				const nextUrl = nextItem.url;
+				if (visited.has(nextUrl)) {
+					continue;
+				}
+				visited.add(nextUrl);
+				batch.push(nextItem);
+			}
+
+			const results = await Promise.allSettled(
+				batch.map(async ({ url, depth }) => {
+					if (
+						depth > maxDepth ||
+						shouldSkipScrapeUrl(url) ||
+						!isUrlUnderSourceRoot(
+							url,
+							startURL,
+						) ||
+						this.isBlockedByRobots(
+							url,
+							robotsRules,
+						)
+					) {
+						return null;
+					}
+
+					const { html, contentType } =
+						await this.fetchTextResponse(url);
+					if (
+						!contentType.includes("text/html") ||
+						!html.trim()
+					) {
+						return null;
+					}
+
+					const page = this.extractPageData(
+						html,
+						url,
+						startURL,
+					);
+					if (!page.content.trim()) {
+						return null;
+					}
+
+					return {
+						page,
+						depth,
+					};
+				}),
+			);
+
+			for (const result of results) {
+				if (
+					result.status !== "fulfilled" ||
+					!result.value
+				) {
+					continue;
+				}
+
+				if (pages.length >= maxPages) {
+					break;
+				}
+
+				pages.push(result.value.page);
+				await onProgress?.(
+					pages.length,
+					Math.max(maxPages, queue.length),
+				);
+
+				if (result.value.depth >= maxDepth) {
+					continue;
+				}
+
+				for (const link of result.value.page.links) {
+					if (
+						pages.length + queue.length >= maxPages &&
+						maxPages !== Number.POSITIVE_INFINITY
+					) {
+						break;
+					}
+					if (
+						visited.has(link) ||
+						enqueued.has(link) ||
+						shouldSkipScrapeUrl(link) ||
+						!isUrlUnderSourceRoot(
+							link,
+							startURL,
+						) ||
+						this.isBlockedByRobots(
+							link,
+							robotsRules,
+						)
+					) {
+						continue;
+					}
+					queue.push({
+						url: link,
+						depth: result.value.depth + 1,
+					});
+					enqueued.add(link);
+				}
+			}
+		}
+
+		return pages;
+	}
+
+	private async indexPagesInBatches(
+		userId: string,
+		sourceRoot: string,
+		pages: ScrapedPage[],
+		reportProgress?: CrawlOptions["onProgress"],
+	): Promise<void> {
+		const rootPage =
+			pages.find((page) => page.url === sourceRoot) ??
+			pages[0];
+		const sourceRootTitle =
+			rootPage?.title || sourceRoot;
+		let indexedPages = 0;
+		const batchSize = Math.max(
+			1,
+			config.SCRAPER_BATCH_PAGE_SIZE,
+		);
+
+		for (let i = 0; i < pages.length; i += batchSize) {
+			const batch = pages.slice(i, i + batchSize);
+			await Promise.all(
+				batch.map((page) =>
+					pineconeService.upsertDocument(
+						userId,
+						page.url,
+						page.title,
+						page.content,
+						{
+							...(page.metadata ?? {}),
+							sourceRoot,
+							sourceRootTitle,
+							sourceKey: sourceRoot,
+							sourceType: "website",
+						},
+					),
+				),
+			);
+
+			indexedPages += batch.length;
+			await reportProgress?.({
+				totalPages: pages.length,
+				scrapedPages: pages.length,
+				storedPages: indexedPages,
+				currentUrl:
+					batch[batch.length - 1]?.url ??
+					sourceRoot,
+			});
+		}
 	}
 
 	async scrapeWebsite(
@@ -532,191 +816,150 @@ class ScraperService {
 		url: string,
 		options: CrawlOptions = {},
 	): Promise<ScrapeResult> {
-		const safeRootUrl =
-			await assertSafeOutgoingUrl(url, {
-				allowHttp: true,
-			});
-		const rootUrl = this.normalizeUrl(
-			safeRootUrl.toString(),
+		const sourceRoot = await normalizeScrapeUrl(url);
+		const maxDepth = Math.max(
+			0,
+			options.maxDepth ?? 30,
 		);
-		let rootTitle = "";
-		const maxDepth = options.maxDepth || 30;
-		const maxPages = options.maxPages || 1200;
+		const maxPages = Math.max(
+			1,
+			options.maxPages ?? 1200,
+		);
 		const reportProgress = options.onProgress;
-		const visitedUrls = new Set<string>();
-		const urlQueue: Array<{
-			url: string;
-			depth: number;
-		}> = [{ url: rootUrl, depth: 0 }];
-		const scrapedPages: ScrapedPage[] = [];
 		let firstFailureReason: string | null = null;
 
 		logger.info(
-			`Starting synchronous scrape for user ${userId} on ${url}`,
-			{ maxDepth, maxPages },
-		);
-
-		await pineconeService.ensureIndexExists();
-
-		// ── Firecrawl sitemap discovery ──────────────────────────────────────
-		// Pre-populate the queue with ALL URLs discovered via Firecrawl's /map
-		// endpoint (reads sitemap.xml + crawls links). This captures pages that
-		// are not reachable through normal HTML link-following (JS pagination,
-		// "Load More" buttons, etc.). Falls back to plain BFS if map fails.
-		if (firecrawlService.isAvailable) {
-			const mappedUrls =
-				await firecrawlService.mapWebsite(rootUrl);
-			let addedFromMap = 0;
-			for (const mappedUrl of mappedUrls) {
-				const normalized =
-					this.normalizeUrl(mappedUrl);
-				if (
-					!visitedUrls.has(normalized) &&
-					this.isValidInternalUrl(
-						normalized,
-						rootUrl,
-					) &&
-					urlQueue.length < maxPages
-				) {
-					urlQueue.push({
-						url: normalized,
-						depth: 0,
-					});
-					addedFromMap++;
-				}
-			}
-			if (addedFromMap > 0) {
-				logger.info(
-					`[Scraper] Pre-populated BFS queue with ${addedFromMap} URLs from Firecrawl map`,
-					{ rootUrl },
-				);
-			}
-		}
-		// ────────────────────────────────────────────────────────────────────
-
-		await reportProgress?.({
-			totalPages: Math.min(maxPages, urlQueue.length),
-			scrapedPages: 0,
-			storedPages: 0,
-			currentUrl: rootUrl,
-		});
-
-		while (
-			urlQueue.length > 0 &&
-			visitedUrls.size < maxPages
-		) {
-			// Collect a batch of unique, valid URLs to process concurrently
-			const batch: Array<{ url: string; depth: number }> = [];
-			while (
-				urlQueue.length > 0 &&
-				batch.length < SCRAPER_CONCURRENCY &&
-				visitedUrls.size + batch.length < maxPages
-			) {
-				const item = urlQueue.shift()!;
-				const normalizedUrl = this.normalizeUrl(item.url);
-				if (visitedUrls.has(normalizedUrl)) continue;
-				if (item.depth > maxDepth) continue;
-				visitedUrls.add(normalizedUrl);
-				batch.push({ url: normalizedUrl, depth: item.depth });
-			}
-
-			if (batch.length === 0) break;
-
-			// Process the batch in parallel
-			await Promise.allSettled(
-				batch.map(async ({ url: currentUrl, depth }) => {
-					try {
-						const pageData =
-							await this.scrapePageWithFallback(currentUrl);
-
-						if (depth === 0 && pageData.title) {
-							rootTitle = pageData.title;
-						}
-
-						// Store in Pinecone
-						await pineconeService.upsertDocument(
-							userId,
-							pageData.url,
-							pageData.title,
-							pageData.content,
-							{
-								...pageData.metadata,
-								sourceRoot: rootUrl,
-								sourceRootTitle:
-									rootTitle || pageData.title || rootUrl,
-							},
-						);
-
-						scrapedPages.push(pageData);
-
-						if (depth < maxDepth) {
-							for (const link of pageData.links) {
-								const normalizedLink = this.normalizeUrl(link);
-								if (
-									!visitedUrls.has(normalizedLink) &&
-									this.isValidInternalUrl(normalizedLink, url)
-								) {
-									urlQueue.push({
-										url: normalizedLink,
-										depth: depth + 1,
-									});
-								}
-							}
-						}
-					} catch (error) {
-						const errorMessage =
-							error instanceof Error
-								? error.message
-								: String(error);
-						if (!firstFailureReason) {
-							firstFailureReason = errorMessage;
-						}
-						logger.error(`Error scraping ${currentUrl}`, {
-							error,
-							errorMessage,
-						});
-					} finally {
-						await reportProgress?.({
-							totalPages: Math.min(
-								maxPages,
-								Math.max(
-									visitedUrls.size + urlQueue.length,
-									visitedUrls.size,
-								),
-							),
-							scrapedPages: visitedUrls.size,
-							storedPages: scrapedPages.length,
-							currentUrl,
-						});
-					}
-				}),
-			);
-		}
-
-		logger.info(
-			`Scrape completed for user ${userId}`,
+			"[Scraper] Starting source pipeline",
 			{
-				pagesScraped: scrapedPages.length,
-				url,
+				sourceRoot,
+				userId,
+				maxPages,
 			},
 		);
 
-		const wasSuccessful =
-			scrapedPages.length > 0;
+		await pineconeService.ensureIndexExists();
+		await pineconeService.deleteDocumentsByUrl(
+			userId,
+			sourceRoot,
+		);
 
-		return {
-			success: wasSuccessful,
-			message: wasSuccessful
-				? `Successfully scraped ${scrapedPages.length} page(s)`
-				: firstFailureReason
+		await reportProgress?.({
+			totalPages: maxPages,
+			scrapedPages: 0,
+			storedPages: 0,
+			currentUrl: sourceRoot,
+		});
+
+		let pages: ScrapedPage[] = [];
+		let usedFirecrawl = false;
+
+		if (firecrawlService.isAvailable) {
+			try {
+				pages = await firecrawlService.crawlWebsite(
+					sourceRoot,
+					maxPages,
+					maxDepth,
+					async (done, total) => {
+						await reportProgress?.({
+							totalPages: Math.max(total, done, 1),
+							scrapedPages: done,
+							storedPages: 0,
+							currentUrl: sourceRoot,
+						});
+					},
+				);
+				usedFirecrawl = pages.length > 0;
+			} catch (error) {
+				firstFailureReason =
+					error instanceof Error
+						? error.message
+						: String(error);
+				logger.warn(
+					"[Scraper] Firecrawl crawl failed; using built-in crawler",
+					{
+						sourceRoot,
+						error: firstFailureReason,
+					},
+				);
+			}
+		}
+
+		if (!usedFirecrawl) {
+			try {
+				pages = await this.builtInCrawl(
+					sourceRoot,
+					maxPages,
+					maxDepth,
+					async (scraped, total) => {
+						await reportProgress?.({
+							totalPages: Math.max(total, scraped, 1),
+							scrapedPages: scraped,
+							storedPages: 0,
+							currentUrl: sourceRoot,
+						});
+					},
+				);
+			} catch (error) {
+				firstFailureReason =
+					error instanceof Error
+						? error.message
+						: String(error);
+				logger.error(
+					"[Scraper] Built-in crawler failed",
+					{
+						sourceRoot,
+						error: firstFailureReason,
+					},
+				);
+			}
+		}
+
+		pages = Array.from(
+			new Map(
+				pages.map((page) => [page.url, page]),
+			).values(),
+		).slice(0, maxPages);
+
+		if (pages.length === 0) {
+			return {
+				success: false,
+				message: firstFailureReason
 					? `Failed to scrape any pages from the provided website: ${firstFailureReason}`
 					: "Failed to scrape any pages from the provided website",
-			pagesScraped: scrapedPages.length,
-			visitedPages: visitedUrls.size,
-			storedPages: scrapedPages.length,
-			pages: scrapedPages,
-			failureReason:
-				wasSuccessful ? undefined : firstFailureReason ?? undefined,
+				pagesScraped: 0,
+				visitedPages: 0,
+				storedPages: 0,
+				pages: [],
+				failureReason:
+					firstFailureReason ?? undefined,
+			};
+		}
+
+		await this.indexPagesInBatches(
+			userId,
+			sourceRoot,
+			pages,
+			reportProgress,
+		);
+
+		const summary = usedFirecrawl
+			? `Successfully scraped ${pages.length} page(s) via Firecrawl`
+			: `Successfully scraped ${pages.length} page(s) via built-in crawler`;
+
+		logger.info("[Scraper] Source pipeline completed", {
+			sourceRoot,
+			userId,
+			pages: pages.length,
+			usedFirecrawl,
+		});
+
+		return {
+			success: true,
+			message: summary,
+			pagesScraped: pages.length,
+			visitedPages: pages.length,
+			storedPages: pages.length,
+			pages,
 		};
 	}
 }

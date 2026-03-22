@@ -92,7 +92,7 @@ class RerankService {
 
 		try {
 			const response = await this.cohere.rerank({
-				model: "rerank-english-v3.0",
+				model: "rerank-v3.5",
 				query,
 				documents: nonEmpty.map((e) => e.doc),
 				topN: Math.min(topN, nonEmpty.length),

@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import crypto from "crypto";
 import { config } from "../config/env";
-import { redisCache } from "../config/redis";
+import { memCache } from "../utils/memCache";
 import { ChatMessage } from "../types";
 import {
 	CHAT_SUMMARY_CACHE_TTL_SECONDS,
@@ -41,7 +41,7 @@ class MemorySummarizationService {
 
 		// Check cache
 		const cacheKey = this.buildCacheKey(sessionId, olderMessages);
-		const cached = await redisCache.get(cacheKey);
+		const cached = memCache.get(cacheKey);
 		if (cached) {
 			return { summary: cached, recentMessages };
 		}
@@ -50,7 +50,7 @@ class MemorySummarizationService {
 		const summary = await this.summarize(olderMessages);
 
 		// Cache it
-		await redisCache.setex(cacheKey, CHAT_SUMMARY_CACHE_TTL_SECONDS, summary);
+		memCache.setex(cacheKey, CHAT_SUMMARY_CACHE_TTL_SECONDS, summary);
 
 		logger.info("[MemorySummarization] Generated conversation summary", {
 			sessionId,

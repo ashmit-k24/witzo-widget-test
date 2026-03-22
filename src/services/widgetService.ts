@@ -5,13 +5,9 @@ import {
 } from "../config/planConfig";
 import pool from "../config/database";
 import { config } from "../config/env";
-import {
-	redisAnalytics,
-	redisCache,
-} from "../config/redis";
+import { memCache } from "../utils/memCache";
 import {
 	WIDGET_ANALYTICS_BATCH_SIZE,
-	WIDGET_ANALYTICS_BUFFER_KEY,
 	WIDGET_KEY_CACHE_TTL_SECONDS,
 } from "../constants";
 import logger from "../utils/logger";
@@ -76,6 +72,7 @@ export interface WidgetInstallationStatus {
 }
 
 class WidgetService {
+	private analyticsBuffer: string[] = [];
 	private readonly originTokenTtlMs =
 		12 * 60 * 60 * 1000;
 
@@ -336,7 +333,7 @@ class WidgetService {
 			);
 
 			// Cache the new key
-			await redisCache.setex(
+			memCache.setex(
 				this.getCacheKey(widgetKey),
 				WIDGET_KEY_CACHE_TTL_SECONDS,
 				JSON.stringify(widget),
@@ -364,7 +361,7 @@ class WidgetService {
 	): Promise<WidgetKey | null> {
 		try {
 			// Try cache first
-			const cached = await redisCache.get(
+			const cached = memCache.get(
 				this.getCacheKey(widgetKey),
 			);
 			if (cached) {
@@ -395,7 +392,7 @@ class WidgetService {
 			);
 
 			// Cache result
-			await redisCache.setex(
+			memCache.setex(
 				this.getCacheKey(widgetKey),
 				WIDGET_KEY_CACHE_TTL_SECONDS,
 				JSON.stringify(widget),
@@ -630,7 +627,7 @@ class WidgetService {
 			);
 
 			// Invalidate cache
-			await redisCache.del(
+			memCache.del(
 				this.getCacheKey(widget.widget_key),
 			);
 
@@ -698,11 +695,8 @@ class WidgetService {
 				created_at: new Date().toISOString(),
 			};
 
-			// Push to Redis Buffer
-			await redisAnalytics.lpush(
-				WIDGET_ANALYTICS_BUFFER_KEY,
-				JSON.stringify(event),
-			);
+			// Push to in-memory buffer
+			this.analyticsBuffer.push(JSON.stringify(event));
 		} catch (error) {
 			logger.error("Error tracing widget event", {
 				error,
@@ -856,9 +850,7 @@ class WidgetService {
 	 */
 	async flushAnalytics(): Promise<void> {
 		try {
-			const len = await redisAnalytics.llen(
-				WIDGET_ANALYTICS_BUFFER_KEY,
-			);
+			const len = this.analyticsBuffer.length;
 
 			// Only flush if buffer has enough events or forced flush
 			if (len === 0) return;
@@ -867,10 +859,7 @@ class WidgetService {
 				len,
 				WIDGET_ANALYTICS_BATCH_SIZE,
 			);
-			const eventsStr = await redisAnalytics.rpop(
-				WIDGET_ANALYTICS_BUFFER_KEY,
-				batchSize,
-			);
+			const eventsStr = this.analyticsBuffer.splice(0, batchSize);
 
 			if (
 				!eventsStr ||
@@ -950,14 +939,11 @@ class WidgetService {
 					},
 				);
 
-				// Re-queue events to avoid data loss
+				// Re-queue events to in-memory buffer to avoid data loss
 				try {
-					for (const event of events) {
-						await redisAnalytics.rpush(
-							WIDGET_ANALYTICS_BUFFER_KEY,
-							JSON.stringify(event),
-						);
-					}
+					this.analyticsBuffer.unshift(
+						...events.map((e: any) => JSON.stringify(e)),
+					);
 					logger.info(
 						`Re-queued ${events.length} events after flush failure`,
 					);
@@ -984,9 +970,7 @@ class WidgetService {
 	 */
 	async checkAndFlushIfNeeded(): Promise<void> {
 		try {
-			const len = await redisAnalytics.llen(
-				WIDGET_ANALYTICS_BUFFER_KEY,
-			);
+			const len = this.analyticsBuffer.length;
 
 			// Force flush if buffer exceeds threshold
 			if (len >= WIDGET_ANALYTICS_BATCH_SIZE) {
@@ -1019,7 +1003,7 @@ class WidgetService {
 			);
 
 			if (currentWidget) {
-				await redisCache.del(
+				memCache.del(
 					this.getCacheKey(
 						currentWidget.widget_key,
 					),
@@ -1065,7 +1049,7 @@ class WidgetService {
 			);
 
 			// Invalidate old key cache
-			await redisCache.del(
+			memCache.del(
 				this.getCacheKey(
 					currentWidget.widget_key,
 				),

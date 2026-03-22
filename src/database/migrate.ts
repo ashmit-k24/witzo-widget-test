@@ -211,6 +211,12 @@ const migrations: Migration[] = [
 			"Add workspace_mode column to users (workspace_only / workspace_prefer)",
 		file: "20260321_032_workspace_mode.sql",
 	},
+	{
+		id: "20260321_033_scraper_jobs",
+		description:
+			"Create scraper_jobs table (replaces Redis-based job status tracking)",
+		file: "20260321_033_scraper_jobs.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

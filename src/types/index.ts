@@ -256,40 +256,26 @@ export interface EnvConfig {
 	PINECONE_ENVIRONMENT: string;
 	PINECONE_INDEX_NAME: string;
 	PINECONE_HOST?: string;
+	PINECONE_HYBRID: boolean;
+	PINECONE_UPSERT_BATCH_SIZE: number;
 	OPENAI_API_KEY: string;
 	OPENAI_MODEL: string;
+	OPENAI_CHAT_MODEL: string;
 	OPENAI_EMBEDDING_DIMENSIONS: number;
+	OPENAI_CHAT_MAX_TOKENS: number;
+	OPENAI_CHAT_TEMPERATURE: number;
 	RAZORPAY_KEY_ID: string;
 	RAZORPAY_KEY_SECRET: string;
 	RAZORPAY_WEBHOOK_SECRET: string;
 	LLM_PROMPT_COST_PER_1K_USD: number;
 	LLM_COMPLETION_COST_PER_1K_USD: number;
 
-	// Redis
-	REDIS_HOST: string;
-	REDIS_PORT: number;
-	REDIS_USERNAME?: string;
-	REDIS_PASSWORD?: string;
-	REDIS_TLS_ENABLED: boolean;
-
-	// Separate Redis Instances
-	REDIS_CACHE_HOST: string;
-	REDIS_CACHE_PORT: number;
-	REDIS_CACHE_USERNAME?: string;
-	REDIS_CACHE_PASSWORD?: string;
-
-	REDIS_QUEUE_HOST: string;
-	REDIS_QUEUE_PORT: number;
-	REDIS_QUEUE_USERNAME?: string;
-	REDIS_QUEUE_PASSWORD?: string;
-
-	REDIS_ANALYTICS_HOST: string;
-	REDIS_ANALYTICS_PORT: number;
-	REDIS_ANALYTICS_USERNAME?: string;
-	REDIS_ANALYTICS_PASSWORD?: string;
-
 	// Scraper Configuration
 	SCRAPER_CONCURRENCY: number;
+	SCRAPER_IGNORE_ROBOTS: boolean;
+	SCRAPER_BATCH_PAGE_SIZE: number;
+	SCRAPER_CHUNK_WORDS: number;
+	SCRAPER_CHUNK_OVERLAP_WORDS: number;
 
 	// Analytics Configuration
 	ANALYTICS_BUFFER_SIZE: number;
@@ -316,6 +302,13 @@ export interface EnvConfig {
 
 	// Firecrawl (primary scraper)
 	FIRECRAWL_API_KEY?: string;
+	FIRECRAWL_API_URL?: string;
+	FIRECRAWL_TIMEOUT_MS: number;
+	FIRECRAWL_POLL_INTERVAL_MS: number;
+
+	// HyPE
+	HYPE_QUESTIONS_PER_CHUNK: number;
+	HYPE_MAX_CHUNKS: number;
 
 	// Langfuse (observability)
 	LANGFUSE_SECRET_KEY?: string;

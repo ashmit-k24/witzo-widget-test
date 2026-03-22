@@ -2,17 +2,17 @@ import crypto from "crypto";
 import OpenAI from "openai";
 import pool from "../config/database";
 import { config } from "../config/env";
-import { redisCache } from "../config/redis";
+import { memCache } from "../utils/memCache";
 import {
+	CHAT_CONTACT_MAX_CHUNKS_PER_URL,
+	CHAT_CONTACT_MMR_MAX_CHUNKS,
+	CHAT_CONTACT_SCORE_THRESHOLD,
 	CHAT_COMPLETION_MAX_TOKENS,
 	CHAT_COMPLETION_MODEL,
 	CHAT_COMPLETION_TEMPERATURE,
-	CHAT_CONTACT_SCORE_THRESHOLD,
 	CHAT_DEFAULT_TIMEOUT_MS,
 	CHAT_HISTORY_WINDOW_MESSAGES,
 	CHAT_LANGUAGE_LABELS,
-	CHAT_CONTACT_MAX_CHUNKS_PER_URL,
-	CHAT_CONTACT_MMR_MAX_CHUNKS,
 	CHAT_MAX_CHUNKS_PER_URL,
 	CHAT_MMR_MAX_CHUNKS,
 	CHAT_RERANK_TOP_N,
@@ -41,10 +41,12 @@ import logger from "../utils/logger";
 import { retryOnRateLimit } from "../utils/retry";
 import { memorySummarizationService } from "./memorySummarizationService";
 import { pineconeService } from "./pineconeService";
+import { QueryIntent } from "./queryTransformService";
+import { queryTransformService } from "./queryTransformService";
 import {
-	QueryIntent,
-	queryTransformService,
-} from "./queryTransformService";
+	ragPipelineService,
+	WorkspaceBoundary,
+} from "./ragPipelineService";
 import { rerankService } from "./rerankService";
 import systemMessageService from "./systemMessageService";
 import websiteBrandingService from "./websiteBrandingService";
@@ -243,6 +245,74 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 		return payload;
 	}
 
+	private mapWorkspaceBoundary(
+		workspaceMode:
+			| "workspace_only"
+			| "workspace_prefer",
+	): WorkspaceBoundary {
+		return workspaceMode === "workspace_only"
+			? "workspace_only"
+			: "general_allowed";
+	}
+
+	private async resolveRagSettings(
+		userId: string,
+	): Promise<{
+		systemPrompt: string;
+		workspaceBoundary: WorkspaceBoundary;
+	}> {
+		const settings = await systemMessageService
+			.getSettings(userId)
+			.catch(async () => ({
+				effectiveSystemMessage:
+					await systemMessageService.resolveEffectiveSystemMessage(
+						userId,
+					),
+				workspaceMode:
+					"workspace_prefer" as const,
+			}));
+
+		return {
+			systemPrompt:
+				settings.effectiveSystemMessage,
+			workspaceBoundary:
+				this.mapWorkspaceBoundary(
+					settings.workspaceMode ??
+						"workspace_prefer",
+				),
+		};
+	}
+
+	private buildRagConversationMessages(
+		systemPrompt: string,
+		prompt: string,
+		messages: ChatMessage[],
+	): Array<any> {
+		const conversationHistory: Array<any> = [];
+
+		if (systemPrompt.trim()) {
+			conversationHistory.push({
+				role: "system",
+				content: systemPrompt,
+			});
+		}
+
+		const recentMessages = messages
+			.slice(-CHAT_HISTORY_WINDOW_MESSAGES)
+			.map((message) => ({
+				role: message.role,
+				content: message.content,
+			}));
+
+		conversationHistory.push(...recentMessages);
+		conversationHistory.push({
+			role: "user",
+			content: prompt,
+		});
+
+		return conversationHistory;
+	}
+
 	private mapCachedSession(
 		data: string,
 	): ChatSession {
@@ -265,7 +335,7 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 	private async getCachedSession(
 		sessionId: string,
 	): Promise<ChatSession | null> {
-		const data = await redisCache.get(
+		const data = memCache.get(
 			this.getSessionKey(sessionId),
 		);
 		if (!data) return null;
@@ -281,7 +351,7 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 				-CHAT_SESSION_CACHE_MESSAGE_LIMIT,
 			),
 		};
-		await redisCache.setex(
+		memCache.setex(
 			this.getSessionKey(session.sessionId),
 			CHAT_SESSION_CACHE_TTL_SECONDS,
 			JSON.stringify(payload),
@@ -1066,7 +1136,7 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 	): Promise<ContextResult> {
 		try {
 			const cacheKey = this.getRetrievalCacheKey(userId, retrievalQuery);
-			const cached = await redisCache.get(cacheKey).catch(() => null);
+			const cached = memCache.get(cacheKey);
 			if (cached) {
 				const parsed = JSON.parse(cached) as Partial<ContextResult>;
 				return {
@@ -1144,7 +1214,7 @@ ${sectionPath ? `<section_path>${this.escapePromptBlock(sectionPath)}</section_p
 
 			const context = this.buildRetrievedContextBlock(allMatches);
 			const responseData: ContextResult = { context, sources };
-			await redisCache.setex(cacheKey, CHAT_RETRIEVAL_CACHE_TTL_SECONDS, JSON.stringify(responseData)).catch(() => {});
+			memCache.setex(cacheKey, CHAT_RETRIEVAL_CACHE_TTL_SECONDS, JSON.stringify(responseData));
 			return responseData;
 		} catch (error) {
 			logger.error("Error retrieving context from Pinecone", { error, userId });
@@ -1337,9 +1407,10 @@ IMPORTANT RULES:
 5. **Directness**: Answer directly. Avoid formulaic fillers like "Based on the available data" unless you need to clarify that the information is partial or incomplete.
 6. **Partial Answers**: If you find *some* relevant information (like project examples) but not a definitive "best" or complete list, SHARE what you found. Do NOT say "I don't have enough information" if you have at least one relevant example. Instead say what is available clearly and naturally. Only fall back to saying the information is not available when the retrieved context contains no relevant information at all.
 6a. **Case Studies / Portfolio Consistency**: If the user asks for case studies, projects, portfolio items, or examples, list only exact named case studies/projects when they are explicitly present in the context. Do NOT turn generic service categories or industries into named case studies. If the context only contains industry-level examples, say that clearly and keep every item at industry level consistently.
-7. **Contact Information**: If the user asks for contact details, phone, email, address, location, or wants to consult/schedule — scan ALL provided context carefully. Provide ALL offices, ALL phone numbers, and ALL emails found. Do NOT omit or truncate any office location. Do NOT say "I don't have contact details" if contact info exists anywhere in the context.
+6b. **Specific-Fact Exception**: The partial-answer rule does NOT apply to specific factual lookups — a particular location's address, a specific phone number, a specific price. For these, either copy the exact fact verbatim from the context, or state in one sentence that it is not available. Do not substitute with related-but-different information (e.g. do not list services in a city when asked for that city's address).
+7. **Contact Information**: If the user asks for contact details, phone, email, address, location, or wants to consult/schedule — scan ALL provided context carefully. Provide ALL offices, ALL phone numbers, and ALL emails found. Do NOT omit or truncate any office location. Do NOT say "I don't have contact details" if contact info exists anywhere in the context. When the user asks for a **specific location** (e.g., a specific city's address or office), ONLY provide that exact location's details if found verbatim in the context. If that specific location is NOT in the context, respond with exactly one sentence: "[Location] office details are not in our knowledge base — please check [websiteName]'s contact page directly." Do NOT list other offices as substitutes. Do NOT list services in that location.
 8. **No Hallucinations**: NEVER invent, guess, or approximate any information — especially phone numbers, email addresses, prices, or dates. Copy ALL phone numbers and email addresses EXACTLY as they appear in the provided context — do not change any digit, reorder digits, add dashes, or reformat them. If a phone number is not found verbatim in the context, do NOT include one; instead say the phone number is not available.
-9. **No Citations**: Do NOT mention the source, filename, or URL in your response. Provide the answer directly and naturally.
+9. **No Citations**: Do NOT mention the source, filename, or URL inline in your response text — source links are shown separately below the message. NEVER invent or guess a URL. If the user asks for a link, tell them the relevant source links are shown below your message.
 10. **Highlighting**: Highlight important terms using Markdown bold, for example **products**, **pricing**, **support**, **full name**, **work email**.
 11. **Formatting**: Keep the answer easy to scan. Use bullets for lists, short sections for multi-part answers, and short paragraphs for explanations. Use **bold** for key terms and service names. Use dash (-) bullet points for lists and numbered lists (1. 2. 3.) for sequential steps.
 11a. **Complete Lists**: When listing multiple items (services, case studies, features, team members), list ALL of them found in the context. Do NOT truncate with 'and more' or 'etc.' when you have the actual data in the context.
@@ -1366,8 +1437,8 @@ ${
 	context
 		? context
 		: isContactQuery
-			? "<document><content>No contact information found. Politely tell the user contact details are not available in your knowledge base and suggest visiting the website directly.</content></document>"
-			: "<document><content>No relevant information found for this query. Politely tell the user this topic is not covered, and briefly mention 2-3 things you can help with (e.g. services, pricing, contact details).</content></document>"
+			? "<document><content>No contact information was found for this query. Respond with exactly one sentence: the specific information is not in our knowledge base and they should check the website directly. Do NOT add service suggestions, other topics, or hollow offers.</content></document>"
+			: "<document><content>No relevant information was found for this query. Respond with exactly one sentence: this specific topic is not in our knowledge base. Do NOT suggest other topics or add filler.</content></document>"
 }`,
 						cache_control: {
 							type: "ephemeral",
@@ -1541,6 +1612,206 @@ ${
 				timestamp: userTimestamp,
 			};
 			session.messages.push(userMessage);
+			{
+				const responseIntent: QueryIntent =
+					"general";
+				const trace = startChatTrace({
+					userId,
+					sessionId: session.sessionId,
+					message,
+					intent: "rag_pipeline",
+				});
+				const retrievalStart = Date.now();
+				const {
+					systemPrompt,
+					workspaceBoundary,
+				} = await this.resolveRagSettings(
+					userId,
+				);
+				const ragResult =
+					await ragPipelineService.prepare(
+						userId,
+						message,
+						workspaceBoundary,
+					);
+				timing.retrievalMs =
+					Date.now() - retrievalStart;
+				const sources = ragResult.sources;
+				const websiteName =
+					await this.resolveWebsiteName(
+						userId,
+						sources,
+					);
+				const knownUserName =
+					this.getKnownUserName(
+						session.messages,
+					);
+				const fallbackResponse =
+					this.getFallbackResponse();
+				let assistantResponse =
+					fallbackResponse;
+				let usedFallback = false;
+				let usage:
+					| CompletionUsage
+					| undefined;
+				const llmStart = Date.now();
+				const conversationHistory =
+					ragResult.noContextResponse
+						? []
+						: this.buildRagConversationMessages(
+								systemPrompt,
+								ragResult.prompt,
+								session.messages.slice(
+									0,
+									-1,
+								),
+						  );
+
+				if (ragResult.noContextResponse) {
+					assistantResponse =
+						ragResult.noContextResponse;
+					usedFallback = true;
+				} else {
+					try {
+						const completionResult =
+							await this.generateNonStreamingResponse(
+								conversationHistory,
+								CHAT_DEFAULT_TIMEOUT_MS,
+							);
+						assistantResponse =
+							completionResult.response;
+						usage =
+							completionResult.usage;
+						usedFallback =
+							assistantResponse ===
+							fallbackResponse;
+						recordGeneration(trace, {
+							name: "chat-completion",
+							model: CHAT_COMPLETION_MODEL,
+							input: conversationHistory,
+							output: assistantResponse,
+							promptTokens:
+								completionResult
+									.usage
+									?.prompt_tokens,
+							completionTokens:
+								completionResult
+									.usage
+									?.completion_tokens,
+							totalTokens:
+								completionResult
+									.usage
+									?.total_tokens,
+							metadata: {
+								workspaceBoundary,
+							},
+						});
+					} catch (error) {
+						logger.error(
+							"Chat generation failed, using fallback",
+							{ error, userId },
+						);
+						usedFallback = true;
+					}
+				}
+
+				assistantResponse =
+					this.formatAssistantResponse(
+						assistantResponse,
+						message,
+						websiteName,
+						responseIntent,
+					);
+				assistantResponse =
+					this.applyNameRecallOverride(
+						assistantResponse,
+						message,
+						knownUserName,
+						websiteName,
+					);
+				assistantResponse =
+					this.applyLeadCaptureFollowUpOverride(
+						assistantResponse,
+						message,
+						session.messages,
+					);
+				timing.llmMs =
+					Date.now() - llmStart;
+
+				endTrace(trace, assistantResponse, {
+					workspaceBoundary,
+					sourcesCount: sources.length,
+					timing,
+				});
+
+				const usageMeta =
+					this.buildUsageMetadata(
+						usage,
+					);
+				const assistantTimestamp =
+					await this.persistMessage(
+						session.sessionId,
+						userId,
+						"assistant",
+						assistantResponse,
+						{
+							sourcesCount:
+								sources.length,
+							language:
+								resolvedLanguage,
+							isFallback:
+								usedFallback,
+							intent:
+								responseIntent,
+							...usageMeta.metadata,
+						},
+						usageMeta.tokenCount,
+					);
+				const assistantMessage: ChatMessage =
+					{
+						role: "assistant",
+						content: assistantResponse,
+						timestamp:
+							assistantTimestamp,
+					};
+				session.messages.push(
+					assistantMessage,
+				);
+				session.updatedAt =
+					assistantTimestamp;
+
+				await this.saveCachedSession(session);
+				timing.saveMs =
+					Date.now() - saveStart;
+				timing.totalMs =
+					Date.now() - startedAt;
+
+				logger.info(
+					"Chat response generated",
+					{
+						userId,
+						sessionId:
+							session.sessionId,
+						language:
+							resolvedLanguage,
+						intent:
+							responseIntent,
+						sourcesCount:
+							sources.length,
+						timing,
+					},
+				);
+
+				return {
+					sessionId:
+						session.sessionId,
+					response:
+						assistantResponse,
+					language:
+						resolvedLanguage,
+					sources,
+				};
+			}
 
 			// Phase 1+2: Query transformation — intent + HyDE + rewrite
 			const transformResult =
@@ -1776,6 +2047,230 @@ ${
 			content: message,
 			timestamp: userTimestamp,
 		});
+		{
+			const responseIntent: QueryIntent =
+				"general";
+			const trace = startChatTrace({
+				userId,
+				sessionId: session.sessionId,
+				message,
+				intent: "rag_pipeline",
+			});
+			const retrievalStart = Date.now();
+			const {
+				systemPrompt,
+				workspaceBoundary,
+			} = await this.resolveRagSettings(userId);
+			const ragResult =
+				await ragPipelineService.prepare(
+					userId,
+					message,
+					workspaceBoundary,
+				);
+			timing.retrievalMs =
+				Date.now() - retrievalStart;
+			const sources = ragResult.sources;
+			const websiteName =
+				await this.resolveWebsiteName(
+					userId,
+					sources,
+				);
+			const knownUserName =
+				this.getKnownUserName(
+					session.messages,
+				);
+			const fallbackResponse =
+				this.getFallbackResponse();
+			let assistantResponse = "";
+			let usedFallback = false;
+			let usage:
+				| CompletionUsage
+				| undefined;
+			const conversationHistory =
+				ragResult.noContextResponse
+					? []
+					: this.buildRagConversationMessages(
+							systemPrompt,
+							ragResult.prompt,
+							session.messages.slice(
+								0,
+								-1,
+							),
+					  );
+
+			const timeoutController =
+				new AbortController();
+			const llmStart = Date.now();
+			const timeout = setTimeout(() => {
+				timeoutController.abort(
+					"OpenAI stream timeout",
+				);
+			}, timeoutMs);
+			try {
+				if (ragResult.noContextResponse) {
+					assistantResponse =
+						ragResult.noContextResponse;
+					usedFallback = true;
+				} else {
+					const stream: any =
+						await openAICircuitBreaker.execute(
+							async () => {
+								return await this.openai.chat.completions.create(
+									this.buildChatCompletionRequest(
+										conversationHistory,
+										{
+											stream: true,
+										},
+									),
+									{
+										signal:
+											timeoutController.signal,
+									},
+								);
+							},
+						);
+					for await (const chunk of stream) {
+						if (chunk.usage) {
+							usage = {
+								prompt_tokens:
+									chunk.usage
+										.prompt_tokens ?? 0,
+								completion_tokens:
+									chunk.usage
+										.completion_tokens ?? 0,
+								total_tokens:
+									chunk.usage
+										.total_tokens ?? 0,
+							};
+						}
+						const token =
+							chunk.choices?.[0]?.delta?.content ??
+							"";
+						if (!token) {
+							continue;
+						}
+						assistantResponse += token;
+					}
+				}
+			} catch (error) {
+				logger.error(
+					"Streaming chat failed, falling back",
+					{ error, userId },
+				);
+				if (!assistantResponse) {
+					assistantResponse =
+						fallbackResponse;
+					usedFallback = true;
+				}
+			} finally {
+				clearTimeout(timeout);
+			}
+			timing.llmMs =
+				Date.now() - llmStart;
+
+			if (!assistantResponse.trim()) {
+				assistantResponse =
+					fallbackResponse;
+				usedFallback = true;
+			}
+
+			if (!ragResult.noContextResponse) {
+				recordGeneration(trace, {
+					name: "chat-stream-completion",
+					model: CHAT_COMPLETION_MODEL,
+					input: conversationHistory,
+					output: assistantResponse,
+					promptTokens:
+						usage?.prompt_tokens,
+					completionTokens:
+						usage?.completion_tokens,
+					totalTokens:
+						usage?.total_tokens,
+					metadata: {
+						workspaceBoundary,
+					},
+				});
+			}
+
+			assistantResponse =
+				this.formatAssistantResponse(
+					assistantResponse,
+					message,
+					websiteName,
+					responseIntent,
+				);
+			assistantResponse =
+				this.applyNameRecallOverride(
+					assistantResponse,
+					message,
+					knownUserName,
+					websiteName,
+				);
+			assistantResponse =
+				this.applyLeadCaptureFollowUpOverride(
+					assistantResponse,
+					message,
+					session.messages,
+				);
+			options?.onToken?.(assistantResponse);
+
+			endTrace(trace, assistantResponse, {
+				workspaceBoundary,
+				sourcesCount: sources.length,
+				timing,
+			});
+
+			const usageMeta =
+				this.buildUsageMetadata(usage);
+			const assistantTimestamp =
+				await this.persistMessage(
+					session.sessionId,
+					userId,
+					"assistant",
+					assistantResponse,
+					{
+						sourcesCount: sources.length,
+						language: resolvedLanguage,
+						isFallback: usedFallback,
+						intent: responseIntent,
+						...usageMeta.metadata,
+					},
+					usageMeta.tokenCount,
+				);
+			session.messages.push({
+				role: "assistant",
+				content: assistantResponse,
+				timestamp: assistantTimestamp,
+			});
+			session.updatedAt =
+				assistantTimestamp;
+
+			await this.saveCachedSession(session);
+			timing.saveMs =
+				Date.now() - saveStart;
+			timing.totalMs =
+				Date.now() - startedAt;
+
+			logger.info(
+				"Chat streaming response generated",
+				{
+					userId,
+					sessionId: session.sessionId,
+					language: resolvedLanguage,
+					intent: responseIntent,
+					sourcesCount: sources.length,
+					timing,
+				},
+			);
+
+			return {
+				sessionId: session.sessionId,
+				response: assistantResponse,
+				language: resolvedLanguage,
+				sources,
+				timing,
+			};
+		}
 
 		// Phase 1+2: Query transformation
 		const transformResult =
@@ -2100,7 +2595,7 @@ ${
 		);
 
 		if ((result.rowCount ?? 0) > 0) {
-			await redisCache.del(
+			memCache.del(
 				this.getSessionKey(normalized),
 			);
 			return true;
@@ -2156,11 +2651,9 @@ ${
 		);
 
 		if (result.rows.length > 0) {
-			const pipeline = redisCache.pipeline();
 			for (const row of result.rows) {
-				pipeline.del(this.getSessionKey(row.id));
-			}
-			await pipeline.exec();
+			memCache.del(this.getSessionKey(row.id));
+		}
 		}
 
 		return result.rows.length;
