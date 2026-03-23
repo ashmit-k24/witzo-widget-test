@@ -17,6 +17,7 @@ import {
 	normalizeScrapedText,
 	scorePagePriority,
 } from "../utils/scrapeAnalysis";
+import { pageClassificationService } from "./pageClassificationService";
 
 const FIRECRAWL_MIN_CONTENT_LENGTH = 100;
 
@@ -163,7 +164,7 @@ class FirecrawlService {
 			);
 
 			for (const document of status.data ?? []) {
-				const page = this.documentToScrapedPage(
+				const page = await this.documentToScrapedPage(
 					document,
 					sourceRoot,
 				);
@@ -362,10 +363,10 @@ class FirecrawlService {
 		}));
 	}
 
-	private documentToScrapedPage(
+	private async documentToScrapedPage(
 		document: any,
 		sourceRoot: string,
-	): ScrapedPage | null {
+	): Promise<ScrapedPage | null> {
 		const markdown =
 			typeof document?.markdown === "string"
 				? document.markdown.trim()
@@ -435,18 +436,32 @@ class FirecrawlService {
 			}
 		}
 
-		return enrichScrapedPage({
-			url: normalizedUrl,
+		const classification = await pageClassificationService.classifyPageType(
+			normalizedUrl,
 			title,
+			description,
 			content,
-			links: [...new Set(links)],
-			metadata: {
-				description,
-				canonicalUrl,
-				contentBlocks,
-				scrapedVia: "firecrawl",
+		);
+		const overridePageType =
+			classification.confidence >= 0.65
+				? classification.pageType
+				: undefined;
+
+		return enrichScrapedPage(
+			{
+				url: normalizedUrl,
+				title,
+				content,
+				links: [...new Set(links)],
+				metadata: {
+					description,
+					canonicalUrl,
+					contentBlocks,
+					scrapedVia: "firecrawl",
+				},
 			},
-		});
+			overridePageType,
+		);
 	}
 
 	async crawlWebsite(
@@ -550,7 +565,7 @@ class FirecrawlService {
 			);
 
 			for (const document of status.data ?? []) {
-				const page = this.documentToScrapedPage(
+				const page = await this.documentToScrapedPage(
 					document,
 					url,
 				);

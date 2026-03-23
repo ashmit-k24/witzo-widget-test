@@ -24,6 +24,7 @@ import {
 	normalizeScrapedText,
 	scorePagePriority,
 } from "../utils/scrapeAnalysis";
+import { pageClassificationService } from "./pageClassificationService";
 
 const BUILT_IN_CRAWLER_CONCURRENCY = Math.max(
 	1,
@@ -1252,18 +1253,53 @@ class ScraperService {
 			}
 		}
 
+		// Classify page types:
+		// - Firecrawl pages already have LLM-classified pageType — preserve it.
+		// - Built-in crawler pages have regex-classified pageType — upgrade with LLM.
+		const pagesWithOverrides = await Promise.all(
+			pages.map(async (page) => {
+				if (
+					page.metadata?.scrapedVia !== "builtin" &&
+					page.metadata?.pageType
+				) {
+					// Firecrawl: keep existing LLM-classified type
+					return {
+						page,
+						override: page.metadata.pageType as ScrapedPageType,
+					};
+				}
+				// Built-in: classify with LLM
+				try {
+					const result = await pageClassificationService.classifyPageType(
+						page.url,
+						page.title,
+						String(page.metadata?.description ?? ""),
+						page.content,
+					);
+					return {
+						page,
+						override: result.confidence >= 0.65 ? result.pageType : undefined,
+					};
+				} catch {
+					return { page, override: undefined };
+				}
+			}),
+		);
+
 		pages = Array.from(
 			new Map(
-				pages.map((page) => [
+				pagesWithOverrides.map(({ page, override }) => [
 					page.url,
-					enrichScrapedPage({
-						...page,
-						metadata: {
-							...(page.metadata ?? {}),
-							discoveredPageCount:
-								discovery.discoveredCount,
+					enrichScrapedPage(
+						{
+							...page,
+							metadata: {
+								...(page.metadata ?? {}),
+								discoveredPageCount: discovery.discoveredCount,
+							},
 						},
-					}),
+						override,
+					),
 				]),
 			).values(),
 		)

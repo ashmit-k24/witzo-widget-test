@@ -58,6 +58,13 @@ export function detectScrapedPageType(
 		pathname = "";
 	}
 
+	// Page-level signals: URL + title + description only (high confidence, no nav/footer noise)
+	const pageSignals = [url, title, description]
+		.filter(Boolean)
+		.join(" ")
+		.toLowerCase();
+
+	// Full signals: also include content + block headings (may contain nav/footer noise)
 	const signals = [
 		url,
 		title,
@@ -76,7 +83,9 @@ export function detectScrapedPageType(
 		return "home";
 	}
 	if (pathname === "/" || pathname === "") return "home";
-	if (CONTACT_HINTS.test(signals)) return "contact";
+	// Contact: check only page-level signals (title/URL/description) to avoid misclassifying
+	// service/blog pages that have "Contact Us" in their navigation or footer content.
+	if (CONTACT_HINTS.test(pageSignals)) return "contact";
 	if (PRICING_HINTS.test(signals)) return "pricing";
 	if (CASE_STUDY_HINTS.test(signals)) return "portfolio";
 	if (FAQ_HINTS.test(signals)) return "faq";
@@ -294,6 +303,7 @@ export function buildFactBlocks(
 
 export function enrichScrapedPage(
 	page: ScrapedPage,
+	overridePageType?: ScrapedPageType,
 ): ScrapedPage {
 	const description = String(
 		page.metadata?.description ?? "",
@@ -303,7 +313,7 @@ export function enrichScrapedPage(
 	)
 		? [...page.metadata.contentBlocks]
 		: [];
-	const pageType = detectScrapedPageType(
+	const pageType = overridePageType ?? detectScrapedPageType(
 		page.url,
 		page.title,
 		description,

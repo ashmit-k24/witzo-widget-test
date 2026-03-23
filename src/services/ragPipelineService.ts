@@ -13,14 +13,14 @@ import { buildSparseVector } from "../utils/bm25";
 import logger from "../utils/logger";
 import { pineconeService } from "./pineconeService";
 import { rerankService } from "./rerankService";
+import { semanticRouterService } from "./semanticRouterService";
 
 const PINECONE_TOP_K = 30;
 const PINECONE_CONTACT_TOP_K = 60;
 const RERANK_TOP_N = 15;
-const MMR_K = 8;
+const MMR_K = 12;
 const MMR_K_CONTACT = 12;
-const MMR_LAMBDA = 0.75;
-const MMR_LAMBDA_CONTACT = 0.55;
+
 const STRUCTURED_RESULT_LIMIT = 12;
 const QUERY_REWRITE_MODEL = "gpt-4o-mini";
 const PLANNER_MODEL = "gpt-4o-mini";
@@ -298,6 +298,12 @@ class RagPipelineService {
 			context,
 		);
 
+		// Run semantic router in parallel with LLM planner — zero extra latency.
+		// Result is used only if the LLM planner fails (enhanced fallback).
+		const semanticRoutePromise = semanticRouterService
+			.route(query)
+			.catch(() => null);
+
 		try {
 			const response =
 				await this.openai.chat.completions.create({
@@ -421,6 +427,25 @@ class RagPipelineService {
 							: String(error),
 				},
 			);
+			// LLM failed — try semantic router result before falling back to regex
+			const routed = await semanticRoutePromise;
+			if (
+				routed &&
+				routed.confidence >= semanticRouterService.confidenceThreshold
+			) {
+				const intent = routed.intent as GenericRetrievalIntent;
+				logger.info("[RAG] Semantic router used as fallback", {
+					intent,
+					confidence: routed.confidence,
+				});
+				return {
+					...fallback,
+					intent,
+					answerMode: this.mapIntentToAnswerMode(intent),
+					preferredPageTypes: this.getPreferredPageTypes(intent),
+					preferredBlockTypes: this.getPreferredBlockTypes(intent),
+				};
+			}
 			return fallback;
 		}
 	}
@@ -595,28 +620,6 @@ class RagPipelineService {
 		if (config.PINECONE_HYBRID) {
 			// sparse vector not needed here — metadata filter is the primary discriminant
 		}
-		const response = await index.query(queryRequest);
-		return response.matches ?? [];
-	}
-
-	private async fetchAllServiceChunks(
-		userId: string,
-		embedding: number[],
-	): Promise<any[]> {
-		const index = this.getNsIndex(userId);
-		const filter: Record<string, unknown> = {
-			$and: [
-				{ userId },
-				{ pageType: { $in: ["services", "about", "home"] } },
-				{ isHype: { $ne: true } },
-			],
-		};
-		const queryRequest: Record<string, unknown> = {
-			vector: embedding,
-			topK: 50,
-			includeMetadata: true,
-			filter,
-		};
 		const response = await index.query(queryRequest);
 		return response.matches ?? [];
 	}
@@ -1153,103 +1156,6 @@ class RagPipelineService {
 			}));
 	}
 
-	private textSimilarity(
-		left: string,
-		right: string,
-	): number {
-		const tokenize = (value: string): Set<string> =>
-			new Set(
-				value
-					.toLowerCase()
-					.replace(/[^a-z0-9\s]+/g, " ")
-					.split(/\s+/)
-					.map((token) => token.trim())
-					.filter((token) => token.length >= 3),
-			);
-		const leftTokens = tokenize(left);
-		const rightTokens = tokenize(right);
-		if (
-			leftTokens.size === 0 ||
-			rightTokens.size === 0
-		) {
-			return 0;
-		}
-		let overlap = 0;
-		for (const token of leftTokens) {
-			if (rightTokens.has(token)) {
-				overlap += 1;
-			}
-		}
-		return (
-			overlap /
-			Math.max(leftTokens.size, rightTokens.size)
-		);
-	}
-
-	private mmrFilter(
-		chunks: RagChunk[],
-		options?: { k?: number; lambda?: number },
-	): RagChunk[] {
-		const k = options?.k ?? MMR_K;
-		const lambda = options?.lambda ?? MMR_LAMBDA;
-
-		if (chunks.length <= k) {
-			return chunks;
-		}
-
-		const candidates = [...chunks].sort(
-			(left, right) =>
-				right.relevanceScore -
-				left.relevanceScore,
-		);
-		const selected: RagChunk[] = [];
-
-		while (
-			selected.length < k &&
-			candidates.length > 0
-		) {
-			if (selected.length === 0) {
-				selected.push(candidates.shift()!);
-				continue;
-			}
-
-			let bestIndex = 0;
-			let bestMmrScore = -Infinity;
-
-			for (
-				let candidateIndex = 0;
-				candidateIndex < candidates.length;
-				candidateIndex += 1
-			) {
-				const candidate =
-					candidates[candidateIndex];
-				const maxSimilarity = Math.max(
-					...selected.map((selectedChunk) =>
-						this.textSimilarity(
-							candidate.content,
-							selectedChunk.content,
-						),
-					),
-				);
-				const mmrScore =
-					lambda *
-						candidate.relevanceScore -
-					(1 - lambda) * maxSimilarity;
-
-				if (mmrScore > bestMmrScore) {
-					bestMmrScore = mmrScore;
-					bestIndex = candidateIndex;
-				}
-			}
-
-			selected.push(
-				candidates.splice(bestIndex, 1)[0],
-			);
-		}
-
-		return selected;
-	}
-
 	private trimAtSentenceBoundary(
 		text: string,
 		maxChars: number,
@@ -1284,7 +1190,7 @@ class RagPipelineService {
 				return "Answer directly in the first sentence. If there are multiple factual entries, use short bullet points. Do not drift into unrelated service descriptions.";
 			case "concise_summary":
 				return intent === "services_or_products"
-					? "Start with a one-sentence summary of the main offerings, then give a short grouped bullet list of the most relevant services or products. Keep it concise unless the user explicitly asks for a full exhaustive list."
+					? "Start with a one-sentence summary of the main offerings, then give a plain bullet list (no bold, no sub-headings) of the most relevant services or products. Keep it concise unless the user explicitly asks for a full list."
 					: "Start with a short summary, then add concise bullets only if they improve clarity.";
 			case "highlight_list":
 				return "Give a short introductory sentence, then a compact highlight list. For each example or case study, include the exact name and one specific detail or outcome when available. Keep the list selective and scannable.";
@@ -1306,7 +1212,7 @@ class RagPipelineService {
 		intent: GenericRetrievalIntent,
 	): string {
 		const formatDirective =
-			"IMPORTANT: Format your response using markdown. Use **bold** for key terms, bullet points (-) for lists, numbered lists (1.) for steps, and ## headings only when they genuinely improve readability. Keep the response easy to scan and avoid unnecessary verbosity.";
+			"FORMATTING (mandatory): Use bullet points (-) for lists. Do NOT use bold (**) inside a sentence or to emphasize individual words — the ONLY acceptable use of bold is when the entire bullet text is a label, e.g. '- **Web Development**'. Writing '- We offer **web development** and **SEO**' is wrong. Writing '- **Web Development** — brief description' is also wrong. Use numbered lists (1.) only for steps. No ## headings. Plain, scannable text.";
 		const answerModeInstruction =
 			this.buildAnswerModeInstruction(
 				answerMode,
@@ -1319,12 +1225,15 @@ class RagPipelineService {
 			)
 			.join("\n\n---\n\n");
 
+		const urlInstruction = "URL REFERENCES (mandatory): Each context section starts with a Source URL. When answering, identify which source URL(s) are most directly relevant to what the user asked. Include those URLs as plain links in your answer. End with an invitation like 'Visit [URL] for full details.' Only include URLs that genuinely match what the user asked.";
+
 		if (boundary === "workspace_only") {
 			return (
 				"Answer using ONLY the information provided in the context below. You may combine and compile information from multiple context sections to form a complete answer. If the context contains no relevant information at all for the question, say \"I don't have information about that in my knowledge base.\"\n\n" +
 				`Answer mode: ${answerModeInstruction}\n\n` +
 				`Context:\n${contextBlock}\n\n` +
 				`Question: ${query}\n\n` +
+				`${urlInstruction}\n\n` +
 				formatDirective
 			);
 		}
@@ -1335,10 +1244,10 @@ class RagPipelineService {
 			`Answer mode: ${answerModeInstruction}\n\n` +
 			`Context:\n${contextBlock}\n\n` +
 			`Question: ${query}\n\n` +
+			`${urlInstruction}\n\n` +
 			formatDirective
 		);
 	}
-
 	private isCasualNoContextQuery(
 		query: string,
 	): boolean {
@@ -1444,9 +1353,6 @@ class RagPipelineService {
 		// unfiltered pass to avoid empty context.
 		const isContactIntent =
 			retrievalPlan.intent === "contact_or_location";
-		const isServicesIntent =
-			retrievalPlan.intent ===
-			"services_or_products";
 		const isContactQuery =
 			options?.isContactQuery ?? isContactIntent;
 
@@ -1512,26 +1418,6 @@ class RagPipelineService {
 				roundOneReranked,
 				retrievalPlan.intent,
 			);
-		if (isServicesIntent) {
-			const serviceChunks =
-				await this.fetchAllServiceChunks(
-					userId,
-					roundOneEmbedding,
-				);
-			const hydratedServiceChunks =
-				await this.hydrateMatches(
-					userId,
-					serviceChunks,
-				);
-			roundOneRanked =
-				this.prioritizeIntentMatches(
-					this.mergeMatches(
-						roundOneRanked,
-						hydratedServiceChunks,
-					),
-					retrievalPlan.intent,
-				);
-		}
 		logger.info("[RAG 5/10] Rerank round 1", {
 			count: roundOneRanked.length,
 		});
@@ -1659,26 +1545,45 @@ class RagPipelineService {
 				hydratedContactChunks,
 			);
 		}
-		if (isServicesIntent) {
-			const serviceChunks =
-				await this.fetchAllServiceChunks(
-					userId,
-					roundOneEmbedding,
-				);
-			const hydratedServiceChunks =
-				await this.hydrateMatches(
-					userId,
-					serviceChunks,
-				);
+		// Safety net: ensure structured matches with real DB content are always in
+		// the final pool. Without this, stale Pinecone blockIds cause all Pinecone
+		// matches to have empty content after hydrateMatches, and if Cohere ranked
+		// those stale matches above structural ones (based on title/URL alone)
+		// every match fails the content.length > 0 check → passed: 0.
+		const structuralWithContent =
+			roundOneStructuredMatches.filter(
+				(m) =>
+					String(
+						m.metadata?.content ?? "",
+					).trim().length > 0,
+			);
+		if (structuralWithContent.length > 0) {
 			finalMatches = this.mergeMatches(
 				finalMatches,
-				hydratedServiceChunks,
+				structuralWithContent,
 			);
 		}
+
 		finalMatches = await this.hydrateMatches(
 			userId,
 			finalMatches,
 		);
+
+		logger.info("[RAG 7.5/10] Pre-filter state", {
+			total: finalMatches.length,
+			withContent: finalMatches.filter(
+				(m) =>
+					String(
+						m.metadata?.content ?? "",
+					).trim().length > 0,
+			).length,
+			structural: finalMatches.filter(
+				(m) =>
+					String(m.id ?? "").startsWith(
+						"structured:",
+					),
+			).length,
+		});
 
 		const filtered =
 			this.thresholdFilter(finalMatches, isContactQuery);
@@ -1705,19 +1610,63 @@ class RagPipelineService {
 			};
 		}
 
-		const mmrK = isContactQuery ? MMR_K_CONTACT : MMR_K;
-		const mmrLambda = isContactQuery ? MMR_LAMBDA_CONTACT : MMR_LAMBDA;
-		const diversified =
-			this.mmrFilter(filtered, { k: mmrK, lambda: mmrLambda });
-		logger.info("[RAG 9/10] MMR filter", {
-			lambda: mmrLambda,
-			k: mmrK,
+		// Replace MMR with Cohere-score-ranked top-K.
+		// MMR drops relevant pages because all case-study pages look similar in
+		// embedding space (high diversity penalty). Cohere reranking is query-aware
+		// and already handles relevance — we just need the top K by that score.
+		const topK = isContactQuery ? MMR_K_CONTACT : MMR_K;
+
+		// Deduplicate by URL, keeping the highest-relevance chunk per URL.
+		const byUrl = new Map<string, RagChunk>();
+		for (const chunk of filtered) {
+			const existing = byUrl.get(chunk.url);
+			if (!existing || chunk.relevanceScore > existing.relevanceScore) {
+				byUrl.set(chunk.url, chunk);
+			}
+		}
+
+		// Sort by relevanceScore (Cohere score when available, raw score otherwise)
+		// and take topK. This is fully query-aware — no embedding-space diversity penalty.
+		let diversified = Array.from(byUrl.values())
+			.sort((a, b) => b.relevanceScore - a.relevanceScore)
+			.slice(0, topK);
+
+		// Entity injection: after top-K selection, ensure at least one chunk whose
+		// URL contains a query entity keyword is included even if it scored lower.
+		const entityKeywords = [
+			...(retrievalPlan.entities ?? []),
+			...(retrievalPlan.mustHaveConcepts ?? []),
+		]
+			.map((e) => e.toLowerCase().trim())
+			.filter(Boolean);
+		if (entityKeywords.length > 0) {
+			const selectedUrls = new Set(diversified.map((c) => c.url));
+			const injected = Array.from(byUrl.values())
+				.filter(
+					(c) =>
+						!selectedUrls.has(c.url) &&
+						entityKeywords.some((kw) =>
+							c.url.toLowerCase().includes(kw),
+						),
+				)
+				.slice(0, 2);
+			if (injected.length > 0) {
+				diversified = [...diversified, ...injected];
+				logger.info("[RAG 9/10] Entity injection", {
+					injected: injected.map((c) => c.url),
+					entities: entityKeywords,
+				});
+			}
+		}
+
+		logger.info("[RAG 9/10] Relevance-ranked selection", {
+			topK,
 			isContactQuery,
 			selected: diversified.length,
 		});
-		console.log("[RAG 9/10] Final chunks after MMR:");
+		console.log("[RAG 9/10] Final chunks after relevance ranking:");
 		diversified.forEach((c, i) => {
-			console.log(`  [${i+1}] score=${c.score.toFixed(4)} url=${c.url}`);
+			console.log(`  [${i+1}] relevance=${c.relevanceScore.toFixed(4)} url=${c.url}`);
 			console.log(`       content: "${c.content.slice(0, 150)}"`);
 		});
 

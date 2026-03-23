@@ -1002,6 +1002,33 @@ class PineconeService {
 		return "general";
 	}
 
+	private buildContextualEmbeddingText(
+		title: string,
+		pageType: string,
+		sectionTitle: string | undefined | null,
+		chunkText: string,
+		url?: string,
+		description?: string,
+	): string {
+		// Derive a human-readable slug from the URL path for extra context
+		// e.g. "our-work-healthcare" from ".../our-work-healthcare.html"
+		const urlSlug = url
+			? (url.split("/").pop() ?? "")
+					.replace(/\.[^.]+$/, "")
+					.replace(/[-_]/g, " ")
+					.trim()
+			: "";
+
+		const parts: string[] = [];
+		parts.push(`Page: ${title}`);
+		if (pageType) parts.push(`Type: ${pageType}`);
+		if (urlSlug && urlSlug !== title.toLowerCase()) parts.push(`Topic: ${urlSlug}`);
+		if (description) parts.push(`Summary: ${description}`);
+		if (sectionTitle) parts.push(`Section: ${sectionTitle}`);
+
+		return `[${parts.join(" | ")}]\n\n${chunkText}`;
+	}
+
 	private async upsertRagSourcePage(
 		userId: string,
 		url: string,
@@ -1203,6 +1230,36 @@ class PineconeService {
 		return result.rows;
 	}
 
+	private async fetchSectionNeighbors(
+		userId: string,
+		sourcePageId: number,
+		sectionTitle: string | null,
+		position: number,
+	): Promise<string> {
+		try {
+			const result = await pool.query<{
+				position: number;
+				content: string;
+			}>(
+				`SELECT position, content
+				 FROM rag_source_blocks
+				 WHERE user_id = $1
+				   AND source_page_id = $2
+				   AND ($3::text IS NULL AND section_title IS NULL OR section_title = $3::text)
+				   AND position BETWEEN $4 AND $5
+				 ORDER BY position ASC`,
+				[userId, sourcePageId, sectionTitle, position - 1, position + 1],
+			);
+			if (result.rows.length <= 1) {
+				// No neighbors found — return empty so caller uses block.content directly
+				return "";
+			}
+			return result.rows.map((r) => r.content).join("\n\n");
+		} catch {
+			return "";
+		}
+	}
+
 	async hydrateMatches(
 		userId: string,
 		matches: any[],
@@ -1256,71 +1313,86 @@ class PineconeService {
 			),
 		);
 
-			return matches.map((match) => {
+		return Promise.all(
+			matches.map(async (match) => {
 				const metadata =
 					match?.metadata ?? {};
-			const contentBlockId =
-				this.parseMetadataInteger(
-					metadata.blockId,
-				);
-			const sourceBlockId =
-				this.parseMetadataInteger(
-					metadata.sourceBlockId,
-				);
-			const block =
-				(contentBlockId &&
-					rowMap.get(contentBlockId)) ||
-				(sourceBlockId &&
-					rowMap.get(sourceBlockId));
-			if (!block) {
-				return match;
-			}
+				const contentBlockId =
+					this.parseMetadataInteger(
+						metadata.blockId,
+					);
+				const sourceBlockId =
+					this.parseMetadataInteger(
+						metadata.sourceBlockId,
+					);
+				const block =
+					(contentBlockId &&
+						rowMap.get(contentBlockId)) ||
+					(sourceBlockId &&
+						rowMap.get(sourceBlockId));
+				if (!block) {
+					return match;
+				}
 
-			const hydratedMetadata = {
-				...metadata,
-				url:
-					metadata.url ??
-					block.sourceUrl,
-				title:
-					metadata.title ??
-					block.title,
-				pageType:
-					metadata.pageType ??
-					block.pageType ??
-					undefined,
-				blockType:
-					metadata.blockType ??
-					block.blockType ??
-					undefined,
-				sectionTitle:
-					metadata.sectionTitle ??
-					block.sectionTitle ??
-					undefined,
-				sectionPath:
-					metadata.sectionPath ??
-					block.sectionPath ??
-					undefined,
-				position:
-					metadata.position ??
-					block.position,
-				sourcePageId:
-					metadata.sourcePageId ??
-					block.sourcePageId ??
-					undefined,
-			} as Record<string, any>;
+				const hydratedMetadata = {
+					...metadata,
+					url:
+						metadata.url ??
+						block.sourceUrl,
+					title:
+						metadata.title ??
+						block.title,
+					pageType:
+						metadata.pageType ??
+						block.pageType ??
+						undefined,
+					blockType:
+						metadata.blockType ??
+						block.blockType ??
+						undefined,
+					sectionTitle:
+						metadata.sectionTitle ??
+						block.sectionTitle ??
+						undefined,
+					sectionPath:
+						metadata.sectionPath ??
+						block.sectionPath ??
+						undefined,
+					position:
+						metadata.position ??
+						block.position,
+					sourcePageId:
+						metadata.sourcePageId ??
+						block.sourcePageId ??
+						undefined,
+				} as Record<string, any>;
 
-			hydratedMetadata.content =
-				block.content;
-			if (metadata.isHype === true) {
-				hydratedMetadata.sourceContent =
-					block.content;
-			}
+				// Parent-document retrieval: expand content with adjacent blocks from same section
+				let expandedContent = "";
+				if (
+					block.sourcePageId != null &&
+					typeof block.position === "number"
+				) {
+					expandedContent = await this.fetchSectionNeighbors(
+						userId,
+						block.sourcePageId,
+						block.sectionTitle ?? null,
+						block.position,
+					);
+				}
+				hydratedMetadata.content =
+					expandedContent || block.content;
+				if (metadata.isHype === true) {
+					hydratedMetadata.sourceContent =
+						block.content;
+				}
 
-			return {
-				...match,
-				metadata: hydratedMetadata,
-			};
-		});
+				return {
+					...match,
+					metadata: hydratedMetadata,
+				};
+			}),
+		);
 	}
 
 	async queryStructuredBlocks(
@@ -1864,8 +1936,19 @@ class PineconeService {
 				);
 			const embeddings =
 				await this.generateEmbeddings(
-					persistedChunks.map(
-						(chunk) => chunk.text,
+					persistedChunks.map((chunk) =>
+						this.buildContextualEmbeddingText(
+							title,
+							pageType,
+							typeof chunk.metadata.sectionTitle === "string"
+								? chunk.metadata.sectionTitle
+								: undefined,
+							chunk.text,
+							url,
+							typeof sharedMetadata.description === "string"
+								? sharedMetadata.description
+								: undefined,
+						),
 					),
 				);
 
@@ -1887,6 +1970,9 @@ class PineconeService {
 					blockId: chunk.id,
 					sourcePageId,
 					pageType,
+					// Store chunk text so hydrateMatches falls back to this
+					// if the DB block is missing (stale blockId after re-scrape).
+					content: chunk.text.slice(0, 8000),
 					...sharedMetadata,
 					...chunk.metadata,
 				};
