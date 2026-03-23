@@ -2,16 +2,49 @@ import { Request, Response } from "express";
 import {
 	coercePlanType,
 } from "../config/planConfig";
-import { scraperQueue } from "../config/queue";
+import { chatService } from "../services/chatService";
 import { pineconeService } from "../services/pineconeService";
 import { scraperStatusService } from "../services/scraperStatusService";
 import { domainPolicyService } from "../services/domainPolicyService";
+import { runScrapeJob } from "../services/scrapeJobService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
-const SCRAPER_DEFAULT_MAX_PAGES = 300;
 const SCRAPER_MAX_DEPTH = 10;
 const SCRAPER_MAX_PAGES = 300;
+
+const normalizeRequestedMaxPages = (
+	value: unknown,
+): number | undefined => {
+	const normalized = Number(value);
+	if (
+		!Number.isFinite(normalized) ||
+		normalized <= 0
+	) {
+		return undefined;
+	}
+
+	return Math.min(
+		SCRAPER_MAX_PAGES,
+		Math.trunc(normalized),
+	);
+};
+
+const resolveEffectiveMaxPages = (
+	requestedMaxPages: number | undefined,
+	pagesRemaining: number | null,
+): number | undefined => {
+	if (pagesRemaining === null) {
+		return requestedMaxPages;
+	}
+	if (requestedMaxPages === undefined) {
+		return pagesRemaining;
+	}
+	return Math.min(
+		requestedMaxPages,
+		pagesRemaining,
+	);
+};
 
 const getScraperUpgradeMessage = (
 	planType: "free" | "basic" | "standard" | "enterprise",
@@ -53,7 +86,7 @@ export const scrapeWebsite = async (
 		const {
 			url,
 			maxDepth = 3,
-			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
+			maxPages,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType = coercePlanType(
@@ -116,25 +149,37 @@ export const scrapeWebsite = async (
 				Number(maxDepth) || 3,
 			),
 		);
-		const normalizedMaxPages = Math.max(
-			1,
-			Math.min(
-				SCRAPER_MAX_PAGES,
-				Number(maxPages) ||
-					SCRAPER_DEFAULT_MAX_PAGES,
-			),
-		);
-		const effectiveMaxPages = Math.min(
-			normalizedMaxPages,
-			scraperUsage.pagesRemaining ??
+		const normalizedMaxPages =
+			normalizeRequestedMaxPages(maxPages);
+		const effectiveMaxPages =
+			resolveEffectiveMaxPages(
 				normalizedMaxPages,
-		);
+				scraperUsage.pagesRemaining,
+			);
+
+		if (
+			effectiveMaxPages !== undefined &&
+			effectiveMaxPages <= 0
+		) {
+			res.status(403).json({
+				success: false,
+				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+				data: {
+					...getScraperLimitPayload(
+						planType,
+						scraperUsage,
+					),
+				},
+			});
+			return;
+		}
 
 		logger.info(
 			`Starting scrape for URL: ${url}`,
 			{
 				maxDepth: normalizedMaxDepth,
-				maxPages: normalizedMaxPages,
+				maxPages:
+					normalizedMaxPages ?? null,
 				effectiveMaxPages,
 				userId,
 				planType,
@@ -151,14 +196,14 @@ export const scrapeWebsite = async (
 			});
 		jobId = job.jobId;
 
-		await scraperQueue.add("scrape-website", {
+		const jobPayload = {
 			jobId: job.jobId,
 			userId,
 			url,
 			maxDepth: normalizedMaxDepth,
 			maxPages: effectiveMaxPages,
 			mode: "scrape",
-		});
+		} as const;
 
 		res.status(202).json({
 			success: true,
@@ -167,6 +212,22 @@ export const scrapeWebsite = async (
 			data: {
 				job,
 			},
+		});
+
+		void runScrapeJob(jobPayload, {
+			source: "direct",
+		}).catch((error) => {
+			logger.error(
+				"Direct scrape execution failed after request acceptance",
+				{
+					jobId: jobPayload.jobId,
+					url: jobPayload.url,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
 		});
 	} catch (error) {
 		if (jobId) {
@@ -196,7 +257,7 @@ export const queryDocuments = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const { query, topK = 10 } = req.body;
+		const { query, language } = req.body;
 		const userId = (req as any).user?.id;
 
 		if (!userId) {
@@ -217,28 +278,29 @@ export const queryDocuments = async (
 
 		logger.info(
 			`Querying documents with: ${query}`,
-			{
-				topK,
-				userId,
-			},
+			{ userId, language },
 		);
 
-		const results =
-			await pineconeService.queryDocuments(
+		const result =
+			await chatService.answerKnowledgeQuery(
 				userId,
 				query,
-				topK,
+				language,
 			);
 
 		res.status(200).json({
 			success: true,
 			message: "Query executed successfully",
 			data: {
-				results: results.map((match) => ({
+				answer: result.answer,
+				language: result.language,
+				sources: result.sources,
+				matches: result.matches.map((match) => ({
 					score: match.score,
+					cohereScore: match.cohereScore,
 					metadata: match.metadata,
 				})),
-				totalResults: results.length,
+				totalResults: result.matches.length,
 			},
 		});
 	} catch (error) {
@@ -713,7 +775,7 @@ export const retrainWebsite = async (
 		const {
 			url,
 			maxDepth = 3,
-			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
+			maxPages,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType = coercePlanType(
@@ -776,19 +838,29 @@ export const retrainWebsite = async (
 					Number(maxDepth) || 3,
 				),
 			);
-			const normalizedMaxPages = Math.max(
-				1,
-				Math.min(
-					SCRAPER_MAX_PAGES,
-					Number(maxPages) ||
-						SCRAPER_DEFAULT_MAX_PAGES,
-				),
-			);
-			const effectiveMaxPages = Math.min(
-				normalizedMaxPages,
-				scraperUsage.pagesRemaining ??
+			const normalizedMaxPages =
+				normalizeRequestedMaxPages(maxPages);
+			const effectiveMaxPages =
+				resolveEffectiveMaxPages(
 					normalizedMaxPages,
-			);
+					scraperUsage.pagesRemaining,
+				);
+			if (
+				effectiveMaxPages !== undefined &&
+				effectiveMaxPages <= 0
+			) {
+				res.status(403).json({
+					success: false,
+					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					data: {
+						...getScraperLimitPayload(
+							planType,
+							scraperUsage,
+						),
+					},
+				});
+				return;
+			}
 			const job =
 				await scraperStatusService.startJob({
 					userId,
@@ -799,14 +871,14 @@ export const retrainWebsite = async (
 				});
 			jobId = job.jobId;
 
-			await scraperQueue.add("retrain-website", {
+			const jobPayload = {
 				jobId: job.jobId,
 				userId,
 				url,
 				maxDepth: normalizedMaxDepth,
 				maxPages: effectiveMaxPages,
 				mode: "retrain",
-			});
+			} as const;
 
 		res.status(202).json({
 			success: true,
@@ -816,6 +888,22 @@ export const retrainWebsite = async (
 				job,
 			},
 		});
+
+			void runScrapeJob(jobPayload, {
+				source: "direct",
+			}).catch((error) => {
+				logger.error(
+					"Direct retrain execution failed after request acceptance",
+					{
+						jobId: jobPayload.jobId,
+						url: jobPayload.url,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			});
 	} catch (error) {
 		if (jobId) {
 			const message =

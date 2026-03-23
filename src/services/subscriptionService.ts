@@ -888,31 +888,32 @@ class SubscriptionService {
 
 	async getWebsitePagesLimitForPlan(
 		planType: PlanType,
-		defaultLimit: number | null,
 	): Promise<number | null> {
 		try {
 			const plan = await this.findPlanByNameOrId({
 				planName: planType,
 				includeInactive: true,
 			});
-			return (
-				this.resolveWebsitePagesLimitFromFeatures(
-					plan.features,
-				) ?? defaultLimit
+			return this.resolveWebsitePagesLimitFromFeatures(
+				plan.features,
 			);
 		} catch (error) {
+			const errorMessage =
+				error instanceof Error
+					? error.message
+					: String(error);
+			if (errorMessage === "Plan not found.") {
+				return null;
+			}
+
 			logger.warn(
-				"Falling back to default website page limit for plan",
+				"Plan lookup failed while resolving website page limit; leaving limit unset",
 				{
 					planType,
-					defaultLimit,
-					error:
-						error instanceof Error
-							? error.message
-							: String(error),
+					error: errorMessage,
 				},
 			);
-			return defaultLimit;
+			return null;
 		}
 	}
 

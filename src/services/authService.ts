@@ -88,6 +88,8 @@ class AuthService {
 			systemMessageConfigured:
 				user.system_message_configured ??
 				user.onboarding_completed,
+			knowledgeBoundary:
+				user.knowledge_boundary ?? "workspace_only",
 		};
 	}
 

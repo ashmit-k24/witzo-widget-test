@@ -185,6 +185,16 @@ export const validationRules: Record<
 			.withMessage(
 				"completeOnboarding must be boolean",
 			),
+		body("knowledgeBoundary")
+			.optional()
+			.isIn([
+				"workspace_only",
+				"workspace_prefer",
+				"general_allowed",
+			])
+			.withMessage(
+				"knowledgeBoundary must be one of workspace_only, workspace_prefer, or general_allowed",
+			),
 	],
 
 	systemMessageDefaultUpdate: [
@@ -193,6 +203,16 @@ export const validationRules: Record<
 			.isBoolean()
 			.withMessage(
 				"completeOnboarding must be boolean",
+			),
+		body("knowledgeBoundary")
+			.optional()
+			.isIn([
+				"workspace_only",
+				"workspace_prefer",
+				"general_allowed",
+			])
+			.withMessage(
+				"knowledgeBoundary must be one of workspace_only, workspace_prefer, or general_allowed",
 			),
 	],
 

@@ -488,6 +488,21 @@ export const config: EnvConfig = {
 
 	// Email verification
 	EMAIL_LIST_VERIFY_API_KEY: getOptionalEnvString("EMAIL_LIST_VERIFY_API_KEY"),
+
+	// Firecrawl (primary scraper)
+	FIRECRAWL_API_KEY: getOptionalEnvString("FIRECRAWL_API_KEY"),
+	FIRECRAWL_API_URL: getOptionalEnvString("FIRECRAWL_API_URL"),
+	SCRAPER_RENDER_SERVICE_URL: getOptionalEnvString("SCRAPER_RENDER_SERVICE_URL"),
+	SCRAPER_RENDER_SERVICE_TOKEN: getOptionalEnvString("SCRAPER_RENDER_SERVICE_TOKEN"),
+	SCRAPER_RENDER_SERVICE_MODE: getOptionalEnvString("SCRAPER_RENDER_SERVICE_MODE"),
+
+	// Cohere reranking
+	COHERE_API_KEY: getOptionalEnvString("COHERE_API_KEY"),
+
+	// RAG pipeline settings
+	PINECONE_HYBRID: getEnvBoolean("PINECONE_HYBRID", false),
+	HYPE_QUESTIONS_PER_CHUNK: getEnvNumber("HYPE_QUESTIONS_PER_CHUNK", 0),
+	KNOWLEDGE_BOUNDARY: getEnvString("KNOWLEDGE_BOUNDARY", "workspace_only"),
 };
 
 export default config;

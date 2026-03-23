@@ -13,7 +13,7 @@ type StoredScrapeJobStatus = Omit<
 	url: string;
 	mode: ScrapeMode;
 	maxDepth: number;
-	maxPages: number;
+	maxPages?: number;
 	startedAt: string;
 	completedAt?: string;
 };
@@ -23,7 +23,7 @@ interface StartJobParams {
 	url: string;
 	mode: ScrapeMode;
 	maxDepth: number;
-	maxPages: number;
+	maxPages?: number;
 }
 
 interface ProgressUpdate {

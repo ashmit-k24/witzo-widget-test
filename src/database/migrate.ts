@@ -187,6 +187,12 @@ const migrations: Migration[] = [
 			"Add password_hash column to users for password-based authentication",
 		file: "20260317_028_user_password_hash.sql",
 	},
+	{
+		id: "20260323_029_user_knowledge_boundary",
+		description:
+			"Add per-user knowledge boundary setting for widget/system prompt behavior",
+		file: "20260323_029_user_knowledge_boundary.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

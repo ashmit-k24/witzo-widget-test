@@ -14,6 +14,17 @@ const parseBoundedInt = (
 	return Math.min(Math.max(value, min), max);
 };
 
+const parseBoundedFloat = (
+	raw: string | undefined,
+	fallback: number,
+	min: number,
+	max: number,
+): number => {
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed)) return fallback;
+	return Math.min(Math.max(parsed, min), max);
+};
+
 export const CHAT_HISTORY_WINDOW_MESSAGES = parseBoundedInt(
 	process.env.CHAT_HISTORY_WINDOW_MESSAGES,
 	30,
@@ -29,9 +40,19 @@ export const CHAT_SESSION_CACHE_MESSAGE_LIMIT = parseBoundedInt(
 );
 
 export const CHAT_COMPLETION_MODEL =
-	process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4o";
-export const CHAT_COMPLETION_TEMPERATURE = 0.3;
-export const CHAT_COMPLETION_MAX_TOKENS = 380;
+	process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4o-mini";
+export const CHAT_COMPLETION_TEMPERATURE = parseBoundedFloat(
+	process.env.OPENAI_CHAT_TEMPERATURE,
+	0.3,
+	0,
+	2,
+);
+export const CHAT_COMPLETION_MAX_TOKENS = parseBoundedInt(
+	process.env.OPENAI_CHAT_MAX_TOKENS,
+	1500,
+	50,
+	2000,
+);
 
 export const UUID_V1_TO_V5_REGEX =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

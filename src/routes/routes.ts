@@ -179,7 +179,6 @@ router.put(
  */
 router.put(
 	"/onboarding",
-	verifyCsrfToken,
 	authenticateToken,
 	validationRules.updateOnboarding,
 	validate,

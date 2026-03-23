@@ -6,7 +6,6 @@ import crypto from "crypto";
 import OpenAI from "openai";
 import {
 	coercePlanType,
-	PLAN_CAPABILITIES,
 	PlanType,
 } from "../config/planConfig";
 import { config } from "../config/env";
@@ -16,6 +15,7 @@ import {
 	DocumentUsageStats,
 	DOCUMENT_LIMITS,
 	PineconeMetadata,
+	RagChunk,
 	ScraperUsageStats,
 } from "../types";
 import {
@@ -27,9 +27,75 @@ import {
 	retryOnRateLimit,
 	retryWithBackoff,
 } from "../utils/retry";
+import { chunkMarkdown, bm25SparseVector } from "./chunkingService";
+import { buildPineconeFilter, stepBackRewrite } from "./queryService";
+import { cohereRerank } from "./rerankService";
 import { subscriptionService } from "./subscriptionService";
 
 class PineconeService {
+	private static readonly EMBEDDING_CONCURRENCY = 8;
+
+	private static readonly RAG_SOURCE_UPSERT_CONCURRENCY = 12;
+
+	private static readonly METADATA_TEXT_MAX_CHARS = 4000;
+
+	private static readonly METADATA_PARENT_TEXT_MAX_CHARS = 8000;
+
+	private static readonly METADATA_TITLE_MAX_CHARS = 300;
+
+	private static readonly METADATA_DESCRIPTION_MAX_CHARS = 500;
+
+	private static readonly METADATA_LABEL_MAX_CHARS = 200;
+
+	private sanitizeMetadataUpdate(
+		metadata: Record<string, unknown>,
+	): Record<string, string | number | boolean | string[]> {
+		const sanitized: Record<
+			string,
+			string | number | boolean | string[]
+		> = {};
+
+		for (const [key, value] of Object.entries(metadata)) {
+			if (value === undefined || value === null) {
+				continue;
+			}
+			if (
+				typeof value === "string" ||
+				typeof value === "number" ||
+				typeof value === "boolean"
+			) {
+				sanitized[key] = value;
+				continue;
+			}
+			if (
+				Array.isArray(value) &&
+				value.every(
+					(item) => typeof item === "string",
+				)
+			) {
+				sanitized[key] = value;
+			}
+		}
+
+		return sanitized;
+	}
+
+	private truncateMetadataString(
+		value: unknown,
+		maxChars: number,
+	): string {
+		if (typeof value !== "string") {
+			return "";
+		}
+
+		const normalized = value.trim();
+		if (normalized.length <= maxChars) {
+			return normalized;
+		}
+
+		return normalized.slice(0, maxChars);
+	}
+
 	private pinecone: Pinecone;
 	private openai: OpenAI;
 	private indexName: string;
@@ -63,7 +129,9 @@ class PineconeService {
 				await this.pinecone.createIndex({
 					name: this.indexName,
 					dimension: 1024, // Using 1024 dimensions for compatibility
-					metric: "cosine",
+					metric: config.PINECONE_HYBRID
+						? "dotproduct"
+						: "cosine",
 					spec: {
 						serverless: {
 							cloud: "aws",
@@ -277,13 +345,64 @@ class PineconeService {
 		return chunks;
 	}
 
+	private async mapWithConcurrency<T, R>(
+		items: T[],
+		concurrency: number,
+		worker: (
+			item: T,
+			index: number,
+		) => Promise<R>,
+	): Promise<R[]> {
+		if (items.length === 0) {
+			return [];
+		}
+
+		const safeConcurrency = Math.max(
+			1,
+			Math.min(concurrency, items.length),
+		);
+		const results = new Array<R>(items.length);
+		let nextIndex = 0;
+
+		const runWorker = async (): Promise<void> => {
+			for (;;) {
+				const currentIndex = nextIndex;
+				nextIndex += 1;
+				if (currentIndex >= items.length) {
+					return;
+				}
+				results[currentIndex] = await worker(
+					items[currentIndex],
+					currentIndex,
+				);
+			}
+		};
+
+		await Promise.all(
+			Array.from(
+				{ length: safeConcurrency },
+				() => runWorker(),
+			),
+		);
+
+		return results;
+	}
+
 	private buildVectorId(
 		userId: string,
 		url: string,
 		chunkIndex: number,
+		sourceType: "website" | "document" = "website",
+		sourceKey: string = "",
 	): string {
-		const sanitizedUrl = this.sanitizeId(url);
-		return `${this.sanitizeId(userId)}_${sanitizedUrl}_chunk_${chunkIndex}`;
+		const digest = crypto
+			.createHash("sha256")
+			.update(
+				`${userId}|${sourceType}|${sourceKey || url}|${url}|${chunkIndex}`,
+			)
+			.digest("hex")
+			.slice(0, 32);
+		return `pc_${this.sanitizeId(userId)}_${digest}_${chunkIndex}`;
 	}
 
 	private async upsertRagSourcePage(
@@ -350,40 +469,48 @@ class PineconeService {
 		}
 	}
 
-	private async deleteStaleChunksForUrl(
+	private async deleteStaleChunksForUrls(
 		userId: string,
-		url: string,
-		validIds: Set<string>,
+		validIdsByUrl: Map<string, Set<string>>,
 	): Promise<void> {
+		if (validIdsByUrl.size === 0) {
+			return;
+		}
+
 		const index = this.getNamespaceIndex(userId);
-		const prefix = `${this.sanitizeId(userId)}_${this.sanitizeId(url)}_chunk_`;
+		const targetUrls = new Set(validIdsByUrl.keys());
 		const staleIds: string[] = [];
-		let paginationToken: string | undefined;
+		const staleCountByUrl = new Map<
+			string,
+			number
+		>();
 
-		do {
-			const listResponse = await index.listPaginated({
-				prefix,
-				paginationToken,
-				limit: 100,
-			});
+		await this.forEachUserRecord(
+			userId,
+			async (records) => {
+				for (const [id, record] of Object.entries(records)) {
+					const recordUrl =
+						(record.metadata?.url as string | undefined) ?? "";
+					if (
+						!targetUrls.has(recordUrl)
+					) {
+						continue;
+					}
 
-			const ids =
-				listResponse.vectors
-					?.map((vector: any) => vector.id)
-					.filter((id: any): id is string =>
-						Boolean(id),
-					) ?? [];
+					const validIds =
+						validIdsByUrl.get(recordUrl);
+					if (validIds?.has(id)) {
+						continue;
+					}
 
-			for (const id of ids) {
-				if (!validIds.has(id)) {
 					staleIds.push(id);
+					staleCountByUrl.set(
+						recordUrl,
+						(staleCountByUrl.get(recordUrl) ?? 0) + 1,
+					);
 				}
-			}
-
-			paginationToken =
-				listResponse.pagination?.next ||
-				undefined;
-		} while (paginationToken);
+			},
+		);
 
 		if (staleIds.length === 0) {
 			return;
@@ -392,8 +519,9 @@ class PineconeService {
 		await this.deleteVectorIds(index, staleIds);
 		logger.info("Deleted stale Pinecone chunks", {
 			userId,
-			url,
+			targetUrls: targetUrls.size,
 			staleChunks: staleIds.length,
+			stalePages: staleCountByUrl.size,
 		});
 	}
 
@@ -404,80 +532,54 @@ class PineconeService {
 		content: string,
 		metadata?: Record<string, any>,
 	): Promise<void> {
-		let chunks: string[] = [];
 		try {
-			const index =
-				this.getNamespaceIndex(userId);
-			chunks = this.chunkText(content);
-			if (chunks.length === 0) {
+			const pairs = chunkMarkdown(content, title);
+			if (pairs.length === 0) {
 				throw new Error(
 					"No usable text content found for this page",
 				);
 			}
 
-			const vectors: PineconeRecord[] = [];
-
-			for (let i = 0; i < chunks.length; i++) {
-				const chunk = chunks[i];
-				const embedding =
-					await this.generateEmbedding(chunk);
-
-				const pineconeMetadata: PineconeMetadata &
-					Record<string, any> = {
-					url,
-					title,
-					description:
-						metadata?.description || "",
-					scrapedAt: new Date().toISOString(),
-					chunkIndex: i,
-					totalChunks: chunks.length,
-					content: chunk,
-					userId,
-					...metadata,
-				};
-
-				const vectorId = this.buildVectorId(
+			const sourceType = url.startsWith("document://")
+				? "document"
+				: "website";
+			const sourceKey =
+				sourceType === "document"
+					? url
+					: String(metadata?.sourceRoot || url);
+			const ragChunks: RagChunk[] = pairs.map(
+				(pair, index) => ({
 					userId,
 					url,
-					i,
-				);
-
-				vectors.push({
-					id: vectorId,
-					values: embedding,
-					metadata: pineconeMetadata,
-				});
-			}
-
-			await this.deleteStaleChunksForUrl(
-				userId,
-				url,
-				new Set(vectors.map((vector) => vector.id)),
+					pageTitle: title,
+					childText: pair.childText,
+					parentText: pair.parentText,
+					chunkIndex: index,
+					sourceType,
+					sourceKey,
+					isHype: false,
+					hypeParent: "",
+				}),
 			);
 
-			// Use circuit breaker and retry for Pinecone upsert
-			await pineconeCircuitBreaker.execute(
-				async () => {
-					return await retryWithBackoff(
-						async () => {
-							return await index.upsert(vectors);
-						},
-						{
-							name: "PineconeUpsert",
-							maxRetries: 3,
-						},
-					);
-				},
-			);
-			await this.upsertRagSourcePage(
-				userId,
-				url,
-				title,
-				chunks.length,
-				metadata,
-			);
+			await this.upsertChunks(userId, ragChunks, {
+				description:
+					metadata?.description || "",
+				sourceRoot:
+					metadata?.sourceRoot || url,
+				sourceRootTitle:
+					metadata?.sourceRootTitle ||
+					title ||
+					url,
+				scrapedAt:
+					metadata?.scrapedAt ||
+					metadata?.uploadedAt ||
+					new Date().toISOString(),
+				uploadedAt: metadata?.uploadedAt,
+				fileType: metadata?.fileType,
+			});
 			logger.info(
-				`Upserted ${chunks.length} chunks for URL: ${url} (user: ${userId})`,
+				`Upserted ${pairs.length} chunks for URL: ${url} (user: ${userId})`,
 			);
 		} catch (error) {
 			logger.error(
@@ -490,37 +592,424 @@ class PineconeService {
 					errorDetails: error,
 					url,
 					userId,
-					chunksCount: chunks.length,
 				},
 			);
 			throw error;
 		}
 	}
 
+	async upsertChunks(
+		userId: string,
+		chunks: RagChunk[],
+		extraMetadata: Record<string, any> = {},
+	): Promise<void> {
+		if (chunks.length === 0) {
+			return;
+		}
+
+		const startedAt = Date.now();
+		const index = this.getNamespaceIndex(userId);
+		const allHype = chunks.every(
+			(chunk) => chunk.isHype,
+		);
+		const uniquePages = new Set(
+			chunks.map((chunk) => chunk.url),
+		).size;
+		logger.info("pinecone: upsert pipeline started", {
+			userId,
+			chunks: chunks.length,
+			uniquePages,
+			allHype,
+		});
+		const pageCounts = new Map<
+			string,
+			{ title: string; chunks: number }
+		>();
+		const validIdsByUrl = new Map<
+			string,
+			Set<string>
+		>();
+		const embeddingStartedAt = Date.now();
+		const preparedVectors =
+			await this.mapWithConcurrency(
+				chunks,
+				PineconeService.EMBEDDING_CONCURRENCY,
+				async (chunk) => {
+					const text =
+						chunk.childText.trim();
+					if (!text) {
+						return null;
+					}
+
+					const embedding =
+						await this.generateEmbedding(text);
+					const vectorId =
+						this.buildVectorId(
+							userId,
+							chunk.url,
+							chunk.chunkIndex,
+							chunk.sourceType,
+							chunk.sourceKey,
+						);
+					chunk.vectorId = vectorId;
+
+					const metadata: PineconeMetadata &
+						Record<string, any> = {
+						url: chunk.url,
+						title: this.truncateMetadataString(
+							chunk.pageTitle,
+							PineconeService.METADATA_TITLE_MAX_CHARS,
+						),
+						description:
+							this.truncateMetadataString(
+								extraMetadata.description || "",
+								PineconeService.METADATA_DESCRIPTION_MAX_CHARS,
+							),
+						scrapedAt:
+							extraMetadata.scrapedAt ||
+							new Date().toISOString(),
+						chunkIndex: chunk.chunkIndex,
+						totalChunks: 0,
+						userId,
+						text: this.truncateMetadataString(
+							text,
+							PineconeService.METADATA_TEXT_MAX_CHARS,
+						),
+						parentText:
+							this.truncateMetadataString(
+								chunk.parentText,
+								PineconeService.METADATA_PARENT_TEXT_MAX_CHARS,
+							),
+						sourceType: chunk.sourceType,
+						sourceKey: chunk.sourceKey,
+						sourceRoot:
+							extraMetadata.sourceRoot ||
+							chunk.sourceKey,
+						sourceRootTitle:
+							this.truncateMetadataString(
+								extraMetadata.sourceRootTitle ||
+									chunk.pageTitle,
+								PineconeService.METADATA_TITLE_MAX_CHARS,
+							),
+						isHype: chunk.isHype,
+						hypeParent: chunk.hypeParent,
+						pageType:
+							this.truncateMetadataString(
+								chunk.pageType,
+								PineconeService.METADATA_LABEL_MAX_CHARS,
+							),
+						clientName:
+							this.truncateMetadataString(
+								chunk.clientName,
+								PineconeService.METADATA_LABEL_MAX_CHARS,
+							),
+						industry:
+							this.truncateMetadataString(
+								chunk.industry,
+								PineconeService.METADATA_LABEL_MAX_CHARS,
+							),
+						services:
+							this.truncateMetadataString(
+								chunk.services,
+								500,
+							),
+						fileType:
+							this.truncateMetadataString(
+								extraMetadata.fileType,
+								120,
+							),
+						uploadedAt: this.truncateMetadataString(
+							extraMetadata.uploadedAt,
+							64,
+						),
+					};
+
+					const metadataBytes = Buffer.byteLength(
+						JSON.stringify(metadata),
+						"utf8",
+					);
+					if (metadataBytes > 35000) {
+						logger.warn(
+							"Pinecone metadata payload is near the size limit",
+							{
+								userId,
+								url: chunk.url,
+								vectorId,
+								metadataBytes,
+							},
+						);
+					}
+
+					const sparse =
+						config.PINECONE_HYBRID
+							? bm25SparseVector(text)
+							: null;
+
+					const vector: PineconeRecord = {
+						id: vectorId,
+						values: embedding,
+						metadata,
+					};
+					if (
+						sparse &&
+						sparse.indices.length > 0
+					) {
+						(vector as any).sparseValues =
+							sparse;
+					}
+
+					return {
+						chunk,
+						vector,
+					};
+				},
+			);
+		logger.info("pinecone: embeddings prepared", {
+			userId,
+			chunks: chunks.length,
+			durationMs: Date.now() - embeddingStartedAt,
+		});
+
+		const vectors: PineconeRecord[] = [];
+		for (const prepared of preparedVectors) {
+			if (!prepared) {
+				continue;
+			}
+
+			vectors.push(prepared.vector);
+
+			const pageEntry =
+				pageCounts.get(
+					prepared.chunk.url,
+				) ?? {
+					title: prepared.chunk.pageTitle,
+					chunks: 0,
+				};
+			pageEntry.chunks += 1;
+			pageCounts.set(
+				prepared.chunk.url,
+				pageEntry,
+			);
+
+			const validIds =
+				validIdsByUrl.get(
+					prepared.chunk.url,
+				) ?? new Set<string>();
+			validIds.add(prepared.vector.id);
+			validIdsByUrl.set(
+				prepared.chunk.url,
+				validIds,
+			);
+		}
+
+		if (vectors.length === 0) {
+			return;
+		}
+
+		for (const vector of vectors) {
+			const count =
+				pageCounts.get(
+					String(vector.metadata?.url || ""),
+				)?.chunks ?? vectors.length;
+			(vector.metadata as Record<string, unknown>).totalChunks =
+				count;
+		}
+
+		if (!allHype) {
+			const staleCleanupStartedAt = Date.now();
+			await this.deleteStaleChunksForUrls(
+				userId,
+				validIdsByUrl,
+			);
+			logger.info("pinecone: stale chunk cleanup completed", {
+				userId,
+				uniquePages: validIdsByUrl.size,
+				durationMs: Date.now() - staleCleanupStartedAt,
+			});
+		}
+
+		const vectorBatches = this.chunkArray(
+			vectors,
+			100,
+		);
+		const upsertStartedAt = Date.now();
+		for (const batch of vectorBatches) {
+			await pineconeCircuitBreaker.execute(
+				async () => {
+					return await retryWithBackoff(
+						async () => {
+							return await index.upsert(batch);
+						},
+						{
+							name: "PineconeUpsert",
+							maxRetries: 3,
+						},
+					);
+				},
+			);
+		}
+		logger.info("pinecone: vector batches upserted", {
+			userId,
+			vectors: vectors.length,
+			batches: vectorBatches.length,
+			durationMs: Date.now() - upsertStartedAt,
+		});
+
+		if (!allHype) {
+			const sourcePageStartedAt = Date.now();
+			await this.mapWithConcurrency(
+				Array.from(pageCounts.entries()),
+				PineconeService.RAG_SOURCE_UPSERT_CONCURRENCY,
+				async ([url, pageInfo]) =>
+					this.upsertRagSourcePage(
+						userId,
+						url,
+						pageInfo.title,
+						pageInfo.chunks,
+						extraMetadata,
+					),
+			);
+			logger.info("pinecone: rag_source_pages synced", {
+				userId,
+				sourcePages: pageCounts.size,
+				durationMs: Date.now() - sourcePageStartedAt,
+			});
+		}
+		logger.info("pinecone: upsert pipeline completed", {
+			userId,
+			chunks: chunks.length,
+			vectors: vectors.length,
+			uniquePages,
+			allHype,
+			durationMs: Date.now() - startedAt,
+		});
+	}
+
+	async updateVectorMetadata(
+		userId: string,
+		vectorId: string,
+		metadata: Record<string, unknown>,
+	): Promise<void> {
+		if (!vectorId) {
+			return;
+		}
+		const sanitized =
+			this.sanitizeMetadataUpdate(metadata);
+		if (Object.keys(sanitized).length === 0) {
+			return;
+		}
+
+		const index = this.getNamespaceIndex(userId);
+		await pineconeCircuitBreaker.execute(
+			async () => {
+				await (index as any).update({
+					id: vectorId,
+					metadata: sanitized,
+				});
+			},
+		);
+	}
+
 	async queryDocuments(
 		userId: string,
 		query: string,
 		topK: number = 10,
+		options?: {
+			history?: Array<{
+				role: string;
+				content: string;
+			}>;
+		},
 	): Promise<any[]> {
 		try {
-			const index =
-				this.getNamespaceIndex(userId);
+			const index = this.getNamespaceIndex(userId);
+			const effectiveTopK =
+				topK > 0 ? topK : 10;
+			const fetchTopK =
+				config.HYPE_QUESTIONS_PER_CHUNK > 0
+					? Math.min(
+							effectiveTopK *
+								(config.HYPE_QUESTIONS_PER_CHUNK + 1),
+							50,
+					  )
+					: effectiveTopK;
+			const rewrittenQuery =
+				await stepBackRewrite(
+					query,
+					options?.history,
+				);
 			const queryEmbedding =
-				await this.generateEmbedding(query);
+				await this.generateEmbedding(
+					rewrittenQuery,
+				);
+			const filter =
+				buildPineconeFilter(query);
 
-			// Use circuit breaker for Pinecone query
-			const queryResponse =
-				await pineconeCircuitBreaker.execute(
+			const runQuery = async (
+				withFilter: boolean,
+				withSparse: boolean,
+			) => {
+				const payload: Record<
+					string,
+					unknown
+				> = {
+					vector: queryEmbedding,
+					topK: fetchTopK,
+					includeMetadata: true,
+				};
+				if (withFilter && filter) {
+					payload.filter = filter;
+				}
+				if (withSparse && config.PINECONE_HYBRID) {
+					const sparse =
+						bm25SparseVector(rewrittenQuery);
+					if (sparse.indices.length > 0) {
+						(payload as any).sparseVector =
+							sparse;
+					}
+				}
+
+				return await pineconeCircuitBreaker.execute(
 					async () => {
-						return await index.query({
-							vector: queryEmbedding,
-							topK,
-							includeMetadata: true,
-						});
+						return await (index as any).query(
+							payload,
+						);
 					},
 				);
+			};
 
-			return queryResponse.matches || [];
+			let queryResponse: any;
+			try {
+				queryResponse = await runQuery(
+					true,
+					true,
+				);
+			} catch (error) {
+				logger.warn(
+					"Pinecone hybrid query failed, retrying dense-only",
+					{
+						error,
+						userId,
+					},
+				);
+				queryResponse = await runQuery(
+					true,
+					false,
+				);
+			}
+
+			let matches = queryResponse.matches || [];
+			if (matches.length === 0 && filter) {
+				const retryResponse =
+					await runQuery(false, false);
+				matches = retryResponse.matches || [];
+			}
+
+			return await cohereRerank(
+				query,
+				matches,
+				effectiveTopK,
+			);
 		} catch (error) {
 			logger.error("Error querying Pinecone", {
 				error,
@@ -1143,8 +1632,6 @@ class PineconeService {
 		const pagesLimit =
 			await subscriptionService.getWebsitePagesLimitForPlan(
 				resolvedPlan,
-				PLAN_CAPABILITIES[resolvedPlan]
-					.websitePagesLimit,
 			);
 		const pagesRemaining =
 			pagesLimit === null

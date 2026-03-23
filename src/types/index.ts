@@ -33,6 +33,7 @@ export interface User {
 	custom_system_message: string | null;
 	use_default_system_message: boolean;
 	system_message_configured: boolean;
+	knowledge_boundary?: string | null;
 }
 
 export interface UserResponse {
@@ -57,6 +58,7 @@ export interface UserResponse {
 	onboardingCompleted?: boolean;
 	useDefaultSystemMessage?: boolean;
 	systemMessageConfigured?: boolean;
+	knowledgeBoundary?: string | null;
 }
 
 export interface UpdateProfileBody {
@@ -277,6 +279,21 @@ export interface EnvConfig {
 
 	// Email verification
 	EMAIL_LIST_VERIFY_API_KEY?: string;
+
+	// Firecrawl
+	FIRECRAWL_API_KEY?: string;
+	FIRECRAWL_API_URL?: string;
+	SCRAPER_RENDER_SERVICE_URL?: string;
+	SCRAPER_RENDER_SERVICE_TOKEN?: string;
+	SCRAPER_RENDER_SERVICE_MODE?: string;
+
+	// Cohere
+	COHERE_API_KEY?: string;
+
+	// RAG pipeline
+	PINECONE_HYBRID: boolean;
+	HYPE_QUESTIONS_PER_CHUNK: number;
+	KNOWLEDGE_BOUNDARY: string;
 }
 
 // Web Scraper types
@@ -330,6 +347,38 @@ export interface PineconeMetadata {
 	chunkIndex: number;
 	totalChunks: number;
 	userId: string;
+	content?: string;
+	text?: string;
+	parentText?: string;
+	sourceType?: "website" | "document";
+	sourceKey?: string;
+	sourceRoot?: string;
+	sourceRootTitle?: string;
+	isHype?: boolean;
+	hypeParent?: string;
+	pageType?: string;
+	clientName?: string;
+	industry?: string;
+	services?: string;
+	cohereScore?: number;
+}
+
+export interface RagChunk {
+	userId: string;
+	url: string;
+	pageTitle: string;
+	childText: string;  // ~200 words, for embedding
+	parentText: string; // up to 600 words, for LLM
+	chunkIndex: number;
+	sourceType: "website" | "document";
+	sourceKey: string;
+	isHype: boolean;
+	hypeParent: string;
+	pageType?: string;
+	clientName?: string;
+	industry?: string;
+	services?: string;
+	vectorId?: string; // populated after upsert for metadata updates
 }
 
 // Chat types
