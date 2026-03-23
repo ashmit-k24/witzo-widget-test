@@ -19,6 +19,7 @@ import {
 	ScrapedPageContentBlock,
 	ScraperUsageStats,
 	StructuredBlockSearchResult,
+	StructuredQueryPlan,
 } from "../types";
 import {
 	CHUNK_MAX_WORDS,
@@ -51,6 +52,7 @@ interface PineconeQueryOptions {
 interface StructuredQueryOptions
 	extends PineconeQueryOptions {
 	focusTerms?: string[];
+	topic?: StructuredQueryPlan["topic"];
 }
 
 type RagSourcePageRow = {
@@ -72,6 +74,13 @@ type StructuredBlockRow = {
 	content: string;
 	scraped_at: Date | null;
 	relevance_score: number;
+};
+
+type PersistedStructuredChunk = {
+	id: number;
+	text: string;
+	chunkKey: string;
+	metadata: Record<string, any>;
 };
 
 const EMBEDDING_BATCH_SIZE = 16;
@@ -148,6 +157,19 @@ class PineconeService {
 					"",
 			  ).replace(/\/+$/, "")
 			: undefined;
+		if (
+			this.indexHost &&
+			!this.indexHost
+				.toLowerCase()
+				.startsWith(
+					`${this.indexName.toLowerCase()}-`,
+				)
+		) {
+			logger.warn(
+				`Ignoring stale PINECONE_HOST for index "${this.indexName}" because it points to a different host: ${this.indexHost}`,
+			);
+			this.indexHost = undefined;
+		}
 	}
 
 	private getBaseIndex(): any {
@@ -591,6 +613,8 @@ class PineconeService {
 				this.chunkText(enrichedBlockText);
 
 			for (let subChunkIndex = 0; subChunkIndex < blockChunks.length; subChunkIndex += 1) {
+				const chunkPosition =
+					structuredChunks.length;
 				structuredChunks.push({
 					text: blockChunks[subChunkIndex],
 					chunkKey: `${block.position ?? blockIndex}_${subChunkIndex}`,
@@ -598,7 +622,8 @@ class PineconeService {
 						blockType: block.blockType,
 						sectionTitle,
 						sectionPath: block.sectionPath,
-						position:
+						position: chunkPosition,
+						blockPosition:
 							block.position ?? blockIndex,
 					},
 				});
@@ -610,6 +635,36 @@ class PineconeService {
 		}
 
 		return [];
+	}
+
+	private mapStructuredBlockRows(
+		rows: StructuredBlockRow[],
+	): StructuredBlockSearchResult[] {
+		return rows.map(
+			(row): StructuredBlockSearchResult => ({
+				id: row.id,
+				sourcePageId:
+					row.source_page_id ?? undefined,
+				sourceType: row.source_type,
+				sourceRoot: row.source_root,
+				sourceUrl: row.source_url,
+				title:
+					row.title ||
+					row.source_url,
+				pageType: row.page_type,
+				blockType: row.block_type,
+				sectionTitle: row.section_title,
+				sectionPath:
+					row.section_path ?? undefined,
+				position: row.position,
+				content: row.content,
+				scrapedAt: row.scraped_at
+					? row.scraped_at.toISOString()
+					: undefined,
+				relevanceScore:
+					Number(row.relevance_score) || 0,
+			}),
+		);
 	}
 
 	private normalizeStructuredSearchTerms(
@@ -726,6 +781,87 @@ class PineconeService {
 			chunks.push(items.slice(i, i + size));
 		}
 		return chunks;
+	}
+
+	private parseMetadataInteger(
+		value: unknown,
+	): number | undefined {
+		if (
+			typeof value === "number" &&
+			Number.isInteger(value) &&
+			value > 0
+		) {
+			return value;
+		}
+
+		if (typeof value === "string") {
+			const normalized = value.trim();
+			if (!normalized) {
+				return undefined;
+			}
+			const parsed = Number(normalized);
+			if (
+				Number.isInteger(parsed) &&
+				parsed > 0
+			) {
+				return parsed;
+			}
+		}
+
+		return undefined;
+	}
+
+	private sanitizePineconeMetadata(
+		metadata: Record<string, any>,
+	): Record<string, string | number | boolean | string[]> {
+		const sanitized: Record<
+			string,
+			string | number | boolean | string[]
+		> = {};
+
+		for (const [key, value] of Object.entries(metadata)) {
+			if (
+				value === undefined ||
+				value === null
+			) {
+				continue;
+			}
+
+			if (
+				typeof value === "string" ||
+				typeof value === "number" ||
+				typeof value === "boolean"
+			) {
+				sanitized[key] = value;
+				continue;
+			}
+
+			if (Array.isArray(value)) {
+				const normalized = value
+					.map((item) => {
+						if (
+							item === undefined ||
+							item === null
+						) {
+							return "";
+						}
+						if (
+							typeof item === "string" ||
+							typeof item === "number" ||
+							typeof item === "boolean"
+						) {
+							return String(item).trim();
+						}
+						return "";
+					})
+					.filter(Boolean);
+				if (normalized.length > 0) {
+					sanitized[key] = normalized;
+				}
+			}
+		}
+
+		return sanitized;
 	}
 
 	private async upsertVectorsInBatches(
@@ -870,6 +1006,7 @@ class PineconeService {
 		userId: string,
 		url: string,
 		title: string,
+		pageContent: string,
 		chunks: number,
 		metadata?: Record<string, any>,
 	): Promise<number> {
@@ -891,13 +1028,14 @@ class PineconeService {
 
 		const result = await pool.query<RagSourcePageRow>(
 			`INSERT INTO rag_source_pages
-				(user_id, source_type, source_root, source_url, title, chunks, scraped_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+				(user_id, source_type, source_root, source_url, title, page_content, chunks, scraped_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			 ON CONFLICT (user_id, source_url)
 			 DO UPDATE SET
 				source_type = EXCLUDED.source_type,
 				source_root = EXCLUDED.source_root,
 				title = EXCLUDED.title,
+				page_content = EXCLUDED.page_content,
 				chunks = EXCLUDED.chunks,
 				scraped_at = EXCLUDED.scraped_at,
 				updated_at = CURRENT_TIMESTAMP
@@ -908,6 +1046,7 @@ class PineconeService {
 				sourceRoot,
 				url,
 				title,
+				pageContent,
 				Math.max(0, Math.trunc(chunks)),
 				scrapedAt,
 			],
@@ -920,10 +1059,14 @@ class PineconeService {
 		sourcePageId: number,
 		url: string,
 		title: string,
-		content: string,
 		pageType: string,
+		chunks: Array<{
+			text: string;
+			chunkKey: string;
+			metadata: Record<string, any>;
+		}>,
 		metadata?: Record<string, any>,
-	): Promise<void> {
+	): Promise<PersistedStructuredChunk[]> {
 		const sourceType = url.startsWith("document://")
 			? "document"
 			: "website";
@@ -939,11 +1082,6 @@ class PineconeService {
 			scrapedAtRaw && !Number.isNaN(Date.parse(scrapedAtRaw))
 				? new Date(scrapedAtRaw)
 				: new Date();
-		const blocks =
-			this.compactStructuredBlocks(
-				content,
-				metadata,
-			);
 
 		await pool.query(
 			`DELETE FROM rag_source_blocks
@@ -951,18 +1089,21 @@ class PineconeService {
 			[userId, url],
 		);
 
-		if (blocks.length === 0) {
-			return;
+		if (chunks.length === 0) {
+			return [];
 		}
 
-		for (const batch of this.chunkArray(blocks, 100)) {
+		const persistedChunks: PersistedStructuredChunk[] =
+			[];
+
+		for (const batch of this.chunkArray(chunks, 100)) {
 			const valueClauses: string[] = [];
 			const values: Array<
 				string | number | Date | string[] | null
 			> = [];
 			let parameterIndex = 1;
 
-			for (const block of batch) {
+			for (const chunk of batch) {
 				valueClauses.push(
 					`($${parameterIndex}, $${parameterIndex + 1}, $${parameterIndex + 2}, $${parameterIndex + 3}, $${parameterIndex + 4}, $${parameterIndex + 5}, $${parameterIndex + 6}, $${parameterIndex + 7}, $${parameterIndex + 8}, $${parameterIndex + 9}, $${parameterIndex + 10}, $${parameterIndex + 11}, $${parameterIndex + 12})`,
 				);
@@ -974,23 +1115,212 @@ class PineconeService {
 					url,
 					title,
 					pageType,
-					block.blockType,
-					block.sectionTitle ?? null,
-					block.sectionPath ?? null,
-					block.position,
-					block.text,
+					chunk.metadata.blockType ?? "paragraph",
+					chunk.metadata.sectionTitle ?? null,
+					chunk.metadata.sectionPath ?? null,
+					typeof chunk.metadata.position === "number"
+						? chunk.metadata.position
+						: 0,
+					chunk.text,
 					scrapedAt,
 				);
 				parameterIndex += 13;
 			}
 
-			await pool.query(
+			const insertResult =
+				await pool.query<{
+					id: number;
+					position: number;
+				}>(
 				`INSERT INTO rag_source_blocks
 					(source_page_id, user_id, source_type, source_root, source_url, title, page_type, block_type, section_title, section_path, position, content, scraped_at)
-				 VALUES ${valueClauses.join(", ")}`,
+				 VALUES ${valueClauses.join(", ")}
+				 RETURNING id, position`,
 				values,
 			);
+			const idByPosition = new Map(
+				insertResult.rows.map((row) => [
+					row.position,
+					row.id,
+				]),
+			);
+			for (const chunk of batch) {
+				const position =
+					typeof chunk.metadata.position ===
+					"number"
+						? chunk.metadata.position
+						: 0;
+				const blockId =
+					idByPosition.get(position);
+				if (!blockId) {
+					throw new Error(
+						`Failed to persist structured block id for ${url} at position ${position}`,
+					);
+				}
+				persistedChunks.push({
+					id: blockId,
+					text: chunk.text,
+					chunkKey: chunk.chunkKey,
+					metadata: chunk.metadata,
+				});
+			}
 		}
+
+		return persistedChunks;
+	}
+
+	private async getStructuredBlockRowsByIds(
+		userId: string,
+		blockIds: number[],
+	): Promise<StructuredBlockRow[]> {
+		if (blockIds.length === 0) {
+			return [];
+		}
+
+		const result =
+			await pool.query<StructuredBlockRow>(
+				`SELECT
+					id,
+					source_page_id,
+					source_type,
+					source_root,
+					source_url,
+					title,
+					page_type,
+					block_type,
+					section_title,
+					section_path,
+					position,
+					content,
+					scraped_at,
+					0::numeric AS relevance_score
+				 FROM rag_source_blocks
+				 WHERE user_id = $1
+				   AND id = ANY($2::int[])`,
+				[userId, blockIds],
+			);
+
+		return result.rows;
+	}
+
+	async hydrateMatches(
+		userId: string,
+		matches: any[],
+	): Promise<any[]> {
+		if (matches.length === 0) {
+			return matches;
+		}
+
+		const blockIds = Array.from(
+			new Set(
+				matches
+					.flatMap((match) => {
+						const metadata =
+							match?.metadata ?? {};
+						const ids: number[] = [];
+						const blockId =
+							this.parseMetadataInteger(
+								metadata.blockId,
+							);
+						if (blockId) {
+							ids.push(blockId);
+						}
+						const sourceBlockId =
+							this.parseMetadataInteger(
+								metadata.sourceBlockId,
+							);
+						if (sourceBlockId) {
+							ids.push(sourceBlockId);
+						}
+						return ids;
+					})
+					.filter((value) =>
+						Number.isInteger(value) &&
+						value > 0,
+					),
+			),
+		);
+
+		if (blockIds.length === 0) {
+			return matches;
+		}
+
+		const rows =
+			await this.getStructuredBlockRowsByIds(
+				userId,
+				blockIds,
+			);
+		const rowMap = new Map(
+			this.mapStructuredBlockRows(rows).map(
+				(row) => [row.id, row],
+			),
+		);
+
+			return matches.map((match) => {
+				const metadata =
+					match?.metadata ?? {};
+			const contentBlockId =
+				this.parseMetadataInteger(
+					metadata.blockId,
+				);
+			const sourceBlockId =
+				this.parseMetadataInteger(
+					metadata.sourceBlockId,
+				);
+			const block =
+				(contentBlockId &&
+					rowMap.get(contentBlockId)) ||
+				(sourceBlockId &&
+					rowMap.get(sourceBlockId));
+			if (!block) {
+				return match;
+			}
+
+			const hydratedMetadata = {
+				...metadata,
+				url:
+					metadata.url ??
+					block.sourceUrl,
+				title:
+					metadata.title ??
+					block.title,
+				pageType:
+					metadata.pageType ??
+					block.pageType ??
+					undefined,
+				blockType:
+					metadata.blockType ??
+					block.blockType ??
+					undefined,
+				sectionTitle:
+					metadata.sectionTitle ??
+					block.sectionTitle ??
+					undefined,
+				sectionPath:
+					metadata.sectionPath ??
+					block.sectionPath ??
+					undefined,
+				position:
+					metadata.position ??
+					block.position,
+				sourcePageId:
+					metadata.sourcePageId ??
+					block.sourcePageId ??
+					undefined,
+			} as Record<string, any>;
+
+			hydratedMetadata.content =
+				block.content;
+			if (metadata.isHype === true) {
+				hydratedMetadata.sourceContent =
+					block.content;
+			}
+
+			return {
+				...match,
+				metadata: hydratedMetadata,
+			};
+		});
 	}
 
 	async queryStructuredBlocks(
@@ -1041,6 +1371,13 @@ class PineconeService {
 			}
 
 			const candidateLimit = Math.max(limit * 4, 24);
+			const topic = options?.topic ?? "general";
+			const maxPerUrl =
+				topic === "contact"
+					? 8
+					: topic === "services"
+						? 6
+						: 3;
 			const result =
 				await pool.query<StructuredBlockRow>(
 					`WITH ranked AS (
@@ -1092,6 +1429,59 @@ class PineconeService {
 									WHERE lower(coalesce(content, '')) LIKE '%' || term || '%'
 								), 0) * 1.0 +
 								CASE
+									WHEN $9 = 'contact' AND lower(coalesce(source_url, '')) LIKE '%contact%' THEN 6
+									WHEN $9 = 'contact' AND lower(coalesce(source_url, '')) LIKE '%about%' THEN 2.5
+									ELSE 0
+								END +
+								CASE
+									WHEN $9 = 'contact' AND lower(coalesce(title, '')) LIKE '%contact%' THEN 6
+									WHEN $9 = 'contact' AND lower(coalesce(title, '')) LIKE '%about%' THEN 2.5
+									ELSE 0
+								END +
+								CASE
+									WHEN $9 = 'contact' AND block_type = 'contact' THEN 3.5
+									ELSE 0
+								END +
+								CASE
+									WHEN $9 = 'contact' AND lower(coalesce(section_title, '')) LIKE '%address%' THEN 5
+									WHEN $9 = 'contact' AND lower(coalesce(section_title, '')) LIKE '%office%' THEN 3.5
+									WHEN $9 = 'contact' AND lower(coalesce(section_title, '')) LIKE '%location%' THEN 3.5
+									WHEN $9 = 'contact' AND lower(coalesce(section_title, '')) LIKE '%contact%' THEN 2
+									ELSE 0
+								END +
+								CASE
+									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%address:%' THEN 5
+									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%office%' THEN 3
+									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%business bay%' THEN 3
+									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%koramangala%' THEN 3
+									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%toronto%' THEN 3
+									ELSE 0
+								END +
+								CASE
+									WHEN $9 = 'services' AND page_type = 'services' THEN 5
+									WHEN $9 = 'services' AND page_type = 'about' THEN 2
+									ELSE 0
+								END +
+								CASE
+									WHEN $9 = 'services' AND lower(coalesce(source_url, '')) LIKE '%service%' THEN 4
+									WHEN $9 = 'services' AND lower(coalesce(source_url, '')) LIKE '%solution%' THEN 3
+									WHEN $9 = 'services' AND lower(coalesce(source_url, '')) LIKE '%product%' THEN 3
+									ELSE 0
+								END +
+								CASE
+									WHEN $9 = 'services' AND block_type = 'summary' THEN 3.5
+									WHEN $9 = 'services' AND block_type = 'list' THEN 3
+									WHEN $9 = 'services' AND block_type = 'paragraph' THEN 1
+									ELSE 0
+								END +
+								CASE
+									WHEN $9 = 'services' AND lower(coalesce(section_title, '')) LIKE '%service%' THEN 4
+									WHEN $9 = 'services' AND lower(coalesce(section_title, '')) LIKE '%solution%' THEN 3
+									WHEN $9 = 'services' AND lower(coalesce(section_title, '')) LIKE '%offering%' THEN 3
+									WHEN $9 = 'services' AND lower(coalesce(section_title, '')) LIKE '%capabilit%' THEN 3
+									ELSE 0
+								END +
+								CASE
 									WHEN $4::text[] IS NOT NULL AND page_type = ANY($4) THEN 1.5
 									ELSE 0
 								END +
@@ -1135,38 +1525,17 @@ class PineconeService {
 						options?.sourceRoot?.trim() || null,
 						options?.sourceUrl?.trim() || null,
 						candidateLimit,
+						topic,
 					],
 				);
 
-			const rows = result.rows.map(
-				(row): StructuredBlockSearchResult => ({
-					id: row.id,
-					sourcePageId:
-						row.source_page_id ?? undefined,
-					sourceType: row.source_type,
-					sourceRoot: row.source_root,
-					sourceUrl: row.source_url,
-					title:
-						row.title ||
-						row.source_url,
-					pageType: row.page_type,
-					blockType: row.block_type,
-					sectionTitle: row.section_title,
-					sectionPath:
-						row.section_path ?? undefined,
-					position: row.position,
-					content: row.content,
-					scrapedAt: row.scraped_at
-						? row.scraped_at.toISOString()
-						: undefined,
-					relevanceScore:
-						Number(row.relevance_score) || 0,
-				}),
+			const rows = this.mapStructuredBlockRows(
+				result.rows,
 			);
 
 			return this.limitStructuredResultsPerUrl(
 				rows,
-				3,
+				maxPerUrl,
 				limit,
 			);
 		} catch (error) {
@@ -1258,7 +1627,17 @@ class PineconeService {
 		index: any,
 		userId: string,
 		url: string,
-		chunks: Array<{ text: string; vectorId: string }>,
+		chunks: Array<{
+			text: string;
+			vectorId: string;
+			blockId?: number;
+			sourcePageId?: number;
+			title?: string;
+			pageType?: string;
+			blockType?: string;
+			sectionTitle?: string;
+			sectionPath?: string[];
+		}>,
 	): Promise<void> {
 		const hypeQuestionsPerChunk =
 			config.HYPE_QUESTIONS_PER_CHUNK;
@@ -1336,18 +1715,26 @@ class PineconeService {
 					const q = questions[qi];
 					const emb = embeddings[qi];
 					if (!emb) continue;
+					const sparseVector =
+						this.hybridEnabled
+							? buildSparseVector(q)
+							: { indices: [], values: [] };
 
 					const hypeMetadata: PineconeMetadata &
 						Record<string, any> = {
 						url,
-						title: "",
+						title: chunk.title ?? "",
 						scrapedAt: new Date().toISOString(),
-						chunkIndex: 0,
-						totalChunks: 0,
+						chunkIndex: qi,
+						totalChunks: questions.length,
 						userId,
-						content: q,            // the hypothetical question (used for scoring)
-						sourceContent: chunk.text, // original chunk text (used in LLM context)
 						sourceChunkId: chunk.vectorId,
+						sourceBlockId: chunk.blockId,
+						sourcePageId: chunk.sourcePageId,
+						pageType: chunk.pageType,
+						blockType: chunk.blockType,
+						sectionTitle: chunk.sectionTitle,
+						sectionPath: chunk.sectionPath,
 						chunkType: "hype",
 						isHype: true,
 					};
@@ -1356,10 +1743,11 @@ class PineconeService {
 					hypeVectors.push({
 						id: hypeId,
 						values: emb,
-						...(this.hybridEnabled
+						...(this.hybridEnabled &&
+						sparseVector.values.length > 0
 							? {
 									sparseValues:
-										buildSparseVector(q),
+										sparseVector,
 							  }
 							: {}),
 						metadata: hypeMetadata,
@@ -1415,6 +1803,36 @@ class PineconeService {
 				...(metadata ?? {}),
 			};
 			delete sharedMetadata.contentBlocks;
+			const structuredFacts = Array.isArray(
+				sharedMetadata.structuredFacts,
+			)
+				? sharedMetadata.structuredFacts
+				: [];
+			delete sharedMetadata.structuredFacts;
+			if (structuredFacts.length > 0) {
+				sharedMetadata.structuredFactTypes = Array.from(
+					new Set(
+						structuredFacts
+							.map((fact) =>
+								typeof fact?.type === "string"
+									? fact.type.trim()
+									: "",
+							)
+							.filter(Boolean),
+					),
+				).slice(0, 12);
+				sharedMetadata.structuredFactValues =
+					structuredFacts
+						.map((fact) =>
+							typeof fact?.value === "string"
+								? fact.value
+										.trim()
+										.slice(0, 160)
+								: "",
+						)
+						.filter(Boolean)
+						.slice(0, 12);
+			}
 			const providedPageType =
 				typeof sharedMetadata.pageType === "string"
 					? sharedMetadata.pageType
@@ -1425,15 +1843,34 @@ class PineconeService {
 				providedPageType.trim()
 					? providedPageType.trim()
 					: this.detectPageType(url);
+			const sourcePageId =
+				await this.upsertRagSourcePage(
+					userId,
+					url,
+					title,
+					content,
+					chunks.length,
+					metadata,
+				);
+			const persistedChunks =
+				await this.upsertRagSourceBlocks(
+					userId,
+					sourcePageId,
+					url,
+					title,
+					pageType,
+					chunks,
+					metadata,
+				);
 			const embeddings =
 				await this.generateEmbeddings(
-					chunks.map(
+					persistedChunks.map(
 						(chunk) => chunk.text,
 					),
 				);
 
-			for (let i = 0; i < chunks.length; i++) {
-				const chunk = chunks[i];
+			for (let i = 0; i < persistedChunks.length; i++) {
+				const chunk = persistedChunks[i];
 				const embedding =
 					embeddings[i];
 
@@ -1445,30 +1882,40 @@ class PineconeService {
 						sharedMetadata.description || "",
 					scrapedAt: new Date().toISOString(),
 					chunkIndex: i,
-					totalChunks: chunks.length,
-					content: chunk.text,
+					totalChunks: persistedChunks.length,
 					userId,
+					blockId: chunk.id,
+					sourcePageId,
 					pageType,
 					...sharedMetadata,
 					...chunk.metadata,
 				};
+				const sanitizedMetadata =
+					this.sanitizePineconeMetadata(
+						pineconeMetadata,
+					);
 
 				const vectorId = this.buildVectorId(
 					userId,
 					url,
 					chunk.chunkKey,
 				);
+				const sparseVector =
+					this.hybridEnabled
+						? buildSparseVector(chunk.text)
+						: { indices: [], values: [] };
 
 				vectors.push({
 					id: vectorId,
 					values: embedding,
-					...(this.hybridEnabled
+					...(this.hybridEnabled &&
+					sparseVector.values.length > 0
 						? {
 								sparseValues:
-									buildSparseVector(chunk.text),
+									sparseVector,
 						  }
 						: {}),
-					metadata: pineconeMetadata,
+					metadata: sanitizedMetadata,
 				});
 			}
 
@@ -1497,28 +1944,29 @@ class PineconeService {
 				index,
 				userId,
 				url,
-				chunks.map((c, i) => ({
+				persistedChunks.map((c, i) => ({
 					text: c.text,
 					vectorId: vectors[i].id,
+					blockId: c.id,
+					sourcePageId,
+					title,
+					pageType,
+					blockType:
+						typeof c.metadata.blockType ===
+						"string"
+							? c.metadata.blockType
+							: undefined,
+					sectionTitle:
+						typeof c.metadata.sectionTitle ===
+						"string"
+							? c.metadata.sectionTitle
+							: undefined,
+					sectionPath: Array.isArray(
+						c.metadata.sectionPath,
+					)
+						? c.metadata.sectionPath
+						: undefined,
 				})),
-			);
-
-			const sourcePageId =
-				await this.upsertRagSourcePage(
-				userId,
-				url,
-				title,
-				chunks.length,
-				metadata,
-			);
-			await this.upsertRagSourceBlocks(
-				userId,
-				sourcePageId,
-				url,
-				title,
-				content,
-				pageType,
-				metadata,
 			);
 			logger.info(
 				`Upserted ${chunks.length} chunks for URL: ${url} (user: ${userId})`,
@@ -1569,7 +2017,8 @@ class PineconeService {
 					async () => {
 						return await index.query({
 							vector: queryEmbedding,
-							...(this.hybridEnabled
+							...(this.hybridEnabled &&
+							querySparse.values.length > 0
 								? {
 										sparseVector: querySparse,
 								  }
@@ -1595,7 +2044,10 @@ class PineconeService {
 				scoreThreshold,
 				scores: matches.slice(0, 8).map((m: any) => (m.score ?? 0).toFixed(3)),
 			});
-			return passing;
+			return await this.hydrateMatches(
+				userId,
+				passing,
+			);
 		} catch (error) {
 			const errMessage = error instanceof Error ? error.message : String(error);
 			const errStatus = (error as any)?.status ?? (error as any)?.statusCode ?? "unknown";
@@ -1660,7 +2112,7 @@ class PineconeService {
 					 WHERE user_id = $1
 					   AND source_type = 'website'
 					   AND (source_root = $2 OR source_url = $2 OR source_url LIKE $3)`,
-					[userId, sourceRoot, `${sourceRoot}/%`],
+					[userId, sourceRoot, `${sourceRoot}%`],
 				);
 			}
 

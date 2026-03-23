@@ -21,6 +21,20 @@ interface ProgressUpdate {
 }
 
 class ScraperStatusService {
+	private async assertUserExists(
+		userId: string,
+	): Promise<void> {
+		const result = await pool.query(
+			`SELECT 1 FROM users WHERE id = $1 LIMIT 1`,
+			[userId],
+		);
+		if (result.rows.length === 0) {
+			throw new Error(
+				`Cannot start scrape job: user ${userId} does not exist in users table.`,
+			);
+		}
+	}
+
 	private rowToStatus(row: any): ScrapeJobStatus {
 		return {
 			jobId: row.job_id,
@@ -45,6 +59,7 @@ class ScraperStatusService {
 	}
 
 	async startJob(params: StartJobParams): Promise<ScrapeJobStatus> {
+		await this.assertUserExists(params.userId);
 		const jobId = crypto.randomUUID();
 		const result = await pool.query(
 			`INSERT INTO scraper_jobs

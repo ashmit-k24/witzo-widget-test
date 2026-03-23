@@ -35,10 +35,8 @@ export const startQueue = async (): Promise<void> => {
 	await boss.createQueue(SCRAPER_QUEUE_NAME, {
 		// Jobs expire after 1 hour if not completed
 		expireInSeconds: 60 * 60,
-		// Retry up to 3 times with exponential backoff
-		retryLimit: 3,
-		retryDelay: 5,
-		retryBackoff: true,
+		// No retries — failed jobs stay failed
+		retryLimit: 0,
 		// Keep completed jobs for 1 hour, failed for 24 hours
 		deleteAfterSeconds: 3600,
 	});

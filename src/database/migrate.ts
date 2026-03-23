@@ -217,6 +217,12 @@ const migrations: Migration[] = [
 			"Create scraper_jobs table (replaces Redis-based job status tracking)",
 		file: "20260321_033_scraper_jobs.sql",
 	},
+	{
+		id: "20260323_034_rag_source_page_content",
+		description:
+			"Add full page content storage to rag_source_pages",
+		file: "20260323_034_rag_source_page_content.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

@@ -298,8 +298,8 @@ export const validationRules: Record<
 			.withMessage("maxDepth must be between 0 and 10"),
 		body("maxPages")
 			.optional({ values: "falsy" })
-			.isInt({ min: 1, max: 300 })
-			.withMessage("maxPages must be between 1 and 300"),
+			.isInt({ min: 1, max: 1200 })
+			.withMessage("maxPages must be between 1 and 1200"),
 	],
 
 	deleteByUrl: [

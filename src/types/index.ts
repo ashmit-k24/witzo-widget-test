@@ -325,12 +325,41 @@ export type ScrapedPageBlockType =
 	| "faq"
 	| "contact";
 
+export type ScrapedPageType =
+	| "home"
+	| "about"
+	| "services"
+	| "pricing"
+	| "contact"
+	| "faq"
+	| "portfolio"
+	| "blog"
+	| "legal"
+	| "general";
+
+export type ScrapedStructuredFactType =
+	| "address"
+	| "phone"
+	| "email"
+	| "location"
+	| "service"
+	| "pricing"
+	| "case_study";
+
+export interface ScrapedStructuredFact {
+	type: ScrapedStructuredFactType;
+	value: string;
+	label?: string;
+	sourceText?: string;
+}
+
 export interface ScrapedPageContentBlock {
 	text: string;
 	blockType: ScrapedPageBlockType;
 	position: number;
 	sectionTitle?: string;
 	sectionPath?: string[];
+	factType?: ScrapedStructuredFactType;
 }
 
 export interface ScrapedPage {
@@ -343,8 +372,12 @@ export interface ScrapedPage {
 		keywords?: string;
 		author?: string;
 		canonicalUrl?: string;
+		pageType?: ScrapedPageType;
+		pagePriority?: number;
 		sourceRoot?: string;
 		sourceRootTitle?: string;
+		structuredFacts?: ScrapedStructuredFact[];
+		discoveredPageCount?: number;
 		contentBlocks?: ScrapedPageContentBlock[];
 		[key: string]: any;
 	};
@@ -388,6 +421,8 @@ export interface PineconeMetadata {
 	totalChunks: number;
 	userId: string;
 	content?: string;
+	blockId?: number;
+	sourcePageId?: number;
 	pageType?: string;
 	blockType?: ScrapedPageBlockType | string;
 	sectionTitle?: string;
@@ -396,10 +431,14 @@ export interface PineconeMetadata {
 	sourceRoot?: string;
 	sourceRootTitle?: string;
 	canonicalUrl?: string;
+	pagePriority?: number;
+	structuredFactTypes?: string[];
+	structuredFactValues?: string[];
 	// HyPE (Hypothetical Prompt Embeddings) fields
 	chunkType?: "content" | "hype";        // "hype" = synthetic question vector
 	isHype?: boolean;                        // true when this vector is a HyPE question
 	sourceChunkId?: string;                  // parent content vector id
+	sourceBlockId?: number;                  // parent content block id in rag_source_blocks
 	sourceContent?: string;                  // original chunk text (used in LLM context instead of the question)
 }
 

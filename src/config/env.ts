@@ -353,7 +353,7 @@ export const config: EnvConfig = {
 			"OPENAI_EMBEDDING_DIMENSIONS",
 			"PINECONE_DIMENSION",
 		],
-		3072,
+		1024,
 	),
 	OPENAI_CHAT_MAX_TOKENS: getEnvNumber(
 		"OPENAI_CHAT_MAX_TOKENS",
@@ -418,7 +418,7 @@ export const config: EnvConfig = {
 	// HyPE
 	HYPE_QUESTIONS_PER_CHUNK: getEnvNumber(
 		"HYPE_QUESTIONS_PER_CHUNK",
-		3,
+		0,
 	),
 	HYPE_MAX_CHUNKS: getEnvNumber(
 		"HYPE_MAX_CHUNKS",

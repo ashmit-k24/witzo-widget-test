@@ -101,16 +101,11 @@ class RerankService {
 
 			const reranked = (response.results ?? []).map((result) => {
 				const original = nonEmpty[result.index];
-				// IMPORTANT: Do NOT overwrite match.score with Cohere's relevanceScore.
-				// Cohere cross-encoder scores are 0.001-0.11; Pinecone scores are 0.87-1.27.
-				// Replacing the score would cause the 0.40 threshold filter to drop every
-				// result, leaving zero context for OpenAI. Use cohereScore only for ordering.
+				// Keep Pinecone score intact for thresholding/filtering; Cohere is ordering only.
 				return {
 					...original.match,
-					// score stays as original.match.score (Pinecone relevance, used for filtering)
 					cohereScore: result.relevanceScore,
-					_rerankScore: result.relevanceScore,
-					_originalCosineScore: original.match.score,
+					_originalPineconeScore: original.match.score,
 				};
 			});
 
@@ -118,8 +113,8 @@ class RerankService {
 				query: query.slice(0, 80),
 				inputCount: nonEmpty.length,
 				outputCount: reranked.length,
-				pineconeScores: reranked.map((m) => (m.score ?? 0).toFixed(3)),
 				cohereScores: reranked.map((m) => (m.cohereScore ?? 0).toFixed(4)),
+				pineconeScores: reranked.map((m) => (m._originalPineconeScore ?? 0).toFixed(3)),
 			});
 
 			return reranked;

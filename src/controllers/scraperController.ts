@@ -153,11 +153,7 @@ export const scrapeWebsite = async (
 					SCRAPER_DEFAULT_MAX_PAGES,
 			),
 		);
-		const effectiveMaxPages = Math.min(
-			normalizedMaxPages,
-			scraperUsage.pagesRemaining ??
-				normalizedMaxPages,
-		);
+		const effectiveMaxPages = normalizedMaxPages;
 
 		logger.info(
 			`Starting scrape for URL: ${url}`,
@@ -854,11 +850,7 @@ export const retrainWebsite = async (
 					SCRAPER_DEFAULT_MAX_PAGES,
 			),
 		);
-		const effectiveMaxPages = Math.min(
-			normalizedMaxPages,
-			scraperUsage.pagesRemaining ??
-				normalizedMaxPages,
-		);
+		const effectiveMaxPages = normalizedMaxPages;
 		const job =
 			await scraperStatusService.startJob({
 				userId,

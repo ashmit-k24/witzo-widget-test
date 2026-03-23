@@ -1,10 +1,12 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
+import pool from "../config/database";
 import { config } from "../config/env";
 import {
 	ScrapedPage,
 	ScrapedPageBlockType,
 	ScrapedPageContentBlock,
+	ScrapedPageType,
 } from "../types";
 import logger from "../utils/logger";
 import { firecrawlService } from "./firecrawlService";
@@ -15,6 +17,13 @@ import {
 	normalizeScrapeUrl,
 	shouldSkipScrapeUrl,
 } from "../utils/scrapeUrl";
+import {
+	detectScrapedPageType,
+	enrichScrapedPage,
+	hasContactSignals,
+	normalizeScrapedText,
+	scorePagePriority,
+} from "../utils/scrapeAnalysis";
 
 const BUILT_IN_CRAWLER_CONCURRENCY = Math.max(
 	1,
@@ -41,6 +50,7 @@ interface ScrapeResult {
 	storedPages: number;
 	pages: ScrapedPage[];
 	failureReason?: string;
+	failedUrls?: string[];
 }
 
 type RobotsRules = {
@@ -48,18 +58,39 @@ type RobotsRules = {
 	sitemapUrls: string[];
 };
 
+type DiscoveredPage = {
+	url: string;
+	pageType: ScrapedPageType;
+	priority: number;
+};
+
+type SiteDiscoveryResult = {
+	pages: DiscoveredPage[];
+	discoveredCount: number;
+	usedSitemap: boolean;
+};
+
 class ScraperService {
+	private async assertUserExists(
+		userId: string,
+	): Promise<void> {
+		const result = await pool.query(
+			`SELECT 1 FROM users WHERE id = $1 LIMIT 1`,
+			[userId],
+		);
+		if (result.rows.length === 0) {
+			throw new Error(
+				`Cannot scrape website: user ${userId} does not exist in users table.`,
+			);
+		}
+	}
+
 	private normalizeText(text: string): string {
-		return text
-			.replace(/\u00a0/g, " ")
-			.replace(/\s+/g, " ")
-			.trim();
+		return normalizeScrapedText(text);
 	}
 
 	private hasContactSignals(text: string): boolean {
-		return /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s().-]{6,}|\b(address|phone|email|office|contact|call|reach us|get in touch|pin code|pincode|zip code|zip|postal code|floor|building|suite|unit|branch office|regional office|corporate office|head office|registered office)\b/i.test(
-			text,
-		);
+		return hasContactSignals(text);
 	}
 
 	private detectBlockType(
@@ -252,6 +283,30 @@ class ScraperService {
 			pushBlock(text, tagName);
 		}
 
+		// Also capture <a> tags containing contact signals (addresses, phones, emails)
+		// that are not in standard block elements (p, li, etc.) and not in boilerplate.
+		root.find("a").each((_, element) => {
+			const $el = $(element);
+			if (
+				$el.closest("nav, header, form, aside").length > 0
+			) {
+				return;
+			}
+			// Skip if this <a> is a child of already-processed block elements
+			if (
+				$el.closest("p, li, dt, dd, blockquote").length > 0
+			) {
+				return;
+			}
+			const anchorText = this.normalizeText($el.text());
+			if (
+				anchorText &&
+				this.hasContactSignals(anchorText)
+			) {
+				pushBlock(anchorText, "a");
+			}
+		});
+
 		if (description) {
 			blocks.unshift({
 				text: [title, description]
@@ -355,13 +410,13 @@ class ScraperService {
 		}
 		metadata.scrapedVia = "builtin";
 
-		return {
+		return enrichScrapedPage({
 			url,
 			title,
 			content,
 			links: [...new Set(links)],
 			metadata,
-		};
+		});
 	}
 
 	private async fetchTextResponse(
@@ -613,41 +668,186 @@ class ScraperService {
 		return [...discovered];
 	}
 
+	private classifyDiscoveredUrl(
+		url: string,
+	): DiscoveredPage {
+		const pageType = detectScrapedPageType(
+			url,
+			"",
+		);
+		return {
+			url,
+			pageType,
+			priority: scorePagePriority(pageType, url),
+		};
+	}
+
+	private async discoverHtmlInventory(
+		sourceRoot: string,
+	): Promise<DiscoveredPage[]> {
+		try {
+			const { html, contentType } =
+				await this.fetchTextResponse(sourceRoot);
+			if (
+				!contentType.includes("text/html") ||
+				!html.trim()
+			) {
+				return [];
+			}
+
+			const $ = cheerio.load(html);
+			const discovered = new Map<
+				string,
+				DiscoveredPage
+			>();
+			discovered.set(
+				sourceRoot,
+				this.classifyDiscoveredUrl(sourceRoot),
+			);
+
+			$("a[href]").each((_, element) => {
+				const href = $(element).attr("href");
+				if (!href) {
+					return;
+				}
+				const normalized =
+					normalizeDiscoveredUrl(
+						href,
+						sourceRoot,
+					);
+				if (
+					!normalized ||
+					!isUrlUnderSourceRoot(
+						normalized,
+						sourceRoot,
+					) ||
+					shouldSkipScrapeUrl(normalized)
+				) {
+					return;
+				}
+				if (!discovered.has(normalized)) {
+					discovered.set(
+						normalized,
+						this.classifyDiscoveredUrl(
+							normalized,
+						),
+					);
+				}
+			});
+
+			return Array.from(discovered.values());
+		} catch {
+			return [
+				this.classifyDiscoveredUrl(sourceRoot),
+			];
+		}
+	}
+
+	private prioritizeDiscoveredPages(
+		pages: DiscoveredPage[],
+	): DiscoveredPage[] {
+		return [...pages].sort((left, right) => {
+			if (right.priority !== left.priority) {
+				return right.priority - left.priority;
+			}
+			return left.url.localeCompare(right.url);
+		});
+	}
+
+	private async discoverSiteInventory(
+		sourceRoot: string,
+	): Promise<SiteDiscoveryResult> {
+		const sitemapPages =
+			await this.discoverSitemapUrls(sourceRoot);
+		const htmlInventory =
+			await this.discoverHtmlInventory(sourceRoot);
+		const discovered = new Map<
+			string,
+			DiscoveredPage
+		>();
+
+		discovered.set(
+			sourceRoot,
+			this.classifyDiscoveredUrl(sourceRoot),
+		);
+		for (const url of sitemapPages) {
+			discovered.set(
+				url,
+				this.classifyDiscoveredUrl(url),
+			);
+		}
+		for (const page of htmlInventory) {
+			if (!discovered.has(page.url)) {
+				discovered.set(page.url, page);
+			}
+		}
+
+		const discoveredPages =
+			this.prioritizeDiscoveredPages(
+				Array.from(discovered.values()),
+			);
+		return {
+			pages: discoveredPages,
+			discoveredCount:
+				discoveredPages.length,
+			usedSitemap: sitemapPages.length > 0,
+		};
+	}
+
 	private async builtInCrawl(
 		startURL: string,
 		maxPages: number,
 		maxDepth: number,
+		discovery: SiteDiscoveryResult,
 		onProgress?: (
 			scraped: number,
 			total: number,
 		) => Promise<void> | void,
 	): Promise<ScrapedPage[]> {
 		const visited = new Set<string>();
-		const enqueued = new Set<string>([startURL]);
+		const enqueued = new Set<string>();
 		const queue: Array<{
 			url: string;
 			depth: number;
-		}> = [{ url: startURL, depth: 0 }];
+			priority: number;
+		}> = [];
 		const pages: ScrapedPage[] = [];
 		const robotsRules =
 			await this.readRobotsRules(startURL);
-		const sitemapUrls =
-			await this.discoverSitemapUrls(startURL);
+		const seedPages =
+			discovery.pages.length > 0
+				? discovery.pages
+				: [this.classifyDiscoveredUrl(startURL)];
 
-		for (const url of sitemapUrls) {
-			if (!enqueued.has(url)) {
-				queue.push({ url, depth: 0 });
-				enqueued.add(url);
+		for (const page of seedPages) {
+			if (enqueued.has(page.url)) {
+				continue;
 			}
+			queue.push({
+				url: page.url,
+				depth: 0,
+				priority: page.priority,
+			});
+			enqueued.add(page.url);
 		}
 
 		while (
 			queue.length > 0 &&
 			pages.length < maxPages
 		) {
+			queue.sort((left, right) => {
+				if (right.priority !== left.priority) {
+					return right.priority - left.priority;
+				}
+				if (left.depth !== right.depth) {
+					return left.depth - right.depth;
+				}
+				return left.url.localeCompare(right.url);
+			});
 			const batch: Array<{
 				url: string;
 				depth: number;
+				priority: number;
 			}> = [];
 			while (
 				queue.length > 0 &&
@@ -665,7 +865,7 @@ class ScraperService {
 			}
 
 			const results = await Promise.allSettled(
-				batch.map(async ({ url, depth }) => {
+				batch.map(async ({ url, depth, priority }) => {
 					if (
 						depth > maxDepth ||
 						shouldSkipScrapeUrl(url) ||
@@ -702,6 +902,7 @@ class ScraperService {
 					return {
 						page,
 						depth,
+						priority,
 					};
 				}),
 			);
@@ -721,7 +922,14 @@ class ScraperService {
 				pages.push(result.value.page);
 				await onProgress?.(
 					pages.length,
-					Math.max(maxPages, queue.length),
+					Math.max(
+						1,
+						Math.min(
+							maxPages,
+							discovery.discoveredCount ||
+								maxPages,
+						),
+					),
 				);
 
 				if (result.value.depth >= maxDepth) {
@@ -750,9 +958,12 @@ class ScraperService {
 					) {
 						continue;
 					}
+					const discovered =
+						this.classifyDiscoveredUrl(link);
 					queue.push({
 						url: link,
 						depth: result.value.depth + 1,
+						priority: discovered.priority,
 					});
 					enqueued.add(link);
 				}
@@ -767,23 +978,89 @@ class ScraperService {
 		sourceRoot: string,
 		pages: ScrapedPage[],
 		reportProgress?: CrawlOptions["onProgress"],
-	): Promise<void> {
+	): Promise<{
+		storedPages: number;
+		failedUrls: string[];
+	}> {
+		const prioritizedPages = [...pages].sort(
+			(left, right) => {
+				const rightPriority =
+					typeof right.metadata?.pagePriority ===
+					"number"
+						? right.metadata.pagePriority
+						: scorePagePriority(
+								detectScrapedPageType(
+									right.url,
+									right.title,
+									String(
+										right.metadata
+											?.description ?? "",
+									),
+									right.content,
+									Array.isArray(
+										right.metadata
+											?.contentBlocks,
+									)
+										? right.metadata
+												.contentBlocks
+										: [],
+								),
+								right.url,
+						  );
+				const leftPriority =
+					typeof left.metadata?.pagePriority ===
+					"number"
+						? left.metadata.pagePriority
+						: scorePagePriority(
+								detectScrapedPageType(
+									left.url,
+									left.title,
+									String(
+										left.metadata
+											?.description ?? "",
+									),
+									left.content,
+									Array.isArray(
+										left.metadata
+											?.contentBlocks,
+									)
+										? left.metadata
+												.contentBlocks
+										: [],
+								),
+								left.url,
+						  );
+				if (rightPriority !== leftPriority) {
+					return rightPriority - leftPriority;
+				}
+				return left.url.localeCompare(right.url);
+			},
+		);
 		const rootPage =
-			pages.find((page) => page.url === sourceRoot) ??
-			pages[0];
+			prioritizedPages.find(
+				(page) => page.url === sourceRoot,
+			) ?? prioritizedPages[0];
 		const sourceRootTitle =
 			rootPage?.title || sourceRoot;
 		let indexedPages = 0;
+		const failedUrls: string[] = [];
 		const batchSize = Math.max(
 			1,
 			config.SCRAPER_BATCH_PAGE_SIZE,
 		);
 
-		for (let i = 0; i < pages.length; i += batchSize) {
-			const batch = pages.slice(i, i + batchSize);
-			await Promise.all(
-				batch.map((page) =>
-					pineconeService.upsertDocument(
+		for (
+			let i = 0;
+			i < prioritizedPages.length;
+			i += batchSize
+		) {
+			const batch = prioritizedPages.slice(
+				i,
+				i + batchSize,
+			);
+			const results = await Promise.allSettled(
+				batch.map(async (page) => {
+					await pineconeService.upsertDocument(
 						userId,
 						page.url,
 						page.title,
@@ -795,20 +1072,51 @@ class ScraperService {
 							sourceKey: sourceRoot,
 							sourceType: "website",
 						},
-					),
-				),
+					);
+					return page.url;
+				}),
 			);
 
-			indexedPages += batch.length;
+			for (let batchIndex = 0; batchIndex < results.length; batchIndex += 1) {
+				const result = results[batchIndex];
+				if (result.status === "fulfilled") {
+					indexedPages += 1;
+					continue;
+				}
+
+				const failedUrl =
+					batch[batchIndex]?.url ?? sourceRoot;
+				failedUrls.push(failedUrl);
+				logger.error(
+					"[Scraper] Failed to index page",
+					{
+						userId,
+						sourceRoot,
+						url: failedUrl,
+						error:
+							result.reason instanceof Error
+								? result.reason.message
+								: String(
+										result.reason,
+								  ),
+					},
+				);
+			}
+
 			await reportProgress?.({
-				totalPages: pages.length,
-				scrapedPages: pages.length,
+				totalPages: prioritizedPages.length,
+				scrapedPages: prioritizedPages.length,
 				storedPages: indexedPages,
 				currentUrl:
 					batch[batch.length - 1]?.url ??
 					sourceRoot,
 			});
 		}
+
+		return {
+			storedPages: indexedPages,
+			failedUrls,
+		};
 	}
 
 	async scrapeWebsite(
@@ -816,6 +1124,7 @@ class ScraperService {
 		url: string,
 		options: CrawlOptions = {},
 	): Promise<ScrapeResult> {
+		await this.assertUserExists(userId);
 		const sourceRoot = await normalizeScrapeUrl(url);
 		const maxDepth = Math.max(
 			0,
@@ -827,6 +1136,15 @@ class ScraperService {
 		);
 		const reportProgress = options.onProgress;
 		let firstFailureReason: string | null = null;
+		const discovery =
+			await this.discoverSiteInventory(sourceRoot);
+		const plannedPages = Math.max(
+			1,
+			Math.min(
+				maxPages,
+				discovery.discoveredCount || maxPages,
+			),
+		);
 
 		logger.info(
 			"[Scraper] Starting source pipeline",
@@ -834,6 +1152,12 @@ class ScraperService {
 				sourceRoot,
 				userId,
 				maxPages,
+				discoveredCount:
+					discovery.discoveredCount,
+				usedSitemap: discovery.usedSitemap,
+				preferredCrawler: firecrawlService.isAvailable
+					? "firecrawl"
+					: "builtin",
 			},
 		);
 
@@ -844,7 +1168,7 @@ class ScraperService {
 		);
 
 		await reportProgress?.({
-			totalPages: maxPages,
+			totalPages: plannedPages,
 			scrapedPages: 0,
 			storedPages: 0,
 			currentUrl: sourceRoot,
@@ -853,6 +1177,7 @@ class ScraperService {
 		let pages: ScrapedPage[] = [];
 		let usedFirecrawl = false;
 
+		// Always try Firecrawl first (handles JS-rendered pages, cleaner markdown)
 		if (firecrawlService.isAvailable) {
 			try {
 				pages = await firecrawlService.crawlWebsite(
@@ -861,12 +1186,18 @@ class ScraperService {
 					maxDepth,
 					async (done, total) => {
 						await reportProgress?.({
-							totalPages: Math.max(total, done, 1),
+							totalPages: Math.max(
+								plannedPages,
+								total,
+								done,
+								1,
+							),
 							scrapedPages: done,
 							storedPages: 0,
 							currentUrl: sourceRoot,
 						});
 					},
+					discovery.pages.map((page) => page.url),
 				);
 				usedFirecrawl = pages.length > 0;
 			} catch (error) {
@@ -875,7 +1206,7 @@ class ScraperService {
 						? error.message
 						: String(error);
 				logger.warn(
-					"[Scraper] Firecrawl crawl failed; using built-in crawler",
+					"[Scraper] Firecrawl crawl failed; falling back to built-in crawler",
 					{
 						sourceRoot,
 						error: firstFailureReason,
@@ -884,15 +1215,22 @@ class ScraperService {
 			}
 		}
 
+		// Fall back to built-in crawler only if Firecrawl is unavailable or failed
 		if (!usedFirecrawl) {
 			try {
 				pages = await this.builtInCrawl(
 					sourceRoot,
 					maxPages,
 					maxDepth,
+					discovery,
 					async (scraped, total) => {
 						await reportProgress?.({
-							totalPages: Math.max(total, scraped, 1),
+							totalPages: Math.max(
+								plannedPages,
+								total,
+								scraped,
+								1,
+							),
 							scrapedPages: scraped,
 							storedPages: 0,
 							currentUrl: sourceRoot,
@@ -916,9 +1254,36 @@ class ScraperService {
 
 		pages = Array.from(
 			new Map(
-				pages.map((page) => [page.url, page]),
+				pages.map((page) => [
+					page.url,
+					enrichScrapedPage({
+						...page,
+						metadata: {
+							...(page.metadata ?? {}),
+							discoveredPageCount:
+								discovery.discoveredCount,
+						},
+					}),
+				]),
 			).values(),
-		).slice(0, maxPages);
+		)
+			.sort((left, right) => {
+				const rightPriority =
+					typeof right.metadata?.pagePriority ===
+					"number"
+						? right.metadata.pagePriority
+						: 0;
+				const leftPriority =
+					typeof left.metadata?.pagePriority ===
+					"number"
+						? left.metadata.pagePriority
+						: 0;
+				if (rightPriority !== leftPriority) {
+					return rightPriority - leftPriority;
+				}
+				return left.url.localeCompare(right.url);
+			})
+			.slice(0, maxPages);
 
 		if (pages.length === 0) {
 			return {
@@ -935,22 +1300,52 @@ class ScraperService {
 			};
 		}
 
-		await this.indexPagesInBatches(
+		const indexingResult =
+			await this.indexPagesInBatches(
 			userId,
 			sourceRoot,
 			pages,
 			reportProgress,
 		);
+		const storedPages =
+			indexingResult.storedPages;
+		const failedUrls =
+			indexingResult.failedUrls;
+		if (storedPages === 0) {
+			return {
+				success: false,
+				message:
+					"Scraping completed, but no pages could be indexed successfully",
+				pagesScraped: pages.length,
+				visitedPages: pages.length,
+				storedPages: 0,
+				pages,
+				failureReason:
+					failedUrls.length > 0
+						? `Indexing failed for ${failedUrls.length} page(s)`
+						: "No pages were indexed",
+				failedUrls,
+			};
+		}
 
-		const summary = usedFirecrawl
-			? `Successfully scraped ${pages.length} page(s) via Firecrawl`
-			: `Successfully scraped ${pages.length} page(s) via built-in crawler`;
+		const summary =
+			failedUrls.length > 0
+				? usedFirecrawl
+					? `Scraped ${pages.length} page(s) via Firecrawl and indexed ${storedPages}; ${failedUrls.length} page(s) failed during indexing`
+					: `Scraped ${pages.length} page(s) via built-in crawler and indexed ${storedPages}; ${failedUrls.length} page(s) failed during indexing`
+				: usedFirecrawl
+					? `Successfully scraped and indexed ${storedPages} page(s) via Firecrawl`
+					: `Successfully scraped and indexed ${storedPages} page(s) via built-in crawler`;
 
 		logger.info("[Scraper] Source pipeline completed", {
 			sourceRoot,
 			userId,
 			pages: pages.length,
+			storedPages,
+			failedPages: failedUrls.length,
 			usedFirecrawl,
+			discoveredCount:
+				discovery.discoveredCount,
 		});
 
 		return {
@@ -958,8 +1353,12 @@ class ScraperService {
 			message: summary,
 			pagesScraped: pages.length,
 			visitedPages: pages.length,
-			storedPages: pages.length,
+			storedPages,
 			pages,
+			failedUrls:
+				failedUrls.length > 0
+					? failedUrls
+					: undefined,
 		};
 	}
 }

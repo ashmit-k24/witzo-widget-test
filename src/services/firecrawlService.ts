@@ -10,6 +10,13 @@ import {
 	isUrlUnderSourceRoot,
 	normalizeDiscoveredUrl,
 } from "../utils/scrapeUrl";
+import {
+	detectScrapedPageType,
+	enrichScrapedPage,
+	hasContactSignals,
+	normalizeScrapedText,
+	scorePagePriority,
+} from "../utils/scrapeAnalysis";
 
 const FIRECRAWL_MIN_CONTENT_LENGTH = 100;
 
@@ -40,10 +47,162 @@ class FirecrawlService {
 		return this.client !== null;
 	}
 
-	private hasContactSignals(text: string): boolean {
-		return /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\+?\d[\d\s().-]{6,}|\b(address|phone|email|office|contact|call|reach us|get in touch)\b/i.test(
-			text,
+	private prioritizeUrls(urls: string[]): string[] {
+		return Array.from(new Set(urls)).sort(
+			(left, right) => {
+				const rightPriority =
+					scorePagePriority(
+						detectScrapedPageType(right, ""),
+						right,
+					);
+				const leftPriority =
+					scorePagePriority(
+						detectScrapedPageType(left, ""),
+						left,
+					);
+				if (rightPriority !== leftPriority) {
+					return rightPriority - leftPriority;
+				}
+				return left.localeCompare(right);
+			},
 		);
+	}
+
+	private async mapWebsiteUrls(
+		url: string,
+		maxPages: number,
+	): Promise<string[]> {
+		if (!this.client) {
+			return [];
+		}
+
+		try {
+			const mapped = await this.client.map(url, {
+				sitemap: "include",
+				ignoreQueryParameters: true,
+				includeSubdomains: false,
+				limit: Math.max(maxPages * 3, maxPages),
+				timeout: Math.min(
+					config.FIRECRAWL_TIMEOUT_MS,
+					120000,
+				),
+			});
+
+			return this.prioritizeUrls(
+				(mapped.links ?? [])
+					.map((link) =>
+						normalizeDiscoveredUrl(
+							typeof link?.url === "string"
+								? link.url
+								: "",
+							url,
+						),
+					)
+					.filter(
+						(candidate): candidate is string =>
+							typeof candidate === "string" &&
+							isUrlUnderSourceRoot(
+								candidate,
+								url,
+							),
+					),
+			);
+		} catch (error) {
+			logger.warn("[Firecrawl] Map failed", {
+				url,
+				error:
+					error instanceof Error
+						? error.message
+						: String(error),
+			});
+			return [];
+		}
+	}
+
+	private async batchScrapeWebsite(
+		sourceRoot: string,
+		urls: string[],
+		onProgress?: (
+			done: number,
+			total: number,
+		) => Promise<void> | void,
+	): Promise<ScrapedPage[]> {
+		if (!this.client || urls.length === 0) {
+			return [];
+		}
+
+		const batchJob =
+			await this.client.startBatchScrape(urls, {
+				options: {
+					formats: ["markdown", "links"],
+					onlyMainContent: true,
+					timeout: config.FIRECRAWL_TIMEOUT_MS,
+				},
+				ignoreInvalidURLs: true,
+				maxConcurrency: Math.min(25, urls.length),
+			});
+
+		if (!batchJob?.id) {
+			throw new Error(
+				"Firecrawl batch scrape did not return a job id",
+			);
+		}
+
+		const deadline =
+			Date.now() + config.FIRECRAWL_TIMEOUT_MS;
+		const pagesByUrl = new Map<string, ScrapedPage>();
+
+		while (Date.now() < deadline) {
+			const status =
+				await this.client.getBatchScrapeStatus(
+					batchJob.id,
+				);
+			await onProgress?.(
+				status.completed ?? pagesByUrl.size,
+				status.total ?? urls.length,
+			);
+
+			for (const document of status.data ?? []) {
+				const page = this.documentToScrapedPage(
+					document,
+					sourceRoot,
+				);
+				if (!page) {
+					continue;
+				}
+				pagesByUrl.set(page.url, page);
+			}
+
+			if (status.status === "completed") {
+				return Array.from(
+					pagesByUrl.values(),
+				);
+			}
+
+			if (
+				status.status === "failed" ||
+				status.status === "cancelled"
+			) {
+				throw new Error(
+					`Firecrawl batch scrape ended with status ${status.status}`,
+				);
+			}
+
+			await new Promise((resolve) =>
+				setTimeout(
+					resolve,
+					config.FIRECRAWL_POLL_INTERVAL_MS,
+				),
+			);
+		}
+
+		throw new Error(
+			`Firecrawl batch scrape timed out after ${config.FIRECRAWL_TIMEOUT_MS} ms`,
+		);
+	}
+
+	private hasContactSignals(text: string): boolean {
+		return hasContactSignals(text);
 	}
 
 	private detectBlockType(
@@ -158,12 +317,18 @@ class FirecrawlService {
 						.join(" ")
 						.replace(/\s+/g, " ")
 						.trim();
+			const normalizedText =
+				normalizeScrapedText(text);
 
-			if (!text || text.length < 30) {
+			if (
+				!normalizedText ||
+				normalizedText.length < 30
+			) {
 				continue;
 			}
 
-			const normalizedKey = text.toLowerCase();
+			const normalizedKey =
+				normalizedText.toLowerCase();
 			if (seenText.has(normalizedKey)) {
 				continue;
 			}
@@ -176,9 +341,9 @@ class FirecrawlService {
 				sectionPath[sectionPath.length - 1];
 
 			blocks.push({
-				text,
+				text: normalizedText,
 				blockType: this.detectBlockType(
-					text,
+					normalizedText,
 					isList,
 					sectionTitle,
 				),
@@ -233,6 +398,20 @@ class FirecrawlService {
 			title,
 			description,
 		);
+		const content = (
+			contentBlocks
+				.map((block) =>
+					block.sectionTitle &&
+					!block.text
+						.toLowerCase()
+						.startsWith(
+							block.sectionTitle.toLowerCase(),
+						)
+						? `${block.sectionTitle}: ${block.text}`
+						: block.text,
+				)
+				.join("\n\n") || markdown
+		).trim();
 		const links: string[] = [];
 		if (Array.isArray(document?.links)) {
 			for (const rawLink of document.links as unknown[]) {
@@ -256,10 +435,10 @@ class FirecrawlService {
 			}
 		}
 
-		return {
+		return enrichScrapedPage({
 			url: normalizedUrl,
 			title,
-			content: markdown,
+			content,
 			links: [...new Set(links)],
 			metadata: {
 				description,
@@ -267,7 +446,7 @@ class FirecrawlService {
 				contentBlocks,
 				scrapedVia: "firecrawl",
 			},
-		};
+		});
 	}
 
 	async crawlWebsite(
@@ -278,9 +457,59 @@ class FirecrawlService {
 			done: number,
 			total: number,
 		) => Promise<void> | void,
+		seedUrls: string[] = [],
 	): Promise<ScrapedPage[]> {
 		if (!this.client) {
 			return [];
+		}
+
+		const mappedUrls =
+			await this.mapWebsiteUrls(url, maxPages);
+		const prioritizedUrls =
+			this.prioritizeUrls([
+				url,
+				...seedUrls,
+				...mappedUrls,
+			]).slice(0, maxPages);
+
+		if (prioritizedUrls.length > 1) {
+			try {
+				logger.info(
+					"[Firecrawl] Starting map + batch scrape",
+					{
+						url,
+						discoveredUrls:
+							prioritizedUrls.length,
+					},
+				);
+				const pages =
+					await this.batchScrapeWebsite(
+						url,
+						prioritizedUrls,
+						onProgress,
+					);
+				if (pages.length > 0) {
+					logger.info(
+						"[Firecrawl] Batch scrape completed",
+						{
+							url,
+							pages: pages.length,
+						},
+					);
+					return pages.slice(0, maxPages);
+				}
+			} catch (error) {
+				logger.warn(
+					"[Firecrawl] Batch scrape failed; falling back to crawl",
+					{
+						url,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			}
 		}
 
 		logger.info("[Firecrawl] Starting site crawl", {

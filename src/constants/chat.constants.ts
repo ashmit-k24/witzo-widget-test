@@ -2,9 +2,13 @@ export const CHAT_RETRIEVAL_CACHE_TTL_SECONDS = 300; // 5 min (was 2 min)
 export const CHAT_DEFAULT_TIMEOUT_MS = 25_000;
 export const CHAT_SESSION_CACHE_TTL_SECONDS = 60 * 30;
 
-// Retrieval quality
-export const CHAT_RETRIEVAL_SCORE_THRESHOLD = 0.40; // filter out chunks below this cosine score
-export const CHAT_CONTACT_SCORE_THRESHOLD = 0.25;   // lower bar for contact/location queries — offices often score low
+// Retrieval quality — Pinecone cosine scores (used only when Cohere reranking is disabled)
+export const CHAT_RETRIEVAL_SCORE_THRESHOLD = 0.40;
+export const CHAT_CONTACT_SCORE_THRESHOLD = 0.25;
+
+// Post-rerank thresholds — applied to Cohere cross-encoder scores (0.001–0.11 range)
+export const COHERE_SCORE_THRESHOLD = 0.03;
+export const COHERE_CONTACT_SCORE_THRESHOLD = 0.01;
 
 // Hybrid Pinecone search — top K fetch count
 export const CHAT_RETRIEVAL_TOP_K = 50;
