@@ -255,21 +255,25 @@ export class WitzoChatWidget extends HTMLElement {
         }
         this.successfulChatCount = session.incrementChatCount(this.successfulChatCount);
         this.appendBotReply(typingEl, result.assembled);
+        msg.appendSources(typingEl, result.donePayload?.sources);
         return;
       }
 
       // — JSON path —
       const rawText = await response.text();
       let content   = "Sorry, didn't get that.";
+      let jsonSources = [];
 
       if (response.ok) {
         try {
           const result = JSON.parse(rawText);
           content = result.response || result.output || result.message || content;
           if (result.sessionId) this._updateSession(result.sessionId);
+          if (Array.isArray(result.sources)) jsonSources = result.sources;
         } catch (_) {}
         this.successfulChatCount = session.incrementChatCount(this.successfulChatCount);
         this.appendBotReply(typingEl, content);
+        msg.appendSources(typingEl, jsonSources);
         return;
       }
 

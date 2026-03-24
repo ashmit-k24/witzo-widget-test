@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -12,6 +12,40 @@
 		if (/^(https?|mailto|tel):/i.test(url))
 			return url;
 		return "";
+	}
+	function appendSources(wrapper, sources) {
+		if (!Array.isArray(sources) || sources.length === 0) return;
+		const seen = new Set();
+		const unique = [];
+		for (const s of sources) {
+			const url = sanitizeURL(String(s.url || '').trim());
+			if (!url || seen.has(url)) continue;
+			seen.add(url);
+			unique.push({ url, title: String(s.title || url).trim() || url });
+			if (unique.length >= 5) break;
+		}
+		if (unique.length === 0) return;
+		const block = document.createElement('div');
+		block.style.cssText = 'margin-top:5px;padding:5px 10px;font-size:11px;line-height:1.7;opacity:0.65;border-top:1px solid rgba(128,128,128,0.2);';
+		const label = document.createElement('span');
+		label.textContent = 'Sources: ';
+		label.style.fontWeight = '600';
+		block.appendChild(label);
+		unique.forEach((s, i) => {
+			if (i > 0) {
+				const sep = document.createElement('span');
+				sep.textContent = '  ·  ';
+				block.appendChild(sep);
+			}
+			const a = document.createElement('a');
+			a.href = s.url;
+			a.target = '_blank';
+			a.rel = 'noopener noreferrer';
+			a.textContent = s.title;
+			a.style.cssText = 'color:inherit;text-decoration:underline;text-underline-offset:2px;word-break:break-all;';
+			block.appendChild(a);
+		});
+		wrapper.appendChild(block);
 	}
 
 	// Helper: Sanitize HTML (simple version)
@@ -92,7 +126,7 @@
 				introHelpOptionTwoText:
 					"Explore AI features",
 				introHelpOptionTwoUrl: "",
-				introTitle: "👋Good to see you!",
+				introTitle: "ðŸ‘‹Good to see you!",
 				introMessage:
 					"We're ready to help. Ask anything, from quick questions to complex topics.",
 				introPrimaryButtonText: "Let's Chat!",
@@ -482,7 +516,7 @@
 			if (type === "full") {
 				return `
           <button class="floating-launcher floating-launcher-full hidden" id="floating-btn" aria-label="Open chat">
-            <span class="floating-full-message">Hey there! 😊 What brings you here today?</span>
+            <span class="floating-full-message">Hey there! ðŸ˜Š What brings you here today?</span>
             <span class="floating-full-row">
               ${iconMarkup}
               <span class="floating-full-cta">Let&apos;s Chat</span>
@@ -1720,7 +1754,7 @@
 			object-fit: contain;
 		  }
 
-          /* Flip animation: chat icon (front face) ↔ close icon (back face) */
+          /* Flip animation: chat icon (front face) â†” close icon (back face) */
           .floating-icon-chat,
           .floating-icon-close {
             position: absolute;
@@ -1937,13 +1971,42 @@
             /* Markdown Styles inside bubbles */
 
 			.md-content {
-				line-height: 22.75px;
+				line-height: 1.6;
+				word-break: break-word;
 			}
 			.md-content strong {
 				font-weight: 600;
 			}
+            .md-content h2,
+            .md-content h3,
+            .md-content h4 {
+              margin: 0 0 0.55rem 0;
+              color: #0f172a;
+              line-height: 1.35;
+              font-weight: 700;
+            }
+            .md-content h2 { font-size: 1rem; }
+            .md-content h3 { font-size: 0.94rem; }
+            .md-content h4 { font-size: 0.9rem; }
             .md-content p { margin: 0; }
-            .md-content ul, .md-content ol { padding-left: 20px; margin: 5px 0; }
+            .md-content p + p,
+            .md-content p + ul,
+            .md-content p + ol,
+            .md-content h2 + p,
+            .md-content h2 + ul,
+            .md-content h3 + p,
+            .md-content h3 + ul,
+            .md-content h4 + p,
+            .md-content h4 + ul,
+            .md-content h4 + ol,
+            .md-content ul + h2,
+            .md-content ul + h3,
+            .md-content ul + h4,
+            .md-content ol + h2,
+            .md-content ol + h3,
+            .md-content ol + h4 { margin-top: 0.55rem; }
+            .md-content ul, .md-content ol { padding-left: 20px; margin: 0.35rem 0; }
+            .md-content li { margin: 0.22rem 0; }
             .md-content a { color: #007bff; text-decoration: none; }
             .md-content a:hover { text-decoration: underline; }
 
@@ -2264,7 +2327,7 @@
 							<span class="online-status-dot"></span>
 						</div>
 						<div class="intro-message-card">
-              		  		<strong id="introTitle">${sanitizeHTML(this.config.introTitle || "👋Good to see you!")}</strong><br/>
+              		  		<strong id="introTitle">${sanitizeHTML(this.config.introTitle || "ðŸ‘‹Good to see you!")}</strong><br/>
               		  		<span id="introMessage">${sanitizeHTML(this.config.introMessage || "We're ready to help. Ask anything, from quick questions to complex topics.")}</span>
 							
               			</div>
@@ -2321,7 +2384,7 @@
                 <!-- Messages will be appended here -->
             </div>
 
-            <!-- Contact Form (basic plan — shown when conversation limit hit) -->
+            <!-- Contact Form (basic plan â€” shown when conversation limit hit) -->
             <div id="contactFormSlot" class="contact-form hidden">
               <h3>Get in Touch</h3>
               <p>Our team will respond as soon as possible.</p>
@@ -3255,6 +3318,7 @@
 							this.ratingSubmitted =
 								this.getRatingSubmittedState();
 						}
+						if (Array.isArray(result.sources)) this._jsonSources = result.sources;
 					} catch (e) {
 						console.error("JSON Error", e);
 					}
@@ -3267,6 +3331,8 @@
 						typingWrapper,
 						content,
 					);
+					appendSources(typingWrapper, this._jsonSources || []);
+					this._jsonSources = null;
 					return;
 				} else {
 					try {
@@ -3340,7 +3406,7 @@
 					: "chat-bubble-ai";
 
 			// Render content
-			bubble.innerHTML = `<div class="md-content"><p>${this.parseMarkdown(text)}</p></div>`;
+			bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
 
 			wrapper.appendChild(bubble);
 
@@ -3422,7 +3488,7 @@
 				bubble.classList.remove(
 					"typing-indicator",
 				);
-				bubble.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content"><p class="streaming-text"></p></div></div>`;
+				bubble.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content streaming-text"></div></div>`;
 				streamingTextNode = bubble.querySelector(
 					".streaming-text",
 				);
@@ -3633,6 +3699,7 @@
 				typingWrapper,
 				assembled,
 			);
+			appendSources(typingWrapper, donePayload && donePayload.sources || []);
 			return { completed: true };
 		}
 
@@ -3819,7 +3886,7 @@
 					);
 				}
 			} catch (e) {
-				// Non-fatal — silently ignore
+				// Non-fatal â€” silently ignore
 			}
 		}
 
@@ -3918,7 +3985,7 @@
 				);
 				if (resp.ok) {
 					this.elements.contactFormSlot.innerHTML =
-						'<div class="contact-form-success">✓ Message sent! We\'ll be in touch soon.</div>';
+						'<div class="contact-form-success">âœ“ Message sent! We\'ll be in touch soon.</div>';
 				} else {
 					if (this.elements.cfSubmit) {
 						this.elements.cfSubmit.disabled = false;
@@ -3951,29 +4018,203 @@
 
 		parseMarkdown(text) {
 			if (!text) return "";
-			// Simple markdown parsing to match text-widget capabilities
-			let html = this.escapeHtml(String(text));
+			const formatInlineMarkdown = (value) => {
+				let html = this.escapeHtml(
+					String(value || ""),
+				);
 
-			// Bold **text**
-			html = html.replace(
-				/\*\*(.*?)\*\*/g,
-				"<strong>$1</strong>",
+				html = html.replace(
+					/\[([^\]]+)\]\(([^)]+)\)/g,
+					(match, label, url) => {
+						const safe = sanitizeURL(url);
+						return safe
+							? `<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`
+							: label;
+					},
+				);
+
+				html = html.replace(
+					/(^|\s)(https?:\/\/[^\s<>"\)\]]+)/g,
+					(match, before, url) => {
+						const stripped = url.replace(
+							/[.,;:!?]+$/,
+							"",
+						);
+						const trailing = url.slice(
+							stripped.length,
+						);
+						const safe = sanitizeURL(stripped);
+						return safe
+							? `${before}<a href="${safe}" target="_blank" rel="noopener noreferrer">${stripped}</a>${trailing}`
+							: `${before}${url}`;
+					},
+				);
+
+				return html.replace(
+					/\*\*(.+?)\*\*/g,
+					"<strong>$1</strong>",
+				);
+			};
+
+			const normalizeMarkdown = (value) => {
+				const inputLines = String(value || "")
+					.replace(/\r\n/g, "\n")
+					.split("\n");
+
+				return inputLines
+					.map((rawLine) => {
+						let line = rawLine
+							.replace(/\*{3,}/g, "**")
+							.replace(/\s+$/g, "");
+						const boldMarkers =
+							line.match(/\*\*/g) || [];
+						if (
+							boldMarkers.length % 2 !== 0
+						) {
+							const lastMarkerIndex =
+								line.lastIndexOf("**");
+							if (lastMarkerIndex >= 0) {
+								line =
+									line.slice(
+										0,
+										lastMarkerIndex,
+									) +
+									line.slice(
+										lastMarkerIndex + 2,
+									);
+							}
+						}
+						return line;
+					})
+					.join("\n");
+			};
+
+			const lines = normalizeMarkdown(text).split(
+				"\n",
 			);
+			const blocks = [];
+			const paragraphLines = [];
+			const listItems = [];
+			let currentListType = "";
 
-			// Links [text](url)
-			html = html.replace(
-				/\[([^\]]+)\]\(([^)]+)\)/g,
-				(match, txt, url) => {
-					return `<a href="${sanitizeURL(url)}" target="_blank" rel="noopener noreferrer">${txt}</a>`;
-				},
-			);
+			const flushParagraph = () => {
+				if (paragraphLines.length === 0) return;
+				blocks.push(
+					`<p>${paragraphLines
+						.map((line) =>
+							formatInlineMarkdown(line),
+						)
+						.join("<br>")}</p>`,
+				);
+				paragraphLines.length = 0;
+			};
 
-			// Newlines to br
-			html = html.replace(/\n/g, "<br>");
+			const flushList = () => {
+				if (
+					!currentListType ||
+					listItems.length === 0
+				) {
+					return;
+				}
+				blocks.push(
+					`<${currentListType}>${listItems
+						.map(
+							(item) =>
+								`<li>${formatInlineMarkdown(item)}</li>`,
+						)
+						.join("")}</${currentListType}>`,
+				);
+				listItems.length = 0;
+				currentListType = "";
+			};
 
-			return html;
+			const flushAll = () => {
+				flushParagraph();
+				flushList();
+			};
+
+			for (const rawLine of lines) {
+				const line = rawLine.trim();
+
+				if (!line) {
+					flushAll();
+					continue;
+				}
+
+				const headingMatch = line.match(
+					/^(#{2,4})\s+(.+)$/,
+				);
+				if (headingMatch) {
+					flushAll();
+					const level = Math.min(
+						4,
+						headingMatch[1].length,
+					);
+					blocks.push(
+						`<h${level}>${formatInlineMarkdown(
+							headingMatch[2],
+						)}</h${level}>`,
+					);
+					continue;
+				}
+
+				const strongHeadingMatch = line.match(
+					/^\*\*(.+?)\*\*:?\s*$/,
+				);
+				if (strongHeadingMatch) {
+					flushAll();
+					blocks.push(
+						`<h3>${formatInlineMarkdown(
+							strongHeadingMatch[1],
+						)}</h3>`,
+					);
+					continue;
+				}
+
+				const unorderedMatch = line.match(
+					/^[-*]\s+(.+)$/,
+				);
+				if (unorderedMatch) {
+					flushParagraph();
+					if (
+						currentListType &&
+						currentListType !== "ul"
+					) {
+						flushList();
+					}
+					currentListType = "ul";
+					listItems.push(
+						unorderedMatch[1],
+					);
+					continue;
+				}
+
+				const orderedMatch = line.match(
+					/^\d+\.\s+(.+)$/,
+				);
+				if (orderedMatch) {
+					flushParagraph();
+					if (
+						currentListType &&
+						currentListType !== "ol"
+					) {
+						flushList();
+					}
+					currentListType = "ol";
+					listItems.push(orderedMatch[1]);
+					continue;
+				}
+
+				if (currentListType) {
+					flushList();
+				}
+
+				paragraphLines.push(line);
+			}
+
+			flushAll();
+			return blocks.join("");
 		}
-
 		escapeHtml(text) {
 			return text.replace(
 				/[&<>"']/g,
@@ -4014,3 +4255,4 @@
 		);
 	}
 })();
+
