@@ -40,6 +40,31 @@ function firecrawlBaseURL(): string {
 	return (config.FIRECRAWL_API_URL ?? "https://api.firecrawl.dev").replace(/\/$/, "");
 }
 
+function resolveFirecrawlPaginationURL(nextURL: string): string {
+	const trimmedNextURL = nextURL.trim();
+	if (!trimmedNextURL) {
+		return "";
+	}
+
+	const baseURL = firecrawlBaseURL();
+
+	try {
+		const parsedNextURL = new URL(trimmedNextURL);
+		const parsedBaseURL = new URL(baseURL);
+
+		// Some self-hosted Firecrawl deployments return pagination links with
+		// localhost or another internal host. Keep the path/query, but force the
+		// request back through the configured Firecrawl base URL.
+		return `${parsedBaseURL.origin}${parsedNextURL.pathname}${parsedNextURL.search}`;
+	} catch {
+		if (trimmedNextURL.startsWith("/")) {
+			return baseURL + trimmedNextURL;
+		}
+
+		return `${baseURL}/${trimmedNextURL.replace(/^\/+/, "")}`;
+	}
+}
+
 async function firecrawlGet(endpoint: string): Promise<FirecrawlStatusResponse> {
 	const response = await axios.get<FirecrawlStatusResponse>(
 		firecrawlBaseURL() + endpoint,
@@ -77,14 +102,19 @@ async function collectPages(
 		if (!nextURL) break;
 
 		try {
-			const more = await axios.get<FirecrawlStatusResponse>(nextURL, {
+			const paginationURL = resolveFirecrawlPaginationURL(nextURL);
+			const more = await axios.get<FirecrawlStatusResponse>(paginationURL, {
 				headers: { Authorization: `Bearer ${config.FIRECRAWL_API_KEY}` },
 				timeout: 30000,
 			});
 			batch = more.data.data ?? [];
 			nextURL = more.data.next ?? "";
 		} catch (err) {
-			logger.warn("firecrawl: failed to fetch next pagination page", { nextURL, err });
+			logger.warn("firecrawl: failed to fetch next pagination page", {
+				nextURL,
+				resolvedNextURL: resolveFirecrawlPaginationURL(nextURL),
+				err,
+			});
 			break;
 		}
 	}
