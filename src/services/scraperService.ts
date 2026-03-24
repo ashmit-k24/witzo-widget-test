@@ -812,6 +812,12 @@ class ScraperService {
 		sourceUrl: string,
 		sourceTitle: string,
 		pages: ScrapedPage[],
+		reportProgress?: (progress: {
+			totalPages: number;
+			scrapedPages: number;
+			storedPages: number;
+			currentUrl?: string;
+		}) => Promise<void> | void,
 	): Promise<void> {
 		const startedAt = Date.now();
 		const chunks = this.buildRagChunks(
@@ -846,32 +852,61 @@ class ScraperService {
 			chunks: chunks.length,
 			durationMs: Date.now() - pineconeStartedAt,
 		});
+		await reportProgress?.({
+			totalPages: pages.length,
+			scrapedPages: pages.length,
+			storedPages: pages.length,
+			currentUrl: sourceUrl,
+		});
 		logger.info("scraper: background enrichment queued", {
 			userId,
 			sourceUrl,
 			pages: pages.length,
 			chunks: chunks.length,
 		});
-		upsertHypeAsync(userId, chunks, async (ownerId, hypeChunks) =>
-			pineconeService.upsertChunks(ownerId, hypeChunks, {
-				sourceRoot: sourceUrl,
-				sourceRootTitle:
-					sourceTitle ||
-					pages[0]?.title ||
+		const enrichmentStartedAt = Date.now();
+		const enrichmentResults = await Promise.allSettled([
+			upsertHypeAsync(userId, chunks, async (ownerId, hypeChunks) =>
+				pineconeService.upsertChunks(ownerId, hypeChunks, {
+					sourceRoot: sourceUrl,
+					sourceRootTitle:
+						sourceTitle ||
+						pages[0]?.title ||
+						sourceUrl,
+					scrapedAt: new Date().toISOString(),
+				}),
+			),
+			extractPageMetadataAsync(
+				pages,
+				chunks,
+				async (ownerId, vectorId, metadata) =>
+					pineconeService.updateVectorMetadata(
+						ownerId,
+						vectorId,
+						metadata,
+					),
+			),
+		]);
+		for (const [index, result] of enrichmentResults.entries()) {
+			if (result.status === "rejected") {
+				logger.warn("scraper: background enrichment task failed", {
+					userId,
 					sourceUrl,
-				scrapedAt: new Date().toISOString(),
-			}),
-		);
-		extractPageMetadataAsync(
-			pages,
-			chunks,
-			async (ownerId, vectorId, metadata) =>
-				pineconeService.updateVectorMetadata(
-					ownerId,
-					vectorId,
-					metadata,
-				),
-		);
+					task: index === 0 ? "hype" : "page_metadata",
+					error:
+						result.reason instanceof Error
+							? result.reason.message
+							: String(result.reason),
+				});
+			}
+		}
+		logger.info("scraper: background enrichment completed", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+			durationMs: Date.now() - enrichmentStartedAt,
+		});
 		logger.info("scraper: persistence pipeline finished", {
 			userId,
 			sourceUrl,
@@ -974,6 +1009,7 @@ class ScraperService {
 						rootUrl,
 						rootTitle,
 						firecrawlPages,
+						reportProgress,
 					);
 					await reportProgress?.({
 						totalPages: firecrawlPages.length,
@@ -1235,6 +1271,7 @@ class ScraperService {
 				rootUrl,
 				rootTitle,
 				scrapedPages,
+				reportProgress,
 			);
 			await reportProgress?.({
 				totalPages: Math.max(

@@ -55,68 +55,63 @@ function stableVectorIdForChunk(chunk: RagChunk): string {
 	return "pc_" + crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
 }
 
-// upsertAsync generates HyPE question vectors for rawChunks in the background and upserts to Pinecone.
-// Fire-and-forget — never throws.
-export function upsertAsync(
+// upsertAsync generates HyPE question vectors for rawChunks and upserts them to Pinecone.
+export async function upsertAsync(
 	userId: string,
 	rawChunks: RagChunk[],
 	upsertChunksFn: (userId: string, chunks: RagChunk[]) => Promise<void>,
-): void {
+): Promise<void> {
 	const n = config.HYPE_QUESTIONS_PER_CHUNK ?? 0;
 	if (n <= 0 || rawChunks.length === 0) return;
 
-	(async () => {
-		const startedAt = Date.now();
-		logger.info("hypeService: background generation started", {
-			userId,
-			sourceChunks: rawChunks.length,
-			questionsPerChunk: n,
-		});
-		const hypeChunks: RagChunk[] = [];
-		for (const chunk of rawChunks) {
-			const parentId = stableVectorIdForChunk(chunk);
-			const questions = await generateHypeQuestions(chunk.childText, n);
-			for (let qi = 0; qi < questions.length; qi++) {
-				hypeChunks.push({
-					userId: chunk.userId,
-					url: chunk.url,
-					pageTitle: chunk.pageTitle,
-					childText: questions[qi],
-					parentText: chunk.parentText,
-					chunkIndex: chunk.chunkIndex * 100 + qi + 1,
-					sourceType: chunk.sourceType,
-					sourceKey: chunk.sourceKey,
-					isHype: true,
-					hypeParent: parentId,
-					pageType: chunk.pageType,
-					clientName: chunk.clientName,
-					industry: chunk.industry,
-					services: chunk.services,
-				});
-			}
-		}
-		if (hypeChunks.length === 0) {
-			logger.info("hypeService: no HyPE questions generated", {
-				userId,
-				sourceChunks: rawChunks.length,
-				durationMs: Date.now() - startedAt,
+	const startedAt = Date.now();
+	logger.info("hypeService: background generation started", {
+		userId,
+		sourceChunks: rawChunks.length,
+		questionsPerChunk: n,
+	});
+	const hypeChunks: RagChunk[] = [];
+	for (const chunk of rawChunks) {
+		const parentId = stableVectorIdForChunk(chunk);
+		const questions = await generateHypeQuestions(chunk.childText, n);
+		for (let qi = 0; qi < questions.length; qi++) {
+			hypeChunks.push({
+				userId: chunk.userId,
+				url: chunk.url,
+				pageTitle: chunk.pageTitle,
+				childText: questions[qi],
+				parentText: chunk.parentText,
+				chunkIndex: chunk.chunkIndex * 100 + qi + 1,
+				sourceType: chunk.sourceType,
+				sourceKey: chunk.sourceKey,
+				isHype: true,
+				hypeParent: parentId,
+				pageType: chunk.pageType,
+				clientName: chunk.clientName,
+				industry: chunk.industry,
+				services: chunk.services,
 			});
-			return;
 		}
-		logger.info("hypeService: upserting generated HyPE chunks", {
+	}
+	if (hypeChunks.length === 0) {
+		logger.info("hypeService: no HyPE questions generated", {
 			userId,
 			sourceChunks: rawChunks.length,
-			hypeChunks: hypeChunks.length,
 			durationMs: Date.now() - startedAt,
 		});
-		await upsertChunksFn(userId, hypeChunks);
-		logger.info("hypeService: background generation completed", {
-			userId,
-			sourceChunks: rawChunks.length,
-			hypeChunks: hypeChunks.length,
-			durationMs: Date.now() - startedAt,
-		});
-	})().catch((err) => {
-		logger.warn("hypeService: async HyPE upsert failed", { userId, err });
+		return;
+	}
+	logger.info("hypeService: upserting generated HyPE chunks", {
+		userId,
+		sourceChunks: rawChunks.length,
+		hypeChunks: hypeChunks.length,
+		durationMs: Date.now() - startedAt,
+	});
+	await upsertChunksFn(userId, hypeChunks);
+	logger.info("hypeService: background generation completed", {
+		userId,
+		sourceChunks: rawChunks.length,
+		hypeChunks: hypeChunks.length,
+		durationMs: Date.now() - startedAt,
 	});
 }
