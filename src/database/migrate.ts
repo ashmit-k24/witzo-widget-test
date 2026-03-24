@@ -193,6 +193,12 @@ const migrations: Migration[] = [
 			"Add per-user knowledge boundary setting for widget/system prompt behavior",
 		file: "20260323_029_user_knowledge_boundary.sql",
 	},
+	{
+		id: "20260324_030_paddle_billing",
+		description:
+			"Replace Razorpay billing columns with Paddle equivalents (price IDs, subscription ID, customer ID)",
+		file: "20260324_030_paddle_billing.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

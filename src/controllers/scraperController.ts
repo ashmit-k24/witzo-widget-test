@@ -532,7 +532,7 @@ export const getAllSources = async (
 		);
 
 		const sources =
-			await pineconeService.getAllUserSources(
+			await pineconeService.getAllUserSourcesFromDB(
 				userId,
 			);
 		const latestJob =

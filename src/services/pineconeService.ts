@@ -1604,12 +1604,182 @@ class PineconeService {
 		}
 	}
 
+	async getAllUserSourcesFromDB(
+		userId: string,
+	): Promise<{
+		documents: Array<{
+			filename: string;
+			url: string;
+			fileType: string;
+			uploadedAt: string;
+			chunks: number;
+		}>;
+		websites: Array<{
+			rootUrl: string;
+			title: string;
+			totalChunks: number;
+			scrapedAt: string;
+			pages: Array<{
+				url: string;
+				title: string;
+				chunks: number;
+				scrapedAt: string;
+			}>;
+		}>;
+		totalChunks: number;
+	}> {
+		try {
+			const result = await pool.query<{
+				source_type: string;
+				source_root: string | null;
+				source_url: string;
+				title: string | null;
+				chunks: number;
+				scraped_at: Date;
+			}>(
+				`SELECT source_type, source_root, source_url, title, chunks, scraped_at
+				 FROM rag_source_pages
+				 WHERE user_id = $1
+				 ORDER BY scraped_at DESC`,
+				[userId],
+			);
+
+			const documentMap = new Map<
+				string,
+				{
+					filename: string;
+					url: string;
+					fileType: string;
+					uploadedAt: string;
+					chunks: number;
+				}
+			>();
+
+			const websiteMap = new Map<
+				string,
+				{
+					rootUrl: string;
+					title: string;
+					scrapedAt: string;
+					pagesMap: Map<
+						string,
+						{
+							url: string;
+							title: string;
+							chunks: number;
+							scrapedAt: string;
+						}
+					>;
+				}
+			>();
+
+			for (const row of result.rows) {
+				const scrapedAt =
+					row.scraped_at instanceof Date
+						? row.scraped_at.toISOString()
+						: new Date().toISOString();
+
+				if (row.source_type === "document") {
+					if (!documentMap.has(row.source_url)) {
+						documentMap.set(row.source_url, {
+							filename: row.source_url.replace(
+								"document://",
+								"",
+							),
+							url: row.source_url,
+							fileType: "unknown",
+							uploadedAt: scrapedAt,
+							chunks: row.chunks,
+						});
+					}
+				} else {
+					const rootUrl =
+						row.source_root || row.source_url;
+
+					if (!websiteMap.has(rootUrl)) {
+						websiteMap.set(rootUrl, {
+							rootUrl,
+							title: row.title || rootUrl,
+							scrapedAt,
+							pagesMap: new Map(),
+						});
+					}
+
+					const website =
+						websiteMap.get(rootUrl)!;
+					if (
+						!website.pagesMap.has(row.source_url)
+					) {
+						website.pagesMap.set(row.source_url, {
+							url: row.source_url,
+							title:
+								row.title || row.source_url,
+							chunks: row.chunks,
+							scrapedAt,
+						});
+					}
+				}
+			}
+
+			let totalChunks = 0;
+
+			const documents = Array.from(
+				documentMap.values(),
+			).sort(
+				(a, b) =>
+					new Date(b.uploadedAt).getTime() -
+					new Date(a.uploadedAt).getTime(),
+			);
+			for (const doc of documents) {
+				totalChunks += doc.chunks;
+			}
+
+			const websites = Array.from(
+				websiteMap.values(),
+			)
+				.map((website) => {
+					const pages = Array.from(
+						website.pagesMap.values(),
+					).sort(
+						(a, b) =>
+							new Date(a.scrapedAt).getTime() -
+							new Date(b.scrapedAt).getTime(),
+					);
+					const websiteChunks = pages.reduce(
+						(sum, p) => sum + p.chunks,
+						0,
+					);
+					totalChunks += websiteChunks;
+					return {
+						rootUrl: website.rootUrl,
+						title: website.title,
+						totalChunks: websiteChunks,
+						scrapedAt: website.scrapedAt,
+						pages,
+					};
+				})
+				.sort(
+					(a, b) =>
+						new Date(b.scrapedAt).getTime() -
+						new Date(a.scrapedAt).getTime(),
+				);
+
+			return { documents, websites, totalChunks };
+		} catch (error) {
+			logger.error(
+				"Error fetching user sources from DB",
+				{ error, userId },
+			);
+			throw error;
+		}
+	}
+
 	async getScrapedWebsiteCount(
 		userId: string,
 	): Promise<number> {
 		try {
 			const sources =
-				await this.getAllUserSources(userId);
+				await this.getAllUserSourcesFromDB(userId);
 			// Count total individual pages across all websites
 			return sources.websites.reduce(
 				(sum, w) => sum + w.pages.length,
@@ -1629,7 +1799,7 @@ class PineconeService {
 	): Promise<number> {
 		try {
 			const sources =
-				await this.getAllUserSources(userId);
+				await this.getAllUserSourcesFromDB(userId);
 			return sources.documents.length;
 		} catch (error) {
 			logger.error(

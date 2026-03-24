@@ -298,17 +298,24 @@ export const config: EnvConfig = {
 		"OPENAI_MODEL",
 		"text-embedding-3-small",
 	),
-	RAZORPAY_KEY_ID: getEnvString(
-		"RAZORPAY_KEY_ID",
+	PADDLE_API_KEY: getEnvString(
+		"PADDLE_API_KEY",
 		"",
 	),
-	RAZORPAY_KEY_SECRET: getEnvString(
-		"RAZORPAY_KEY_SECRET",
+	PADDLE_CLIENT_TOKEN: getEnvStringFromKeys(
+		[
+			"PADDLE_CLIENT_TOKEN",
+			"NEXT_PUBLIC_PADDLE_CLIENT_TOKEN",
+		],
 		"",
 	),
-	RAZORPAY_WEBHOOK_SECRET: getEnvString(
-		"RAZORPAY_WEBHOOK_SECRET",
+	PADDLE_WEBHOOK_SECRET: getEnvString(
+		"PADDLE_WEBHOOK_SECRET",
 		"",
+	),
+	PADDLE_ENVIRONMENT: getEnvString(
+		"PADDLE_ENVIRONMENT",
+		"sandbox",
 	),
 	LLM_PROMPT_COST_PER_1K_USD: getEnvNumber(
 		"LLM_PROMPT_COST_PER_1K_USD",

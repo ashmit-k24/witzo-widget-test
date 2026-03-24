@@ -37,23 +37,15 @@ const toUpsertPayload = (
 				: null,
 		monthlyPrice: Number(body.monthlyPrice ?? 0),
 		yearlyPrice: Number(body.yearlyPrice ?? 0),
-		razorpayMonthlyPlanId:
-			typeof body.razorpayMonthlyPlanId ===
-			"string"
-				? body.razorpayMonthlyPlanId.trim()
+		paddleMonthlyPriceId:
+			typeof body.paddleMonthlyPriceId === "string"
+				? body.paddleMonthlyPriceId.trim()
 				: null,
-		razorpayYearlyPlanId:
-			typeof body.razorpayYearlyPlanId ===
-			"string"
-				? body.razorpayYearlyPlanId.trim()
+		paddleYearlyPriceId:
+			typeof body.paddleYearlyPriceId === "string"
+				? body.paddleYearlyPriceId.trim()
 				: null,
 		features: parseFeatures(body.features),
-		websitePagesLimit:
-			body.websitePagesLimit === "" ||
-			body.websitePagesLimit === null ||
-			body.websitePagesLimit === undefined
-				? null
-				: Number(body.websitePagesLimit),
 		isActive:
 			typeof body.isActive === "boolean"
 				? body.isActive

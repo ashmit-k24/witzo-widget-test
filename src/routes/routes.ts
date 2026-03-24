@@ -61,9 +61,14 @@ router.get(
 	subscriptionController.getPlans,
 );
 
+router.get(
+	"/subscription/paddle-runtime",
+	subscriptionController.getPaddleRuntimeConfig,
+);
+
 router.post(
-	"/razorpay/webhook",
-	subscriptionController.handleRazorpayWebhook,
+	"/paddle/webhook",
+	subscriptionController.handlePaddleWebhook,
 );
 
 /**
@@ -291,21 +296,12 @@ router.get(
 );
 
 router.post(
-	"/subscription/create",
+	"/subscription/checkout-info",
 	verifyCsrfToken,
 	authenticateToken,
 	validationRules.subscriptionCreate,
 	validate,
-	subscriptionController.createSubscription,
-);
-
-router.post(
-	"/payment/verify",
-	verifyCsrfToken,
-	authenticateToken,
-	validationRules.paymentVerify,
-	validate,
-	subscriptionController.verifyPayment,
+	subscriptionController.getCheckoutInfo,
 );
 
 router.post(

@@ -59,9 +59,9 @@ jobs:
         run: |
           # Create .env with no leading indentation so docker --env-file can parse it correctly.
           cat > $GITHUB_WORKSPACE/.env <<'EOF'
-          APP_NAME=${{ secrets.APP_NAME }}
           PORT=${{ secrets.PORT }}
           NODE_ENV=${{ secrets.NODE_ENV }}
+
           DB_HOST=${{ secrets.DB_HOST }}
           DB_PORT=${{ secrets.DB_PORT }}
           DB_NAME=${{ secrets.DB_NAME }}
@@ -75,24 +75,29 @@ jobs:
           EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}
           EMAIL_USER=${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_FROM=${{ secrets.EMAIL_FROM }}
           EMAIL_FROM_ADDRESS=${{ secrets.EMAIL_FROM_ADDRESS }}
+
           VERIFICATION_CODE_EXPIRY_MINUTES=${{ secrets.VERIFICATION_CODE_EXPIRY_MINUTES }}
           MAX_VERIFICATION_ATTEMPTS=${{ secrets.MAX_VERIFICATION_ATTEMPTS }}
           SESSION_EXPIRY_HOURS=${{ secrets.SESSION_EXPIRY_HOURS }}
+
           RATE_LIMIT_WINDOW_MS=${{ secrets.RATE_LIMIT_WINDOW_MS }}
           RATE_LIMIT_MAX_REQUESTS=${{ secrets.RATE_LIMIT_MAX_REQUESTS }}
+
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
           COOKIE_SECRET=${{ secrets.COOKIE_SECRET }}
           ACCESS_TOKEN_EXPIRY_MINUTES=${{ secrets.ACCESS_TOKEN_EXPIRY_MINUTES }}
           REFRESH_TOKEN_EXPIRY_DAYS=${{ secrets.REFRESH_TOKEN_EXPIRY_DAYS }}
+
           GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_CALLBACK_URL=${{ secrets.GOOGLE_CALLBACK_URL }}
           FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+
           WIDGET_API_URL=${{ secrets.WIDGET_API_URL }}
           WIDGET_SCRIPT_URL=${{ secrets.WIDGET_SCRIPT_URL }}
+
           PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
           PINECONE_ENVIRONMENT=${{ secrets.PINECONE_ENVIRONMENT }}
           PINECONE_INDEX_NAME=${{ secrets.PINECONE_INDEX_NAME }}
@@ -123,13 +128,21 @@ jobs:
           REDIS_ANALYTICS_USERNAME=${{ secrets.REDIS_ANALYTICS_USERNAME }}
           REDIS_ANALYTICS_PASSWORD=${{ secrets.REDIS_ANALYTICS_PASSWORD }}
           SCRAPER_CONCURRENCY=${{ secrets.SCRAPER_CONCURRENCY }}
+          SCRAPER_IGNORE_ROBOTS=${{ secrets.SCRAPER_IGNORE_ROBOTS }}
+          SCRAPER_RENDER_SERVICE_URL=${{ secrets.SCRAPER_RENDER_SERVICE_URL }}
+          SCRAPER_RENDER_SERVICE_TOKEN=${{ secrets.SCRAPER_RENDER_SERVICE_TOKEN }}
+          SCRAPER_RENDER_SERVICE_MODE=${{ secrets.SCRAPER_RENDER_SERVICE_MODE }}
+
           ANALYTICS_BUFFER_SIZE=${{ secrets.ANALYTICS_BUFFER_SIZE }}
           ANALYTICS_FLUSH_INTERVAL_MS=${{ secrets.ANALYTICS_FLUSH_INTERVAL_MS }}
+
           CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
 
           RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
           RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
           RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+          RAZORPAY_MAX_CHARGE_AMOUNT=${{ secrets.RAZORPAY_MAX_CHARGE_AMOUNT }}
+          SUBSCRIPTION_IDEMPOTENCY_WINDOW_MINUTES=${{ secrets.SUBSCRIPTION_IDEMPOTENCY_WINDOW_MINUTES }}
 
           ADMIN_FRONTEND_URL=${{ secrets.ADMIN_FRONTEND_URL }}
           ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
