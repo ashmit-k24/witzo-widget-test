@@ -14,6 +14,7 @@ import {
 	CHAT_SUPPORTED_LANGUAGE_CODES,
 	SYSTEM_MESSAGE_MAX_LENGTH,
 } from "../constants";
+import { SCRAPER_PAGE_LIMIT } from "../config/planConfig";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
@@ -239,8 +240,8 @@ export const validationRules: Record<
 			.withMessage("maxDepth must be between 0 and 10"),
 		body("maxPages")
 			.optional({ values: "falsy" })
-			.isInt({ min: 1, max: 300 })
-			.withMessage("maxPages must be between 1 and 300"),
+			.isInt({ min: 1, max: SCRAPER_PAGE_LIMIT })
+			.withMessage(`maxPages must be between 1 and ${SCRAPER_PAGE_LIMIT}`),
 	],
 
 	deleteByUrl: [

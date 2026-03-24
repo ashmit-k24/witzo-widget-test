@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import {
 	coercePlanType,
+	SCRAPER_PAGE_LIMIT,
 } from "../config/planConfig";
 import { chatService } from "../services/chatService";
 import { pineconeService } from "../services/pineconeService";
@@ -11,7 +12,7 @@ import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
 const SCRAPER_MAX_DEPTH = 10;
-const SCRAPER_MAX_PAGES = 300;
+const SCRAPER_MAX_PAGES = SCRAPER_PAGE_LIMIT;
 
 const normalizeRequestedMaxPages = (
 	value: unknown,
@@ -46,36 +47,20 @@ const resolveEffectiveMaxPages = (
 	);
 };
 
-const getScraperUpgradeMessage = (
-	planType: "free" | "basic" | "standard" | "enterprise",
-): string => {
-	if (planType === "free") {
-		return "Upgrade to Basic plan for 30 website pages";
-	}
-	if (planType === "basic") {
-		return "Upgrade to Standard plan for 100 website pages";
-	}
-	if (planType === "standard") {
-		return "Upgrade to Enterprise plan for unlimited website pages";
-	}
-	return "Your enterprise limits are managed through your custom plan.";
-};
-
 const getScraperLimitPayload = (
 	planType: "free" | "basic" | "standard" | "enterprise",
 	scraperUsage: Awaited<
 		ReturnType<typeof pineconeService.getScraperUsageStats>
 	>,
-) => ({
+) => {
+	void planType;
+	return {
 		planType: scraperUsage.planType,
 		pagesUsed: scraperUsage.pagesUsed,
 		pagesLimit: scraperUsage.pagesLimit,
 		pagesRemaining: scraperUsage.pagesRemaining,
-		upgradeMessage:
-			scraperUsage.pagesLimit === null
-				? undefined
-				: getScraperUpgradeMessage(planType),
-	});
+	};
+};
 
 export const scrapeWebsite = async (
 	req: Request,
@@ -131,7 +116,7 @@ export const scrapeWebsite = async (
 		) {
 			res.status(403).json({
 				success: false,
-				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+				message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
 				data: {
 					...getScraperLimitPayload(
 						planType,
@@ -163,7 +148,7 @@ export const scrapeWebsite = async (
 		) {
 			res.status(403).json({
 				success: false,
-				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+				message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
 				data: {
 					...getScraperLimitPayload(
 						planType,
@@ -820,7 +805,7 @@ export const retrainWebsite = async (
 			) {
 				res.status(403).json({
 					success: false,
-					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
 					data: {
 						...getScraperLimitPayload(
 							planType,
@@ -851,7 +836,7 @@ export const retrainWebsite = async (
 			) {
 				res.status(403).json({
 					success: false,
-					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
 					data: {
 						...getScraperLimitPayload(
 							planType,

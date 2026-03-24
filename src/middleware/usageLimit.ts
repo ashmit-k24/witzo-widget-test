@@ -3,25 +3,13 @@ import {
 	Request,
 	Response,
 } from "express";
-import { coercePlanType } from "../config/planConfig";
+import {
+	coercePlanType,
+	SCRAPER_PAGE_LIMIT,
+} from "../config/planConfig";
 import { pineconeService } from "../services/pineconeService";
 import usageTrackingService from "../services/usageTrackingService";
 import logger from "../utils/logger";
-
-const getScraperUpgradeMessage = (
-	planType: "free" | "basic" | "standard" | "enterprise",
-): string => {
-	if (planType === "free") {
-		return "Upgrade to Basic plan for 30 website pages";
-	}
-	if (planType === "basic") {
-		return "Upgrade to Standard plan for 100 website pages";
-	}
-	if (planType === "standard") {
-		return "Upgrade to Enterprise plan for unlimited website pages";
-	}
-	return "Your enterprise limits are managed through your custom plan.";
-};
 
 /**
  * Middleware to atomically check the conversation limit AND increment the
@@ -159,9 +147,7 @@ export const addUsageToResponse = async (
 };
 
 /**
- * Middleware to check if user has reached scraper page limit
- * Blocks request if user has exceeded their plan's page limit
- * Free users: 15 pages, Basic users: 30 pages, Standard users: 100 pages
+ * Middleware to check if user has reached the global scraper page limit.
  */
 export const checkScraperLimit = async (
 	req: Request,
@@ -200,16 +186,12 @@ export const checkScraperLimit = async (
 
 			res.status(403).json({
 				success: false,
-				message: `You've reached your website scraping limit. ${planType} plan allows ${usage.pagesLimit ?? "unlimited"} websites.`,
+				message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
 				data: {
 					planType: usage.planType,
 					pagesUsed: usage.pagesUsed,
 					pagesLimit: usage.pagesLimit,
 					pagesRemaining: usage.pagesRemaining,
-					upgradeMessage:
-						getScraperUpgradeMessage(
-							planType,
-						),
 				},
 			});
 			return;

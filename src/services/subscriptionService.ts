@@ -3,6 +3,7 @@ import { Paddle, Environment, EventName } from "@paddle/paddle-node-sdk";
 import {
 	PLAN_CONVERSATION_DEFAULT_LIMITS,
 	PlanType,
+	SCRAPER_PAGE_LIMIT,
 } from "../config/planConfig";
 import { config } from "../config/env";
 import pool from "../config/database";
@@ -137,15 +138,6 @@ const KNOWN_PLAN_NAMES: PlanType[] = [
 
 class SubscriptionService {
 	private readonly paddle: Paddle | null;
-	private readonly websitePagesLimitByPlan: Record<
-		PlanType,
-		number | null
-	> = {
-		free: 15,
-		basic: 30,
-		standard: 100,
-		enterprise: null,
-	};
 
 	constructor() {
 		if (config.PADDLE_API_KEY) {
@@ -463,10 +455,8 @@ class SubscriptionService {
 	async getWebsitePagesLimitForPlan(
 		planType: PlanType,
 	): Promise<number | null> {
-		return (
-			this.websitePagesLimitByPlan[planType] ??
-			this.websitePagesLimitByPlan.free
-		);
+		void planType;
+		return SCRAPER_PAGE_LIMIT;
 	}
 
 	async createPlan(input: UpsertPlanInput): Promise<BillingPlan> {
