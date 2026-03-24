@@ -1,7 +1,3 @@
-// firecrawlService.ts
-// Firecrawl API integration - primary scraper. Falls back to built-in scraper on error.
-// Ported from konvoqai-backend Go: controller/firecrawl.go
-
 import axios from "axios";
 import { config } from "../config/env";
 import { ScrapedPage } from "../types";

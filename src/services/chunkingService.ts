@@ -1,7 +1,3 @@
-// chunkingService.ts
-// Markdown-aware small-to-big chunking + BM25 sparse vector generation.
-// Ported from konvoqai-backend Go: controller/chunking.go + chunkText from scraper_controller.go
-
 export interface ChunkResult {
 	childText: string;  // ~200 words, heading-prefixed → used for embedding
 	parentText: string; // up to 600 words → sent to LLM for answer

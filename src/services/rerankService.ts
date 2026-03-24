@@ -1,18 +1,20 @@
-// rerankService.ts
-// Cohere reranking integration. Gracefully degrades if COHERE_API_KEY not set.
-// Ported from konvoqai-backend Go: controller/integrations.go cohereRerank()
-
 import axios from "axios";
 import { config } from "../config/env";
 import logger from "../utils/logger";
 
 function extractMatchText(match: any): string {
-	return (
+	const title = String(match.metadata?.title || "").trim();
+	const pageType = String(match.metadata?.pageType || "").trim();
+	const url = String(match.metadata?.url || "").trim();
+	const body =
 		String(match.metadata?.parentText || "") ||
 		String(match.metadata?.content || "") ||
 		String(match.metadata?.text || "") ||
-		""
-	);
+		"";
+
+	return [title, pageType, url, body]
+		.filter(Boolean)
+		.join("\n");
 }
 
 // cohereRerank reranks matches using Cohere's Rerank API.

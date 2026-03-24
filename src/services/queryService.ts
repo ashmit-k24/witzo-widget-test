@@ -1,7 +1,3 @@
-// queryService.ts
-// Query rewriting (stepBackRewrite) + intent detection + Pinecone filter building.
-// Ported from konvoqai-backend Go: controller/integrations.go
-
 import OpenAI from "openai";
 import { config } from "../config/env";
 import logger from "../utils/logger";
@@ -41,12 +37,53 @@ export function isWidgetMedicalQuery(q: string): boolean {
 	return /\b(medical|healthcare|clinic|doctor|hospital|dermatology|skin|hair)\b/.test(q);
 }
 
+export function isWidgetTechProjectQuery(q: string): boolean {
+	return (
+		/\b(project|work|built|made|developed|using|with)\b/.test(q) &&
+		/\b(next\.?js|nextjs|react|vue|angular|shopify|wordpress|magento|woocommerce|laravel|node|python|flutter|kotlin|swift|aws|azure|tailwind|webflow|typescript)\b/.test(q)
+	);
+}
+
 export function isLinkIntent(q: string): boolean {
 	return /\b(link|url|website link|where can i find|give me the link|show me the link|link to the|link of the|case study link|case study url)\b/.test(q);
 }
 
 export function isWidgetServiceOverviewQuery(q: string): boolean {
 	return /\b(service|what do you (do|offer|provide)|what (can|does) .* (do|offer|provide)|offering|solution|capability|capabilities|speciali)\b/.test(q);
+}
+
+function detectServiceFocusTerms(q: string): string[] {
+	const focusTerms: string[] = [];
+	const candidates = [
+		"website development",
+		"web development",
+		"custom web development",
+		"full-stack development",
+		"e-commerce development",
+		"ecommerce development",
+		"cloud-based web development",
+		"ui ux development",
+		"ui/ux development",
+		"cms development",
+		"seo",
+		"local seo",
+		"digital marketing",
+		"social media marketing",
+		"ppc",
+		"content writing",
+		"web hosting",
+		"brochure designing",
+		"microsoft dynamics",
+		"business central",
+	];
+
+	for (const candidate of candidates) {
+		if (q.includes(candidate)) {
+			focusTerms.push(candidate);
+		}
+	}
+
+	return focusTerms;
 }
 
 export function detectIndustryFromQuery(q: string): string {
@@ -94,6 +131,12 @@ export function buildPineconeFilter(query: string): Record<string, unknown> | nu
 		return { pageType: { $in: ["contact", "about", "home"] } };
 	}
 
+	if (isWidgetTechProjectQuery(normalized)) {
+		return {
+			pageType: { $in: ["case_study", "portfolio", "service", "home"] },
+		};
+	}
+
 	if (isWidgetCaseStudyQuery(normalized)) {
 		const industry = detectIndustryFromQuery(normalized);
 		if (industry) {
@@ -108,7 +151,11 @@ export function buildPineconeFilter(query: string): Record<string, unknown> | nu
 	}
 
 	if (isWidgetServiceOverviewQuery(normalized)) {
-		return { pageType: { $eq: "service" } };
+		return {
+			pageType: {
+				$in: ["service", "home", "about", "pricing", "portfolio"],
+			},
+		};
 	}
 
 	return null;
@@ -141,8 +188,11 @@ function rewriteWidgetRetrievalQuery(q: string): [string, boolean] {
 				true,
 			];
 		case isWidgetServiceOverviewQuery(normalized):
+			const focusTerms = detectServiceFocusTerms(normalized);
 			return [
-				"services offered by the business including web development ecommerce SEO PPC social media hosting branding app development",
+				focusTerms.length > 0
+					? `exact service offerings ${focusTerms.join(" ")} service pages solutions capabilities packages sub-services website headings page titles`
+					: "exact services offered by the business from service pages, home page, about page, and solution pages including website development, custom web development, full-stack development, ecommerce development, cloud-based web development, UI UX development, CMS development, SEO, digital marketing, hosting, content writing, brochure designing, and business solutions",
 				true,
 			];
 		default:

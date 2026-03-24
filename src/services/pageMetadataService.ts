@@ -1,7 +1,3 @@
-// pageMetadataService.ts
-// Async page type classification using GPT-4o-mini.
-// Ported from konvoqai-backend Go: controller/page_metadata.go
-
 import OpenAI from "openai";
 import { config } from "../config/env";
 import { ScrapedPage, RagChunk } from "../types";

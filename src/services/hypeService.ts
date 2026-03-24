@@ -1,7 +1,4 @@
-// hypeService.ts
-// HyPE (Hypothetical Question Embeddings) - async background question generation.
-// Ported from konvoqai-backend Go: controller/integrations.go generateHypeQuestions(), upsertHypeAsync()
-
+import crypto from "crypto";
 import OpenAI from "openai";
 import { config } from "../config/env";
 import logger from "../utils/logger";
@@ -53,11 +50,9 @@ async function generateHypeQuestions(chunkText: string, n: number): Promise<stri
 	}
 }
 
-// stableVectorIdForChunk is a simplified ID builder for HyPE parent references
 function stableVectorIdForChunk(chunk: RagChunk): string {
-	const { createHash } = require("crypto");
 	const input = `${chunk.userId}|${chunk.sourceType}|${chunk.sourceKey}|${chunk.url}|${chunk.chunkIndex}`;
-	return "pc_" + createHash("sha256").update(input).digest("hex").slice(0, 32);
+	return "pc_" + crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
 }
 
 // upsertAsync generates HyPE question vectors for rawChunks in the background and upserts to Pinecone.

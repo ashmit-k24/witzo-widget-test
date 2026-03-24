@@ -29,6 +29,7 @@ import {
 	isWidgetLocationQuery,
 	isWidgetMedicalQuery,
 	isWidgetServiceOverviewQuery,
+	isWidgetTechProjectQuery,
 	isWidgetTopListQuery,
 	normalizeWidgetQuery,
 } from "./queryService";
@@ -142,8 +143,8 @@ class ChatService {
 		);
 	}
 
-	private getTopKForQuery(_query: string): number {
-		return 15;
+	private getTopKForQuery(query: string): number {
+		return isWidgetServiceOverviewQuery(normalizeWidgetQuery(query)) ? 25 : 15;
 	}
 
 	private getFallbackResponse(): string {
@@ -190,6 +191,27 @@ class ChatService {
 			: 0;
 	}
 
+	private extractMatchText(match: any): string {
+		return String(
+			match?.metadata?.parentText ||
+				match?.metadata?.content ||
+				match?.metadata?.text ||
+				"",
+		).trim();
+	}
+
+	private extractMatchTitle(match: any): string {
+		return String(match?.metadata?.title || "").trim();
+	}
+
+	private extractMatchUrl(match: any): string {
+		return String(match?.metadata?.url || "").trim();
+	}
+
+	private extractMatchPageType(match: any): string {
+		return String(match?.metadata?.pageType || "").trim();
+	}
+
 	private relevantRagMatches(
 		matches: any[],
 		minScore: number,
@@ -201,6 +223,14 @@ class ChatService {
 			}
 			return !Boolean(match?.metadata?.isHype);
 		});
+	}
+
+	private ragScoreThreshold(query: string): number {
+		const n = normalizeWidgetQuery(query);
+		if (isContactIntent(n)) return 0.25;
+		if (isWidgetTechProjectQuery(n)) return 0.25;
+		if (isWidgetCaseStudyQuery(n)) return 0.28;
+		return 0.3;
 	}
 
 	private jaccardSimilarity(
@@ -246,20 +276,12 @@ class ChatService {
 			for (let index = 0; index < remaining.length; index += 1) {
 				const candidate = remaining[index];
 				const relevance = this.ragMatchScore(candidate);
-				const candidateText = String(
-					candidate?.metadata?.parentText ||
-						candidate?.metadata?.content ||
-						candidate?.metadata?.text ||
-						"",
-				);
+				const candidateText =
+					this.extractMatchText(candidate);
 				let diversityPenalty = 0;
 				for (const picked of selected) {
-					const pickedText = String(
-						picked?.metadata?.parentText ||
-							picked?.metadata?.content ||
-							picked?.metadata?.text ||
-							"",
-					);
+					const pickedText =
+						this.extractMatchText(picked);
 					diversityPenalty = Math.max(
 						diversityPenalty,
 						this.jaccardSimilarity(
@@ -281,6 +303,88 @@ class ChatService {
 			);
 		}
 		return selected;
+	}
+
+	private isServiceHeavyMatch(match: any): boolean {
+		const pageType =
+			this.extractMatchPageType(match).toLowerCase();
+		if (
+			pageType === "service" ||
+			pageType === "home" ||
+			pageType === "about"
+		) {
+			return true;
+		}
+
+		const title = this.extractMatchTitle(match).toLowerCase();
+		const url = this.extractMatchUrl(match).toLowerCase();
+		return /\b(service|solutions?|web development|website development|seo|hosting|content writing|brochure|e-?commerce|ui\/ux|cms)\b/.test(
+			`${title} ${url}`,
+		);
+	}
+
+	private selectMatchesForPrompt(
+		query: string,
+		matches: any[],
+	): any[] {
+		const normalized =
+			normalizeWidgetQuery(query);
+		if (isLinkIntent(normalized)) {
+			return matches.slice(0, 8);
+		}
+
+		if (!isWidgetServiceOverviewQuery(normalized)) {
+			return this.mmrRerank(matches, 8);
+		}
+
+		const preferredMatches = matches.filter((match) =>
+			this.isServiceHeavyMatch(match),
+		);
+		const pool =
+			preferredMatches.length >= 4
+				? preferredMatches
+				: matches;
+		const ranked = [...pool].sort((left, right) => {
+			const serviceBoost =
+				Number(this.isServiceHeavyMatch(right)) -
+				Number(this.isServiceHeavyMatch(left));
+			if (serviceBoost !== 0) {
+				return serviceBoost;
+			}
+			return (
+				this.ragMatchScore(right) -
+				this.ragMatchScore(left)
+			);
+		});
+		const dedupedByUrl: any[] = [];
+		const seenUrls = new Set<string>();
+		for (const match of ranked) {
+			const url = this.extractMatchUrl(match);
+			if (url && seenUrls.has(url)) {
+				continue;
+			}
+			if (url) {
+				seenUrls.add(url);
+			}
+			dedupedByUrl.push(match);
+			if (dedupedByUrl.length >= 12) {
+				break;
+			}
+		}
+
+		return dedupedByUrl.length > 0
+			? dedupedByUrl
+			: this.mmrRerank(matches, 8);
+	}
+
+	private buildServiceOverviewPromptNote(): string {
+		return [
+			"For service-overview questions, preserve the website's own service structure whenever possible.",
+			"If the context contains a named section like 'Our website development services', use that exact category wording instead of replacing it with a generic umbrella label.",
+			"List explicitly mentioned sub-services beneath the relevant main service family.",
+			"After the strongest primary service section, add a short 'Other services we offer' section for additional categories if the context supports them.",
+			"Do not collapse distinct website-listed services into a vague digital-agency summary.",
+		].join("\n");
 	}
 
 	private defaultGeneratedSystemPrompt(): string {
@@ -326,9 +430,10 @@ class ChatService {
 
 		if (isWidgetServiceOverviewQuery(normalized)) {
 			lines.push(
-				"For service-overview questions, summarize into 4-7 high-level service categories.",
-				"Put sub-services in parentheses instead of turning every small variant into its own main bullet.",
-				"Prioritize the main commercial offerings customers care about first.",
+				"For service-overview questions, mirror the website's own service structure when possible.",
+				"If the context shows a named service family like 'Our website development services', use that exact wording as a heading.",
+				"List the explicitly mentioned sub-services underneath that heading instead of flattening everything into generic agency categories.",
+				"After the lead section, add 'Other services we offer' only when there are clearly separate additional categories in the context.",
 			);
 		}
 		if (
@@ -374,7 +479,9 @@ class ChatService {
 		];
 		if (isWidgetServiceOverviewQuery(normalized)) {
 			lines.push(
-				"- For service overviews, lead with the main service categories rather than low-level variants.",
+				"- For service overviews, preserve the website's own category labels and service-family headings when they are visible in the context.",
+				"- If a source explicitly lists sub-services, show them as bullets under the main service family.",
+				"- Avoid generic umbrella wording when the context gives a more exact service name.",
 			);
 		}
 		if (
@@ -702,30 +809,44 @@ class ChatService {
 			);
 		const normalized =
 			normalizeWidgetQuery(query);
-		const selectedMatches = isLinkIntent(normalized)
-			? matches.slice(0, 8)
-			: this.mmrRerank(matches, 8);
+		const selectedMatches =
+			this.selectMatchesForPrompt(
+				query,
+				matches,
+			);
 		const contextParts: string[] = [];
 		for (const match of selectedMatches) {
-			const text = String(
-				match?.metadata?.parentText ||
-					match?.metadata?.content ||
-					match?.metadata?.text ||
-					"",
-			).trim();
+			const text =
+				this.extractMatchText(match);
 			if (!text) {
 				continue;
 			}
-			const sourceUrl = String(
-				match?.metadata?.url || "",
-			).trim();
+			const sourceUrl =
+				this.extractMatchUrl(match);
+			const sourceTitle =
+				this.extractMatchTitle(match);
+			const pageType =
+				this.extractMatchPageType(match);
 			const truncated = this.truncateAtSentence(
 				text,
-				2000,
+				isWidgetServiceOverviewQuery(normalized)
+					? 2600
+					: 2000,
 			);
-			contextParts.push(
+			const headerParts = [
+				sourceTitle
+					? `Title: ${sourceTitle}`
+					: "",
+				pageType
+					? `Page Type: ${pageType}`
+					: "",
 				sourceUrl
-					? `Source: ${sourceUrl}\n${truncated}`
+					? `Source: ${sourceUrl}`
+					: "",
+			].filter(Boolean);
+			contextParts.push(
+				headerParts.length > 0
+					? `${headerParts.join("\n")}\n${truncated}`
 					: truncated,
 			);
 		}
@@ -737,6 +858,10 @@ class ChatService {
 				userId,
 			);
 		let userPrompt: string;
+		const serviceOverviewNote =
+			isWidgetServiceOverviewQuery(normalized)
+				? `\n${this.buildServiceOverviewPromptNote()}\n`
+				: "";
 
 		if (contextParts.length > 0) {
 			const contextBlock =
@@ -747,7 +872,10 @@ Treat page titles, URLs, headings, and snippets as relevant evidence about the b
 Synthesize across multiple context sections to form the most complete answer you can.
 For broad overview questions asking for services, products, features, or capabilities, compile a combined list from every relevant context section and infer the service or category name from the source title or URL when needed.
 If the context partially answers the question, provide the supported details you do have instead of refusing.
-Only say "I don't have information about that in my knowledge base." when none of the context is relevant to the question.
+If the user is asking for "more" or additional items and the context does not contain more items beyond what was already discussed, acknowledge that these are all the results available and suggest they visit the website or contact the team for a complete list.
+When the context includes a URL for a specific blog post, article, or resource the user is asking about, include it as a clickable markdown link — e.g. [Read more](https://...).
+Only say you don't have information when the context is genuinely not related to the question at all.
+${serviceOverviewNote}
 
 Context:
 ${contextBlock}
@@ -756,6 +884,9 @@ Question: ${query}${formatDirective}`;
 			} else {
 				userPrompt = `Answer the user's question using the context below as your primary source.
 If the context does not fully cover the question, use your general knowledge to fill in, but never fabricate specific facts, prices, features, or policies about this company that are not in the context.
+If the user is asking for "more" items and the context has no further results, acknowledge that and suggest they visit the website.
+When the context includes a URL for a blog post, article, or resource being asked about, include it as a clickable markdown link.
+${serviceOverviewNote}
 
 Context:
 ${contextBlock}
@@ -767,7 +898,7 @@ Question: ${query}${formatDirective}`;
 				userPrompt = `The user sent: "${query}"
 
 If this is a greeting, thank you, farewell, or casual conversational message, respond warmly and naturally as a helpful assistant.
-Otherwise, if it is a specific question: politely let the user know you can only help with topics covered in this business's knowledge base, and invite them to ask something related to the business.${formatDirective}`;
+Otherwise, if it is a specific question about this business: honestly say you couldn't find that specific information right now, suggest they visit the website directly or reach out to the team for accurate details, and invite them to ask something else you might be able to help with.${formatDirective}`;
 			} else {
 				userPrompt = `Answer the user's question as helpfully and completely as possible using your general knowledge.
 Do not invent specific facts, prices, features, or policies about this company or its products.
@@ -924,11 +1055,7 @@ Question: ${query}${formatDirective}`;
 					syntheticSessionId,
 					[],
 			  );
-		const ragThreshold = isContactIntent(
-			normalizeWidgetQuery(message),
-		)
-			? 0.25
-			: 0.3;
+		const ragThreshold = this.ragScoreThreshold(message);
 		const relevantMatches =
 			this.relevantRagMatches(
 				matches,
@@ -1040,17 +1167,10 @@ Question: ${query}${formatDirective}`;
 						historyMessages,
 				  );
 			timing.retrievalMs = Date.now() - retrievalStart;
-			const normalizedQuery =
-				normalizeWidgetQuery(message);
-			const ragThreshold = isContactIntent(
-				normalizedQuery,
-			)
-				? 0.25
-				: 0.3;
 			const relevantMatches =
 				this.relevantRagMatches(
 					matches,
-					ragThreshold,
+					this.ragScoreThreshold(message),
 				);
 			const shouldCallLlm =
 				shouldSkipRetrieval ||
@@ -1221,17 +1341,10 @@ Question: ${query}${formatDirective}`;
 					historyMessages,
 			  );
 		timing.retrievalMs = Date.now() - retrievalStart;
-		const normalizedQuery =
-			normalizeWidgetQuery(message);
-		const ragThreshold = isContactIntent(
-			normalizedQuery,
-		)
-			? 0.25
-			: 0.3;
 		const relevantMatches =
 			this.relevantRagMatches(
 				matches,
-				ragThreshold,
+				this.ragScoreThreshold(message),
 			);
 		const shouldCallLlm =
 			shouldSkipRetrieval ||

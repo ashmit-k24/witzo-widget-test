@@ -47,6 +47,24 @@ class PineconeService {
 
 	private static readonly METADATA_LABEL_MAX_CHARS = 200;
 
+	private static guessPageType(url: string, title: string): string {
+		let path = "";
+		try {
+			path = new URL(url).pathname.toLowerCase();
+		} catch {
+			path = url.toLowerCase();
+		}
+		const t = title.toLowerCase();
+		if (path === "/" || path === "" || /\/(index|home)(\.html?)?$/.test(path)) return "home";
+		if (/\/(contact|reach|get-in-touch)/.test(path) || /contact/.test(t)) return "contact";
+		if (/\/(about|who-we-are|our-story|team|company)/.test(path)) return "about";
+		if (/\/(case-stud|portfolio|work|project|client|success-stor|showcase)/.test(path)) return "case_study";
+		if (/\/(service|solution|offering|what-we-do|capabilities)/.test(path)) return "service";
+		if (/\/(blog|news|article|insight|post|update)/.test(path)) return "blog";
+		if (/\/(pricing|price|plan|package|cost)/.test(path)) return "pricing";
+		return "";
+	}
+
 	private sanitizeMetadataUpdate(
 		metadata: Record<string, unknown>,
 	): Record<string, string | number | boolean | string[]> {
@@ -695,7 +713,8 @@ class PineconeService {
 						hypeParent: chunk.hypeParent,
 						pageType:
 							this.truncateMetadataString(
-								chunk.pageType,
+								chunk.pageType ||
+									PineconeService.guessPageType(chunk.url, chunk.pageTitle),
 								PineconeService.METADATA_LABEL_MAX_CHARS,
 							),
 						clientName:
