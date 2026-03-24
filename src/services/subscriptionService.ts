@@ -104,7 +104,7 @@ export interface GetCheckoutInfoResponse {
 	currency: string;
 	planName: string;
 	description: string;
-	checkoutUrl: string;
+	transactionId: string;
 }
 
 export interface PaddleRuntimeConfigResponse {
@@ -641,27 +641,45 @@ class SubscriptionService {
 		const currentSubscription =
 			await this.getCurrentSubscriptionRow(userId);
 
-		const transaction =
-			await paddle.transactions.create({
-				items: [{ priceId, quantity: 1 }],
-				collectionMode: "automatic",
-				customerId:
-					currentSubscription?.paddle_customer_id ??
-					null,
-				customData: {
-					user_id: userId,
-					user_email: userEmail ?? null,
-					plan_id: plan.id,
-					plan_name: plan.name,
-					billing_cycle: input.billingCycle,
-				},
-			});
+		const transactionPromise = paddle.transactions.create({
+			items: [{ priceId, quantity: 1 }],
+			collectionMode: "automatic",
+			customerId:
+				currentSubscription?.paddle_customer_id ??
+				undefined,
+			customData: {
+				user_id: userId,
+				user_email: userEmail ?? null,
+				plan_id: plan.id,
+				plan_name: plan.name,
+				billing_cycle: input.billingCycle,
+			},
+		});
+		const timeoutPromise = new Promise<never>((_, reject) =>
+			setTimeout(
+				() =>
+					reject(
+						new Error(
+							"Paddle API timed out. Please check your API key and network, then try again.",
+						),
+					),
+				15000,
+			),
+		);
+		const transaction = await Promise.race([
+			transactionPromise,
+			timeoutPromise,
+		]);
 
-		const checkoutUrl =
-			transaction.checkout?.url?.trim() ?? "";
-		if (!checkoutUrl) {
+		logger.info("Paddle transaction created", {
+			transactionId: transaction.id,
+			checkoutUrl: transaction.checkout?.url,
+			status: transaction.status,
+		});
+
+		if (!transaction.id) {
 			throw new Error(
-				"Paddle did not return a checkout URL. Verify the Default Payment Link is set in Paddle.",
+				"Paddle did not return a transaction ID. Please try again.",
 			);
 		}
 
@@ -675,7 +693,7 @@ class SubscriptionService {
 			currency: "USD",
 			planName: plan.name,
 			description: plan.description ?? `${plan.name} plan`,
-			checkoutUrl,
+			transactionId: transaction.id,
 		};
 	}
 
