@@ -87,7 +87,7 @@ export const getOverviewAnalytics = async (
 
 		let sources;
 		try {
-			sources = await pineconeService.getAllUserSources(
+			sources = await pineconeService.getAllUserSourcesFromDB(
 				userId,
 			);
 		} catch (error) {
