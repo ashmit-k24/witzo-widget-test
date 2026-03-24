@@ -498,45 +498,6 @@ export const validationRules: Record<
 			}),
 	],
 
-	paymentVerify: [
-		body("razorpay_subscription_id")
-			.optional({ values: "falsy" })
-			.isString()
-			.isLength({ min: 3, max: 255 })
-			.withMessage(
-				"razorpay_subscription_id must be valid",
-			),
-		body("razorpay_order_id")
-			.optional({ values: "falsy" })
-			.isString()
-			.isLength({ min: 3, max: 255 })
-			.withMessage(
-				"razorpay_order_id must be valid",
-			),
-		body("razorpay_payment_id")
-			.isString()
-			.isLength({ min: 3, max: 255 })
-			.withMessage(
-				"razorpay_payment_id is required",
-			),
-		body("razorpay_signature")
-			.isString()
-			.isLength({ min: 10, max: 512 })
-			.withMessage("razorpay_signature is required"),
-		body()
-			.custom((payload) => {
-				if (
-					!payload?.razorpay_subscription_id &&
-					!payload?.razorpay_order_id
-				) {
-					throw new Error(
-						"Either razorpay_subscription_id or razorpay_order_id is required",
-					);
-				}
-				return true;
-			}),
-	],
-
 	subscriptionCancel: [
 		body("cancelAtCycleEnd")
 			.optional()
@@ -567,46 +528,20 @@ export const validationRules: Record<
 			.withMessage(
 				"yearlyPrice must be a non-negative integer",
 			),
-		body("razorpayMonthlyPlanId")
+		body("paddleMonthlyPriceId")
 			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ max: 255 })
 			.withMessage(
-				"razorpayMonthlyPlanId must be <= 255 characters",
+				"paddleMonthlyPriceId must be <= 255 characters",
 			),
-		body("razorpayYearlyPlanId")
+		body("paddleYearlyPriceId")
 			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ max: 255 })
 			.withMessage(
-				"razorpayYearlyPlanId must be <= 255 characters",
+				"paddleYearlyPriceId must be <= 255 characters",
 			),
-		body("websitePagesLimit")
-			.optional({ nullable: true })
-			.custom((value) => {
-				if (
-					value === null ||
-					value === undefined ||
-					value === ""
-				) {
-					return true;
-				}
-
-				const normalized =
-					typeof value === "number"
-						? value
-						: Number(value);
-				if (
-					!Number.isInteger(normalized) ||
-					normalized < 1
-				) {
-					throw new Error(
-						"websitePagesLimit must be a positive integer or empty for unlimited",
-					);
-				}
-
-				return true;
-			}),
 		body("isActive")
 			.optional()
 			.isBoolean()

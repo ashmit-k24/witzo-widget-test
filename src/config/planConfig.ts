@@ -23,7 +23,6 @@ export type AnalyticsTier =
 	| "advanced";
 
 export interface PlanCapabilities {
-	websitePagesLimit: LimitValue;
 	documentLimit: LimitValue;
 	chatHistoryLimit: LimitValue;
 	leadStorageLimit: LimitValue;
@@ -49,7 +48,6 @@ export const PLAN_CAPABILITIES: Record<
 	PlanCapabilities
 > = {
 	free: {
-		websitePagesLimit: 15,
 		documentLimit: 4,
 		chatHistoryLimit: 3,
 		leadStorageLimit: 3,
@@ -70,7 +68,6 @@ export const PLAN_CAPABILITIES: Record<
 		supportTier: "email",
 	},
 	basic: {
-		websitePagesLimit: 30,
 		documentLimit: 10,
 		chatHistoryLimit: 10,
 		leadStorageLimit: 10,
@@ -91,7 +88,6 @@ export const PLAN_CAPABILITIES: Record<
 		supportTier: "priority_email",
 	},
 	standard: {
-		websitePagesLimit: 100,
 		documentLimit: 50,
 		chatHistoryLimit: null,
 		leadStorageLimit: null,
@@ -112,7 +108,6 @@ export const PLAN_CAPABILITIES: Record<
 		supportTier: "priority_email",
 	},
 	enterprise: {
-		websitePagesLimit: null,
 		documentLimit: null,
 		chatHistoryLimit: null,
 		leadStorageLimit: null,

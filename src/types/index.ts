@@ -228,9 +228,10 @@ export interface EnvConfig {
 	PINECONE_INDEX_NAME: string;
 	OPENAI_API_KEY: string;
 	OPENAI_MODEL: string;
-	RAZORPAY_KEY_ID: string;
-	RAZORPAY_KEY_SECRET: string;
-	RAZORPAY_WEBHOOK_SECRET: string;
+	PADDLE_API_KEY: string;
+	PADDLE_CLIENT_TOKEN: string;
+	PADDLE_WEBHOOK_SECRET: string;
+	PADDLE_ENVIRONMENT: string;
 	LLM_PROMPT_COST_PER_1K_USD: number;
 	LLM_COMPLETION_COST_PER_1K_USD: number;
 
@@ -451,19 +452,6 @@ export interface UsageStats {
 	isApproachingLimit: boolean;
 	isAtLimit: boolean;
 }
-
-// Scraper Page Limits by plan type
-export const SCRAPER_PAGE_LIMITS: Record<
-	PlanType,
-	number | null
-> = {
-	free: PLAN_CAPABILITIES.free.websitePagesLimit,
-	basic: PLAN_CAPABILITIES.basic.websitePagesLimit,
-	standard:
-		PLAN_CAPABILITIES.standard.websitePagesLimit,
-	enterprise:
-		PLAN_CAPABILITIES.enterprise.websitePagesLimit,
-};
 
 // Document Limits by plan type
 export const DOCUMENT_LIMITS: Record<
