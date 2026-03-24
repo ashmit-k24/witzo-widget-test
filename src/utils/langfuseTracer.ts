@@ -1,39 +1,41 @@
-import { Langfuse } from "langfuse";
-import { config } from "../config/env";
-import logger from "./logger";
-
 /**
- * Lightweight Langfuse wrapper.
- * All methods are no-ops when LANGFUSE_SECRET_KEY is not set,
- * so the app works fine without the observability service configured.
+ * Langfuse is currently optional in this repo.
+ * Until the package and env config are added back, keep tracing as no-op
+ * so the rest of the app compiles and runs normally.
  */
 
-let _client: Langfuse | null = null;
+type LangfuseSpanImpl = {
+	end: (payload?: {
+		output?: unknown;
+		metadata?: Record<string, any>;
+	}) => void;
+};
 
-function getClient(): Langfuse | null {
-	if (_client) return _client;
-	if (!config.LANGFUSE_SECRET_KEY || !config.LANGFUSE_PUBLIC_KEY) {
-		return null;
-	}
-	try {
-		_client = new Langfuse({
-			secretKey: config.LANGFUSE_SECRET_KEY,
-			publicKey: config.LANGFUSE_PUBLIC_KEY,
-			baseUrl: config.LANGFUSE_HOST || "https://cloud.langfuse.com",
-			flushAt: 10,
-			flushInterval: 5000,
-		});
-		logger.info("[Langfuse] Observability enabled");
-	} catch (error) {
-		logger.warn("[Langfuse] Failed to initialize client", {
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
-	return _client;
-}
+type LangfuseTraceImpl = {
+	span: (payload: {
+		name: string;
+		input?: unknown;
+	}) => LangfuseSpanImpl;
+	generation: (payload: {
+		name: string;
+		model: string;
+		input: unknown;
+		output: string;
+		usage?: {
+			input: number;
+			output: number;
+			total: number;
+		};
+		metadata?: Record<string, any>;
+	}) => void;
+	update: (payload: {
+		output?: string;
+		metadata?: Record<string, any>;
+	}) => void;
+};
 
-export type LangfuseTrace = ReturnType<Langfuse["trace"]> | null;
-export type LangfuseSpan = ReturnType<NonNullable<LangfuseTrace>["span"]> | null;
+export type LangfuseTrace = LangfuseTraceImpl | null;
+export type LangfuseSpan = LangfuseSpanImpl | null;
 
 /**
  * Start a top-level trace for a chat request.
@@ -44,21 +46,8 @@ export function startChatTrace(params: {
 	message: string;
 	intent?: string;
 }): LangfuseTrace {
-	const client = getClient();
-	if (!client) return null;
-	try {
-		return client.trace({
-			name: "chat",
-			userId: params.userId,
-			sessionId: params.sessionId,
-			input: params.message.slice(0, 500),
-			metadata: {
-				intent: params.intent,
-			},
-		});
-	} catch {
-		return null;
-	}
+	void params;
+	return null;
 }
 
 /**
@@ -69,6 +58,8 @@ export function startSpan(
 	name: string,
 	input?: any,
 ): LangfuseSpan {
+	void name;
+	void input;
 	if (!trace) return null;
 	try {
 		return trace.span({ name, input });
@@ -148,10 +139,5 @@ export function endTrace(
  * Flush all pending events (call on graceful shutdown).
  */
 export async function flushLangfuse(): Promise<void> {
-	if (!_client) return;
-	try {
-		await _client.flushAsync();
-	} catch {
-		// ignore
-	}
+	return Promise.resolve();
 }

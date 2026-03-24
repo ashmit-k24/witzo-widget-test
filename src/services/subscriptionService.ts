@@ -137,6 +137,15 @@ const KNOWN_PLAN_NAMES: PlanType[] = [
 
 class SubscriptionService {
 	private readonly paddle: Paddle | null;
+	private readonly websitePagesLimitByPlan: Record<
+		PlanType,
+		number | null
+	> = {
+		free: 15,
+		basic: 30,
+		standard: 100,
+		enterprise: null,
+	};
 
 	constructor() {
 		if (config.PADDLE_API_KEY) {
@@ -449,6 +458,15 @@ class SubscriptionService {
          id ASC`,
 		);
 		return result.rows.map((row) => this.mapPlan(row));
+	}
+
+	async getWebsitePagesLimitForPlan(
+		planType: PlanType,
+	): Promise<number | null> {
+		return (
+			this.websitePagesLimitByPlan[planType] ??
+			this.websitePagesLimitByPlan.free
+		);
 	}
 
 	async createPlan(input: UpsertPlanInput): Promise<BillingPlan> {

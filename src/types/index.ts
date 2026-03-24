@@ -297,6 +297,46 @@ export interface EnvConfig {
 	KNOWLEDGE_BOUNDARY: string;
 }
 
+export type ScrapedPageType =
+	| "home"
+	| "contact"
+	| "pricing"
+	| "portfolio"
+	| "faq"
+	| "services"
+	| "service"
+	| "about"
+	| "blog"
+	| "legal"
+	| "general"
+	| "case_study"
+	| "other";
+
+export type ScrapedStructuredFactType =
+	| "email"
+	| "phone"
+	| "address"
+	| "location"
+	| "service"
+	| "case_study"
+	| "pricing";
+
+export interface ScrapedStructuredFact {
+	type: ScrapedStructuredFactType;
+	value: string;
+	label?: string;
+	sourceText?: string;
+}
+
+export interface ScrapedPageContentBlock {
+	text: string;
+	blockType: "paragraph" | "list" | "table" | "contact" | string;
+	position: number;
+	sectionTitle?: string;
+	sectionPath?: string[];
+	factType?: ScrapedStructuredFactType;
+}
+
 // Web Scraper types
 export interface ScrapedPage {
 	url: string;
@@ -307,6 +347,10 @@ export interface ScrapedPage {
 		description?: string;
 		keywords?: string;
 		author?: string;
+		pageType?: ScrapedPageType;
+		pagePriority?: number;
+		contentBlocks?: ScrapedPageContentBlock[];
+		structuredFacts?: ScrapedStructuredFact[];
 		[key: string]: any;
 	};
 }

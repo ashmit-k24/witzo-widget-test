@@ -117,10 +117,13 @@ export function scorePagePriority(
 		contact: 115,
 		pricing: 110,
 		services: 105,
+		service: 105,
 		portfolio: 100,
+		case_study: 100,
 		about: 92,
 		faq: 88,
 		general: 70,
+		other: 70,
 		blog: 35,
 		legal: 20,
 	};
