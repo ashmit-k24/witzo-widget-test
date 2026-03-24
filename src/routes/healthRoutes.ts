@@ -5,6 +5,11 @@ import {
 } from "express";
 import pool from "../config/database";
 import {
+	redisCache,
+	redisQueue,
+	redisAnalytics,
+} from "../config/redis";
+import {
 	openAICircuitBreaker,
 	pineconeCircuitBreaker,
 } from "../utils/circuitBreaker";
@@ -95,6 +100,66 @@ router.get(
 			};
 		}
 
+		// Check Redis Cache
+		try {
+			const redisCacheStart = Date.now();
+			await redisCache.ping();
+			health.dependencies.redisCache = {
+				status: "healthy",
+				responseTime:
+					Date.now() - redisCacheStart,
+			};
+		} catch (error) {
+			allHealthy = false;
+			health.dependencies.redisCache = {
+				status: "unhealthy",
+				error:
+					error instanceof Error
+						? error.message
+						: "Unknown error",
+			};
+		}
+
+		// Check Redis Queue
+		try {
+			const redisQueueStart = Date.now();
+			await redisQueue.ping();
+			health.dependencies.redisQueue = {
+				status: "healthy",
+				responseTime:
+					Date.now() - redisQueueStart,
+			};
+		} catch (error) {
+			allHealthy = false;
+			health.dependencies.redisQueue = {
+				status: "unhealthy",
+				error:
+					error instanceof Error
+						? error.message
+						: "Unknown error",
+			};
+		}
+
+		// Check Redis Analytics
+		try {
+			const redisAnalyticsStart = Date.now();
+			await redisAnalytics.ping();
+			health.dependencies.redisAnalytics = {
+				status: "healthy",
+				responseTime:
+					Date.now() - redisAnalyticsStart,
+			};
+		} catch (error) {
+			allHealthy = false;
+			health.dependencies.redisAnalytics = {
+				status: "unhealthy",
+				error:
+					error instanceof Error
+						? error.message
+						: "Unknown error",
+			};
+		}
+
 		// Circuit breaker states
 		health.circuitBreakers = {
 			openAI: openAICircuitBreaker.getMetrics(),
@@ -119,7 +184,9 @@ router.get(
 	"/ready",
 	async (_req: Request, res: Response) => {
 		try {
+			// Check critical dependencies
 			await pool.query("SELECT 1");
+			await redisCache.ping();
 
 			res.status(200).json({
 				status: "ready",
@@ -199,7 +266,7 @@ router.get(
 				`process_uptime_seconds ${process.uptime()}`,
 			);
 
-			// Database pool metrics
+			// Database pool metrics (if available)
 			metrics.push(
 				`# HELP db_pool_total Total database connections in pool`,
 			);

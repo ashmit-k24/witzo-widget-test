@@ -1,612 +1,173 @@
-import Firecrawl from "@mendable/firecrawl-js";
-import {
-	ScrapedPage,
-	ScrapedPageBlockType,
-	ScrapedPageContentBlock,
-} from "../types";
+import axios from "axios";
 import { config } from "../config/env";
+import { ScrapedPage } from "../types";
 import logger from "../utils/logger";
-import {
-	isUrlUnderSourceRoot,
-	normalizeDiscoveredUrl,
-} from "../utils/scrapeUrl";
-import {
-	detectScrapedPageType,
-	enrichScrapedPage,
-	hasContactSignals,
-	normalizeScrapedText,
-	scorePagePriority,
-} from "../utils/scrapeAnalysis";
-import { pageClassificationService } from "./pageClassificationService";
 
-const FIRECRAWL_MIN_CONTENT_LENGTH = 100;
-
-class FirecrawlService {
-	private readonly client: Firecrawl | null = null;
-
-	constructor() {
-		if (config.FIRECRAWL_API_KEY) {
-			this.client = new Firecrawl({
-				apiKey: config.FIRECRAWL_API_KEY,
-				...(config.FIRECRAWL_API_URL
-					? { apiUrl: config.FIRECRAWL_API_URL }
-					: {}),
-			});
-			logger.info("[Firecrawl] Service initialized", {
-				apiUrl:
-					config.FIRECRAWL_API_URL ??
-					"https://api.firecrawl.dev (default)",
-			});
-		} else {
-			logger.info(
-				"[Firecrawl] FIRECRAWL_API_KEY not set; built-in crawler only",
-			);
-		}
-	}
-
-	get isAvailable(): boolean {
-		return this.client !== null;
-	}
-
-	private prioritizeUrls(urls: string[]): string[] {
-		return Array.from(new Set(urls)).sort(
-			(left, right) => {
-				const rightPriority =
-					scorePagePriority(
-						detectScrapedPageType(right, ""),
-						right,
-					);
-				const leftPriority =
-					scorePagePriority(
-						detectScrapedPageType(left, ""),
-						left,
-					);
-				if (rightPriority !== leftPriority) {
-					return rightPriority - leftPriority;
-				}
-				return left.localeCompare(right);
-			},
-		);
-	}
-
-	private async mapWebsiteUrls(
-		url: string,
-		maxPages: number,
-	): Promise<string[]> {
-		if (!this.client) {
-			return [];
-		}
-
-		try {
-			const mapped = await this.client.map(url, {
-				sitemap: "include",
-				ignoreQueryParameters: true,
-				includeSubdomains: false,
-				limit: Math.max(maxPages * 3, maxPages),
-				timeout: Math.min(
-					config.FIRECRAWL_TIMEOUT_MS,
-					120000,
-				),
-			});
-
-			return this.prioritizeUrls(
-				(mapped.links ?? [])
-					.map((link) =>
-						normalizeDiscoveredUrl(
-							typeof link?.url === "string"
-								? link.url
-								: "",
-							url,
-						),
-					)
-					.filter(
-						(candidate): candidate is string =>
-							typeof candidate === "string" &&
-							isUrlUnderSourceRoot(
-								candidate,
-								url,
-							),
-					),
-			);
-		} catch (error) {
-			logger.warn("[Firecrawl] Map failed", {
-				url,
-				error:
-					error instanceof Error
-						? error.message
-						: String(error),
-			});
-			return [];
-		}
-	}
-
-	private async batchScrapeWebsite(
-		sourceRoot: string,
-		urls: string[],
-		onProgress?: (
-			done: number,
-			total: number,
-		) => Promise<void> | void,
-	): Promise<ScrapedPage[]> {
-		if (!this.client || urls.length === 0) {
-			return [];
-		}
-
-		const batchJob =
-			await this.client.startBatchScrape(urls, {
-				options: {
-					formats: ["markdown", "links"],
-					onlyMainContent: true,
-					timeout: config.FIRECRAWL_TIMEOUT_MS,
-				},
-				ignoreInvalidURLs: true,
-				maxConcurrency: Math.min(25, urls.length),
-			});
-
-		if (!batchJob?.id) {
-			throw new Error(
-				"Firecrawl batch scrape did not return a job id",
-			);
-		}
-
-		const deadline =
-			Date.now() + config.FIRECRAWL_TIMEOUT_MS;
-		const pagesByUrl = new Map<string, ScrapedPage>();
-
-		while (Date.now() < deadline) {
-			const status =
-				await this.client.getBatchScrapeStatus(
-					batchJob.id,
-				);
-			await onProgress?.(
-				status.completed ?? pagesByUrl.size,
-				status.total ?? urls.length,
-			);
-
-			for (const document of status.data ?? []) {
-				const page = await this.documentToScrapedPage(
-					document,
-					sourceRoot,
-				);
-				if (!page) {
-					continue;
-				}
-				pagesByUrl.set(page.url, page);
-			}
-
-			if (status.status === "completed") {
-				return Array.from(
-					pagesByUrl.values(),
-				);
-			}
-
-			if (
-				status.status === "failed" ||
-				status.status === "cancelled"
-			) {
-				throw new Error(
-					`Firecrawl batch scrape ended with status ${status.status}`,
-				);
-			}
-
-			await new Promise((resolve) =>
-				setTimeout(
-					resolve,
-					config.FIRECRAWL_POLL_INTERVAL_MS,
-				),
-			);
-		}
-
-		throw new Error(
-			`Firecrawl batch scrape timed out after ${config.FIRECRAWL_TIMEOUT_MS} ms`,
-		);
-	}
-
-	private hasContactSignals(text: string): boolean {
-		return hasContactSignals(text);
-	}
-
-	private detectBlockType(
-		text: string,
-		isList: boolean,
-		sectionTitle?: string,
-	): ScrapedPageBlockType {
-		const normalized =
-			`${sectionTitle ?? ""} ${text}`.toLowerCase();
-		if (isList) return "list";
-		if (
-			/\b(price|pricing|plan|package|fee|cost)\b/.test(
-				normalized,
-			)
-		) {
-			return "table";
-		}
-		if (
-			/\?$/.test(text.trim()) ||
-			/\b(faq|frequently asked|question|answer)\b/.test(
-				normalized,
-			)
-		) {
-			return "faq";
-		}
-		if (this.hasContactSignals(normalized)) {
-			return "contact";
-		}
-		return "paragraph";
-	}
-
-	private markdownToContentBlocks(
-		markdown: string,
-		title: string,
-		description: string,
-	): ScrapedPageContentBlock[] {
-		const blocks: ScrapedPageContentBlock[] = [];
-		const seenText = new Set<string>();
-
-		if (description) {
-			const summaryText = [title, description]
-				.filter(Boolean)
-				.join(". ");
-			blocks.push({
-				text: summaryText,
-				blockType: "summary",
-				position: 0,
-				sectionTitle: title || undefined,
-				sectionPath: title ? [title] : undefined,
-			});
-			seenText.add(summaryText.toLowerCase());
-		}
-
-		const sectionStack: Array<{
-			level: number;
-			title: string;
-		}> = [];
-		const rawBlocks = markdown
-			.split(/\n\s*\n/)
-			.map((block) => block.trim())
-			.filter(Boolean);
-
-		for (const rawBlock of rawBlocks) {
-			const lines = rawBlock
-				.split("\n")
-				.map((line) => line.trim())
-				.filter(Boolean);
-			if (lines.length === 0) {
-				continue;
-			}
-
-			const headingMatch = lines[0].match(
-				/^(#{1,6})\s+(.+)/,
-			);
-			if (headingMatch && lines.length === 1) {
-				const level = headingMatch[1].length;
-				const headingText = headingMatch[2].trim();
-				while (
-					sectionStack.length > 0 &&
-					sectionStack[sectionStack.length - 1].level >=
-						level
-				) {
-					sectionStack.pop();
-				}
-				sectionStack.push({
-					level,
-					title: headingText,
-				});
-				continue;
-			}
-
-			const contentLines = lines.filter(
-				(line) => !/^#{1,6}\s+/.test(line),
-			);
-			if (contentLines.length === 0) {
-				continue;
-			}
-
-			const isList = contentLines.every(
-				(line) =>
-					/^[-*+]\s+/.test(line) ||
-					/^\d+\.\s+/.test(line),
-			);
-			const text = isList
-				? contentLines
-						.map((line) =>
-							line.replace(/^[-*+\d.]+\s+/, "").trim(),
-						)
-						.filter(Boolean)
-						.join(" | ")
-				: contentLines
-						.join(" ")
-						.replace(/\s+/g, " ")
-						.trim();
-			const normalizedText =
-				normalizeScrapedText(text);
-
-			if (
-				!normalizedText ||
-				normalizedText.length < 30
-			) {
-				continue;
-			}
-
-			const normalizedKey =
-				normalizedText.toLowerCase();
-			if (seenText.has(normalizedKey)) {
-				continue;
-			}
-			seenText.add(normalizedKey);
-
-			const sectionPath = sectionStack.map(
-				(section) => section.title,
-			);
-			const sectionTitle =
-				sectionPath[sectionPath.length - 1];
-
-			blocks.push({
-				text: normalizedText,
-				blockType: this.detectBlockType(
-					normalizedText,
-					isList,
-					sectionTitle,
-				),
-				position: blocks.length,
-				sectionTitle,
-				sectionPath:
-					sectionPath.length > 0
-						? sectionPath
-						: undefined,
-			});
-		}
-
-		return blocks.map((block, index) => ({
-			...block,
-			position: index,
-		}));
-	}
-
-	private async documentToScrapedPage(
-		document: any,
-		sourceRoot: string,
-	): Promise<ScrapedPage | null> {
-		const markdown =
-			typeof document?.markdown === "string"
-				? document.markdown.trim()
-				: "";
-		if (markdown.length < FIRECRAWL_MIN_CONTENT_LENGTH) {
-			return null;
-		}
-
-		const rawUrl =
-			document?.metadata?.sourceURL ??
-			document?.metadata?.url ??
-			sourceRoot;
-		const normalizedUrl =
-			normalizeDiscoveredUrl(rawUrl) ?? sourceRoot;
-		if (!isUrlUnderSourceRoot(normalizedUrl, sourceRoot)) {
-			return null;
-		}
-
-		const title =
-			document?.metadata?.title?.trim() || "No Title";
-		const description =
-			document?.metadata?.description?.trim() || "";
-		const canonicalUrl =
-			document?.metadata?.ogUrl?.trim() ||
-			document?.metadata?.canonicalUrl?.trim() ||
-			document?.metadata?.sourceURL?.trim() ||
-			undefined;
-		const contentBlocks = this.markdownToContentBlocks(
-			markdown,
-			title,
-			description,
-		);
-		const content = (
-			contentBlocks
-				.map((block) =>
-					block.sectionTitle &&
-					!block.text
-						.toLowerCase()
-						.startsWith(
-							block.sectionTitle.toLowerCase(),
-						)
-						? `${block.sectionTitle}: ${block.text}`
-						: block.text,
-				)
-				.join("\n\n") || markdown
-		).trim();
-		const links: string[] = [];
-		if (Array.isArray(document?.links)) {
-			for (const rawLink of document.links as unknown[]) {
-				if (typeof rawLink !== "string") {
-					continue;
-				}
-				const normalizedLink =
-					normalizeDiscoveredUrl(
-						rawLink,
-						normalizedUrl,
-					);
-				if (
-					normalizedLink &&
-					isUrlUnderSourceRoot(
-						normalizedLink,
-						sourceRoot,
-					)
-				) {
-					links.push(normalizedLink);
-				}
-			}
-		}
-
-		const classification = await pageClassificationService.classifyPageType(
-			normalizedUrl,
-			title,
-			description,
-			content,
-		);
-		const overridePageType =
-			classification.confidence >= 0.65
-				? classification.pageType
-				: undefined;
-
-		return enrichScrapedPage(
-			{
-				url: normalizedUrl,
-				title,
-				content,
-				links: [...new Set(links)],
-				metadata: {
-					description,
-					canonicalUrl,
-					contentBlocks,
-					scrapedVia: "firecrawl",
-				},
-			},
-			overridePageType,
-		);
-	}
-
-	async crawlWebsite(
-		url: string,
-		maxPages: number,
-		maxDepth: number,
-		onProgress?: (
-			done: number,
-			total: number,
-		) => Promise<void> | void,
-		seedUrls: string[] = [],
-	): Promise<ScrapedPage[]> {
-		if (!this.client) {
-			return [];
-		}
-
-		const mappedUrls =
-			await this.mapWebsiteUrls(url, maxPages);
-		const prioritizedUrls =
-			this.prioritizeUrls([
-				url,
-				...seedUrls,
-				...mappedUrls,
-			]).slice(0, maxPages);
-
-		if (prioritizedUrls.length > 1) {
-			try {
-				logger.info(
-					"[Firecrawl] Starting map + batch scrape",
-					{
-						url,
-						discoveredUrls:
-							prioritizedUrls.length,
-					},
-				);
-				const pages =
-					await this.batchScrapeWebsite(
-						url,
-						prioritizedUrls,
-						onProgress,
-					);
-				if (pages.length > 0) {
-					logger.info(
-						"[Firecrawl] Batch scrape completed",
-						{
-							url,
-							pages: pages.length,
-						},
-					);
-					return pages.slice(0, maxPages);
-				}
-			} catch (error) {
-				logger.warn(
-					"[Firecrawl] Batch scrape failed; falling back to crawl",
-					{
-						url,
-						error:
-							error instanceof Error
-								? error.message
-								: String(error),
-					},
-				);
-			}
-		}
-
-		logger.info("[Firecrawl] Starting site crawl", {
-			url,
-			maxPages,
-		});
-
-		const start = await this.client.startCrawl(url, {
-			limit: maxPages,
-			maxDiscoveryDepth: maxDepth,
-			ignoreQueryParameters: true,
-			deduplicateSimilarURLs: true,
-			allowExternalLinks: false,
-			scrapeOptions: {
-				formats: ["markdown", "links"],
-				onlyMainContent: true,
-				timeout: config.FIRECRAWL_TIMEOUT_MS,
-			},
-		});
-
-		if (!start?.id) {
-			throw new Error(
-				"Firecrawl did not return a crawl job id",
-			);
-		}
-
-		const deadline =
-			Date.now() + config.FIRECRAWL_TIMEOUT_MS;
-		const pagesByUrl = new Map<string, ScrapedPage>();
-
-		while (Date.now() < deadline) {
-			const status = await this.client.getCrawlStatus(
-				start.id,
-			);
-			await onProgress?.(
-				status.completed ?? pagesByUrl.size,
-				status.total ?? maxPages,
-			);
-
-			for (const document of status.data ?? []) {
-				const page = await this.documentToScrapedPage(
-					document,
-					url,
-				);
-				if (!page) {
-					continue;
-				}
-				pagesByUrl.set(page.url, page);
-			}
-
-			if (status.status === "completed") {
-				const pages = Array.from(
-					pagesByUrl.values(),
-				).slice(0, maxPages);
-				logger.info("[Firecrawl] Site crawl completed", {
-					url,
-					pages: pages.length,
-				});
-				return pages;
-			}
-
-			if (
-				status.status === "failed" ||
-				status.status === "cancelled"
-			) {
-				throw new Error(
-					`Firecrawl crawl ended with status ${status.status}`,
-				);
-			}
-
-			await new Promise((resolve) =>
-				setTimeout(
-					resolve,
-					config.FIRECRAWL_POLL_INTERVAL_MS,
-				),
-			);
-		}
-
-		throw new Error(
-			`Firecrawl crawl timed out after ${config.FIRECRAWL_TIMEOUT_MS} ms`,
-		);
-	}
+interface FirecrawlCrawlRequest {
+	url: string;
+	limit?: number;
+	scrapeOptions: {
+		formats: string[];
+	};
 }
 
-export const firecrawlService = new FirecrawlService();
+interface FirecrawlStartResponse {
+	success: boolean;
+	id: string;
+}
+
+interface FirecrawlPage {
+	markdown: string;
+	metadata: {
+		title?: string;
+		sourceURL?: string;
+	};
+}
+
+interface FirecrawlStatusResponse {
+	status: string;
+	total: number;
+	completed: number;
+	data: FirecrawlPage[];
+	next?: string;
+}
+
+export function firecrawlEnabled(): boolean {
+	return Boolean(config.FIRECRAWL_API_KEY?.trim());
+}
+
+function firecrawlBaseURL(): string {
+	return (config.FIRECRAWL_API_URL ?? "https://api.firecrawl.dev").replace(/\/$/, "");
+}
+
+async function firecrawlGet(endpoint: string): Promise<FirecrawlStatusResponse> {
+	const response = await axios.get<FirecrawlStatusResponse>(
+		firecrawlBaseURL() + endpoint,
+		{
+			headers: { Authorization: `Bearer ${config.FIRECRAWL_API_KEY}` },
+			timeout: 30000,
+		},
+	);
+	return response.data;
+}
+
+async function collectPages(
+	initial: FirecrawlStatusResponse,
+	startURL: string,
+): Promise<ScrapedPage[]> {
+	const pages: ScrapedPage[] = [];
+
+	let batch = initial.data;
+	let nextURL = initial.next ?? "";
+
+	for (;;) {
+		for (const p of batch) {
+			const text = (p.markdown ?? "").trim();
+			if (!text) continue;
+			const src = (p.metadata?.sourceURL ?? "").trim() || startURL;
+			pages.push({
+				url: src,
+				title: (p.metadata?.title ?? "").trim(),
+				content: text,
+				links: [],
+				metadata: {},
+			});
+		}
+
+		if (!nextURL) break;
+
+		try {
+			const more = await axios.get<FirecrawlStatusResponse>(nextURL, {
+				headers: { Authorization: `Bearer ${config.FIRECRAWL_API_KEY}` },
+				timeout: 30000,
+			});
+			batch = more.data.data ?? [];
+			nextURL = more.data.next ?? "";
+		} catch (err) {
+			logger.warn("firecrawl: failed to fetch next pagination page", { nextURL, err });
+			break;
+		}
+	}
+
+	return pages;
+}
+
+// crawlWebsite uses the Firecrawl API to scrape a website and return clean markdown pages.
+// Throws on error so the caller can fall back to the built-in scraper.
+export async function firecrawlCrawlWebsite(
+	startURL: string,
+	maxPages?: number,
+	onProgress?: (completed: number, total: number) => void,
+): Promise<ScrapedPage[]> {
+	const requestBody: FirecrawlCrawlRequest = {
+		url: startURL,
+		scrapeOptions: { formats: ["markdown"] },
+	};
+	if (
+		typeof maxPages === "number" &&
+		Number.isFinite(maxPages) &&
+		maxPages > 0
+	) {
+		requestBody.limit = Math.trunc(maxPages);
+	}
+
+	// 1. Start crawl job
+	const startResp = await axios.post<FirecrawlStartResponse>(
+		firecrawlBaseURL() + "/v1/crawl",
+		requestBody,
+		{
+			headers: {
+				Authorization: `Bearer ${config.FIRECRAWL_API_KEY}`,
+				"Content-Type": "application/json",
+			},
+			timeout: 30000,
+		},
+	);
+
+	if (!startResp.data?.id) {
+		throw new Error("firecrawl: empty crawl ID in response");
+	}
+
+	const crawlId = startResp.data.id;
+	logger.info("firecrawl: crawl started", {
+		crawlId,
+		url: startURL,
+		limit: requestBody.limit ?? null,
+	});
+
+	// 2. Poll until completed (max 15 min)
+	const deadline = Date.now() + 15 * 60 * 1000;
+
+	while (Date.now() < deadline) {
+		await new Promise((r) => setTimeout(r, 3000));
+
+		let status: FirecrawlStatusResponse;
+		try {
+			status = await firecrawlGet("/v1/crawl/" + crawlId);
+		} catch (err) {
+			logger.warn("firecrawl: poll error, retrying", { crawlId, err });
+			continue;
+		}
+
+		if (onProgress) {
+			onProgress(status.completed, status.total);
+		}
+		logger.info("firecrawl: crawl progress", {
+			status: status.status,
+			completed: status.completed,
+			total: status.total,
+		});
+
+		if (status.status === "completed") {
+			const pages = await collectPages(status, startURL);
+			logger.info("firecrawl: crawl complete", { crawlId, pagesCollected: pages.length });
+			return pages;
+		}
+
+		if (status.status === "failed" || status.status === "cancelled") {
+			throw new Error(`firecrawl: crawl ended with status "${status.status}"`);
+		}
+	}
+
+	throw new Error("firecrawl: crawl did not complete within 15 minutes");
+}

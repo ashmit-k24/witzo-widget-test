@@ -6,26 +6,18 @@ import crypto from "crypto";
 import OpenAI from "openai";
 import {
 	coercePlanType,
-	PLAN_CAPABILITIES,
 	PlanType,
 } from "../config/planConfig";
 import { config } from "../config/env";
 import pool from "../config/database";
-import { memCache } from "../utils/memCache";
+import { redisCache } from "../config/redis";
 import {
 	DocumentUsageStats,
 	DOCUMENT_LIMITS,
 	PineconeMetadata,
-	ScrapedPageContentBlock,
+	RagChunk,
 	ScraperUsageStats,
-	StructuredBlockSearchResult,
-	StructuredQueryPlan,
 } from "../types";
-import {
-	CHUNK_MAX_WORDS,
-	CHUNK_OVERLAP_WORDS,
-	CHAT_RETRIEVAL_SCORE_THRESHOLD,
-} from "../constants";
 import {
 	openAICircuitBreaker,
 	pineconeCircuitBreaker,
@@ -35,108 +27,96 @@ import {
 	retryOnRateLimit,
 	retryWithBackoff,
 } from "../utils/retry";
-import { buildSparseVector } from "../utils/bm25";
-import {
-	isUrlUnderSourceRoot,
-	normalizeScrapeUrl,
-} from "../utils/scrapeUrl";
+import { chunkMarkdown, bm25SparseVector } from "./chunkingService";
+import { buildPineconeFilter, stepBackRewrite } from "./queryService";
+import { cohereRerank } from "./rerankService";
 import { subscriptionService } from "./subscriptionService";
 
-interface PineconeQueryOptions {
-	pageTypes?: string[];
-	blockTypes?: string[];
-	sourceRoot?: string;
-	sourceUrl?: string;
-}
-
-interface StructuredQueryOptions
-	extends PineconeQueryOptions {
-	focusTerms?: string[];
-	topic?: StructuredQueryPlan["topic"];
-}
-
-type RagSourcePageRow = {
-	id: number;
-};
-
-type StructuredBlockRow = {
-	id: number;
-	source_page_id: number | null;
-	source_type: "document" | "website";
-	source_root: string | null;
-	source_url: string;
-	title: string | null;
-	page_type: string | null;
-	block_type: string | null;
-	section_title: string | null;
-	section_path: string[] | null;
-	position: number;
-	content: string;
-	scraped_at: Date | null;
-	relevance_score: number;
-};
-
-type PersistedStructuredChunk = {
-	id: number;
-	text: string;
-	chunkKey: string;
-	metadata: Record<string, any>;
-};
-
-const EMBEDDING_BATCH_SIZE = 16;
-const EMBEDDING_BATCH_CONCURRENCY = 2;
-const STRUCTURED_PARAGRAPH_MIN_CHARS = 80;
-const STRUCTURED_NONPARAGRAPH_MIN_CHARS = 40;
-const STRUCTURED_MERGE_TARGET_CHARS = Math.max(
-	config.SCRAPER_CHUNK_WORDS * 8,
-	1200,
-);
-const STRUCTURED_SEARCH_STOP_WORDS = new Set([
-	"a",
-	"an",
-	"and",
-	"any",
-	"are",
-	"at",
-	"by",
-	"for",
-	"from",
-	"give",
-	"how",
-	"i",
-	"in",
-	"is",
-	"it",
-	"me",
-	"of",
-	"on",
-	"or",
-	"please",
-	"related",
-	"show",
-	"some",
-	"tell",
-	"that",
-	"the",
-	"their",
-	"them",
-	"these",
-	"this",
-	"those",
-	"to",
-	"us",
-	"what",
-	"with",
-	"you",
-	"your",
-]);
-
 class PineconeService {
+	private static readonly EMBEDDING_CONCURRENCY = 8;
+
+	private static readonly RAG_SOURCE_UPSERT_CONCURRENCY = 12;
+
+	private static readonly METADATA_TEXT_MAX_CHARS = 4000;
+
+	private static readonly METADATA_PARENT_TEXT_MAX_CHARS = 8000;
+
+	private static readonly METADATA_TITLE_MAX_CHARS = 300;
+
+	private static readonly METADATA_DESCRIPTION_MAX_CHARS = 500;
+
+	private static readonly METADATA_LABEL_MAX_CHARS = 200;
+
+	private static guessPageType(url: string, title: string): string {
+		let path = "";
+		try {
+			path = new URL(url).pathname.toLowerCase();
+		} catch {
+			path = url.toLowerCase();
+		}
+		const t = title.toLowerCase();
+		if (path === "/" || path === "" || /\/(index|home)(\.html?)?$/.test(path)) return "home";
+		if (/\/(contact|reach|get-in-touch)/.test(path) || /contact/.test(t)) return "contact";
+		if (/\/(about|who-we-are|our-story|team|company)/.test(path)) return "about";
+		if (/\/(case-stud|portfolio|work|project|client|success-stor|showcase)/.test(path)) return "case_study";
+		if (/\/(service|solution|offering|what-we-do|capabilities)/.test(path)) return "service";
+		if (/\/(blog|news|article|insight|post|update)/.test(path)) return "blog";
+		if (/\/(pricing|price|plan|package|cost)/.test(path)) return "pricing";
+		return "";
+	}
+
+	private sanitizeMetadataUpdate(
+		metadata: Record<string, unknown>,
+	): Record<string, string | number | boolean | string[]> {
+		const sanitized: Record<
+			string,
+			string | number | boolean | string[]
+		> = {};
+
+		for (const [key, value] of Object.entries(metadata)) {
+			if (value === undefined || value === null) {
+				continue;
+			}
+			if (
+				typeof value === "string" ||
+				typeof value === "number" ||
+				typeof value === "boolean"
+			) {
+				sanitized[key] = value;
+				continue;
+			}
+			if (
+				Array.isArray(value) &&
+				value.every(
+					(item) => typeof item === "string",
+				)
+			) {
+				sanitized[key] = value;
+			}
+		}
+
+		return sanitized;
+	}
+
+	private truncateMetadataString(
+		value: unknown,
+		maxChars: number,
+	): string {
+		if (typeof value !== "string") {
+			return "";
+		}
+
+		const normalized = value.trim();
+		if (normalized.length <= maxChars) {
+			return normalized;
+		}
+
+		return normalized.slice(0, maxChars);
+	}
+
 	private pinecone: Pinecone;
 	private openai: OpenAI;
 	private indexName: string;
-	private indexHost?: string;
-	private hybridEnabled: boolean;
 	private namespaceIndexCache: Map<
 		string,
 		any
@@ -150,57 +130,26 @@ class PineconeService {
 			apiKey: config.OPENAI_API_KEY,
 		});
 		this.indexName = config.PINECONE_INDEX_NAME;
-		this.hybridEnabled = config.PINECONE_HYBRID;
-		this.indexHost = config.PINECONE_HOST
-			? config.PINECONE_HOST.replace(
-					/^https?:\/\//i,
-					"",
-			  ).replace(/\/+$/, "")
-			: undefined;
-		if (
-			this.indexHost &&
-			!this.indexHost
-				.toLowerCase()
-				.startsWith(
-					`${this.indexName.toLowerCase()}-`,
-				)
-		) {
-			logger.warn(
-				`Ignoring stale PINECONE_HOST for index "${this.indexName}" because it points to a different host: ${this.indexHost}`,
-			);
-			this.indexHost = undefined;
-		}
-	}
-
-	private getBaseIndex(): any {
-		return this.indexHost
-			? this.pinecone.index(
-					this.indexName,
-					this.indexHost,
-			  )
-			: this.pinecone.index(this.indexName);
 	}
 
 	async ensureIndexExists(): Promise<void> {
 		try {
 			const indexes =
 				await this.pinecone.listIndexes();
-			const existingIndex = indexes.indexes?.find(
+			const indexExists = indexes.indexes?.some(
 				(index) => index.name === this.indexName,
 			);
-			const expectedMetric = this.hybridEnabled
-				? "dotproduct"
-				: "cosine";
 
-			if (!existingIndex) {
+			if (!indexExists) {
 				logger.info(
 					`Creating Pinecone index: ${this.indexName}`,
 				);
 				await this.pinecone.createIndex({
 					name: this.indexName,
-					dimension:
-						config.OPENAI_EMBEDDING_DIMENSIONS,
-					metric: expectedMetric,
+					dimension: 1024, // Using 1024 dimensions for compatibility
+					metric: config.PINECONE_HYBRID
+						? "dotproduct"
+						: "cosine",
 					spec: {
 						serverless: {
 							cloud: "aws",
@@ -215,21 +164,6 @@ class PineconeService {
 				// Wait for index to be ready
 				await new Promise((resolve) =>
 					setTimeout(resolve, 10000),
-				);
-			} else if (
-				typeof existingIndex.dimension === "number" &&
-				existingIndex.dimension !==
-					config.OPENAI_EMBEDDING_DIMENSIONS
-			) {
-				throw new Error(
-					`Pinecone index "${this.indexName}" uses dimension ${existingIndex.dimension}, but the configured embedding dimension is ${config.OPENAI_EMBEDDING_DIMENSIONS}. Point PINECONE_INDEX_NAME to a new index or recreate the existing index.`,
-				);
-			} else if (
-				existingIndex.metric &&
-				existingIndex.metric !== expectedMetric
-			) {
-				throw new Error(
-					`Pinecone index "${this.indexName}" uses metric ${existingIndex.metric}, but the current configuration requires ${expectedMetric}. Hybrid BM25 requires dotproduct; dense-only search requires cosine.`,
 				);
 			}
 		} catch (error) {
@@ -257,9 +191,9 @@ class PineconeService {
 				namespace,
 			);
 		}
-		const index = this.getBaseIndex().namespace(
-			namespace,
-		);
+		const index = this.pinecone
+			.index(this.indexName)
+			.namespace(namespace);
 		this.namespaceIndexCache.set(
 			namespace,
 			index,
@@ -275,172 +209,49 @@ class PineconeService {
 			.replace(/^_|_$/g, "");
 	}
 
-	private buildEmbeddingCacheEntry(text: string): {
-		cacheKey: string;
-		normalized: string;
-	} {
-		const normalized = text
-			.trim()
-			.toLowerCase()
-			.replace(/\s+/g, " ");
-		const digest = crypto
-			.createHash("sha1")
-			.update(normalized)
-			.digest("hex");
-		return {
-			cacheKey: `emb:${digest}`,
-			normalized,
-		};
-	}
-
-	private async mapWithConcurrency<T, U>(
-		items: T[],
-		concurrency: number,
-		worker: (
-			item: T,
-			index: number,
-		) => Promise<U>,
-	): Promise<U[]> {
-		if (items.length === 0) {
-			return [];
-		}
-
-		const results = new Array<U>(items.length);
-		let cursor = 0;
-		const limit = Math.max(1, concurrency);
-		const runners = Array.from(
-			{
-				length: Math.min(limit, items.length),
-			},
-			async () => {
-				while (cursor < items.length) {
-					const currentIndex = cursor;
-					cursor += 1;
-					results[currentIndex] =
-						await worker(
-							items[currentIndex],
-							currentIndex,
-						);
-				}
-			},
-		);
-		await Promise.all(runners);
-		return results;
-	}
-
-	private async generateEmbeddings(
-		texts: string[],
-	): Promise<number[][]> {
-		if (texts.length === 0) {
-			return [];
-		}
-
-		const cacheEntries = texts.map((text) => ({
-			text,
-			...this.buildEmbeddingCacheEntry(text),
-		}));
-		const cachedValues = await Promise.all(
-			cacheEntries.map((entry) =>
-				Promise.resolve(memCache.get(entry.cacheKey)),
-			),
-		);
-		const results = new Array<number[] | undefined>(
-			texts.length,
-		);
-		const missing: Array<{
-			index: number;
-			text: string;
-			cacheKey: string;
-		}> = [];
-
-		for (let i = 0; i < cacheEntries.length; i += 1) {
-			const cached = cachedValues[i];
-			if (cached) {
-				results[i] = JSON.parse(cached) as number[];
-				continue;
-			}
-			missing.push({
-				index: i,
-				text: cacheEntries[i].text,
-				cacheKey: cacheEntries[i].cacheKey,
-			});
-		}
-
-		const batches = this.chunkArray(
-			missing,
-			EMBEDDING_BATCH_SIZE,
-		);
-		const generatedBatches =
-			await this.mapWithConcurrency(
-				batches,
-				EMBEDDING_BATCH_CONCURRENCY,
-				async (batch) => {
-					const response =
-						await openAICircuitBreaker.execute(
-							async () => {
-								return await retryOnRateLimit(
-									async () => {
-										return await this.openai.embeddings.create(
-											{
-												model: config.OPENAI_MODEL,
-												input: batch.map(
-													(item) =>
-														item.text,
-												),
-												dimensions:
-													config.OPENAI_EMBEDDING_DIMENSIONS,
-											},
-										);
-									},
-								);
-							},
-						);
-
-					return batch.map((item, index) => {
-						const embedding =
-							response.data[index]
-								?.embedding;
-						if (!embedding) {
-							throw new Error(
-								`Missing embedding for batch item ${index}`,
-							);
-						}
-						return {
-							index: item.index,
-							cacheKey: item.cacheKey,
-							embedding,
-						};
-					});
-				},
-			);
-
-		for (const batch of generatedBatches) {
-			await Promise.all(
-				batch.map(async (item) => {
-					results[item.index] =
-						item.embedding;
-					memCache.setex(item.cacheKey, 300, JSON.stringify(item.embedding));
-				}),
-			);
-		}
-
-		if (results.some((embedding) => !embedding)) {
-			throw new Error(
-				"Failed to generate one or more embeddings",
-			);
-		}
-
-		return results as number[][];
-	}
-
 	async generateEmbedding(
 		text: string,
 	): Promise<number[]> {
 		try {
-			const [embedding] =
-				await this.generateEmbeddings([
-					text,
-				]);
+			const normalized = text
+				.trim()
+				.toLowerCase()
+				.replace(/\s+/g, " ");
+			const digest = crypto
+				.createHash("sha1")
+				.update(normalized)
+				.digest("hex");
+			const cacheKey = `emb:${digest}`;
+			const cached =
+				await redisCache.get(cacheKey);
+			if (cached) {
+				return JSON.parse(cached) as number[];
+			}
+
+			// Use circuit breaker and retry logic for OpenAI embeddings API
+			const response =
+				await openAICircuitBreaker.execute(
+					async () => {
+						return await retryOnRateLimit(
+							async () => {
+								return await this.openai.embeddings.create(
+									{
+										model: config.OPENAI_MODEL,
+										input: text,
+										dimensions: 1024, // Specify 1024 dimensions to match Pinecone index
+									},
+								);
+							},
+						);
+					},
+				);
+			const embedding =
+				response.data[0].embedding;
+			await redisCache.setex(
+				cacheKey,
+				300,
+				JSON.stringify(embedding),
+			);
 			return embedding;
 		} catch (error) {
 			logger.error("Error generating embedding", {
@@ -452,8 +263,7 @@ class PineconeService {
 
 	chunkText(
 		text: string,
-		maxChunkSize: number = CHUNK_MAX_WORDS,
-		overlapWords: number = CHUNK_OVERLAP_WORDS,
+		maxChunkSize: number = 8000,
 	): string[] {
 		const normalizedText = text
 			.replace(/\s+/g, " ")
@@ -462,268 +272,38 @@ class PineconeService {
 			return [];
 		}
 
-		const words = normalizedText.split(/\s+/);
-		if (words.length === 0) {
-			return [];
+		const chunks: string[] = [];
+		const sentenceMatches = normalizedText.match(
+			/[^.!?]+[.!?]+/g,
+		);
+		const sentences =
+			sentenceMatches && sentenceMatches.length > 0
+				? sentenceMatches
+				: [normalizedText];
+
+		let currentChunk = "";
+
+		for (const sentence of sentences) {
+			if (
+				(currentChunk + sentence).length >
+				maxChunkSize
+			) {
+				if (currentChunk) {
+					chunks.push(currentChunk.trim());
+					currentChunk = sentence;
+				} else {
+					chunks.push(sentence.trim());
+				}
+			} else {
+				currentChunk += sentence;
+			}
 		}
 
-		const step = Math.max(
-			1,
-			maxChunkSize - overlapWords,
-		);
-		const chunks: string[] = [];
-
-		for (let start = 0; start < words.length; start += step) {
-			const end = Math.min(
-				start + maxChunkSize,
-				words.length,
-			);
-			chunks.push(words.slice(start, end).join(" "));
-			if (end === words.length) {
-				break;
-			}
+		if (currentChunk) {
+			chunks.push(currentChunk.trim());
 		}
 
 		return chunks.filter(Boolean);
-	}
-
-	private compactStructuredBlocks(
-		content: string,
-		metadata?: Record<string, any>,
-	): ScrapedPageContentBlock[] {
-		const rawBlocks = Array.isArray(
-			metadata?.contentBlocks,
-		)
-			? (metadata?.contentBlocks as ScrapedPageContentBlock[])
-			: [];
-		const compactedBlocks: ScrapedPageContentBlock[] = [];
-
-		for (let blockIndex = 0; blockIndex < rawBlocks.length; blockIndex += 1) {
-			const block = {
-				...rawBlocks[blockIndex],
-			};
-			const blockText = String(block?.text ?? "")
-				.replace(/\s+/g, " ")
-				.trim();
-			if (!blockText) {
-				continue;
-			}
-
-			const minLength =
-				block.blockType === "paragraph"
-					? STRUCTURED_PARAGRAPH_MIN_CHARS
-					: STRUCTURED_NONPARAGRAPH_MIN_CHARS;
-			const isPriorityBlock =
-				block.blockType === "contact" ||
-				block.blockType === "faq" ||
-				block.blockType === "summary";
-			if (
-				!isPriorityBlock &&
-				blockText.length < minLength
-			) {
-				continue;
-			}
-
-			block.text = blockText;
-			const previousBlock =
-				compactedBlocks[
-					compactedBlocks.length - 1
-				];
-			const canMerge =
-				Boolean(previousBlock) &&
-				previousBlock.blockType !==
-					"contact" &&
-				previousBlock.blockType !==
-					"faq" &&
-				previousBlock.blockType !==
-					"summary" &&
-				block.blockType !== "contact" &&
-				block.blockType !== "faq" &&
-				block.blockType !== "summary" &&
-				previousBlock.sectionTitle ===
-					block.sectionTitle &&
-				(previousBlock.text.length +
-					2 +
-					block.text.length <=
-					STRUCTURED_MERGE_TARGET_CHARS);
-
-			if (canMerge) {
-				previousBlock.text = `${previousBlock.text}\n\n${block.text}`;
-				if (
-					previousBlock.blockType !==
-					block.blockType
-				) {
-					previousBlock.blockType =
-						"paragraph";
-				}
-				continue;
-			}
-
-			compactedBlocks.push(block);
-		}
-
-		if (compactedBlocks.length > 0) {
-			return compactedBlocks.map((block, index) => ({
-				...block,
-				position: block.position ?? index,
-			}));
-		}
-
-		return this.chunkText(content).map(
-			(chunk, index) => ({
-				text: chunk,
-				blockType: "paragraph",
-				position: index,
-			}),
-		);
-	}
-
-	private buildStructuredChunks(
-		content: string,
-		metadata?: Record<string, any>,
-	): Array<{
-		text: string;
-		chunkKey: string;
-		metadata: Record<string, any>;
-	}> {
-		const compactedBlocks =
-			this.compactStructuredBlocks(
-				content,
-				metadata,
-			);
-		const structuredChunks: Array<{
-			text: string;
-			chunkKey: string;
-			metadata: Record<string, any>;
-		}> = [];
-
-		for (let blockIndex = 0; blockIndex < compactedBlocks.length; blockIndex += 1) {
-			const block = compactedBlocks[blockIndex];
-			const blockText = block.text;
-			const sectionTitle =
-				block.sectionTitle?.trim() || undefined;
-			const enrichedBlockText =
-				sectionTitle &&
-				!blockText
-					.toLowerCase()
-					.startsWith(sectionTitle.toLowerCase())
-					? `${sectionTitle}: ${blockText}`
-					: blockText;
-			const blockChunks =
-				this.chunkText(enrichedBlockText);
-
-			for (let subChunkIndex = 0; subChunkIndex < blockChunks.length; subChunkIndex += 1) {
-				const chunkPosition =
-					structuredChunks.length;
-				structuredChunks.push({
-					text: blockChunks[subChunkIndex],
-					chunkKey: `${block.position ?? blockIndex}_${subChunkIndex}`,
-					metadata: {
-						blockType: block.blockType,
-						sectionTitle,
-						sectionPath: block.sectionPath,
-						position: chunkPosition,
-						blockPosition:
-							block.position ?? blockIndex,
-					},
-				});
-			}
-		}
-
-		if (structuredChunks.length > 0) {
-			return structuredChunks;
-		}
-
-		return [];
-	}
-
-	private mapStructuredBlockRows(
-		rows: StructuredBlockRow[],
-	): StructuredBlockSearchResult[] {
-		return rows.map(
-			(row): StructuredBlockSearchResult => ({
-				id: row.id,
-				sourcePageId:
-					row.source_page_id ?? undefined,
-				sourceType: row.source_type,
-				sourceRoot: row.source_root,
-				sourceUrl: row.source_url,
-				title:
-					row.title ||
-					row.source_url,
-				pageType: row.page_type,
-				blockType: row.block_type,
-				sectionTitle: row.section_title,
-				sectionPath:
-					row.section_path ?? undefined,
-				position: row.position,
-				content: row.content,
-				scrapedAt: row.scraped_at
-					? row.scraped_at.toISOString()
-					: undefined,
-				relevanceScore:
-					Number(row.relevance_score) || 0,
-			}),
-		);
-	}
-
-	private normalizeStructuredSearchTerms(
-		query: string,
-		focusTerms: string[] = [],
-	): string[] {
-		const normalizedFocusTerms = focusTerms
-			.map((term) =>
-				term
-					.toLowerCase()
-					.trim()
-					.replace(/\s+/g, " "),
-			)
-			.filter(
-				(term) =>
-					term.length >= 3 &&
-					!STRUCTURED_SEARCH_STOP_WORDS.has(term),
-			);
-		const normalizedQueryTerms = query
-			.toLowerCase()
-			.replace(/[^a-z0-9\s-]+/g, " ")
-			.split(/\s+/)
-			.map((term) => term.trim())
-			.filter(
-				(term) =>
-					term.length >= 3 &&
-					!STRUCTURED_SEARCH_STOP_WORDS.has(term),
-			);
-		return Array.from(
-			new Set([
-				...normalizedFocusTerms,
-				...normalizedQueryTerms,
-			]),
-		).slice(0, 12);
-	}
-
-	private limitStructuredResultsPerUrl(
-		results: StructuredBlockSearchResult[],
-		maxPerUrl: number,
-		limit: number,
-	): StructuredBlockSearchResult[] {
-		const counts = new Map<string, number>();
-		const selected: StructuredBlockSearchResult[] =
-			[];
-
-		for (const result of results) {
-			if (selected.length >= limit) {
-				break;
-			}
-			const nextCount =
-				(counts.get(result.sourceUrl) ?? 0) + 1;
-			if (nextCount > maxPerUrl) {
-				continue;
-			}
-			counts.set(result.sourceUrl, nextCount);
-			selected.push(result);
-		}
-
-		return selected;
 	}
 
 	private async forEachUserRecord(
@@ -783,317 +363,73 @@ class PineconeService {
 		return chunks;
 	}
 
-	private parseMetadataInteger(
-		value: unknown,
-	): number | undefined {
-		if (
-			typeof value === "number" &&
-			Number.isInteger(value) &&
-			value > 0
-		) {
-			return value;
+	private async mapWithConcurrency<T, R>(
+		items: T[],
+		concurrency: number,
+		worker: (
+			item: T,
+			index: number,
+		) => Promise<R>,
+	): Promise<R[]> {
+		if (items.length === 0) {
+			return [];
 		}
 
-		if (typeof value === "string") {
-			const normalized = value.trim();
-			if (!normalized) {
-				return undefined;
-			}
-			const parsed = Number(normalized);
-			if (
-				Number.isInteger(parsed) &&
-				parsed > 0
-			) {
-				return parsed;
-			}
-		}
+		const safeConcurrency = Math.max(
+			1,
+			Math.min(concurrency, items.length),
+		);
+		const results = new Array<R>(items.length);
+		let nextIndex = 0;
 
-		return undefined;
-	}
-
-	private sanitizePineconeMetadata(
-		metadata: Record<string, any>,
-	): Record<string, string | number | boolean | string[]> {
-		const sanitized: Record<
-			string,
-			string | number | boolean | string[]
-		> = {};
-
-		for (const [key, value] of Object.entries(metadata)) {
-			if (
-				value === undefined ||
-				value === null
-			) {
-				continue;
-			}
-
-			if (
-				typeof value === "string" ||
-				typeof value === "number" ||
-				typeof value === "boolean"
-			) {
-				sanitized[key] = value;
-				continue;
-			}
-
-			if (Array.isArray(value)) {
-				const normalized = value
-					.map((item) => {
-						if (
-							item === undefined ||
-							item === null
-						) {
-							return "";
-						}
-						if (
-							typeof item === "string" ||
-							typeof item === "number" ||
-							typeof item === "boolean"
-						) {
-							return String(item).trim();
-						}
-						return "";
-					})
-					.filter(Boolean);
-				if (normalized.length > 0) {
-					sanitized[key] = normalized;
+		const runWorker = async (): Promise<void> => {
+			for (;;) {
+				const currentIndex = nextIndex;
+				nextIndex += 1;
+				if (currentIndex >= items.length) {
+					return;
 				}
+				results[currentIndex] = await worker(
+					items[currentIndex],
+					currentIndex,
+				);
 			}
-		}
+		};
 
-		return sanitized;
-	}
-
-	private async upsertVectorsInBatches(
-		index: any,
-		vectors: PineconeRecord[],
-	): Promise<void> {
-		const batches = this.chunkArray(
-			vectors,
-			Math.max(1, config.PINECONE_UPSERT_BATCH_SIZE),
+		await Promise.all(
+			Array.from(
+				{ length: safeConcurrency },
+				() => runWorker(),
+			),
 		);
 
-		for (const batch of batches) {
-			await pineconeCircuitBreaker.execute(
-				async () => {
-					return await retryWithBackoff(
-						async () => {
-							return await index.upsert(batch);
-						},
-						{
-							name: "PineconeUpsert",
-							maxRetries: 3,
-						},
-					);
-				},
-			);
-		}
-	}
-
-	private urlMatchesSourceRoot(
-		candidateUrl: string | undefined,
-		sourceRoot: string,
-	): boolean {
-		if (!candidateUrl) {
-			return false;
-		}
-		return isUrlUnderSourceRoot(
-			candidateUrl,
-			sourceRoot,
-		);
+		return results;
 	}
 
 	private buildVectorId(
 		userId: string,
 		url: string,
-		chunkIndex: string | number,
+		chunkIndex: number,
+		sourceType: "website" | "document" = "website",
+		sourceKey: string = "",
 	): string {
-		const sanitizedUrl = this.sanitizeId(url);
-		return `${this.sanitizeId(userId)}_${sanitizedUrl}_chunk_${chunkIndex}`;
-	}
-
-	private buildQueryFilter(
-		options?: PineconeQueryOptions,
-	): Record<string, unknown> | undefined {
-		if (!options) {
-			return undefined;
-		}
-
-		const filters: Array<Record<string, unknown>> = [];
-		const pageTypes = Array.from(
-			new Set(
-				(options.pageTypes ?? [])
-					.map((value) => value.trim())
-					.filter(Boolean),
-			),
-		).sort();
-		const blockTypes = Array.from(
-			new Set(
-				(options.blockTypes ?? [])
-					.map((value) => value.trim())
-					.filter(Boolean),
-			),
-		).sort();
-
-		if (
-			pageTypes.length > 0 ||
-			blockTypes.length > 0
-		) {
-			const semanticFilters: Array<
-				Record<string, unknown>
-			> = [];
-			if (pageTypes.length > 0) {
-				semanticFilters.push({
-					pageType: { $in: pageTypes },
-				});
-			}
-			if (blockTypes.length > 0) {
-				semanticFilters.push({
-					blockType: { $in: blockTypes },
-				});
-			}
-			if (semanticFilters.length === 1) {
-				filters.push(semanticFilters[0]);
-			} else {
-				filters.push({
-					$or: semanticFilters,
-				});
-			}
-		}
-		if (options.sourceRoot?.trim()) {
-			filters.push({
-				sourceRoot: options.sourceRoot.trim(),
-			});
-		}
-		if (options.sourceUrl?.trim()) {
-			filters.push({
-				url: options.sourceUrl.trim(),
-			});
-		}
-
-		if (filters.length === 0) {
-			return undefined;
-		}
-		if (filters.length === 1) {
-			return filters[0];
-		}
-
-		return { $and: filters };
-	}
-
-	/**
-	 * Infers the page type from the URL path so chunks can be filtered
-	 * at retrieval time (e.g. contact queries → only 'contact' chunks).
-	 */
-	private detectPageType(url: string): string {
-		try {
-			const pathname = new URL(url).pathname.toLowerCase();
-			if (/\/(contact|reach|get-in-touch|location|office|map)/.test(pathname)) return "contact";
-			if (/\/(service|solution|product|offering|what-we-do)/.test(pathname)) return "services";
-			if (/\/(price|pricing|plan|cost|rate|package)/.test(pathname)) return "pricing";
-			if (/\/(about|team|history|who-we-are|company|our-story|founder)/.test(pathname)) return "about";
-			if (/\/(faq|help|support|question|answer|kb|knowledge)/.test(pathname)) return "faq";
-			if (/\/(blog|article|news|post|insight|update|resource)/.test(pathname)) return "blog";
-			if (/\/(portfolio|case-stud|work|project|client)/.test(pathname)) return "portfolio";
-			if (/\/(career|job|hiring|join|vacanc)/.test(pathname)) return "careers";
-		} catch {
-			// invalid URL — fall through to general
-		}
-		return "general";
-	}
-
-	private buildContextualEmbeddingText(
-		title: string,
-		pageType: string,
-		sectionTitle: string | undefined | null,
-		chunkText: string,
-		url?: string,
-		description?: string,
-	): string {
-		// Derive a human-readable slug from the URL path for extra context
-		// e.g. "our-work-healthcare" from ".../our-work-healthcare.html"
-		const urlSlug = url
-			? (url.split("/").pop() ?? "")
-					.replace(/\.[^.]+$/, "")
-					.replace(/[-_]/g, " ")
-					.trim()
-			: "";
-
-		const parts: string[] = [];
-		parts.push(`Page: ${title}`);
-		if (pageType) parts.push(`Type: ${pageType}`);
-		if (urlSlug && urlSlug !== title.toLowerCase()) parts.push(`Topic: ${urlSlug}`);
-		if (description) parts.push(`Summary: ${description}`);
-		if (sectionTitle) parts.push(`Section: ${sectionTitle}`);
-
-		return `[${parts.join(" | ")}]\n\n${chunkText}`;
+		const digest = crypto
+			.createHash("sha256")
+			.update(
+				`${userId}|${sourceType}|${sourceKey || url}|${url}|${chunkIndex}`,
+			)
+			.digest("hex")
+			.slice(0, 32);
+		return `pc_${this.sanitizeId(userId)}_${digest}_${chunkIndex}`;
 	}
 
 	private async upsertRagSourcePage(
 		userId: string,
 		url: string,
 		title: string,
-		pageContent: string,
 		chunks: number,
 		metadata?: Record<string, any>,
-	): Promise<number> {
-		const sourceType = url.startsWith("document://")
-			? "document"
-			: "website";
-		const sourceRoot =
-			sourceType === "website"
-				? (metadata?.sourceRoot as string | undefined) ??
-				  url
-				: null;
-		const scrapedAtRaw =
-			(metadata?.scrapedAt as string | undefined) ??
-			(metadata?.uploadedAt as string | undefined);
-		const scrapedAt =
-			scrapedAtRaw && !Number.isNaN(Date.parse(scrapedAtRaw))
-				? new Date(scrapedAtRaw)
-				: new Date();
-
-		const result = await pool.query<RagSourcePageRow>(
-			`INSERT INTO rag_source_pages
-				(user_id, source_type, source_root, source_url, title, page_content, chunks, scraped_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			 ON CONFLICT (user_id, source_url)
-			 DO UPDATE SET
-				source_type = EXCLUDED.source_type,
-				source_root = EXCLUDED.source_root,
-				title = EXCLUDED.title,
-				page_content = EXCLUDED.page_content,
-				chunks = EXCLUDED.chunks,
-				scraped_at = EXCLUDED.scraped_at,
-				updated_at = CURRENT_TIMESTAMP
-			 RETURNING id`,
-			[
-				userId,
-				sourceType,
-				sourceRoot,
-				url,
-				title,
-				pageContent,
-				Math.max(0, Math.trunc(chunks)),
-				scrapedAt,
-			],
-		);
-		return result.rows[0].id;
-	}
-
-	private async upsertRagSourceBlocks(
-		userId: string,
-		sourcePageId: number,
-		url: string,
-		title: string,
-		pageType: string,
-		chunks: Array<{
-			text: string;
-			chunkKey: string;
-			metadata: Record<string, any>;
-		}>,
-		metadata?: Record<string, any>,
-	): Promise<PersistedStructuredChunk[]> {
+	): Promise<void> {
 		const sourceType = url.startsWith("document://")
 			? "document"
 			: "website";
@@ -1111,516 +447,27 @@ class PineconeService {
 				: new Date();
 
 		await pool.query(
-			`DELETE FROM rag_source_blocks
-			 WHERE user_id = $1 AND source_url = $2`,
-			[userId, url],
-		);
-
-		if (chunks.length === 0) {
-			return [];
-		}
-
-		const persistedChunks: PersistedStructuredChunk[] =
-			[];
-
-		for (const batch of this.chunkArray(chunks, 100)) {
-			const valueClauses: string[] = [];
-			const values: Array<
-				string | number | Date | string[] | null
-			> = [];
-			let parameterIndex = 1;
-
-			for (const chunk of batch) {
-				valueClauses.push(
-					`($${parameterIndex}, $${parameterIndex + 1}, $${parameterIndex + 2}, $${parameterIndex + 3}, $${parameterIndex + 4}, $${parameterIndex + 5}, $${parameterIndex + 6}, $${parameterIndex + 7}, $${parameterIndex + 8}, $${parameterIndex + 9}, $${parameterIndex + 10}, $${parameterIndex + 11}, $${parameterIndex + 12})`,
-				);
-				values.push(
-					sourcePageId,
-					userId,
-					sourceType,
-					sourceRoot,
-					url,
-					title,
-					pageType,
-					chunk.metadata.blockType ?? "paragraph",
-					chunk.metadata.sectionTitle ?? null,
-					chunk.metadata.sectionPath ?? null,
-					typeof chunk.metadata.position === "number"
-						? chunk.metadata.position
-						: 0,
-					chunk.text,
-					scrapedAt,
-				);
-				parameterIndex += 13;
-			}
-
-			const insertResult =
-				await pool.query<{
-					id: number;
-					position: number;
-				}>(
-				`INSERT INTO rag_source_blocks
-					(source_page_id, user_id, source_type, source_root, source_url, title, page_type, block_type, section_title, section_path, position, content, scraped_at)
-				 VALUES ${valueClauses.join(", ")}
-				 RETURNING id, position`,
-				values,
-			);
-			const idByPosition = new Map(
-				insertResult.rows.map((row) => [
-					row.position,
-					row.id,
-				]),
-			);
-			for (const chunk of batch) {
-				const position =
-					typeof chunk.metadata.position ===
-					"number"
-						? chunk.metadata.position
-						: 0;
-				const blockId =
-					idByPosition.get(position);
-				if (!blockId) {
-					throw new Error(
-						`Failed to persist structured block id for ${url} at position ${position}`,
-					);
-				}
-				persistedChunks.push({
-					id: blockId,
-					text: chunk.text,
-					chunkKey: chunk.chunkKey,
-					metadata: chunk.metadata,
-				});
-			}
-		}
-
-		return persistedChunks;
-	}
-
-	private async getStructuredBlockRowsByIds(
-		userId: string,
-		blockIds: number[],
-	): Promise<StructuredBlockRow[]> {
-		if (blockIds.length === 0) {
-			return [];
-		}
-
-		const result =
-			await pool.query<StructuredBlockRow>(
-				`SELECT
-					id,
-					source_page_id,
-					source_type,
-					source_root,
-					source_url,
-					title,
-					page_type,
-					block_type,
-					section_title,
-					section_path,
-					position,
-					content,
-					scraped_at,
-					0::numeric AS relevance_score
-				 FROM rag_source_blocks
-				 WHERE user_id = $1
-				   AND id = ANY($2::int[])`,
-				[userId, blockIds],
-			);
-
-		return result.rows;
-	}
-
-	private async fetchSectionNeighbors(
-		userId: string,
-		sourcePageId: number,
-		sectionTitle: string | null,
-		position: number,
-	): Promise<string> {
-		try {
-			const result = await pool.query<{
-				position: number;
-				content: string;
-			}>(
-				`SELECT position, content
-				 FROM rag_source_blocks
-				 WHERE user_id = $1
-				   AND source_page_id = $2
-				   AND ($3::text IS NULL AND section_title IS NULL OR section_title = $3::text)
-				   AND position BETWEEN $4 AND $5
-				 ORDER BY position ASC`,
-				[userId, sourcePageId, sectionTitle, position - 1, position + 1],
-			);
-			if (result.rows.length <= 1) {
-				// No neighbors found — return empty so caller uses block.content directly
-				return "";
-			}
-			return result.rows.map((r) => r.content).join("\n\n");
-		} catch {
-			return "";
-		}
-	}
-
-	async hydrateMatches(
-		userId: string,
-		matches: any[],
-	): Promise<any[]> {
-		if (matches.length === 0) {
-			return matches;
-		}
-
-		const blockIds = Array.from(
-			new Set(
-				matches
-					.flatMap((match) => {
-						const metadata =
-							match?.metadata ?? {};
-						const ids: number[] = [];
-						const blockId =
-							this.parseMetadataInteger(
-								metadata.blockId,
-							);
-						if (blockId) {
-							ids.push(blockId);
-						}
-						const sourceBlockId =
-							this.parseMetadataInteger(
-								metadata.sourceBlockId,
-							);
-						if (sourceBlockId) {
-							ids.push(sourceBlockId);
-						}
-						return ids;
-					})
-					.filter((value) =>
-						Number.isInteger(value) &&
-						value > 0,
-					),
-			),
-		);
-
-		if (blockIds.length === 0) {
-			return matches;
-		}
-
-		const rows =
-			await this.getStructuredBlockRowsByIds(
+			`INSERT INTO rag_source_pages
+				(user_id, source_type, source_root, source_url, title, chunks, scraped_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+			 ON CONFLICT (user_id, source_url)
+			 DO UPDATE SET
+				source_type = EXCLUDED.source_type,
+				source_root = EXCLUDED.source_root,
+				title = EXCLUDED.title,
+				chunks = EXCLUDED.chunks,
+				scraped_at = EXCLUDED.scraped_at,
+				updated_at = CURRENT_TIMESTAMP`,
+			[
 				userId,
-				blockIds,
-			);
-		const rowMap = new Map(
-			this.mapStructuredBlockRows(rows).map(
-				(row) => [row.id, row],
-			),
+				sourceType,
+				sourceRoot,
+				url,
+				title,
+				Math.max(0, Math.trunc(chunks)),
+				scrapedAt,
+			],
 		);
-
-		return Promise.all(
-			matches.map(async (match) => {
-				const metadata =
-					match?.metadata ?? {};
-				const contentBlockId =
-					this.parseMetadataInteger(
-						metadata.blockId,
-					);
-				const sourceBlockId =
-					this.parseMetadataInteger(
-						metadata.sourceBlockId,
-					);
-				const block =
-					(contentBlockId &&
-						rowMap.get(contentBlockId)) ||
-					(sourceBlockId &&
-						rowMap.get(sourceBlockId));
-				if (!block) {
-					return match;
-				}
-
-				const hydratedMetadata = {
-					...metadata,
-					url:
-						metadata.url ??
-						block.sourceUrl,
-					title:
-						metadata.title ??
-						block.title,
-					pageType:
-						metadata.pageType ??
-						block.pageType ??
-						undefined,
-					blockType:
-						metadata.blockType ??
-						block.blockType ??
-						undefined,
-					sectionTitle:
-						metadata.sectionTitle ??
-						block.sectionTitle ??
-						undefined,
-					sectionPath:
-						metadata.sectionPath ??
-						block.sectionPath ??
-						undefined,
-					position:
-						metadata.position ??
-						block.position,
-					sourcePageId:
-						metadata.sourcePageId ??
-						block.sourcePageId ??
-						undefined,
-				} as Record<string, any>;
-
-				// Parent-document retrieval: expand content with adjacent blocks from same section
-				let expandedContent = "";
-				if (
-					block.sourcePageId != null &&
-					typeof block.position === "number"
-				) {
-					expandedContent = await this.fetchSectionNeighbors(
-						userId,
-						block.sourcePageId,
-						block.sectionTitle ?? null,
-						block.position,
-					);
-				}
-				hydratedMetadata.content =
-					expandedContent || block.content;
-				if (metadata.isHype === true) {
-					hydratedMetadata.sourceContent =
-						block.content;
-				}
-
-				return {
-					...match,
-					metadata: hydratedMetadata,
-				};
-			}),
-		);
-	}
-
-	async queryStructuredBlocks(
-		userId: string,
-		query: string,
-		limit: number = 12,
-		options?: StructuredQueryOptions,
-	): Promise<StructuredBlockSearchResult[]> {
-		try {
-			const normalizedQuery = query
-				.toLowerCase()
-				.trim()
-				.replace(/\s+/g, " ");
-			const searchTerms =
-				this.normalizeStructuredSearchTerms(
-					query,
-					options?.focusTerms,
-				);
-			const pageTypes =
-				options?.pageTypes &&
-				options.pageTypes.length > 0
-					? Array.from(
-							new Set(
-								options.pageTypes.map((value) =>
-									value.trim(),
-								),
-							),
-					  )
-					: null;
-			const blockTypes =
-				options?.blockTypes &&
-				options.blockTypes.length > 0
-					? Array.from(
-							new Set(
-								options.blockTypes.map((value) =>
-									value.trim(),
-								),
-							),
-					  )
-					: null;
-			if (
-				!normalizedQuery &&
-				searchTerms.length === 0 &&
-				!options?.sourceRoot &&
-				!options?.sourceUrl
-			) {
-				return [];
-			}
-
-			const candidateLimit = Math.max(limit * 4, 24);
-			const topic = options?.topic ?? "general";
-			const maxPerUrl =
-				topic === "contact"
-					? 8
-					: topic === "services"
-						? 6
-						: 3;
-			const result =
-				await pool.query<StructuredBlockRow>(
-					`WITH ranked AS (
-						SELECT
-							id,
-							source_page_id,
-							source_type,
-							source_root,
-							source_url,
-							title,
-							page_type,
-							block_type,
-							section_title,
-							section_path,
-							position,
-							content,
-							scraped_at,
-							(
-								CASE
-									WHEN $2 <> '' AND lower(coalesce(title, '')) LIKE '%' || $2 || '%' THEN 8
-									ELSE 0
-								END +
-								CASE
-									WHEN $2 <> '' AND lower(coalesce(section_title, '')) LIKE '%' || $2 || '%' THEN 5
-									ELSE 0
-								END +
-								CASE
-									WHEN $2 <> '' AND lower(coalesce(source_url, '')) LIKE '%' || $2 || '%' THEN 4
-									ELSE 0
-								END +
-								COALESCE((
-									SELECT COUNT(*)
-									FROM unnest($3::text[]) AS term
-									WHERE lower(coalesce(title, '')) LIKE '%' || term || '%'
-								), 0) * 2.5 +
-								COALESCE((
-									SELECT COUNT(*)
-									FROM unnest($3::text[]) AS term
-									WHERE lower(coalesce(section_title, '')) LIKE '%' || term || '%'
-								), 0) * 1.8 +
-								COALESCE((
-									SELECT COUNT(*)
-									FROM unnest($3::text[]) AS term
-									WHERE lower(coalesce(source_url, '')) LIKE '%' || term || '%'
-								), 0) * 1.5 +
-								COALESCE((
-									SELECT COUNT(*)
-									FROM unnest($3::text[]) AS term
-									WHERE lower(coalesce(content, '')) LIKE '%' || term || '%'
-								), 0) * 1.0 +
-								CASE
-									WHEN $9 = 'contact' AND lower(coalesce(source_url, '')) LIKE '%contact%' THEN 6
-									WHEN $9 = 'contact' AND lower(coalesce(source_url, '')) LIKE '%about%' THEN 2.5
-									ELSE 0
-								END +
-								CASE
-									WHEN $9 = 'contact' AND lower(coalesce(title, '')) LIKE '%contact%' THEN 6
-									WHEN $9 = 'contact' AND lower(coalesce(title, '')) LIKE '%about%' THEN 2.5
-									ELSE 0
-								END +
-								CASE
-									WHEN $9 = 'contact' AND block_type = 'contact' THEN 3.5
-									ELSE 0
-								END +
-								CASE
-									WHEN $9 = 'contact' AND lower(coalesce(section_title, '')) LIKE '%address%' THEN 5
-									WHEN $9 = 'contact' AND lower(coalesce(section_title, '')) LIKE '%office%' THEN 3.5
-									WHEN $9 = 'contact' AND lower(coalesce(section_title, '')) LIKE '%location%' THEN 3.5
-									WHEN $9 = 'contact' AND lower(coalesce(section_title, '')) LIKE '%contact%' THEN 2
-									ELSE 0
-								END +
-								CASE
-									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%address:%' THEN 5
-									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%office%' THEN 3
-									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%business bay%' THEN 3
-									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%koramangala%' THEN 3
-									WHEN $9 = 'contact' AND lower(coalesce(content, '')) LIKE '%toronto%' THEN 3
-									ELSE 0
-								END +
-								CASE
-									WHEN $9 = 'services' AND page_type = 'services' THEN 5
-									WHEN $9 = 'services' AND page_type = 'about' THEN 2
-									ELSE 0
-								END +
-								CASE
-									WHEN $9 = 'services' AND lower(coalesce(source_url, '')) LIKE '%service%' THEN 4
-									WHEN $9 = 'services' AND lower(coalesce(source_url, '')) LIKE '%solution%' THEN 3
-									WHEN $9 = 'services' AND lower(coalesce(source_url, '')) LIKE '%product%' THEN 3
-									ELSE 0
-								END +
-								CASE
-									WHEN $9 = 'services' AND block_type = 'summary' THEN 3.5
-									WHEN $9 = 'services' AND block_type = 'list' THEN 3
-									WHEN $9 = 'services' AND block_type = 'paragraph' THEN 1
-									ELSE 0
-								END +
-								CASE
-									WHEN $9 = 'services' AND lower(coalesce(section_title, '')) LIKE '%service%' THEN 4
-									WHEN $9 = 'services' AND lower(coalesce(section_title, '')) LIKE '%solution%' THEN 3
-									WHEN $9 = 'services' AND lower(coalesce(section_title, '')) LIKE '%offering%' THEN 3
-									WHEN $9 = 'services' AND lower(coalesce(section_title, '')) LIKE '%capabilit%' THEN 3
-									ELSE 0
-								END +
-								CASE
-									WHEN $4::text[] IS NOT NULL AND page_type = ANY($4) THEN 1.5
-									ELSE 0
-								END +
-								CASE
-									WHEN $5::text[] IS NOT NULL AND block_type = ANY($5) THEN 1.0
-									ELSE 0
-								END
-							) AS relevance_score
-						FROM rag_source_blocks
-						WHERE user_id = $1
-						  AND ($4::text[] IS NULL OR page_type = ANY($4))
-						  AND ($5::text[] IS NULL OR block_type = ANY($5))
-						  AND ($6::text IS NULL OR source_root = $6)
-						  AND ($7::text IS NULL OR source_url = $7)
-						  AND (
-								COALESCE(array_length($3::text[], 1), 0) = 0 OR
-								lower(coalesce(title, '')) LIKE '%' || $2 || '%' OR
-								lower(coalesce(section_title, '')) LIKE '%' || $2 || '%' OR
-								lower(coalesce(source_url, '')) LIKE '%' || $2 || '%' OR
-								EXISTS (
-									SELECT 1
-									FROM unnest($3::text[]) AS term
-									WHERE lower(coalesce(title, '')) LIKE '%' || term || '%'
-									   OR lower(coalesce(section_title, '')) LIKE '%' || term || '%'
-									   OR lower(coalesce(source_url, '')) LIKE '%' || term || '%'
-									   OR lower(coalesce(content, '')) LIKE '%' || term || '%'
-								)
-						  )
-					)
-					SELECT *
-					FROM ranked
-					WHERE relevance_score > 0
-					ORDER BY relevance_score DESC, position ASC, source_url ASC
-					LIMIT $8`,
-					[
-						userId,
-						normalizedQuery,
-						searchTerms,
-						pageTypes,
-						blockTypes,
-						options?.sourceRoot?.trim() || null,
-						options?.sourceUrl?.trim() || null,
-						candidateLimit,
-						topic,
-					],
-				);
-
-			const rows = this.mapStructuredBlockRows(
-				result.rows,
-			);
-
-			return this.limitStructuredResultsPerUrl(
-				rows,
-				maxPerUrl,
-				limit,
-			);
-		} catch (error) {
-			logger.error(
-				"Error querying structured RAG blocks",
-				{
-					error,
-					userId,
-					query,
-				},
-			);
-			return [];
-		}
 	}
 
 	private async deleteVectorIds(
@@ -1640,40 +487,48 @@ class PineconeService {
 		}
 	}
 
-	private async deleteStaleChunksForUrl(
+	private async deleteStaleChunksForUrls(
 		userId: string,
-		url: string,
-		validIds: Set<string>,
+		validIdsByUrl: Map<string, Set<string>>,
 	): Promise<void> {
+		if (validIdsByUrl.size === 0) {
+			return;
+		}
+
 		const index = this.getNamespaceIndex(userId);
-		const prefix = `${this.sanitizeId(userId)}_${this.sanitizeId(url)}_chunk_`;
+		const targetUrls = new Set(validIdsByUrl.keys());
 		const staleIds: string[] = [];
-		let paginationToken: string | undefined;
+		const staleCountByUrl = new Map<
+			string,
+			number
+		>();
 
-		do {
-			const listResponse = await index.listPaginated({
-				prefix,
-				paginationToken,
-				limit: 100,
-			});
+		await this.forEachUserRecord(
+			userId,
+			async (records) => {
+				for (const [id, record] of Object.entries(records)) {
+					const recordUrl =
+						(record.metadata?.url as string | undefined) ?? "";
+					if (
+						!targetUrls.has(recordUrl)
+					) {
+						continue;
+					}
 
-			const ids =
-				listResponse.vectors
-					?.map((vector: any) => vector.id)
-					.filter((id: any): id is string =>
-						Boolean(id),
-					) ?? [];
+					const validIds =
+						validIdsByUrl.get(recordUrl);
+					if (validIds?.has(id)) {
+						continue;
+					}
 
-			for (const id of ids) {
-				if (!validIds.has(id)) {
 					staleIds.push(id);
+					staleCountByUrl.set(
+						recordUrl,
+						(staleCountByUrl.get(recordUrl) ?? 0) + 1,
+					);
 				}
-			}
-
-			paginationToken =
-				listResponse.pagination?.next ||
-				undefined;
-		} while (paginationToken);
+			},
+		);
 
 		if (staleIds.length === 0) {
 			return;
@@ -1682,167 +537,10 @@ class PineconeService {
 		await this.deleteVectorIds(index, staleIds);
 		logger.info("Deleted stale Pinecone chunks", {
 			userId,
-			url,
+			targetUrls: targetUrls.size,
 			staleChunks: staleIds.length,
+			stalePages: staleCountByUrl.size,
 		});
-	}
-
-	/**
-	 * HyPE (Hypothetical Prompt Embeddings) — generate synthetic questions per chunk,
-	 * embed them, and upsert as separate vectors so that question-like queries
-	 * match content chunks more reliably.
-	 *
-	 * Runs fire-and-forget (non-blocking) so it never delays the main upsert.
-	 * Failures are swallowed with a warning log — HyPE is purely additive.
-	 */
-	private async generateAndUpsertHypeChunks(
-		index: any,
-		userId: string,
-		url: string,
-		chunks: Array<{
-			text: string;
-			vectorId: string;
-			blockId?: number;
-			sourcePageId?: number;
-			title?: string;
-			pageType?: string;
-			blockType?: string;
-			sectionTitle?: string;
-			sectionPath?: string[];
-		}>,
-	): Promise<void> {
-		const hypeQuestionsPerChunk =
-			config.HYPE_QUESTIONS_PER_CHUNK;
-		const hypeMaxChunks = config.HYPE_MAX_CHUNKS;
-		if (
-			hypeQuestionsPerChunk <= 0 ||
-			hypeMaxChunks <= 0
-		) {
-			return;
-		}
-
-		try {
-			const limited = chunks.slice(0, hypeMaxChunks);
-			const hypeVectors: PineconeRecord[] = [];
-
-			for (const chunk of limited) {
-				let questions: string[] = [];
-				try {
-					const resp =
-						await openAICircuitBreaker.execute(
-							async () =>
-								await this.openai.chat.completions.create({
-									model: config.OPENAI_CHAT_MODEL,
-									temperature: 0,
-									max_tokens: 200,
-									messages: [
-										{
-											role: "system",
-											content:
-												"Generate exactly " +
-												hypeQuestionsPerChunk +
-												" distinct questions that are directly answered by the provided text. Output only the questions, one per line, no numbering or extra text.",
-										},
-										{
-											role: "user",
-											content: `Text:\n${chunk.text.slice(0, 6000)}`,
-										},
-									],
-								}),
-						);
-					const raw =
-						resp.choices[0]?.message?.content ?? "";
-					questions = raw
-						.split("\n")
-						.map((q) => q.trim())
-						.filter((q) => q.length > 10)
-						.slice(0, hypeQuestionsPerChunk);
-				} catch (qErr) {
-					logger.debug(
-						"[HyPE] Question generation failed for chunk, skipping",
-						{
-							url,
-							chunkId: chunk.vectorId,
-							error:
-								qErr instanceof Error
-									? qErr.message
-									: String(qErr),
-						},
-					);
-					continue;
-				}
-
-				if (questions.length === 0) continue;
-
-				const embeddings =
-					await this.generateEmbeddings(
-						questions,
-					);
-
-				for (
-					let qi = 0;
-					qi < questions.length;
-					qi++
-				) {
-					const q = questions[qi];
-					const emb = embeddings[qi];
-					if (!emb) continue;
-					const sparseVector =
-						this.hybridEnabled
-							? buildSparseVector(q)
-							: { indices: [], values: [] };
-
-					const hypeMetadata: PineconeMetadata &
-						Record<string, any> = {
-						url,
-						title: chunk.title ?? "",
-						scrapedAt: new Date().toISOString(),
-						chunkIndex: qi,
-						totalChunks: questions.length,
-						userId,
-						sourceChunkId: chunk.vectorId,
-						sourceBlockId: chunk.blockId,
-						sourcePageId: chunk.sourcePageId,
-						pageType: chunk.pageType,
-						blockType: chunk.blockType,
-						sectionTitle: chunk.sectionTitle,
-						sectionPath: chunk.sectionPath,
-						chunkType: "hype",
-						isHype: true,
-					};
-
-					const hypeId = `${chunk.vectorId}__hype_${qi}`;
-					hypeVectors.push({
-						id: hypeId,
-						values: emb,
-						...(this.hybridEnabled &&
-						sparseVector.values.length > 0
-							? {
-									sparseValues:
-										sparseVector,
-							  }
-							: {}),
-						metadata: hypeMetadata,
-					});
-				}
-			}
-
-			if (hypeVectors.length === 0) return;
-
-			await this.upsertVectorsInBatches(
-				index,
-				hypeVectors,
-			);
-			logger.info(
-				`[HyPE] Upserted ${hypeVectors.length} hypothetical question vectors for ${url}`,
-			);
-		} catch (err) {
-			logger.warn("[HyPE] Background generation failed (non-fatal)", {
-				url,
-				userId,
-				error: err instanceof Error ? err.message : String(err),
-			});
-		}
 	}
 
 	async upsertDocument(
@@ -1852,210 +550,54 @@ class PineconeService {
 		content: string,
 		metadata?: Record<string, any>,
 	): Promise<void> {
-		let chunks: Array<{
-			text: string;
-			chunkKey: string;
-			metadata: Record<string, any>;
-		}> = [];
 		try {
-			const index =
-				this.getNamespaceIndex(userId);
-			chunks = this.buildStructuredChunks(
-				content,
-				metadata,
-			);
-			if (chunks.length === 0) {
+			const pairs = chunkMarkdown(content, title);
+			if (pairs.length === 0) {
 				throw new Error(
 					"No usable text content found for this page",
 				);
 			}
 
-			const vectors: PineconeRecord[] = [];
-			const sharedMetadata = {
-				...(metadata ?? {}),
-			};
-			delete sharedMetadata.contentBlocks;
-			const structuredFacts = Array.isArray(
-				sharedMetadata.structuredFacts,
-			)
-				? sharedMetadata.structuredFacts
-				: [];
-			delete sharedMetadata.structuredFacts;
-			if (structuredFacts.length > 0) {
-				sharedMetadata.structuredFactTypes = Array.from(
-					new Set(
-						structuredFacts
-							.map((fact) =>
-								typeof fact?.type === "string"
-									? fact.type.trim()
-									: "",
-							)
-							.filter(Boolean),
-					),
-				).slice(0, 12);
-				sharedMetadata.structuredFactValues =
-					structuredFacts
-						.map((fact) =>
-							typeof fact?.value === "string"
-								? fact.value
-										.trim()
-										.slice(0, 160)
-								: "",
-						)
-						.filter(Boolean)
-						.slice(0, 12);
-			}
-			const providedPageType =
-				typeof sharedMetadata.pageType === "string"
-					? sharedMetadata.pageType
-					: undefined;
-			delete sharedMetadata.pageType;
-			const pageType =
-				typeof providedPageType === "string" &&
-				providedPageType.trim()
-					? providedPageType.trim()
-					: this.detectPageType(url);
-			const sourcePageId =
-				await this.upsertRagSourcePage(
+			const sourceType = url.startsWith("document://")
+				? "document"
+				: "website";
+			const sourceKey =
+				sourceType === "document"
+					? url
+					: String(metadata?.sourceRoot || url);
+			const ragChunks: RagChunk[] = pairs.map(
+				(pair, index) => ({
 					userId,
 					url,
-					title,
-					content,
-					chunks.length,
-					metadata,
-				);
-			const persistedChunks =
-				await this.upsertRagSourceBlocks(
-					userId,
-					sourcePageId,
-					url,
-					title,
-					pageType,
-					chunks,
-					metadata,
-				);
-			const embeddings =
-				await this.generateEmbeddings(
-					persistedChunks.map((chunk) =>
-						this.buildContextualEmbeddingText(
-							title,
-							pageType,
-							typeof chunk.metadata.sectionTitle === "string"
-								? chunk.metadata.sectionTitle
-								: undefined,
-							chunk.text,
-							url,
-							typeof sharedMetadata.description === "string"
-								? sharedMetadata.description
-								: undefined,
-						),
-					),
-				);
-
-			for (let i = 0; i < persistedChunks.length; i++) {
-				const chunk = persistedChunks[i];
-				const embedding =
-					embeddings[i];
-
-				const pineconeMetadata: PineconeMetadata &
-					Record<string, any> = {
-					url,
-					title,
-					description:
-						sharedMetadata.description || "",
-					scrapedAt: new Date().toISOString(),
-					chunkIndex: i,
-					totalChunks: persistedChunks.length,
-					userId,
-					blockId: chunk.id,
-					sourcePageId,
-					pageType,
-					// Store chunk text so hydrateMatches falls back to this
-					// if the DB block is missing (stale blockId after re-scrape).
-					content: chunk.text.slice(0, 8000),
-					...sharedMetadata,
-					...chunk.metadata,
-				};
-				const sanitizedMetadata =
-					this.sanitizePineconeMetadata(
-						pineconeMetadata,
-					);
-
-				const vectorId = this.buildVectorId(
-					userId,
-					url,
-					chunk.chunkKey,
-				);
-				const sparseVector =
-					this.hybridEnabled
-						? buildSparseVector(chunk.text)
-						: { indices: [], values: [] };
-
-				vectors.push({
-					id: vectorId,
-					values: embedding,
-					...(this.hybridEnabled &&
-					sparseVector.values.length > 0
-						? {
-								sparseValues:
-									sparseVector,
-						  }
-						: {}),
-					metadata: sanitizedMetadata,
-				});
-			}
-
-			// Best-effort stale chunk cleanup — non-fatal so it never blocks the upsert
-			try {
-				await this.deleteStaleChunksForUrl(
-					userId,
-					url,
-					new Set(vectors.map((vector) => vector.id)),
-				);
-			} catch (cleanupErr) {
-				logger.warn("Failed to delete stale Pinecone chunks (non-fatal)", {
-					url,
-					userId,
-					error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
-				});
-			}
-
-			await this.upsertVectorsInBatches(
-				index,
-				vectors,
+					pageTitle: title,
+					childText: pair.childText,
+					parentText: pair.parentText,
+					chunkIndex: index,
+					sourceType,
+					sourceKey,
+					isHype: false,
+					hypeParent: "",
+				}),
 			);
 
-			// HyPE: generate hypothetical questions in the background (non-blocking)
-			void this.generateAndUpsertHypeChunks(
-				index,
-				userId,
-				url,
-				persistedChunks.map((c, i) => ({
-					text: c.text,
-					vectorId: vectors[i].id,
-					blockId: c.id,
-					sourcePageId,
-					title,
-					pageType,
-					blockType:
-						typeof c.metadata.blockType ===
-						"string"
-							? c.metadata.blockType
-							: undefined,
-					sectionTitle:
-						typeof c.metadata.sectionTitle ===
-						"string"
-							? c.metadata.sectionTitle
-							: undefined,
-					sectionPath: Array.isArray(
-						c.metadata.sectionPath,
-					)
-						? c.metadata.sectionPath
-						: undefined,
-				})),
-			);
+			await this.upsertChunks(userId, ragChunks, {
+				description:
+					metadata?.description || "",
+				sourceRoot:
+					metadata?.sourceRoot || url,
+				sourceRootTitle:
+					metadata?.sourceRootTitle ||
+					title ||
+					url,
+				scrapedAt:
+					metadata?.scrapedAt ||
+					metadata?.uploadedAt ||
+					new Date().toISOString(),
+				uploadedAt: metadata?.uploadedAt,
+				fileType: metadata?.fileType,
+			});
 			logger.info(
-				`Upserted ${chunks.length} chunks for URL: ${url} (user: ${userId})`,
+				`Upserted ${pairs.length} chunks for URL: ${url} (user: ${userId})`,
 			);
 		} catch (error) {
 			logger.error(
@@ -2068,84 +610,429 @@ class PineconeService {
 					errorDetails: error,
 					url,
 					userId,
-					chunksCount: chunks.length,
 				},
 			);
 			throw error;
 		}
 	}
 
+	async upsertChunks(
+		userId: string,
+		chunks: RagChunk[],
+		extraMetadata: Record<string, any> = {},
+	): Promise<void> {
+		if (chunks.length === 0) {
+			return;
+		}
+
+		const startedAt = Date.now();
+		const index = this.getNamespaceIndex(userId);
+		const allHype = chunks.every(
+			(chunk) => chunk.isHype,
+		);
+		const uniquePages = new Set(
+			chunks.map((chunk) => chunk.url),
+		).size;
+		logger.info("pinecone: upsert pipeline started", {
+			userId,
+			chunks: chunks.length,
+			uniquePages,
+			allHype,
+		});
+		const pageCounts = new Map<
+			string,
+			{ title: string; chunks: number }
+		>();
+		const validIdsByUrl = new Map<
+			string,
+			Set<string>
+		>();
+		const embeddingStartedAt = Date.now();
+		const preparedVectors =
+			await this.mapWithConcurrency(
+				chunks,
+				PineconeService.EMBEDDING_CONCURRENCY,
+				async (chunk) => {
+					const text =
+						chunk.childText.trim();
+					if (!text) {
+						return null;
+					}
+
+					const embedding =
+						await this.generateEmbedding(text);
+					const vectorId =
+						this.buildVectorId(
+							userId,
+							chunk.url,
+							chunk.chunkIndex,
+							chunk.sourceType,
+							chunk.sourceKey,
+						);
+					chunk.vectorId = vectorId;
+
+					const metadata: PineconeMetadata &
+						Record<string, any> = {
+						url: chunk.url,
+						title: this.truncateMetadataString(
+							chunk.pageTitle,
+							PineconeService.METADATA_TITLE_MAX_CHARS,
+						),
+						description:
+							this.truncateMetadataString(
+								extraMetadata.description || "",
+								PineconeService.METADATA_DESCRIPTION_MAX_CHARS,
+							),
+						scrapedAt:
+							extraMetadata.scrapedAt ||
+							new Date().toISOString(),
+						chunkIndex: chunk.chunkIndex,
+						totalChunks: 0,
+						userId,
+						text: this.truncateMetadataString(
+							text,
+							PineconeService.METADATA_TEXT_MAX_CHARS,
+						),
+						parentText:
+							this.truncateMetadataString(
+								chunk.parentText,
+								PineconeService.METADATA_PARENT_TEXT_MAX_CHARS,
+							),
+						sourceType: chunk.sourceType,
+						sourceKey: chunk.sourceKey,
+						sourceRoot:
+							extraMetadata.sourceRoot ||
+							chunk.sourceKey,
+						sourceRootTitle:
+							this.truncateMetadataString(
+								extraMetadata.sourceRootTitle ||
+									chunk.pageTitle,
+								PineconeService.METADATA_TITLE_MAX_CHARS,
+							),
+						isHype: chunk.isHype,
+						hypeParent: chunk.hypeParent,
+						pageType:
+							this.truncateMetadataString(
+								chunk.pageType ||
+									PineconeService.guessPageType(chunk.url, chunk.pageTitle),
+								PineconeService.METADATA_LABEL_MAX_CHARS,
+							),
+						clientName:
+							this.truncateMetadataString(
+								chunk.clientName,
+								PineconeService.METADATA_LABEL_MAX_CHARS,
+							),
+						industry:
+							this.truncateMetadataString(
+								chunk.industry,
+								PineconeService.METADATA_LABEL_MAX_CHARS,
+							),
+						services:
+							this.truncateMetadataString(
+								chunk.services,
+								500,
+							),
+						fileType:
+							this.truncateMetadataString(
+								extraMetadata.fileType,
+								120,
+							),
+						uploadedAt: this.truncateMetadataString(
+							extraMetadata.uploadedAt,
+							64,
+						),
+					};
+
+					const metadataBytes = Buffer.byteLength(
+						JSON.stringify(metadata),
+						"utf8",
+					);
+					if (metadataBytes > 35000) {
+						logger.warn(
+							"Pinecone metadata payload is near the size limit",
+							{
+								userId,
+								url: chunk.url,
+								vectorId,
+								metadataBytes,
+							},
+						);
+					}
+
+					const sparse =
+						config.PINECONE_HYBRID
+							? bm25SparseVector(text)
+							: null;
+
+					const vector: PineconeRecord = {
+						id: vectorId,
+						values: embedding,
+						metadata,
+					};
+					if (
+						sparse &&
+						sparse.indices.length > 0
+					) {
+						(vector as any).sparseValues =
+							sparse;
+					}
+
+					return {
+						chunk,
+						vector,
+					};
+				},
+			);
+		logger.info("pinecone: embeddings prepared", {
+			userId,
+			chunks: chunks.length,
+			durationMs: Date.now() - embeddingStartedAt,
+		});
+
+		const vectors: PineconeRecord[] = [];
+		for (const prepared of preparedVectors) {
+			if (!prepared) {
+				continue;
+			}
+
+			vectors.push(prepared.vector);
+
+			const pageEntry =
+				pageCounts.get(
+					prepared.chunk.url,
+				) ?? {
+					title: prepared.chunk.pageTitle,
+					chunks: 0,
+				};
+			pageEntry.chunks += 1;
+			pageCounts.set(
+				prepared.chunk.url,
+				pageEntry,
+			);
+
+			const validIds =
+				validIdsByUrl.get(
+					prepared.chunk.url,
+				) ?? new Set<string>();
+			validIds.add(prepared.vector.id);
+			validIdsByUrl.set(
+				prepared.chunk.url,
+				validIds,
+			);
+		}
+
+		if (vectors.length === 0) {
+			return;
+		}
+
+		for (const vector of vectors) {
+			const count =
+				pageCounts.get(
+					String(vector.metadata?.url || ""),
+				)?.chunks ?? vectors.length;
+			(vector.metadata as Record<string, unknown>).totalChunks =
+				count;
+		}
+
+		if (!allHype) {
+			const staleCleanupStartedAt = Date.now();
+			await this.deleteStaleChunksForUrls(
+				userId,
+				validIdsByUrl,
+			);
+			logger.info("pinecone: stale chunk cleanup completed", {
+				userId,
+				uniquePages: validIdsByUrl.size,
+				durationMs: Date.now() - staleCleanupStartedAt,
+			});
+		}
+
+		const vectorBatches = this.chunkArray(
+			vectors,
+			100,
+		);
+		const upsertStartedAt = Date.now();
+		for (const batch of vectorBatches) {
+			await pineconeCircuitBreaker.execute(
+				async () => {
+					return await retryWithBackoff(
+						async () => {
+							return await index.upsert(batch);
+						},
+						{
+							name: "PineconeUpsert",
+							maxRetries: 3,
+						},
+					);
+				},
+			);
+		}
+		logger.info("pinecone: vector batches upserted", {
+			userId,
+			vectors: vectors.length,
+			batches: vectorBatches.length,
+			durationMs: Date.now() - upsertStartedAt,
+		});
+
+		if (!allHype) {
+			const sourcePageStartedAt = Date.now();
+			await this.mapWithConcurrency(
+				Array.from(pageCounts.entries()),
+				PineconeService.RAG_SOURCE_UPSERT_CONCURRENCY,
+				async ([url, pageInfo]) =>
+					this.upsertRagSourcePage(
+						userId,
+						url,
+						pageInfo.title,
+						pageInfo.chunks,
+						extraMetadata,
+					),
+			);
+			logger.info("pinecone: rag_source_pages synced", {
+				userId,
+				sourcePages: pageCounts.size,
+				durationMs: Date.now() - sourcePageStartedAt,
+			});
+		}
+		logger.info("pinecone: upsert pipeline completed", {
+			userId,
+			chunks: chunks.length,
+			vectors: vectors.length,
+			uniquePages,
+			allHype,
+			durationMs: Date.now() - startedAt,
+		});
+	}
+
+	async updateVectorMetadata(
+		userId: string,
+		vectorId: string,
+		metadata: Record<string, unknown>,
+	): Promise<void> {
+		if (!vectorId) {
+			return;
+		}
+		const sanitized =
+			this.sanitizeMetadataUpdate(metadata);
+		if (Object.keys(sanitized).length === 0) {
+			return;
+		}
+
+		const index = this.getNamespaceIndex(userId);
+		await pineconeCircuitBreaker.execute(
+			async () => {
+				await (index as any).update({
+					id: vectorId,
+					metadata: sanitized,
+				});
+			},
+		);
+	}
+
 	async queryDocuments(
 		userId: string,
 		query: string,
 		topK: number = 10,
-		scoreThreshold: number = CHAT_RETRIEVAL_SCORE_THRESHOLD,
-		options?: PineconeQueryOptions,
+		options?: {
+			history?: Array<{
+				role: string;
+				content: string;
+			}>;
+		},
 	): Promise<any[]> {
 		try {
-			const index =
-				this.getNamespaceIndex(userId);
-			const [queryEmbedding, querySparse] =
-				await Promise.all([
-					this.generateEmbedding(query),
-					Promise.resolve(
-						this.hybridEnabled
-							? buildSparseVector(query)
-							: { indices: [], values: [] },
-					),
-				]);
+			const index = this.getNamespaceIndex(userId);
+			const effectiveTopK =
+				topK > 0 ? topK : 10;
+			const fetchTopK =
+				config.HYPE_QUESTIONS_PER_CHUNK > 0
+					? Math.min(
+							effectiveTopK *
+								(config.HYPE_QUESTIONS_PER_CHUNK + 1),
+							50,
+					  )
+					: effectiveTopK;
+			const rewrittenQuery =
+				await stepBackRewrite(
+					query,
+					options?.history,
+				);
+			const queryEmbedding =
+				await this.generateEmbedding(
+					rewrittenQuery,
+				);
 			const filter =
-				this.buildQueryFilter(options);
+				buildPineconeFilter(query);
 
-			// Use circuit breaker for Pinecone query
-			const queryResponse =
-				await pineconeCircuitBreaker.execute(
+			const runQuery = async (
+				withFilter: boolean,
+				withSparse: boolean,
+			) => {
+				const payload: Record<
+					string,
+					unknown
+				> = {
+					vector: queryEmbedding,
+					topK: fetchTopK,
+					includeMetadata: true,
+				};
+				if (withFilter && filter) {
+					payload.filter = filter;
+				}
+				if (withSparse && config.PINECONE_HYBRID) {
+					const sparse =
+						bm25SparseVector(rewrittenQuery);
+					if (sparse.indices.length > 0) {
+						(payload as any).sparseVector =
+							sparse;
+					}
+				}
+
+				return await pineconeCircuitBreaker.execute(
 					async () => {
-						return await index.query({
-							vector: queryEmbedding,
-							...(this.hybridEnabled &&
-							querySparse.values.length > 0
-								? {
-										sparseVector: querySparse,
-								  }
-								: {}),
-							topK,
-							includeMetadata: true,
-							...(filter
-								? { filter }
-								: {}),
-						});
+						return await (index as any).query(
+							payload,
+						);
 					},
 				);
+			};
 
-			const matches = queryResponse.matches || [];
-			const passing = matches.filter(
-				(m: any) => (m.score ?? 0) >= scoreThreshold,
-			);
-			logger.info("[RAG 3/6] Pinecone query", {
-				userId,
-				total: matches.length,
-				passedThreshold: passing.length,
-				belowThreshold: matches.length - passing.length,
-				scoreThreshold,
-				scores: matches.slice(0, 8).map((m: any) => (m.score ?? 0).toFixed(3)),
-			});
-			return await this.hydrateMatches(
-				userId,
-				passing,
+			let queryResponse: any;
+			try {
+				queryResponse = await runQuery(
+					true,
+					true,
+				);
+			} catch (error) {
+				logger.warn(
+					"Pinecone hybrid query failed, retrying dense-only",
+					{
+						error,
+						userId,
+					},
+				);
+				queryResponse = await runQuery(
+					true,
+					false,
+				);
+			}
+
+			let matches = queryResponse.matches || [];
+			if (matches.length === 0 && filter) {
+				const retryResponse =
+					await runQuery(false, false);
+				matches = retryResponse.matches || [];
+			}
+
+			return await cohereRerank(
+				query,
+				matches,
+				effectiveTopK,
 			);
 		} catch (error) {
-			const errMessage = error instanceof Error ? error.message : String(error);
-			const errStatus = (error as any)?.status ?? (error as any)?.statusCode ?? "unknown";
-			const errBody = (error as any)?.body ?? (error as any)?.data ?? (error as any)?.cause ?? null;
-			logger.error("[RAG] Pinecone queryDocuments failed", {
+			logger.error("Error querying Pinecone", {
+				error,
 				userId,
-				message: errMessage,
-				status: errStatus,
-				body: errBody,
-				hint: errStatus === 400
-					? "HTTP 400 with sparseVector usually means the index metric is cosine, not dotproduct. Hybrid BM25 requires dotproduct metric."
-					: undefined,
 			});
 			throw error;
 		}
@@ -2161,7 +1048,6 @@ class PineconeService {
 
 			let matchFn: (
 				recordUrl?: string,
-				sourceRoot?: string,
 			) => boolean;
 			let logLabel: string;
 
@@ -2178,27 +1064,30 @@ class PineconeService {
 					[userId, url],
 				);
 			} else {
-				const sourceRoot =
-					await normalizeScrapeUrl(url);
-				logLabel = sourceRoot;
-				matchFn = (
-					recordUrl?: string,
-					recordSourceRoot?: string,
-				) =>
-					recordSourceRoot === sourceRoot ||
-					this.urlMatchesSourceRoot(
-						recordUrl,
-						sourceRoot,
+				let baseUrl: string;
+				try {
+					const urlObj = new URL(url);
+					baseUrl = `${urlObj.protocol}//${urlObj.hostname}`;
+				} catch (error) {
+					throw new Error(
+						"Invalid URL provided for deletion",
+					);
+				}
+				logLabel = baseUrl;
+				matchFn = (recordUrl?: string) =>
+					Boolean(
+						recordUrl &&
+						recordUrl.startsWith(baseUrl),
 					);
 				logger.info(
-					`Deleting website source: ${logLabel} (user: ${userId})`,
+					`Deleting all documents from domain: ${logLabel} (user: ${userId})`,
 				);
 				await pool.query(
 					`DELETE FROM rag_source_pages
 					 WHERE user_id = $1
 					   AND source_type = 'website'
-					   AND (source_root = $2 OR source_url = $2 OR source_url LIKE $3)`,
-					[userId, sourceRoot, `${sourceRoot}%`],
+					   AND (source_root = $2 OR source_url LIKE $3)`,
+					[userId, baseUrl, `${baseUrl}%`],
 				);
 			}
 
@@ -2214,16 +1103,7 @@ class PineconeService {
 							(record.metadata?.url as
 								| string
 								| undefined) ?? undefined;
-						const recordSourceRoot =
-							(record.metadata?.sourceRoot as
-								| string
-								| undefined) ?? undefined;
-						if (
-							matchFn(
-								recordUrl,
-								recordSourceRoot,
-							)
-						) {
+						if (matchFn(recordUrl)) {
 							matchingIds.push(id);
 						}
 					}
@@ -2265,9 +1145,9 @@ class PineconeService {
 		try {
 			const namespace =
 				this.getUserNamespace(userId);
-			const index = this.getBaseIndex().namespace(
-				namespace,
-			);
+			const index = this.pinecone
+				.index(this.indexName)
+				.namespace(namespace);
 
 			logger.info(
 				`Deleting exact page: ${exactUrl} (user: ${userId})`,
@@ -2332,9 +1212,9 @@ class PineconeService {
 		try {
 			const namespace =
 				this.getUserNamespace(userId);
-			const index = this.getBaseIndex().namespace(
-				namespace,
-			);
+			const index = this.pinecone
+				.index(this.indexName)
+				.namespace(namespace);
 
 			await index.deleteAll();
 			await pool.query(
@@ -2359,7 +1239,9 @@ class PineconeService {
 
 	async getStats(userId?: string): Promise<any> {
 		try {
-			const index = this.getBaseIndex();
+			const index = this.pinecone.index(
+				this.indexName,
+			);
 
 			if (userId) {
 				const namespace =
@@ -2393,9 +1275,9 @@ class PineconeService {
 		try {
 			const namespace =
 				this.getUserNamespace(userId);
-			const index = this.getBaseIndex().namespace(
-				namespace,
-			);
+			const index = this.pinecone
+				.index(this.indexName)
+				.namespace(namespace);
 
 			// For websites, normalize to base domain for checking
 			let urlToCheck = sourceUrl;
@@ -2429,8 +1311,8 @@ class PineconeService {
 
 				const ids =
 					listResponse.vectors
-						?.map((vector: any) => vector.id)
-						.filter((id: any): id is string =>
+						?.map((vector) => vector.id)
+						.filter((id): id is string =>
 							Boolean(id),
 						) ?? [];
 
@@ -2443,12 +1325,10 @@ class PineconeService {
 							await index.fetch([ids[0]]);
 						const firstRecord = Object.values(
 							fetchResponse.records ?? {},
-						)[0] as
-							| { metadata?: PineconeMetadata }
-							| undefined;
+						)[0];
 						if (firstRecord?.metadata) {
 							const metadata =
-								firstRecord.metadata;
+								firstRecord.metadata as unknown as PineconeMetadata;
 							scrapedAt = metadata.scrapedAt;
 						}
 					}
@@ -2506,34 +1386,13 @@ class PineconeService {
 				`Fetching all sources for user: ${userId}`,
 			);
 
-			// Query postgres directly — far faster than paginating Pinecone
-			const result = await pool.query(
-				`SELECT source_type, source_root, source_url, title, chunks, scraped_at
-				 FROM rag_source_pages
-				 WHERE user_id = $1
-				 ORDER BY scraped_at DESC NULLS LAST`,
-				[userId],
-			);
-
-			const rows: Array<{
-				source_type: string;
-				source_root: string | null;
-				source_url: string;
-				title: string | null;
-				chunks: number;
-				scraped_at: Date | null;
-			}> = result.rows;
-
-			if (rows.length === 0) {
-				return { documents: [], websites: [], totalChunks: 0 };
-			}
-
 			const documentMap = new Map<
 				string,
 				{
 					url: string;
 					title: string;
 					uploadedAt: string;
+					fileType?: string;
 					chunks: number;
 				}
 			>();
@@ -2556,36 +1415,105 @@ class PineconeService {
 				}
 			>();
 
-			for (const row of rows) {
-				const scrapedAt = row.scraped_at
-					? row.scraped_at.toISOString()
-					: new Date().toISOString();
+			await this.forEachUserRecord(
+				userId,
+				async (records) => {
+					for (const record of Object.values(
+						records,
+					)) {
+						const metadata = record.metadata as
+							| (PineconeMetadata & {
+									fileType?: string;
+									uploadedAt?: string;
+									sourceRoot?: string;
+									sourceRootTitle?: string;
+							  })
+							| undefined;
 
-				if (row.source_type === "document") {
-					documentMap.set(row.source_url, {
-						url: row.source_url,
-						title: row.title || row.source_url,
-						uploadedAt: scrapedAt,
-						chunks: row.chunks,
-					});
-				} else {
-					const rootUrl = row.source_root || row.source_url;
-					if (!websiteMap.has(rootUrl)) {
-						websiteMap.set(rootUrl, {
-							rootUrl,
-							title: row.title || rootUrl,
-							scrapedAt,
-							pagesMap: new Map(),
-						});
+						const sourceUrl = metadata?.url;
+						if (!sourceUrl) {
+							continue;
+						}
+
+						const isDocument =
+							sourceUrl.startsWith("document://");
+
+						if (isDocument) {
+							if (!documentMap.has(sourceUrl)) {
+								documentMap.set(sourceUrl, {
+									url: sourceUrl,
+									title:
+										metadata?.title || sourceUrl,
+									uploadedAt:
+										metadata?.scrapedAt ||
+										metadata?.uploadedAt ||
+										new Date().toISOString(),
+									fileType: metadata?.fileType,
+									chunks: 0,
+								});
+							}
+							const doc =
+								documentMap.get(sourceUrl);
+							if (doc) {
+								doc.chunks += 1;
+							}
+						} else {
+							// Group website pages by sourceRoot
+							const rootUrl =
+								metadata?.sourceRoot || sourceUrl;
+							const rootTitle =
+								metadata?.sourceRootTitle ||
+								metadata?.title ||
+								rootUrl;
+
+							if (!websiteMap.has(rootUrl)) {
+								websiteMap.set(rootUrl, {
+									rootUrl,
+									title: rootTitle,
+									scrapedAt:
+										metadata?.scrapedAt ||
+										new Date().toISOString(),
+									pagesMap: new Map(),
+								});
+							}
+
+							const website =
+								websiteMap.get(rootUrl)!;
+
+							// Track individual page entry
+							if (
+								!website.pagesMap.has(sourceUrl)
+							) {
+								website.pagesMap.set(sourceUrl, {
+									url: sourceUrl,
+									title:
+										metadata?.title || sourceUrl,
+									chunks: 0,
+									scrapedAt:
+										metadata?.scrapedAt ||
+										new Date().toISOString(),
+								});
+							}
+
+							const page =
+								website.pagesMap.get(sourceUrl);
+							if (page) {
+								page.chunks += 1;
+							}
+						}
 					}
-					const website = websiteMap.get(rootUrl)!;
-					website.pagesMap.set(row.source_url, {
-						url: row.source_url,
-						title: row.title || row.source_url,
-						chunks: row.chunks,
-						scrapedAt,
-					});
-				}
+				},
+			);
+
+			if (
+				documentMap.size === 0 &&
+				websiteMap.size === 0
+			) {
+				return {
+					documents: [],
+					websites: [],
+					totalChunks: 0,
+				};
 			}
 
 			const documents: Array<{
@@ -2601,9 +1529,12 @@ class PineconeService {
 			for (const doc of documentMap.values()) {
 				totalChunks += doc.chunks;
 				documents.push({
-					filename: doc.url.replace("document://", ""),
+					filename: doc.url.replace(
+						"document://",
+						"",
+					),
 					url: doc.url,
-					fileType: "unknown",
+					fileType: doc.fileType || "unknown",
 					uploadedAt: doc.uploadedAt,
 					chunks: doc.chunks,
 				});
@@ -2623,7 +1554,9 @@ class PineconeService {
 			}> = [];
 
 			for (const website of websiteMap.values()) {
-				const pages = Array.from(website.pagesMap.values()).sort(
+				const pages = Array.from(
+					website.pagesMap.values(),
+				).sort(
 					(a, b) =>
 						new Date(a.scrapedAt).getTime() -
 						new Date(b.scrapedAt).getTime(),
@@ -2718,8 +1651,6 @@ class PineconeService {
 		const pagesLimit =
 			await subscriptionService.getWebsitePagesLimitForPlan(
 				resolvedPlan,
-				PLAN_CAPABILITIES[resolvedPlan]
-					.websitePagesLimit,
 			);
 		const pagesRemaining =
 			pagesLimit === null

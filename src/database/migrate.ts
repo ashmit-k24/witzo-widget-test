@@ -188,40 +188,10 @@ const migrations: Migration[] = [
 		file: "20260317_028_user_password_hash.sql",
 	},
 	{
-		id: "20260317_029_plans_seed_all",
+		id: "20260323_029_user_knowledge_boundary",
 		description:
-			"Upsert all plans (free, basic, standard, enterprise) with full capabilities",
-		file: "20260317_029_plans_seed_all.sql",
-	},
-	{
-		id: "20260320_030_password_reset_tokens",
-		description:
-			"Create password reset tokens table and indexes",
-		file: "20260320_030_password_reset_tokens.sql",
-	},
-	{
-		id: "20260320_031_rag_source_blocks",
-		description:
-			"Create structured RAG source blocks table and indexes",
-		file: "20260320_031_rag_source_blocks.sql",
-	},
-	{
-		id: "20260321_032_workspace_mode",
-		description:
-			"Add workspace_mode column to users (workspace_only / workspace_prefer)",
-		file: "20260321_032_workspace_mode.sql",
-	},
-	{
-		id: "20260321_033_scraper_jobs",
-		description:
-			"Create scraper_jobs table (replaces Redis-based job status tracking)",
-		file: "20260321_033_scraper_jobs.sql",
-	},
-	{
-		id: "20260323_034_rag_source_page_content",
-		description:
-			"Add full page content storage to rag_source_pages",
-		file: "20260323_034_rag_source_page_content.sql",
+			"Add per-user knowledge boundary setting for widget/system prompt behavior",
+		file: "20260323_029_user_knowledge_boundary.sql",
 	},
 ];
 

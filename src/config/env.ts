@@ -98,25 +98,6 @@ const getEnvNumber = (
 		: defaultValue;
 };
 
-const getEnvNumberFromKeys = (
-	keys: string[],
-	defaultValue: number,
-): number => {
-	for (const key of keys) {
-		const value = normalizeEnvString(
-			process.env[key],
-		);
-		if (!value) {
-			continue;
-		}
-		const parsedValue = Number(value);
-		if (Number.isFinite(parsedValue)) {
-			return parsedValue;
-		}
-	}
-	return defaultValue;
-};
-
 const getEnvBoolean = (
 	key: string,
 	defaultValue: boolean,
@@ -260,22 +241,6 @@ export const config: EnvConfig = {
 		"SCRAPER_CONCURRENCY",
 		10,
 	),
-	SCRAPER_IGNORE_ROBOTS: getEnvBoolean(
-		"SCRAPER_IGNORE_ROBOTS",
-		false,
-	),
-	SCRAPER_BATCH_PAGE_SIZE: getEnvNumber(
-		"SCRAPER_BATCH_PAGE_SIZE",
-		5,
-	),
-	SCRAPER_CHUNK_WORDS: getEnvNumber(
-		"SCRAPER_CHUNK_WORDS",
-		800,
-	),
-	SCRAPER_CHUNK_OVERLAP_WORDS: getEnvNumber(
-		"SCRAPER_CHUNK_OVERLAP_WORDS",
-		120,
-	),
 
 	// Analytics Configuration
 	ANALYTICS_BUFFER_SIZE: getEnvNumber(
@@ -323,45 +288,15 @@ export const config: EnvConfig = {
 		"PINECONE_INDEX_NAME",
 		"website-scraper",
 	),
-	PINECONE_HOST: getOptionalEnvString(
-		"PINECONE_HOST",
-	),
-	PINECONE_HYBRID: getEnvBoolean(
-		"PINECONE_HYBRID",
-		false,
-	),
-	PINECONE_UPSERT_BATCH_SIZE: getEnvNumber(
-		"PINECONE_UPSERT_BATCH_SIZE",
-		100,
-	),
 
 	// OpenAI
 	OPENAI_API_KEY: getEnvString(
 		"OPENAI_API_KEY",
 		"",
 	),
-	OPENAI_MODEL: getEnvStringFromKeys(
-		["OPENAI_EMBEDDING_MODEL", "OPENAI_MODEL"],
-		"text-embedding-3-large",
-	),
-	OPENAI_CHAT_MODEL: getEnvString(
-		"OPENAI_CHAT_MODEL",
-		"gpt-4o",
-	),
-	OPENAI_EMBEDDING_DIMENSIONS: getEnvNumberFromKeys(
-		[
-			"OPENAI_EMBEDDING_DIMENSIONS",
-			"PINECONE_DIMENSION",
-		],
-		1024,
-	),
-	OPENAI_CHAT_MAX_TOKENS: getEnvNumber(
-		"OPENAI_CHAT_MAX_TOKENS",
-		1500,
-	),
-	OPENAI_CHAT_TEMPERATURE: getEnvNumber(
-		"OPENAI_CHAT_TEMPERATURE",
-		0.3,
+	OPENAI_MODEL: getEnvString(
+		"OPENAI_MODEL",
+		"text-embedding-3-small",
 	),
 	RAZORPAY_KEY_ID: getEnvString(
 		"RAZORPAY_KEY_ID",
@@ -384,6 +319,160 @@ export const config: EnvConfig = {
 		0,
 	),
 
+	// Redis
+	REDIS_HOST: getEnvStringFromKeys(
+		[
+			"REDIS_HOST",
+			"REDIS_CACHE_HOST",
+			"REDIS_QUEUE_HOST",
+			"REDIS_ANALYTICS_HOST",
+		],
+		"localhost",
+	),
+	REDIS_PORT: (() => {
+		const directValue = getOptionalEnvStringFromKeys([
+			"REDIS_PORT",
+			"REDIS_CACHE_PORT",
+			"REDIS_QUEUE_PORT",
+			"REDIS_ANALYTICS_PORT",
+		]);
+		if (!directValue) {
+			return 6379;
+		}
+		const parsedValue = Number(directValue);
+		return Number.isFinite(parsedValue)
+			? parsedValue
+			: 6379;
+	})(),
+	REDIS_USERNAME: getOptionalEnvStringFromKeys([
+		"REDIS_USERNAME",
+		"REDIS_CACHE_USERNAME",
+		"REDIS_QUEUE_USERNAME",
+		"REDIS_ANALYTICS_USERNAME",
+	]),
+	REDIS_PASSWORD: getOptionalEnvStringFromKeys([
+		"REDIS_PASSWORD",
+		"REDIS_CACHE_PASSWORD",
+		"REDIS_QUEUE_PASSWORD",
+		"REDIS_ANALYTICS_PASSWORD",
+	]),
+	REDIS_TLS_ENABLED: getEnvBoolean(
+		"REDIS_TLS_ENABLED",
+		getEnvBoolean("REDIS_USE_TLS", false),
+	),
+
+	// Backward-compatible aliases. All Redis roles now use the same shared Redis connection.
+	REDIS_CACHE_HOST: getEnvStringFromKeys(
+		[
+			"REDIS_HOST",
+			"REDIS_CACHE_HOST",
+			"REDIS_QUEUE_HOST",
+			"REDIS_ANALYTICS_HOST",
+		],
+		"localhost",
+	),
+	REDIS_CACHE_PORT: (() => {
+		const directValue = getOptionalEnvStringFromKeys([
+			"REDIS_PORT",
+			"REDIS_CACHE_PORT",
+			"REDIS_QUEUE_PORT",
+			"REDIS_ANALYTICS_PORT",
+		]);
+		if (!directValue) {
+			return 6379;
+		}
+		const parsedValue = Number(directValue);
+		return Number.isFinite(parsedValue)
+			? parsedValue
+			: 6379;
+	})(),
+	REDIS_CACHE_USERNAME: getOptionalEnvStringFromKeys([
+		"REDIS_USERNAME",
+		"REDIS_CACHE_USERNAME",
+		"REDIS_QUEUE_USERNAME",
+		"REDIS_ANALYTICS_USERNAME",
+	]),
+	REDIS_CACHE_PASSWORD: getOptionalEnvStringFromKeys([
+		"REDIS_PASSWORD",
+		"REDIS_CACHE_PASSWORD",
+		"REDIS_QUEUE_PASSWORD",
+		"REDIS_ANALYTICS_PASSWORD",
+	]),
+	REDIS_QUEUE_HOST: getEnvStringFromKeys(
+		[
+			"REDIS_HOST",
+			"REDIS_CACHE_HOST",
+			"REDIS_QUEUE_HOST",
+			"REDIS_ANALYTICS_HOST",
+		],
+		"localhost",
+	),
+	REDIS_QUEUE_PORT: (() => {
+		const directValue = getOptionalEnvStringFromKeys([
+			"REDIS_PORT",
+			"REDIS_CACHE_PORT",
+			"REDIS_QUEUE_PORT",
+			"REDIS_ANALYTICS_PORT",
+		]);
+		if (!directValue) {
+			return 6379;
+		}
+		const parsedValue = Number(directValue);
+		return Number.isFinite(parsedValue)
+			? parsedValue
+			: 6379;
+	})(),
+	REDIS_QUEUE_USERNAME: getOptionalEnvStringFromKeys([
+		"REDIS_USERNAME",
+		"REDIS_CACHE_USERNAME",
+		"REDIS_QUEUE_USERNAME",
+		"REDIS_ANALYTICS_USERNAME",
+	]),
+	REDIS_QUEUE_PASSWORD: getOptionalEnvStringFromKeys([
+		"REDIS_PASSWORD",
+		"REDIS_CACHE_PASSWORD",
+		"REDIS_QUEUE_PASSWORD",
+		"REDIS_ANALYTICS_PASSWORD",
+	]),
+	REDIS_ANALYTICS_HOST: getEnvStringFromKeys(
+		[
+			"REDIS_HOST",
+			"REDIS_CACHE_HOST",
+			"REDIS_QUEUE_HOST",
+			"REDIS_ANALYTICS_HOST",
+		],
+		"localhost",
+	),
+	REDIS_ANALYTICS_PORT: (() => {
+		const directValue = getOptionalEnvStringFromKeys([
+			"REDIS_PORT",
+			"REDIS_CACHE_PORT",
+			"REDIS_QUEUE_PORT",
+			"REDIS_ANALYTICS_PORT",
+		]);
+		if (!directValue) {
+			return 6379;
+		}
+		const parsedValue = Number(directValue);
+		return Number.isFinite(parsedValue)
+			? parsedValue
+			: 6379;
+	})(),
+	REDIS_ANALYTICS_USERNAME:
+		getOptionalEnvStringFromKeys([
+			"REDIS_USERNAME",
+			"REDIS_CACHE_USERNAME",
+			"REDIS_QUEUE_USERNAME",
+			"REDIS_ANALYTICS_USERNAME",
+		]),
+	REDIS_ANALYTICS_PASSWORD:
+		getOptionalEnvStringFromKeys([
+			"REDIS_PASSWORD",
+			"REDIS_CACHE_PASSWORD",
+			"REDIS_QUEUE_PASSWORD",
+			"REDIS_ANALYTICS_PASSWORD",
+		]),
+
 	// Admin
 	ADMIN_EMAIL: getEnvString("ADMIN_EMAIL", "admin@witzo.local"),
 	ADMIN_PASSWORD: getEnvString("ADMIN_PASSWORD", ""),
@@ -400,35 +489,20 @@ export const config: EnvConfig = {
 	// Email verification
 	EMAIL_LIST_VERIFY_API_KEY: getOptionalEnvString("EMAIL_LIST_VERIFY_API_KEY"),
 
-	// Cohere (reranker)
-	COHERE_API_KEY: getOptionalEnvString("COHERE_API_KEY"),
-
 	// Firecrawl (primary scraper)
 	FIRECRAWL_API_KEY: getOptionalEnvString("FIRECRAWL_API_KEY"),
-	FIRECRAWL_API_URL: getOptionalEnvString("FIRECRAWL_API_URL"), // override for self-hosted Firecrawl instances
-	FIRECRAWL_TIMEOUT_MS: getEnvNumber(
-		"FIRECRAWL_TIMEOUT_MS",
-		15 * 60 * 1000,
-	),
-	FIRECRAWL_POLL_INTERVAL_MS: getEnvNumber(
-		"FIRECRAWL_POLL_INTERVAL_MS",
-		3000,
-	),
+	FIRECRAWL_API_URL: getOptionalEnvString("FIRECRAWL_API_URL"),
+	SCRAPER_RENDER_SERVICE_URL: getOptionalEnvString("SCRAPER_RENDER_SERVICE_URL"),
+	SCRAPER_RENDER_SERVICE_TOKEN: getOptionalEnvString("SCRAPER_RENDER_SERVICE_TOKEN"),
+	SCRAPER_RENDER_SERVICE_MODE: getOptionalEnvString("SCRAPER_RENDER_SERVICE_MODE"),
 
-	// HyPE
-	HYPE_QUESTIONS_PER_CHUNK: getEnvNumber(
-		"HYPE_QUESTIONS_PER_CHUNK",
-		0,
-	),
-	HYPE_MAX_CHUNKS: getEnvNumber(
-		"HYPE_MAX_CHUNKS",
-		40,
-	),
+	// Cohere reranking
+	COHERE_API_KEY: getOptionalEnvString("COHERE_API_KEY"),
 
-	// Langfuse (observability)
-	LANGFUSE_SECRET_KEY: getOptionalEnvString("LANGFUSE_SECRET_KEY"),
-	LANGFUSE_PUBLIC_KEY: getOptionalEnvString("LANGFUSE_PUBLIC_KEY"),
-	LANGFUSE_HOST: getOptionalEnvString("LANGFUSE_HOST"),
+	// RAG pipeline settings
+	PINECONE_HYBRID: getEnvBoolean("PINECONE_HYBRID", false),
+	HYPE_QUESTIONS_PER_CHUNK: getEnvNumber("HYPE_QUESTIONS_PER_CHUNK", 0),
+	KNOWLEDGE_BOUNDARY: getEnvString("KNOWLEDGE_BOUNDARY", "workspace_only"),
 };
 
 export default config;

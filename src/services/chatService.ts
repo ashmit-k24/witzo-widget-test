@@ -1,41 +1,47 @@
-import crypto from "crypto";
 import OpenAI from "openai";
-import pool from "../config/database";
+import crypto from "crypto";
 import { config } from "../config/env";
-import { memCache } from "../utils/memCache";
+import pool from "../config/database";
+import { redisCache } from "../config/redis";
 import {
 	CHAT_COMPLETION_MAX_TOKENS,
 	CHAT_COMPLETION_MODEL,
 	CHAT_COMPLETION_TEMPERATURE,
 	CHAT_DEFAULT_TIMEOUT_MS,
 	CHAT_HISTORY_WINDOW_MESSAGES,
+	CHAT_RETRIEVAL_CACHE_TTL_SECONDS,
 	CHAT_SESSION_CACHE_MESSAGE_LIMIT,
 	CHAT_SESSION_CACHE_TTL_SECONDS,
 	CHAT_SUPPORTED_LANGUAGE_SET,
 	UUID_V1_TO_V5_REGEX,
 } from "../constants";
-import {
-	ChatMessage,
-	ChatSession,
-} from "../types";
-import { openAICircuitBreaker } from "../utils/circuitBreaker";
-import {
-	endTrace,
-	recordGeneration,
-	startChatTrace,
-} from "../utils/langfuseTracer";
+import { ChatMessage, ChatSession } from "../types";
 import logger from "../utils/logger";
-import { retryOnRateLimit } from "../utils/retry";
-import { memorySummarizationService } from "./memorySummarizationService";
-import { QueryIntent } from "./queryTransformService";
-import { queryTransformService } from "./queryTransformService";
-import {
-	ragPipelineService,
-	RagConversationContext,
-	WorkspaceBoundary,
-} from "./ragPipelineService";
+import { pineconeService } from "./pineconeService";
+import { scraperStatusService } from "./scraperStatusService";
 import systemMessageService from "./systemMessageService";
-import websiteBrandingService from "./websiteBrandingService";
+import { openAICircuitBreaker } from "../utils/circuitBreaker";
+import { retryOnRateLimit } from "../utils/retry";
+import {
+	isContactIntent,
+	isLinkIntent,
+	isWidgetCaseStudyQuery,
+	isWidgetLocationQuery,
+	isWidgetMedicalQuery,
+	isWidgetServiceOverviewQuery,
+	isWidgetTechProjectQuery,
+	isWidgetTopListQuery,
+	normalizeWidgetQuery,
+} from "./queryService";
+
+type ContextResult = {
+	matches: any[];
+	sources: Array<{
+		url: string;
+		title: string;
+		relevanceScore: number;
+	}>;
+};
 
 type ChatTiming = {
 	sessionMs: number;
@@ -75,472 +81,442 @@ class ChatService {
 		});
 	}
 
-	private getSessionKey(
-		sessionId: string,
-	): string {
+	private getSessionKey(sessionId: string): string {
 		return `chat:session:${sessionId}`;
 	}
 
-	private normalizeSessionId(
-		sessionId?: string,
-	): string | null {
-		if (!sessionId) return null;
-		const normalized = sessionId
+	private getRetrievalCacheKey(
+		userId: string,
+		sessionId: string,
+		query: string,
+	): string {
+		const normalized = query
+			.toLowerCase()
 			.trim()
-			.toLowerCase();
-		if (!UUID_V1_TO_V5_REGEX.test(normalized))
-			return null;
+			.replace(/\s+/g, " ");
+		const digest = crypto
+			.createHash("sha1")
+			.update(normalized)
+			.digest("hex");
+		return `chat:retrieval:${userId}:${sessionId}:${digest}`;
+	}
+
+	private normalizeSessionId(sessionId?: string): string | null {
+		if (!sessionId) return null;
+		const normalized = sessionId.trim().toLowerCase();
+		if (!UUID_V1_TO_V5_REGEX.test(normalized)) return null;
 		return normalized;
 	}
 
-	private isGpt5FamilyModel(
-		model: string,
-	): boolean {
-		return /^gpt-5(?:$|-)/i.test(model.trim());
-	}
-
-	private buildChatCompletionRequest(
-		messages: Array<any>,
-		options?: {
-			stream?: boolean;
-		},
-	): any {
-		const payload: Record<string, unknown> = {
-			model: CHAT_COMPLETION_MODEL,
-			messages,
-			max_tokens: CHAT_COMPLETION_MAX_TOKENS,
-		};
-		if (!this.isGpt5FamilyModel(CHAT_COMPLETION_MODEL)) {
-			payload.temperature = CHAT_COMPLETION_TEMPERATURE;
-		}
-		if (options?.stream) {
-			payload.stream = true;
-			payload.stream_options = {
-				include_usage: true,
-			};
-		}
-		return payload;
-	}
-
-	private mapWorkspaceBoundary(
-		workspaceMode:
-			| "workspace_only"
-			| "workspace_prefer",
-	): WorkspaceBoundary {
-		return workspaceMode === "workspace_only"
-			? "workspace_only"
-			: "general_allowed";
-	}
-
-	private async resolveRagSettings(
-		userId: string,
-	): Promise<{
-		systemPrompt: string;
-		workspaceBoundary: WorkspaceBoundary;
-	}> {
-		const settings = await systemMessageService
-			.getSettings(userId)
-			.catch(async () => ({
-				effectiveSystemMessage:
-					await systemMessageService.resolveEffectiveSystemMessage(
-						userId,
-					),
-				workspaceMode:
-					"workspace_prefer" as const,
-			}));
-
-		return {
-			systemPrompt:
-				settings.effectiveSystemMessage,
-			workspaceBoundary:
-				this.mapWorkspaceBoundary(
-					settings.workspaceMode ??
-						"workspace_prefer",
-				),
-		};
-	}
-
-	private buildRagConversationMessages(
-		systemPrompt: string,
-		prompt: string,
-		messages: ChatMessage[],
-	): Array<any> {
-		const conversationHistory: Array<any> = [];
-
-		if (systemPrompt.trim()) {
-			conversationHistory.push({
-				role: "system",
-				content: systemPrompt,
-			});
-		}
-
-		const recentMessages = messages
-			.slice(-CHAT_HISTORY_WINDOW_MESSAGES)
-			.map((message) => ({
-				role: message.role,
-				content: message.content,
-			}));
-
-		conversationHistory.push(...recentMessages);
-		conversationHistory.push({
-			role: "user",
-			content: prompt,
-		});
-
-		return conversationHistory;
-	}
-
-	private async buildRagConversationContext(
-		sessionId: string,
-		messages: ChatMessage[],
-	): Promise<RagConversationContext> {
-		const historyMessages = messages.slice(0, -1);
-		const recentUserQuestions = historyMessages
-			.filter((message) => message.role === "user")
-			.slice(-20)
-			.map((message) => message.content)
-			.filter((content) => content.trim());
-		const recentAssistantReplies = historyMessages
-			.filter(
-				(message) => message.role === "assistant",
-			)
-			.slice(-10)
-			.map((message) => message.content)
-			.filter((content) => content.trim());
-
-		let conversationSummary = "";
-		if (historyMessages.length > 0) {
-			const memory =
-				await memorySummarizationService.buildMemory(
-					sessionId,
-					historyMessages,
-				);
-			conversationSummary = memory.summary;
-		}
-
-		return {
-			recentUserQuestions,
-			recentAssistantReplies,
-			conversationSummary,
-		};
-	}
-
-	private mapCachedSession(
-		data: string,
-	): ChatSession {
-		const parsed = JSON.parse(
-			data,
-		) as ChatSession;
+	private mapCachedSession(data: string): ChatSession {
+		const parsed = JSON.parse(data) as ChatSession;
 		return {
 			...parsed,
 			createdAt: new Date(parsed.createdAt),
 			updatedAt: new Date(parsed.updatedAt),
-			messages: (parsed.messages || []).map(
-				(msg) => ({
-					...msg,
-					timestamp: new Date(msg.timestamp),
-				}),
-			),
+			messages: (parsed.messages || []).map((msg) => ({
+				...msg,
+				timestamp: new Date(msg.timestamp),
+			})),
 		};
 	}
 
 	private async getCachedSession(
 		sessionId: string,
 	): Promise<ChatSession | null> {
-		const data = memCache.get(
-			this.getSessionKey(sessionId),
-		);
+		const data = await redisCache.get(this.getSessionKey(sessionId));
 		if (!data) return null;
 		return this.mapCachedSession(data);
 	}
 
-	private async saveCachedSession(
-		session: ChatSession,
-	): Promise<void> {
+	private async saveCachedSession(session: ChatSession): Promise<void> {
 		const payload: ChatSession = {
 			...session,
 			messages: session.messages.slice(
 				-CHAT_SESSION_CACHE_MESSAGE_LIMIT,
 			),
 		};
-		memCache.setex(
+		await redisCache.setex(
 			this.getSessionKey(session.sessionId),
 			CHAT_SESSION_CACHE_TTL_SECONDS,
 			JSON.stringify(payload),
 		);
 	}
 
+	private getTopKForQuery(query: string): number {
+		return isWidgetServiceOverviewQuery(normalizeWidgetQuery(query)) ? 25 : 15;
+	}
+
 	private getFallbackResponse(): string {
-		return "I'm sorry, I'm facing a temporary delay. Please try again in a moment.";
+		return "I don't have information about that. Please contact support.";
 	}
 
-	private getWebsiteReference(
-		websiteName: string,
-	): string {
-		const normalized = websiteName.trim();
-		if (
-			!normalized ||
-			normalized.toLowerCase() === "this website"
-		) {
-			return "this website";
-		}
-		if (/\bwebsite\b/i.test(normalized)) {
-			return normalized;
-		}
-		return `the ${normalized} website`;
+	private getLearningFallbackResponse(): string {
+		return "I'm still learning this site. Try again in a few minutes.";
 	}
 
-	private async resolveWebsiteName(
+	private async hasActiveScrapeJob(
 		userId: string,
-		sources: Array<{
-			url: string;
-			title: string;
-			relevanceScore: number;
-		}>,
-	): Promise<string> {
-		for (const source of sources) {
-			const fromSource =
-				websiteBrandingService.extractBrandFromUrl(
-					source.url,
-				);
-			if (fromSource) {
-				return fromSource;
-			}
-		}
-
-		return websiteBrandingService.resolveUserWebsiteName(
-			userId,
-		);
-	}
-
-	private stripFormulaicPreface(
-		text: string,
-		intent: QueryIntent,
-	): string {
-		const trimmed = text.trim();
-		if (!trimmed) return trimmed;
-		if (
-			intent === "complex" ||
-			intent === "explanation"
-		) {
-			return trimmed;
-		}
-		return trimmed.replace(
-			/^(?:based on the available (?:data|information|context)|according to the available (?:data|information|context)|from the available (?:data|information|context))[:,]?\s*/i,
-			"",
-		);
-	}
-
-	private toFirstPersonVerb(
-		verb: string,
-	): string {
-		switch (verb.toLowerCase()) {
-			case "offers":
-				return "offer";
-			case "provides":
-				return "provide";
-			case "delivers":
-				return "deliver";
-			case "shares":
-				return "share";
-			case "supports":
-				return "support";
-			case "includes":
-				return "include";
-			case "covers":
-				return "cover";
-			case "has":
-				return "have";
-			case "is":
-				return "are";
-			case "specializes in":
-				return "specialize in";
-			default:
-				return verb.toLowerCase();
-		}
-	}
-
-	private normalizeBusinessVoice(
-		text: string,
-		websiteName: string,
-	): string {
-		let result = text.trim();
-		if (!result) return result;
-
-		const brandCandidates = new Set<string>();
-		const normalizedWebsiteName =
-			websiteName.trim();
-		if (
-			normalizedWebsiteName &&
-			normalizedWebsiteName.toLowerCase() !==
-				"this website"
-		) {
-			brandCandidates.add(normalizedWebsiteName);
-		}
-		const websiteRef =
-			this.getWebsiteReference(websiteName);
-		if (websiteRef !== "this website") {
-			brandCandidates.add(websiteRef);
-		}
-
-		const voicePattern =
-			"(offers|provides|delivers|shares|supports|includes|covers|has|is|specializes in|can help with)";
-		for (const candidate of Array.from(
-			brandCandidates,
-		).sort(
-			(left, right) => right.length - left.length,
-		)) {
-			const pattern = new RegExp(
-				`^(?:the\\s+)?${this.escapeRegex(candidate)}(?:\\s+website)?\\s+${voicePattern}\\b`,
-				"i",
+	): Promise<boolean> {
+		const latest =
+			await scraperStatusService.getLatestJobForUser(
+				userId,
 			);
-			if (pattern.test(result)) {
-				result = result.replace(
-					pattern,
-					(_match: string, verb: string) =>
-						`We ${this.toFirstPersonVerb(verb)}`,
-				);
-				return result;
-			}
-		}
-
-		return result.replace(
-			new RegExp(
-				`^(?:the company|they)\\s+${voicePattern}\\b`,
-				"i",
-			),
-			(_match: string, verb: string) =>
-				`We ${this.toFirstPersonVerb(verb)}`,
+		return (
+			latest?.status === "pending" ||
+			latest?.status === "in_progress"
 		);
 	}
 
-	private highlightKeywordTerms(
+	private truncateAtSentence(
 		text: string,
+		maxChars: number,
 	): string {
-		const keywords = [
-			"full name",
-			"work email",
-			"phone number",
-			"company",
-			"case studies",
-			"products",
-			"services",
-			"pricing",
-			"support",
-			"policies",
-			"features",
-			"solutions",
-			"integrations",
-			"contact",
-			"demo",
-			"trial",
+		if (text.length <= maxChars) return text;
+		const truncated = text.slice(0, maxChars);
+		const lastBoundary = Math.max(
+			truncated.lastIndexOf(". "),
+			truncated.lastIndexOf("! "),
+			truncated.lastIndexOf("? "),
+		);
+		return lastBoundary > maxChars / 2
+			? truncated.slice(0, lastBoundary + 1)
+			: truncated;
+	}
+
+	private ragMatchScore(match: any): number {
+		const raw = match?.score;
+		return typeof raw === "number" && Number.isFinite(raw)
+			? raw
+			: 0;
+	}
+
+	private extractMatchText(match: any): string {
+		return String(
+			match?.metadata?.parentText ||
+				match?.metadata?.content ||
+				match?.metadata?.text ||
+				"",
+		).trim();
+	}
+
+	private extractMatchTitle(match: any): string {
+		return String(match?.metadata?.title || "").trim();
+	}
+
+	private extractMatchUrl(match: any): string {
+		return String(match?.metadata?.url || "").trim();
+	}
+
+	private extractMatchPageType(match: any): string {
+		return String(match?.metadata?.pageType || "").trim();
+	}
+
+	private relevantRagMatches(
+		matches: any[],
+		minScore: number,
+	): any[] {
+		return matches.filter((match) => {
+			const score = this.ragMatchScore(match);
+			if (score < minScore) {
+				return false;
+			}
+			return !Boolean(match?.metadata?.isHype);
+		});
+	}
+
+	private ragScoreThreshold(query: string): number {
+		const n = normalizeWidgetQuery(query);
+		if (isContactIntent(n)) return 0.25;
+		if (isWidgetTechProjectQuery(n)) return 0.25;
+		if (isWidgetCaseStudyQuery(n)) return 0.28;
+		return 0.3;
+	}
+
+	private jaccardSimilarity(
+		left: string,
+		right: string,
+	): number {
+		const a = new Set(
+			left.toLowerCase().split(/\s+/).filter(Boolean),
+		);
+		const b = new Set(
+			right.toLowerCase().split(/\s+/).filter(Boolean),
+		);
+		if (a.size === 0 || b.size === 0) {
+			return 0;
+		}
+		let intersection = 0;
+		for (const token of a) {
+			if (b.has(token)) {
+				intersection += 1;
+			}
+		}
+		const union = a.size + b.size - intersection;
+		return union === 0 ? 0 : intersection / union;
+	}
+
+	private mmrRerank(
+		matches: any[],
+		topN: number,
+	): any[] {
+		if (matches.length <= topN) {
+			return matches;
+		}
+
+		const selected: any[] = [];
+		const remaining = [...matches];
+		const lambda = 0.7;
+		while (
+			selected.length < topN &&
+			remaining.length > 0
+		) {
+			let bestIndex = 0;
+			let bestScore = -Infinity;
+			for (let index = 0; index < remaining.length; index += 1) {
+				const candidate = remaining[index];
+				const relevance = this.ragMatchScore(candidate);
+				const candidateText =
+					this.extractMatchText(candidate);
+				let diversityPenalty = 0;
+				for (const picked of selected) {
+					const pickedText =
+						this.extractMatchText(picked);
+					diversityPenalty = Math.max(
+						diversityPenalty,
+						this.jaccardSimilarity(
+							candidateText,
+							pickedText,
+						),
+					);
+				}
+				const mmrScore =
+					lambda * relevance -
+					(1 - lambda) * diversityPenalty;
+				if (mmrScore > bestScore) {
+					bestScore = mmrScore;
+					bestIndex = index;
+				}
+			}
+			selected.push(
+				remaining.splice(bestIndex, 1)[0],
+			);
+		}
+		return selected;
+	}
+
+	private isServiceHeavyMatch(match: any): boolean {
+		const pageType =
+			this.extractMatchPageType(match).toLowerCase();
+		if (
+			pageType === "service" ||
+			pageType === "home" ||
+			pageType === "about"
+		) {
+			return true;
+		}
+
+		const title = this.extractMatchTitle(match).toLowerCase();
+		const url = this.extractMatchUrl(match).toLowerCase();
+		return /\b(service|solutions?|web development|website development|seo|hosting|content writing|brochure|e-?commerce|ui\/ux|cms)\b/.test(
+			`${title} ${url}`,
+		);
+	}
+
+	private selectMatchesForPrompt(
+		query: string,
+		matches: any[],
+	): any[] {
+		const normalized =
+			normalizeWidgetQuery(query);
+		if (isLinkIntent(normalized)) {
+			return matches.slice(0, 8);
+		}
+
+		if (!isWidgetServiceOverviewQuery(normalized)) {
+			return this.mmrRerank(matches, 8);
+		}
+
+		const preferredMatches = matches.filter((match) =>
+			this.isServiceHeavyMatch(match),
+		);
+		const pool =
+			preferredMatches.length >= 4
+				? preferredMatches
+				: matches;
+		const ranked = [...pool].sort((left, right) => {
+			const serviceBoost =
+				Number(this.isServiceHeavyMatch(right)) -
+				Number(this.isServiceHeavyMatch(left));
+			if (serviceBoost !== 0) {
+				return serviceBoost;
+			}
+			return (
+				this.ragMatchScore(right) -
+				this.ragMatchScore(left)
+			);
+		});
+		const dedupedByUrl: any[] = [];
+		const seenUrls = new Set<string>();
+		for (const match of ranked) {
+			const url = this.extractMatchUrl(match);
+			if (url && seenUrls.has(url)) {
+				continue;
+			}
+			if (url) {
+				seenUrls.add(url);
+			}
+			dedupedByUrl.push(match);
+			if (dedupedByUrl.length >= 12) {
+				break;
+			}
+		}
+
+		return dedupedByUrl.length > 0
+			? dedupedByUrl
+			: this.mmrRerank(matches, 8);
+	}
+
+	private buildServiceOverviewPromptNote(): string {
+		return [
+			"For service-overview questions, preserve the website's own service structure whenever possible.",
+			"If the context contains a named section like 'Our website development services', use that exact category wording instead of replacing it with a generic umbrella label.",
+			"List explicitly mentioned sub-services beneath the relevant main service family.",
+			"After the strongest primary service section, add a short 'Other services we offer' section for additional categories if the context supports them.",
+			"Do not collapse distinct website-listed services into a vague digital-agency summary.",
+		].join("\n");
+	}
+
+	private defaultGeneratedSystemPrompt(): string {
+		return "You are an expert AI assistant embedded on this company's website. Your mission is to give visitors the most complete, accurate, and well-structured answers possible — better than any competitor chatbot.\n\n" +
+			"## Formatting Rules (always follow these)\n" +
+			"- Use **bold** for key terms, names, metrics, and important points.\n" +
+			"- Use bullet points (`-`) for lists of 3 or more items.\n" +
+			"- Use numbered lists (`1.`) for steps, rankings, or ordered content.\n" +
+			"- Use `##` headings to separate distinct sections in longer answers.\n" +
+			"- For questions asking about multiple items (e.g. services, case studies, features, examples): present EVERY item — give each one its own `##` heading with bullet-point details underneath. Do not summarize or skip items.\n" +
+			"- Add a blank line between sections. Never write a wall of unbroken text.\n\n" +
+			"## Completeness Rules (critical)\n" +
+			"- Always give the FULL answer. Never truncate, summarize vaguely, or say 'and more' when you have the actual data.\n" +
+			"- When listing services, products, case studies, features, or team members — list ALL of them with details for each.\n" +
+			"- Include specific numbers, percentages, names, and outcomes whenever they appear in the knowledge base.\n" +
+			"- Match response depth to the question — factual questions get concise answers, detail-seeking questions get thorough answers.\n" +
+			"- If the question is broad (e.g. 'what do you do'), give a structured overview covering all major areas.\n\n" +
+			"## Accuracy Rules\n" +
+			"- Use the provided context as your primary source. Extract all relevant details — names, stats, descriptions.\n" +
+			"- Never invent facts, prices, metrics, or claims not found in the context.\n" +
+			"- If specific information is missing, say so clearly and suggest where the visitor can learn more.\n\n" +
+			"## Tone Rules\n" +
+			"- Be friendly, confident, and professional.\n" +
+			"- Respond to greetings warmly before helping.\n" +
+			"- Never be dismissive — every question deserves a complete answer.";
+	}
+
+	private buildWidgetResponseStyleSystemPrompt(
+		query: string,
+	): string {
+		const normalized =
+			normalizeWidgetQuery(query);
+		const lines = [
+			"You are writing a reply for a public website chat widget.",
+			"Answer like a polished sales/support assistant, not a raw retrieval dump.",
+			"Lead with the answer immediately.",
+			"Do not open with greetings, thank-yous, or filler unless the user greeted you first.",
+			"Keep the reply concise, scannable, and commercially useful.",
+			"Prefer a short intro sentence plus a compact bullet list.",
+			"Use headings only when the answer genuinely needs multiple sections.",
+			"Do not end with generic filler like 'If you need more information...' unless you offer one concrete next step.",
 		];
 
-		let result = text;
-		for (const keyword of keywords) {
-			const escaped = keyword
-				.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-				.replace(/\s+/g, "\\s+");
-			const regex = new RegExp(
-				`\\b(${escaped})\\b`,
-				"gi",
-			);
-			result = result.replace(
-				regex,
-				(
-					match: string,
-					_group: string,
-					offset: number,
-					source: string,
-				) => {
-					const before = source.slice(
-						Math.max(0, offset - 2),
-						offset,
-					);
-					const after = source.slice(
-						offset + match.length,
-						offset + match.length + 2,
-					);
-					if (before === "**" && after === "**") {
-						return match;
-					}
-					return `**${match}**`;
-				},
+		if (isWidgetServiceOverviewQuery(normalized)) {
+			lines.push(
+				"For service-overview questions, mirror the website's own service structure when possible.",
+				"If the context shows a named service family like 'Our website development services', use that exact wording as a heading.",
+				"List the explicitly mentioned sub-services underneath that heading instead of flattening everything into generic agency categories.",
+				"After the lead section, add 'Other services we offer' only when there are clearly separate additional categories in the context.",
 			);
 		}
-		return result;
+		if (
+			isWidgetCaseStudyQuery(normalized) &&
+			isWidgetTopListQuery(normalized)
+		) {
+			lines.push(
+				"For top case studies or project questions, curate the strongest 3-6 examples from the context instead of dumping everything.",
+				"Prioritize named brands, flagship work, and concrete outcomes or metrics when available.",
+				"Format each example in one tight bullet: Brand - what was done and the strongest result.",
+			);
+		}
+		if (
+			isWidgetMedicalQuery(normalized) &&
+			isWidgetCaseStudyQuery(normalized)
+		) {
+			lines.push(
+				"For medical or healthcare case-study questions, include only the clearly relevant healthcare examples from the context.",
+				"For each example, give the brand or clinic name plus the key result, objective, or channel in one or two lines.",
+			);
+		}
+		if (isWidgetLocationQuery(normalized)) {
+			lines.push(
+				"For location questions, answer with exact office addresses first when they are present in the context.",
+				"If the context only confirms cities or countries, say that clearly instead of implying a full street address.",
+			);
+		}
+		return lines.join("\n");
 	}
 
-	private ensureAtLeastOneHighlight(
-		text: string,
+	private buildWidgetFormatDirective(
+		query: string,
 	): string {
-		if (/\*\*[^*]+\*\*/.test(text)) return text;
-		const firstPhrase = text.match(
-			/[A-Za-z][A-Za-z0-9/-]*(?:\s+[A-Za-z][A-Za-z0-9/-]*){0,2}/,
-		);
-		if (!firstPhrase) return text;
-		return text.replace(
-			firstPhrase[0],
-			`**${firstPhrase[0]}**`,
-		);
+		const normalized =
+			normalizeWidgetQuery(query);
+		const lines = [
+			"IMPORTANT: Format your response using markdown.",
+			"- Use **bold** sparingly for service names, company names, and metrics.",
+			"- Use bullet points (-) for lists.",
+			"- Use numbered lists only for steps or explicit rankings.",
+			"- Keep short answers compact; do not turn simple answers into long reports.",
+			"- Never invent facts, locations, metrics, prices, or case-study outcomes.",
+		];
+		if (isWidgetServiceOverviewQuery(normalized)) {
+			lines.push(
+				"- For service overviews, preserve the website's own category labels and service-family headings when they are visible in the context.",
+				"- If a source explicitly lists sub-services, show them as bullets under the main service family.",
+				"- Avoid generic umbrella wording when the context gives a more exact service name.",
+			);
+		}
+		if (
+			isWidgetCaseStudyQuery(normalized) &&
+			isWidgetTopListQuery(normalized)
+		) {
+			lines.push(
+				"- If the user asks for top items, rank or curate only the strongest 3-6 examples.",
+			);
+		}
+		if (isWidgetLocationQuery(normalized)) {
+			lines.push(
+				"- For location questions, return exact addresses when available; otherwise clearly state only the confirmed cities or countries.",
+			);
+		}
+		return `\n\n${lines.join("\n")}`;
 	}
 
 	private formatAssistantResponse(
 		response: string,
 		_userMessage: string,
-		websiteName: string = "this website",
-		intent: QueryIntent = "general",
+		_websiteName: string = "this website",
 	): string {
-		const websiteRef =
-			this.getWebsiteReference(websiteName);
-		const withWebsiteName =
-			websiteRef === "this website"
-				? response
-				: response
-						.replace(
-							/this website'?s content/gi,
-							websiteRef,
-						)
-						.replace(
-							/\bthis website\b/gi,
-							websiteRef,
-						);
-		const withoutFormulaicPreface =
-			this.stripFormulaicPreface(
-				withWebsiteName,
-				intent,
-			);
-		const withBusinessVoice =
-			this.normalizeBusinessVoice(
-				withoutFormulaicPreface,
-				websiteName,
-			);
-		const withLengthLimit = withBusinessVoice.replace(/\r\n/g, "\n").trim();
-		const withHighlights =
-			this.highlightKeywordTerms(withLengthLimit);
-		const withMinimumHighlight =
-			this.ensureAtLeastOneHighlight(
-				withHighlights,
-			).trim();
 		return this.finalizeResponseEnding(
-			withMinimumHighlight,
+			response.trim(),
 		);
 	}
 
-	private finalizeResponseEnding(
-		text: string,
-	): string {
+	private finalizeResponseEnding(text: string): string {
 		let output = text.trim();
 		if (!output) return output;
 
-		const boldMarkerCount = (
-			output.match(/\*\*/g) || []
-		).length;
+		const boldMarkerCount = (output.match(/\*\*/g) || []).length;
 		if (boldMarkerCount % 2 !== 0) {
-			output = output.replace(
-				/\*\*([^*]*)$/g,
-				"$1",
-			);
+			output = output.replace(/\*\*([^*]*)$/g, "$1");
 		}
 
 		if (/[,:;]$/.test(output)) {
@@ -549,82 +525,13 @@ class ChatService {
 		return output;
 	}
 
-	private escapeRegex(value: string): string {
-		return value.replace(
-			/[.*+?^${}()|[\]\\]/g,
-			"\\$&",
-		);
-	}
-
-	private normalizePersonName(
-		raw: string,
+	public normalizePersonName(
+		_raw: string,
 	): string | null {
-		const cleaned = raw
-			.trim()
-			.replace(/[.,!?;:]+$/g, "")
-			.replace(/\s+/g, " ");
-		if (!cleaned) return null;
-
-		const words = cleaned.split(" ");
-		if (words.length < 1 || words.length > 4) {
-			return null;
-		}
-
-		const stopWords = new Set([
-			"looking",
-			"interested",
-			"searching",
-			"need",
-			"want",
-			"asking",
-			"here",
-			"there",
-			"from",
-			"for",
-			"about",
-			"pricing",
-			"product",
-			"products",
-			"service",
-			"services",
-			"support",
-			"help",
-			"details",
-			"information",
-			"more",
-			"real-time",
-			"spend",
-			"visibility",
-			"procurement",
-			"solution",
-			"solutions",
-			"feature",
-			"features",
-			"platform",
-		]);
-
-		for (const word of words) {
-			if (
-				!/^[A-Za-z][A-Za-z'-]{0,24}$/.test(word)
-			) {
-				return null;
-			}
-			if (stopWords.has(word.toLowerCase())) {
-				return null;
-			}
-		}
-
-		return words
-			.map((word) =>
-				word.length > 1
-					? word.charAt(0).toUpperCase() +
-						word.slice(1).toLowerCase()
-					: word.toUpperCase(),
-			)
-			.join(" ");
+		return null;
 	}
 
-	private extractNameFromUserMessage(
+	public extractNameFromUserMessage(
 		message: string,
 	): string | null {
 		const text = message.trim();
@@ -641,210 +548,19 @@ class ChatService {
 		for (const pattern of patterns) {
 			const match = text.match(pattern);
 			if (!match || !match[1]) continue;
-			const normalized = this.normalizePersonName(
-				match[1],
-			);
+			const normalized = this.normalizePersonName(match[1]);
 			if (normalized) return normalized;
 		}
 
 		return null;
 	}
 
-	private getKnownUserName(
-		messages: ChatMessage[],
-	): string | null {
-		let latest: string | null = null;
-		for (const msg of messages) {
-			if (msg.role !== "user") continue;
-			const extracted =
-				this.extractNameFromUserMessage(
-					msg.content || "",
-				);
-			if (extracted) {
-				latest = extracted;
-			}
-		}
-		return latest;
-	}
-
-	private messageContainsEmailOrPhone(
-		message: string,
-	): boolean {
-		const text = message.trim();
-		if (!text) return false;
-
-		const hasEmail =
-			/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(
-				text,
-			);
-		const phoneDigits = text.replace(/\D/g, "");
-		const hasPhone = phoneDigits.length >= 7;
-
-		return hasEmail || hasPhone;
-	}
-
-	private normalizeCompanyName(
-		raw: string,
-	): string | null {
-		const cleaned = raw
-			.trim()
-			.replace(/[.,!?;:]+$/g, "")
-			.replace(/\s+/g, " ");
-		if (!cleaned) return null;
-		if (
-			cleaned.length < 2 ||
-			cleaned.length > 80
-		) {
-			return null;
-		}
-
-		return cleaned;
-	}
-
-	private extractCompanyFromUserMessage(
-		message: string,
-	): string | null {
-		const text = message.trim();
-		if (!text) return null;
-
-		const patterns = [
-			/\b(?:my company name is|company name is)\s+([A-Za-z0-9&.,'()\- ]{2,80})$/i,
-			/\b(?:my company is|company is)\s+([A-Za-z0-9&.,'()\- ]{2,80})$/i,
-			/\b(?:i work at|i am from|i'm from|we are from)\s+([A-Za-z0-9&.,'()\- ]{2,80})$/i,
-			/^\s*company\s*[:=-]\s*([A-Za-z0-9&.,'()\- ]{2,80})\s*$/i,
-		];
-
-		for (const pattern of patterns) {
-			const match = text.match(pattern);
-			if (!match || !match[1]) continue;
-			const normalized =
-				this.normalizeCompanyName(match[1]);
-			if (normalized) return normalized;
-		}
-
-		return null;
-	}
-
-	private getKnownUserCompany(
-		messages: ChatMessage[],
-	): string | null {
-		let latest: string | null = null;
-		for (const msg of messages) {
-			if (msg.role !== "user") continue;
-			const extracted =
-				this.extractCompanyFromUserMessage(
-					msg.content || "",
-				);
-			if (extracted) {
-				latest = extracted;
-			}
-		}
-		return latest;
-	}
-
-	private isNameRecallQuery(
-		message: string,
-	): boolean {
-		const text = message.toLowerCase().trim();
-		if (!text) return false;
-		return (
-			/\b(what(?:'s| is)|tell me|remember|recall|know)\b.*\bmy name\b/.test(
-				text,
-			) ||
-			/\bmy name\??$/.test(text) ||
-			/\bwho am i\b/.test(text)
+	private isLikelySmallTalk(message: string): boolean {
+		const value = message.toLowerCase().trim();
+		if (!value) return false;
+		return /\b(hi|hello|hey|good morning|good evening|thanks|thank you|bye)\b/.test(
+			value,
 		);
-	}
-
-	private applyNameRecallOverride(
-		response: string,
-		userMessage: string,
-		knownUserName: string | null,
-		websiteName: string,
-	): string {
-		if (!this.isNameRecallQuery(userMessage)) {
-			return response;
-		}
-
-		const websiteRef =
-			this.getWebsiteReference(websiteName);
-		if (!knownUserName) {
-			return `I do not have your **name** yet in this chat window. Please share your **full name**, and I will remember it for this conversation.`;
-		}
-		const deniesPersonalInfo =
-			/don't have access to your personal information|do not have access to your personal information|cannot access your personal information|don't know your name|do not know your name/i.test(
-				response,
-			);
-		const mentionsKnownName = new RegExp(
-			`\\b${this.escapeRegex(knownUserName)}\\b`,
-			"i",
-		).test(response);
-
-		if (
-			deniesPersonalInfo ||
-			!mentionsKnownName
-		) {
-			return `You shared your **name** as **${knownUserName}** earlier in this chat. How can I help you next with **${websiteRef}**?`;
-		}
-
-		return response;
-	}
-
-	private applyLeadCaptureFollowUpOverride(
-		response: string,
-		userMessage: string,
-		messages: ChatMessage[],
-	): string {
-		if (
-			!this.messageContainsEmailOrPhone(
-				userMessage,
-			)
-		) {
-			return response;
-		}
-
-		const knownUserName =
-			this.getKnownUserName(messages);
-		const knownUserCompany =
-			this.getKnownUserCompany(messages);
-		const missingName = !knownUserName;
-		const missingCompany = !knownUserCompany;
-
-		if (!missingName && !missingCompany) {
-			return response;
-		}
-
-		let followUp = "";
-		if (missingName && missingCompany) {
-			followUp =
-				"Could you also share your **full name** and **company name**?";
-		} else if (missingName) {
-			followUp =
-				"Could you also share your **full name**?";
-		} else {
-			followUp =
-				"Could you also share your **company name**?";
-		}
-
-		if (!response.trim()) {
-			return `Thanks for sharing your **contact details**. ${followUp}`;
-		}
-
-		if (
-			/\bfull name\b/i.test(response) ||
-			/\bcompany name\b/i.test(response)
-		) {
-			return response;
-		}
-
-		if (
-			response.trim() ===
-			this.getFallbackResponse()
-		) {
-			return `Thanks for sharing your **contact details**. ${followUp}`;
-		}
-
-		return `${this.finalizeResponseEnding(response)}\n\nThanks for sharing your **contact details**. ${followUp}`;
 	}
 
 	private normalizeLanguagePreference(
@@ -855,9 +571,7 @@ class ChatService {
 			.trim()
 			.toLowerCase();
 		if (!normalized) return undefined;
-		if (
-			!CHAT_SUPPORTED_LANGUAGE_SET.has(normalized)
-		) {
+		if (!CHAT_SUPPORTED_LANGUAGE_SET.has(normalized)) {
 			return undefined;
 		}
 		return normalized;
@@ -867,14 +581,13 @@ class ChatService {
 		sessionId: string,
 		userId: string,
 	): Promise<ConversationRow | null> {
-		const result =
-			await pool.query<ConversationRow>(
-				`SELECT id, user_id, widget_key_id, visitor_id, created_at, updated_at
+		const result = await pool.query<ConversationRow>(
+			`SELECT id, user_id, widget_key_id, visitor_id, created_at, updated_at
 			 FROM chat_conversations
 			 WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE
 			 LIMIT 1`,
-				[sessionId, userId],
-			);
+			[sessionId, userId],
+		);
 
 		return result.rows[0] ?? null;
 	}
@@ -884,33 +597,28 @@ class ChatService {
 		sessionId?: string,
 	): Promise<ConversationRow> {
 		if (sessionId) {
-			const explicit =
-				await pool.query<ConversationRow>(
-					`INSERT INTO chat_conversations (id, user_id)
+			const explicit = await pool.query<ConversationRow>(
+				`INSERT INTO chat_conversations (id, user_id)
 				 VALUES ($1, $2)
 				 ON CONFLICT (id) DO NOTHING
 				 RETURNING id, user_id, widget_key_id, visitor_id, created_at, updated_at`,
-					[sessionId, userId],
-				);
+				[sessionId, userId],
+			);
 
 			if (explicit.rows[0]) {
 				return explicit.rows[0];
 			}
 
-			const existing = await this.getConversation(
-				sessionId,
-				userId,
-			);
+			const existing = await this.getConversation(sessionId, userId);
 			if (existing) return existing;
 		}
 
-		const created =
-			await pool.query<ConversationRow>(
-				`INSERT INTO chat_conversations (id, user_id)
+		const created = await pool.query<ConversationRow>(
+			`INSERT INTO chat_conversations (id, user_id)
 			 VALUES ($1, $2)
 			 RETURNING id, user_id, widget_key_id, visitor_id, created_at, updated_at`,
-				[crypto.randomUUID(), userId],
-			);
+			[crypto.randomUUID(), userId],
+		);
 
 		return created.rows[0];
 	}
@@ -928,50 +636,39 @@ class ChatService {
 			[sessionId, limit],
 		);
 
-		return result.rows.reverse().map((row) => ({
-			role: row.role,
-			content: row.content,
-			timestamp: row.created_at,
-		}));
+		return result.rows
+			.reverse()
+			.map((row) => ({
+				role: row.role,
+				content: row.content,
+				timestamp: row.created_at,
+			}));
 	}
 
 	private async getOrCreateSession(
 		userId: string,
 		rawSessionId?: string,
 	): Promise<ChatSession> {
-		const sessionId =
-			this.normalizeSessionId(rawSessionId) ??
-			undefined;
-		let conversation: ConversationRow | null =
-			null;
+		const sessionId = this.normalizeSessionId(rawSessionId) ?? undefined;
+		let conversation: ConversationRow | null = null;
 
 		if (sessionId) {
-			conversation = await this.getConversation(
-				sessionId,
-				userId,
-			);
+			conversation = await this.getConversation(sessionId, userId);
 		}
 
 		if (!conversation) {
-			conversation =
-				await this.createConversation(
-					userId,
-					sessionId,
-				);
+			conversation = await this.createConversation(userId, sessionId);
 		}
 
-		const cached = await this.getCachedSession(
-			conversation.id,
-		);
+		const cached = await this.getCachedSession(conversation.id);
 		if (cached && cached.userId === userId) {
 			return cached;
 		}
 
-		const messages =
-			await this.loadRecentMessages(
-				conversation.id,
-				CHAT_SESSION_CACHE_MESSAGE_LIMIT,
-			);
+		const messages = await this.loadRecentMessages(
+			conversation.id,
+			CHAT_SESSION_CACHE_MESSAGE_LIMIT,
+		);
 
 		const session: ChatSession = {
 			sessionId: conversation.id,
@@ -993,9 +690,7 @@ class ChatService {
 		metadata: Record<string, unknown> = {},
 		tokenCount?: number,
 	): Promise<Date> {
-		const result = await pool.query<{
-			created_at: Date;
-		}>(
+		const result = await pool.query<{ created_at: Date }>(
 			`WITH inserted AS (
 				INSERT INTO chat_messages (conversation_id, user_id, role, content, metadata, token_count)
 				VALUES ($1, $2, $3, $4, $5::jsonb, $6)
@@ -1019,12 +714,233 @@ class ChatService {
 		);
 
 		if (!result.rows[0]) {
-			throw new Error(
-				"Failed to persist chat message",
-			);
+			throw new Error("Failed to persist chat message");
 		}
 
 		return result.rows[0].created_at;
+	}
+
+	private async retrieveRelevantContext(
+		userId: string,
+		query: string,
+		sessionId: string,
+		history: ChatMessage[],
+	): Promise<ContextResult> {
+		try {
+			const cacheKey = this.getRetrievalCacheKey(userId, sessionId, query);
+			const cached = await redisCache.get(cacheKey);
+			if (cached) {
+				return JSON.parse(cached) as ContextResult;
+			}
+
+			const topK = this.getTopKForQuery(query);
+			const results =
+				await pineconeService.queryDocuments(
+					userId,
+					query,
+					topK,
+					{
+						history: history
+							.slice(-6)
+							.map((message) => ({
+								role: message.role,
+								content: message.content,
+							})),
+					},
+				);
+
+			if (!results || results.length === 0) {
+				return { matches: [], sources: [] };
+			}
+
+			const sources: Array<{
+				url: string;
+				title: string;
+				relevanceScore: number;
+			}> = [];
+
+			for (const match of results) {
+				if (!match?.metadata?.url) {
+					continue;
+				}
+				if (
+					!sources.find(
+						(source) =>
+							source.url === match.metadata.url,
+					)
+				) {
+					sources.push({
+						url: match.metadata.url,
+						title:
+							match.metadata.title ||
+							match.metadata.url,
+						relevanceScore:
+							this.ragMatchScore(match),
+					});
+				}
+			}
+
+			const responseData: ContextResult = {
+				matches: results,
+				sources,
+			};
+			await redisCache.setex(
+				cacheKey,
+				CHAT_RETRIEVAL_CACHE_TTL_SECONDS,
+				JSON.stringify(responseData),
+			);
+			return responseData;
+		} catch (error) {
+			logger.error("Error retrieving context from Pinecone", { error, userId });
+			return { matches: [], sources: [] };
+		}
+	}
+
+	private async buildChatMessages(
+		userId: string,
+		query: string,
+		matches: any[],
+		messages: ChatMessage[],
+		_languageCode?: string,
+	): Promise<Array<any>> {
+		const effectiveSystemMessage =
+			await systemMessageService.resolveEffectiveSystemMessage(
+				userId,
+			);
+		const normalized =
+			normalizeWidgetQuery(query);
+		const selectedMatches =
+			this.selectMatchesForPrompt(
+				query,
+				matches,
+			);
+		const contextParts: string[] = [];
+		for (const match of selectedMatches) {
+			const text =
+				this.extractMatchText(match);
+			if (!text) {
+				continue;
+			}
+			const sourceUrl =
+				this.extractMatchUrl(match);
+			const sourceTitle =
+				this.extractMatchTitle(match);
+			const pageType =
+				this.extractMatchPageType(match);
+			const truncated = this.truncateAtSentence(
+				text,
+				isWidgetServiceOverviewQuery(normalized)
+					? 2600
+					: 2000,
+			);
+			const headerParts = [
+				sourceTitle
+					? `Title: ${sourceTitle}`
+					: "",
+				pageType
+					? `Page Type: ${pageType}`
+					: "",
+				sourceUrl
+					? `Source: ${sourceUrl}`
+					: "",
+			].filter(Boolean);
+			contextParts.push(
+				headerParts.length > 0
+					? `${headerParts.join("\n")}\n${truncated}`
+					: truncated,
+			);
+		}
+
+		const formatDirective =
+			this.buildWidgetFormatDirective(query);
+		const knowledgeBoundary =
+			await systemMessageService.resolveKnowledgeBoundary(
+				userId,
+			);
+		let userPrompt: string;
+		const serviceOverviewNote =
+			isWidgetServiceOverviewQuery(normalized)
+				? `\n${this.buildServiceOverviewPromptNote()}\n`
+				: "";
+
+		if (contextParts.length > 0) {
+			const contextBlock =
+				contextParts.join("\n\n---\n\n");
+			if (knowledgeBoundary === "workspace_only") {
+				userPrompt = `Answer using ONLY the information provided in the context below.
+Treat page titles, URLs, headings, and snippets as relevant evidence about the business.
+Synthesize across multiple context sections to form the most complete answer you can.
+For broad overview questions asking for services, products, features, or capabilities, compile a combined list from every relevant context section and infer the service or category name from the source title or URL when needed.
+If the context partially answers the question, provide the supported details you do have instead of refusing.
+If the user is asking for "more" or additional items and the context does not contain more items beyond what was already discussed, acknowledge that these are all the results available and suggest they visit the website or contact the team for a complete list.
+When the context includes a URL for a specific blog post, article, or resource the user is asking about, include it as a clickable markdown link — e.g. [Read more](https://...).
+Only say you don't have information when the context is genuinely not related to the question at all.
+${serviceOverviewNote}
+
+Context:
+${contextBlock}
+
+Question: ${query}${formatDirective}`;
+			} else {
+				userPrompt = `Answer the user's question using the context below as your primary source.
+If the context does not fully cover the question, use your general knowledge to fill in, but never fabricate specific facts, prices, features, or policies about this company that are not in the context.
+If the user is asking for "more" items and the context has no further results, acknowledge that and suggest they visit the website.
+When the context includes a URL for a blog post, article, or resource being asked about, include it as a clickable markdown link.
+${serviceOverviewNote}
+
+Context:
+${contextBlock}
+
+Question: ${query}${formatDirective}`;
+			}
+		} else {
+			if (knowledgeBoundary === "workspace_only") {
+				userPrompt = `The user sent: "${query}"
+
+If this is a greeting, thank you, farewell, or casual conversational message, respond warmly and naturally as a helpful assistant.
+Otherwise, if it is a specific question about this business: honestly say you couldn't find that specific information right now, suggest they visit the website directly or reach out to the team for accurate details, and invite them to ask something else you might be able to help with.${formatDirective}`;
+			} else {
+				userPrompt = `Answer the user's question as helpfully and completely as possible using your general knowledge.
+Do not invent specific facts, prices, features, or policies about this company or its products.
+When the question asks for multiple items (examples, case studies, options), present each one with a clear heading and supporting details.
+
+Question: ${query}${formatDirective}`;
+			}
+		}
+
+		const systemPrompt =
+			effectiveSystemMessage.trim() ||
+			this.defaultGeneratedSystemPrompt();
+		const stylePrompt =
+			this.buildWidgetResponseStyleSystemPrompt(
+				query,
+			);
+
+		const conversationHistory: Array<any> = [
+			{
+				role: "system",
+				content: systemPrompt,
+			},
+			{
+				role: "system",
+				content: stylePrompt,
+			},
+		];
+
+		const recentMessages = messages.slice(
+			-CHAT_HISTORY_WINDOW_MESSAGES,
+		);
+		for (const msg of recentMessages) {
+			conversationHistory.push({
+				role: msg.role,
+				content: msg.content,
+			});
+		}
+		conversationHistory.push({
+			role: "user",
+			content: userPrompt,
+		});
+		return conversationHistory;
 	}
 
 	private async generateNonStreamingResponse(
@@ -1034,33 +950,27 @@ class ChatService {
 		response: string;
 		usage?: CompletionUsage;
 	}> {
-		const timeoutController =
-			new AbortController();
+		const timeoutController = new AbortController();
 		const timeout = setTimeout(() => {
-			timeoutController.abort(
-				"OpenAI request timeout",
-			);
+			timeoutController.abort("OpenAI request timeout");
 		}, timeoutMs);
 
 		try {
-			const completion =
-				await openAICircuitBreaker.execute(
-					async () => {
-						return await retryOnRateLimit(
-							async () => {
-								return await this.openai.chat.completions.create(
-									this.buildChatCompletionRequest(
-										conversationHistory,
-									),
-									{
-										signal:
-											timeoutController.signal,
-									},
-								);
-							},
-						);
-					},
-				);
+			const completion = await openAICircuitBreaker.execute(async () => {
+				return await retryOnRateLimit(async () => {
+					return await this.openai.chat.completions.create(
+						{
+							model: CHAT_COMPLETION_MODEL,
+							messages: conversationHistory,
+							temperature: CHAT_COMPLETION_TEMPERATURE,
+							max_tokens: CHAT_COMPLETION_MAX_TOKENS,
+						},
+						{
+							signal: timeoutController.signal,
+						},
+					);
+				});
+			});
 
 			return {
 				response:
@@ -1068,16 +978,11 @@ class ChatService {
 					this.getFallbackResponse(),
 				usage: completion.usage
 					? {
-							prompt_tokens:
-								completion.usage.prompt_tokens ??
-								0,
+							prompt_tokens: completion.usage.prompt_tokens ?? 0,
 							completion_tokens:
-								completion.usage
-									.completion_tokens ?? 0,
-							total_tokens:
-								completion.usage.total_tokens ??
-								0,
-						}
+								completion.usage.completion_tokens ?? 0,
+							total_tokens: completion.usage.total_tokens ?? 0,
+					  }
 					: undefined,
 			};
 		} finally {
@@ -1118,6 +1023,84 @@ class ChatService {
 		};
 	}
 
+	async answerKnowledgeQuery(
+		userId: string,
+		message: string,
+		language?: string,
+	): Promise<{
+		answer: string;
+		language?: string;
+		sources: Array<{
+			url: string;
+			title: string;
+			relevanceScore: number;
+		}>;
+		matches: any[];
+	}> {
+		const resolvedLanguage =
+			this.normalizeLanguagePreference(
+				language,
+			);
+		const shouldSkipRetrieval =
+			this.isLikelySmallTalk(message);
+		const syntheticSessionId = `adhoc:${crypto
+			.createHash("sha1")
+			.update(`${userId}:${message}`)
+			.digest("hex")}`;
+		const { matches, sources } = shouldSkipRetrieval
+			? { matches: [], sources: [] }
+			: await this.retrieveRelevantContext(
+					userId,
+					message,
+					syntheticSessionId,
+					[],
+			  );
+		const ragThreshold = this.ragScoreThreshold(message);
+		const relevantMatches =
+			this.relevantRagMatches(
+				matches,
+				ragThreshold,
+			);
+		const shouldCallLlm =
+			shouldSkipRetrieval ||
+			relevantMatches.length > 0;
+		const fallbackResponse =
+			!shouldSkipRetrieval &&
+			relevantMatches.length === 0 &&
+			(await this.hasActiveScrapeJob(userId))
+				? this.getLearningFallbackResponse()
+				: this.getFallbackResponse();
+		let answer = fallbackResponse;
+
+		if (shouldCallLlm) {
+			const completion =
+				await this.generateNonStreamingResponse(
+					await this.buildChatMessages(
+						userId,
+						message,
+						relevantMatches,
+						[],
+						resolvedLanguage,
+					),
+					CHAT_DEFAULT_TIMEOUT_MS,
+				);
+			answer = completion.response || fallbackResponse;
+		}
+
+		answer = this.formatAssistantResponse(
+			answer,
+			message,
+			"this website",
+		);
+
+		return {
+			answer,
+			language: resolvedLanguage,
+			sources,
+			matches: relevantMatches,
+		};
+	}
+
 	async chat(
 		userId: string,
 		message: string,
@@ -1148,261 +1131,140 @@ class ChatService {
 			};
 
 			const sessionStart = Date.now();
-			const session =
-				await this.getOrCreateSession(
-					userId,
-					sessionId,
-				);
-			timing.sessionMs =
-				Date.now() - sessionStart;
+			const session = await this.getOrCreateSession(userId, sessionId);
+			timing.sessionMs = Date.now() - sessionStart;
 
 			const saveStart = Date.now();
-			const userTimestamp =
-				await this.persistMessage(
-					session.sessionId,
-					userId,
-					"user",
-					message,
-					{ language: resolvedLanguage },
-				);
+			const userTimestamp = await this.persistMessage(
+				session.sessionId,
+				userId,
+				"user",
+				message,
+				{
+					language: resolvedLanguage,
+				},
+			);
 			const userMessage: ChatMessage = {
 				role: "user",
 				content: message,
 				timestamp: userTimestamp,
 			};
 			session.messages.push(userMessage);
-			{
-				let responseIntent: QueryIntent =
-					"general";
-				const trace = startChatTrace({
-					userId,
-					sessionId: session.sessionId,
-					message,
-					intent: "rag_pipeline",
-				});
-				const retrievalStart = Date.now();
-				const priorMessages = session.messages.slice(0, -1);
-				const [
-					{
-						systemPrompt,
-						workspaceBoundary,
-					},
-					ragConversationContext,
-					transformResult,
-				] = await Promise.all([
-					this.resolveRagSettings(userId),
-					this.buildRagConversationContext(
-						session.sessionId,
-						session.messages,
-					),
-					queryTransformService.transform(
+			const historyMessages =
+				session.messages.slice(0, -1);
+
+			const retrievalStart = Date.now();
+			const shouldSkipRetrieval = this.isLikelySmallTalk(message);
+			const { matches, sources } = shouldSkipRetrieval
+				? {
+						matches: [],
+						sources: [],
+				  }
+				: await this.retrieveRelevantContext(
+						userId,
 						message,
-						priorMessages,
-					),
-				]);
-				responseIntent =
-					transformResult.intent;
+						session.sessionId,
+						historyMessages,
+				  );
+			timing.retrievalMs = Date.now() - retrievalStart;
+			const relevantMatches =
+				this.relevantRagMatches(
+					matches,
+					this.ragScoreThreshold(message),
+				);
+			const shouldCallLlm =
+				shouldSkipRetrieval ||
+				relevantMatches.length > 0;
 
-				const shouldSkipRetrieval =
-					transformResult.intent === "small_talk" ||
-					transformResult.intent === "lead_capture";
-
-				const ragResult = shouldSkipRetrieval
-					? null
-					: await ragPipelineService.prepare(
+			const fallbackResponse =
+				!shouldSkipRetrieval &&
+				relevantMatches.length === 0 &&
+				(await this.hasActiveScrapeJob(userId))
+					? this.getLearningFallbackResponse()
+					: this.getFallbackResponse();
+			let assistantResponse = fallbackResponse;
+			let usedFallback =
+				!shouldCallLlm;
+			let usage: CompletionUsage | undefined;
+			const llmStart = Date.now();
+			if (shouldCallLlm) {
+				try {
+					const conversationHistory =
+						await this.buildChatMessages(
 							userId,
 							message,
-							workspaceBoundary,
-							ragConversationContext,
-							{
-								retrievalQuery: transformResult.retrievalQuery,
-								isContactQuery: transformResult.isContactQuery,
-								structuredPlan: transformResult.structuredPlan,
-							},
-					  );
-				timing.retrievalMs =
-					Date.now() - retrievalStart;
-				const sources = ragResult?.sources ?? [];
-				const websiteName =
-					await this.resolveWebsiteName(
-						userId,
-						sources,
-					);
-				const knownUserName =
-					this.getKnownUserName(
-						session.messages,
-					);
-				const fallbackResponse =
-					this.getFallbackResponse();
-				let assistantResponse =
-					fallbackResponse;
-				let usedFallback = false;
-				let usage:
-					| CompletionUsage
-					| undefined;
-				const llmStart = Date.now();
-				const conversationHistory =
-					shouldSkipRetrieval
-						? this.buildRagConversationMessages(
-								systemPrompt,
-								message,
-								priorMessages,
-						  )
-						: ragResult!.noContextResponse
-							? []
-							: this.buildRagConversationMessages(
-									systemPrompt,
-									ragResult!.prompt,
-									priorMessages,
-							  );
-
-				if (!shouldSkipRetrieval && ragResult!.noContextResponse) {
-					assistantResponse =
-						ragResult!.noContextResponse;
-					usedFallback = true;
-				} else {
-					try {
-						const completionResult =
-							await this.generateNonStreamingResponse(
-								conversationHistory,
-								CHAT_DEFAULT_TIMEOUT_MS,
-							);
-						assistantResponse =
-							completionResult.response;
-						usage =
-							completionResult.usage;
-						usedFallback =
-							assistantResponse ===
-							fallbackResponse;
-						recordGeneration(trace, {
-							name: "chat-completion",
-							model: CHAT_COMPLETION_MODEL,
-							input: conversationHistory,
-							output: assistantResponse,
-							promptTokens:
-								completionResult
-									.usage
-									?.prompt_tokens,
-							completionTokens:
-								completionResult
-									.usage
-									?.completion_tokens,
-							totalTokens:
-								completionResult
-									.usage
-									?.total_tokens,
-							metadata: {
-								workspaceBoundary,
-								intent:
-									responseIntent,
-							},
-						});
-					} catch (error) {
-						logger.error(
-							"Chat generation failed, using fallback",
-							{ error, userId },
-						);
-						usedFallback = true;
-					}
-				}
-				assistantResponse =
-					this.formatAssistantResponse(
-						assistantResponse,
-						message,
-						websiteName,
-						responseIntent,
-					);
-				assistantResponse =
-					this.applyNameRecallOverride(
-						assistantResponse,
-						message,
-						knownUserName,
-						websiteName,
-					);
-				assistantResponse =
-					this.applyLeadCaptureFollowUpOverride(
-						assistantResponse,
-						message,
-						session.messages,
-					);
-				timing.llmMs =
-					Date.now() - llmStart;
-
-				endTrace(trace, assistantResponse, {
-					workspaceBoundary,
-					sourcesCount: sources.length,
-					timing,
-				});
-
-				const usageMeta =
-					this.buildUsageMetadata(
-						usage,
-					);
-				const assistantTimestamp =
-					await this.persistMessage(
-						session.sessionId,
-						userId,
-						"assistant",
-						assistantResponse,
-						{
-							sourcesCount:
-								sources.length,
-							language:
-								resolvedLanguage,
-							isFallback:
-								usedFallback,
-							intent:
-								responseIntent,
-							...usageMeta.metadata,
-						},
-						usageMeta.tokenCount,
-					);
-				const assistantMessage: ChatMessage =
-					{
-						role: "assistant",
-						content: assistantResponse,
-						timestamp:
-							assistantTimestamp,
-					};
-				session.messages.push(
-					assistantMessage,
-				);
-				session.updatedAt =
-					assistantTimestamp;
-
-				await this.saveCachedSession(session);
-				timing.saveMs =
-					Date.now() - saveStart;
-				timing.totalMs =
-					Date.now() - startedAt;
-
-				logger.info(
-					"Chat response generated",
-					{
-						userId,
-						sessionId:
-							session.sessionId,
-						language:
+							relevantMatches,
+							historyMessages,
 							resolvedLanguage,
-						intent:
-							responseIntent,
-						sourcesCount:
-							sources.length,
-						timing,
-					},
-				);
-
-				return {
-					sessionId:
-						session.sessionId,
-					response:
-						assistantResponse,
-					language:
-						resolvedLanguage,
-					sources,
-				};
+						);
+					const completionResult =
+						await this.generateNonStreamingResponse(
+							conversationHistory,
+							CHAT_DEFAULT_TIMEOUT_MS,
+						);
+					assistantResponse =
+						completionResult.response;
+					usage =
+						completionResult.usage;
+					usedFallback =
+						assistantResponse ===
+						fallbackResponse;
+				} catch (error) {
+					logger.error("Chat generation failed, using fallback", {
+						error,
+						userId,
+					});
+					usedFallback = true;
+				}
 			}
+			assistantResponse = this.formatAssistantResponse(
+				assistantResponse,
+				message,
+				"this website",
+			);
+			timing.llmMs = Date.now() - llmStart;
 
+			const usageMeta =
+				this.buildUsageMetadata(usage);
+			const assistantTimestamp = await this.persistMessage(
+				session.sessionId,
+				userId,
+				"assistant",
+				assistantResponse,
+				{
+					sourcesCount: sources.length,
+					language: resolvedLanguage,
+					isFallback: usedFallback,
+					...usageMeta.metadata,
+				},
+				usageMeta.tokenCount,
+			);
+			const assistantMessage: ChatMessage = {
+				role: "assistant",
+				content: assistantResponse,
+				timestamp: assistantTimestamp,
+			};
+			session.messages.push(assistantMessage);
+			session.updatedAt = assistantTimestamp;
+
+			await this.saveCachedSession(session);
+			timing.saveMs = Date.now() - saveStart;
+			timing.totalMs = Date.now() - startedAt;
+
+			logger.info("Chat response generated", {
+				userId,
+				sessionId: session.sessionId,
+				language: resolvedLanguage,
+				sourcesCount: sources.length,
+				timing,
+			});
+
+			return {
+				sessionId: session.sessionId,
+				response: assistantResponse,
+				language: resolvedLanguage,
+				sources,
+			};
 		} catch (error) {
 			logger.error("Error in chat service", {
 				error,
@@ -1440,328 +1302,206 @@ class ChatService {
 			saveMs: 0,
 			totalMs: 0,
 		};
-		const timeoutMs =
-			options?.timeoutMs ??
-			CHAT_DEFAULT_TIMEOUT_MS;
+		const timeoutMs = options?.timeoutMs ?? CHAT_DEFAULT_TIMEOUT_MS;
 		const resolvedLanguage =
-			this.normalizeLanguagePreference(language);
+			this.normalizeLanguagePreference(
+				language,
+			);
 
 		const sessionStart = Date.now();
-		const session = await this.getOrCreateSession(
-			userId,
-			sessionId,
-		);
+		const session = await this.getOrCreateSession(userId, sessionId);
 		timing.sessionMs = Date.now() - sessionStart;
 
 		const saveStart = Date.now();
-		const userTimestamp =
-			await this.persistMessage(
-				session.sessionId,
-				userId,
-				"user",
-				message,
-				{ language: resolvedLanguage },
-			);
+		const userTimestamp = await this.persistMessage(
+			session.sessionId,
+			userId,
+			"user",
+			message,
+			{
+				language: resolvedLanguage,
+			},
+		);
 		session.messages.push({
 			role: "user",
 			content: message,
 			timestamp: userTimestamp,
 		});
-		{
-			let responseIntent: QueryIntent =
-				"general";
-			const trace = startChatTrace({
-				userId,
-				sessionId: session.sessionId,
-				message,
-				intent: "rag_pipeline",
-			});
-			const retrievalStart = Date.now();
-			const priorMessagesStream = session.messages.slice(0, -1);
-			const [
-				{
-					systemPrompt,
-					workspaceBoundary,
-				},
-				ragConversationContext,
-				transformResultStream,
-			] = await Promise.all([
-				this.resolveRagSettings(userId),
-				this.buildRagConversationContext(
-					session.sessionId,
-					session.messages,
-				),
-				queryTransformService.transform(
+		const historyMessages =
+			session.messages.slice(0, -1);
+
+		const retrievalStart = Date.now();
+		const shouldSkipRetrieval = this.isLikelySmallTalk(message);
+		const { matches, sources } = shouldSkipRetrieval
+			? { matches: [], sources: [] }
+			: await this.retrieveRelevantContext(
+					userId,
 					message,
-					priorMessagesStream,
-				),
-			]);
-			responseIntent =
-				transformResultStream.intent;
+					session.sessionId,
+					historyMessages,
+			  );
+		timing.retrievalMs = Date.now() - retrievalStart;
+		const relevantMatches =
+			this.relevantRagMatches(
+				matches,
+				this.ragScoreThreshold(message),
+			);
+		const shouldCallLlm =
+			shouldSkipRetrieval ||
+			relevantMatches.length > 0;
 
-			const shouldSkipRetrievalStream =
-				transformResultStream.intent === "small_talk" ||
-				transformResultStream.intent === "lead_capture";
-
-			const ragResult = shouldSkipRetrievalStream
-				? null
-				: await ragPipelineService.prepare(
+		const fallbackResponse = this.getFallbackResponse();
+		let assistantResponse =
+			!shouldSkipRetrieval &&
+			relevantMatches.length === 0 &&
+			(await this.hasActiveScrapeJob(userId))
+				? this.getLearningFallbackResponse()
+				: fallbackResponse;
+		let usedFallback = !shouldCallLlm;
+		let usage: CompletionUsage | undefined;
+		const llmStart = Date.now();
+		if (shouldCallLlm) {
+			const timeoutController = new AbortController();
+			const timeout = setTimeout(() => {
+				timeoutController.abort("OpenAI stream timeout");
+			}, timeoutMs);
+			assistantResponse = "";
+			try {
+				const conversationHistory =
+					await this.buildChatMessages(
 						userId,
 						message,
-						workspaceBoundary,
-						ragConversationContext,
-						{
-							retrievalQuery: transformResultStream.retrievalQuery,
-							isContactQuery: transformResultStream.isContactQuery,
-							structuredPlan: transformResultStream.structuredPlan,
-						},
-				  );
-			timing.retrievalMs =
-				Date.now() - retrievalStart;
-
-			const sources = ragResult?.sources ?? [];
-			const websiteName =
-				await this.resolveWebsiteName(
-					userId,
-					sources,
-				);
-			const knownUserName =
-				this.getKnownUserName(
-					session.messages,
-				);
-			const fallbackResponse =
-				this.getFallbackResponse();
-			let assistantResponse = "";
-			let usedFallback = false;
-			let usage:
-				| CompletionUsage
-				| undefined;
-			const conversationHistory =
-				shouldSkipRetrievalStream
-					? this.buildRagConversationMessages(
-							systemPrompt,
-							message,
-							priorMessagesStream,
-					  )
-					: ragResult!.noContextResponse
-						? []
-						: this.buildRagConversationMessages(
-								systemPrompt,
-								ragResult!.prompt,
-								priorMessagesStream,
-						  );
-			const timeoutController =
-				new AbortController();
-			const llmStart = Date.now();
-			const timeout = setTimeout(() => {
-				timeoutController.abort(
-					"OpenAI stream timeout",
-				);
-			}, timeoutMs);
-			try {
-				if (!shouldSkipRetrievalStream && ragResult!.noContextResponse) {
-					assistantResponse =
-						ragResult!.noContextResponse;
-					usedFallback = true;
-				} else {
-					const stream: any =
-						await openAICircuitBreaker.execute(
-							async () => {
-								return await this.openai.chat.completions.create(
-									this.buildChatCompletionRequest(
-										conversationHistory,
-										{
-											stream: true,
-										},
-									),
-									{
-										signal:
-											timeoutController.signal,
-									},
-								);
+						relevantMatches,
+						historyMessages,
+						resolvedLanguage,
+					);
+				const stream =
+					await openAICircuitBreaker.execute(async () => {
+						return await this.openai.chat.completions.create(
+							{
+								model: CHAT_COMPLETION_MODEL,
+								messages: conversationHistory,
+								temperature: CHAT_COMPLETION_TEMPERATURE,
+								max_tokens: CHAT_COMPLETION_MAX_TOKENS,
+								stream: true,
+								stream_options: { include_usage: true },
+							},
+							{
+								signal: timeoutController.signal,
 							},
 						);
-					for await (const chunk of stream) {
-						if (chunk.usage) {
-							usage = {
-								prompt_tokens:
-									chunk.usage
-										.prompt_tokens ?? 0,
-								completion_tokens:
-									chunk.usage
-										.completion_tokens ?? 0,
-								total_tokens:
-									chunk.usage
-										.total_tokens ?? 0,
-							};
-						}
-						const token =
-							chunk.choices?.[0]?.delta?.content ??
-							"";
-						if (!token) {
-							continue;
-						}
-						assistantResponse += token;
+					});
+
+				for await (const chunk of stream) {
+					if (chunk.usage) {
+						usage = {
+							prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+							completion_tokens: chunk.usage.completion_tokens ?? 0,
+							total_tokens: chunk.usage.total_tokens ?? 0,
+						};
 					}
+					const token =
+						chunk.choices?.[0]?.delta?.content ??
+						"";
+					if (!token) continue;
+					assistantResponse += token;
+					options?.onToken?.(token);
 				}
 			} catch (error) {
-				logger.error(
-					"Streaming chat failed, falling back",
-					{ error, userId },
-				);
+				logger.error("Streaming chat failed, falling back", {
+					error,
+					userId,
+				});
 				if (!assistantResponse) {
-					assistantResponse =
-						fallbackResponse;
+					assistantResponse = fallbackResponse;
 					usedFallback = true;
 				}
 			} finally {
 				clearTimeout(timeout);
 			}
-			timing.llmMs =
-				Date.now() - llmStart;
-
-			if (!assistantResponse.trim()) {
-				assistantResponse =
-					fallbackResponse;
-				usedFallback = true;
-			}
-
-			if (!shouldSkipRetrievalStream && !ragResult?.noContextResponse) {
-				recordGeneration(trace, {
-					name: "chat-stream-completion",
-					model: CHAT_COMPLETION_MODEL,
-					input: conversationHistory,
-					output: assistantResponse,
-					promptTokens:
-						usage?.prompt_tokens,
-					completionTokens:
-						usage?.completion_tokens,
-					totalTokens:
-						usage?.total_tokens,
-					metadata: {
-						workspaceBoundary,
-						intent:
-							responseIntent,
-					},
-				});
-			}
-
-			assistantResponse =
-				this.formatAssistantResponse(
-					assistantResponse,
-					message,
-					websiteName,
-					responseIntent,
-				);
-			assistantResponse =
-				this.applyNameRecallOverride(
-					assistantResponse,
-					message,
-					knownUserName,
-					websiteName,
-				);
-			assistantResponse =
-				this.applyLeadCaptureFollowUpOverride(
-					assistantResponse,
-					message,
-					session.messages,
-				);
-			options?.onToken?.(assistantResponse);
-
-			endTrace(trace, assistantResponse, {
-				workspaceBoundary,
-				sourcesCount: sources.length,
-				timing,
-			});
-
-			const usageMeta =
-				this.buildUsageMetadata(usage);
-			const assistantTimestamp =
-				await this.persistMessage(
-					session.sessionId,
-					userId,
-					"assistant",
-					assistantResponse,
-					{
-						sourcesCount: sources.length,
-						language: resolvedLanguage,
-						isFallback: usedFallback,
-						intent: responseIntent,
-						...usageMeta.metadata,
-					},
-					usageMeta.tokenCount,
-				);
-			session.messages.push({
-				role: "assistant",
-				content: assistantResponse,
-				timestamp: assistantTimestamp,
-			});
-			session.updatedAt =
-				assistantTimestamp;
-
-			await this.saveCachedSession(session);
-			timing.saveMs =
-				Date.now() - saveStart;
-			timing.totalMs =
-				Date.now() - startedAt;
-
-			logger.info(
-				"Chat streaming response generated",
-				{
-					userId,
-					sessionId: session.sessionId,
-					language: resolvedLanguage,
-					intent: responseIntent,
-					sourcesCount: sources.length,
-					timing,
-				},
-			);
-
-			return {
-				sessionId: session.sessionId,
-				response: assistantResponse,
-				language: resolvedLanguage,
-				sources,
-				timing,
-			};
 		}
+		timing.llmMs = Date.now() - llmStart;
+
+		if (!assistantResponse.trim()) {
+			assistantResponse = fallbackResponse;
+			usedFallback = true;
+		}
+		assistantResponse = this.formatAssistantResponse(
+			assistantResponse,
+			message,
+			"this website",
+		);
+
+		const usageMeta = this.buildUsageMetadata(usage);
+		const assistantTimestamp = await this.persistMessage(
+			session.sessionId,
+			userId,
+			"assistant",
+			assistantResponse,
+			{
+				sourcesCount: sources.length,
+				language: resolvedLanguage,
+				isFallback: usedFallback,
+				...usageMeta.metadata,
+			},
+			usageMeta.tokenCount,
+		);
+		session.messages.push({
+			role: "assistant",
+			content: assistantResponse,
+			timestamp: assistantTimestamp,
+		});
+		session.updatedAt = assistantTimestamp;
+
+		await this.saveCachedSession(session);
+		timing.saveMs = Date.now() - saveStart;
+		timing.totalMs = Date.now() - startedAt;
+
+		logger.info("Chat streaming response generated", {
+			userId,
+			sessionId: session.sessionId,
+			language: resolvedLanguage,
+			sourcesCount: sources.length,
+			timing,
+		});
+
+		return {
+			sessionId: session.sessionId,
+			response: assistantResponse,
+			language: resolvedLanguage,
+			sources,
+			timing,
+		};
 	}
 
-	async getSession(
-		sessionId: string,
-	): Promise<ChatSession | null> {
-		const normalized =
-			this.normalizeSessionId(sessionId);
+	async getSession(sessionId: string): Promise<ChatSession | null> {
+		const normalized = this.normalizeSessionId(sessionId);
 		if (!normalized) return null;
 
-		const conversationResult =
-			await pool.query<ConversationRow>(
-				`SELECT id, user_id, widget_key_id, visitor_id, created_at, updated_at
+		const conversationResult = await pool.query<ConversationRow>(
+			`SELECT id, user_id, widget_key_id, visitor_id, created_at, updated_at
 			 FROM chat_conversations
 			 WHERE id = $1 AND is_deleted = FALSE
 			 LIMIT 1`,
-				[normalized],
-			);
-		const conversation =
-			conversationResult.rows[0];
+			[normalized],
+		);
+		const conversation = conversationResult.rows[0];
 		if (!conversation) return null;
 
-		const messageResult =
-			await pool.query<MessageRow>(
-				`SELECT role, content, created_at
+		const messageResult = await pool.query<MessageRow>(
+			`SELECT role, content, created_at
 			 FROM chat_messages
 			 WHERE conversation_id = $1
 			 ORDER BY created_at ASC, id ASC
 			 LIMIT 200`,
-				[normalized],
-			);
+			[normalized],
+		);
 
-		const messages: ChatMessage[] =
-			messageResult.rows.map((row) => ({
-				role: row.role,
-				content: row.content,
-				timestamp: row.created_at,
-			}));
+		const messages: ChatMessage[] = messageResult.rows.map((row) => ({
+			role: row.role,
+			content: row.content,
+			timestamp: row.created_at,
+		}));
 
 		const session: ChatSession = {
 			sessionId: conversation.id,
@@ -1770,8 +1510,7 @@ class ChatService {
 			createdAt: conversation.created_at,
 			updatedAt:
 				messages.length > 0
-					? messages[messages.length - 1]
-							.timestamp
+					? messages[messages.length - 1].timestamp
 					: conversation.updated_at,
 		};
 
@@ -1843,20 +1582,12 @@ class ChatService {
 			 WHERE id = $1
 			   AND user_id = $2
 			   AND is_deleted = FALSE`,
-			[
-				normalized,
-				userId,
-				widgetKeyId,
-				visitorId,
-			],
+			[normalized, userId, widgetKeyId, visitorId],
 		);
 	}
 
-	async clearSession(
-		sessionId: string,
-	): Promise<boolean> {
-		const normalized =
-			this.normalizeSessionId(sessionId);
+	async clearSession(sessionId: string): Promise<boolean> {
+		const normalized = this.normalizeSessionId(sessionId);
 		if (!normalized) return false;
 
 		const result = await pool.query(
@@ -1865,9 +1596,7 @@ class ChatService {
 		);
 
 		if ((result.rowCount ?? 0) > 0) {
-			memCache.del(
-				this.getSessionKey(normalized),
-			);
+			await redisCache.del(this.getSessionKey(normalized));
 			return true;
 		}
 		return false;
@@ -1908,12 +1637,8 @@ class ChatService {
 		}));
 	}
 
-	async clearUserSessions(
-		userId: string,
-	): Promise<number> {
-		const result = await pool.query<{
-			id: string;
-		}>(
+	async clearUserSessions(userId: string): Promise<number> {
+		const result = await pool.query<{ id: string }>(
 			`DELETE FROM chat_conversations
 			 WHERE user_id = $1
 			 RETURNING id`,
@@ -1921,9 +1646,11 @@ class ChatService {
 		);
 
 		if (result.rows.length > 0) {
+			const pipeline = redisCache.pipeline();
 			for (const row of result.rows) {
-			memCache.del(this.getSessionKey(row.id));
-		}
+				pipeline.del(this.getSessionKey(row.id));
+			}
+			await pipeline.exec();
 		}
 
 		return result.rows.length;

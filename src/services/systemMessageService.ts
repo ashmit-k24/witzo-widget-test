@@ -12,13 +12,29 @@ export type SystemMessageSettings = {
 	customSystemMessage: string | null;
 	useDefaultSystemMessage: boolean;
 	systemMessageConfigured: boolean;
+	knowledgeBoundary: string;
 	effectiveSystemMessage: string;
 	mode: "default" | "custom";
 	updatedAt: Date | null;
-	workspaceMode: "workspace_only" | "workspace_prefer";
 };
 
 class SystemMessageService {
+	private normalizeKnowledgeBoundary(
+		value: unknown,
+	): "workspace_only" | "workspace_prefer" | "general_allowed" {
+		const normalized = String(value || "")
+			.trim()
+			.toLowerCase();
+		switch (normalized) {
+			case "workspace_only":
+			case "workspace_prefer":
+			case "general_allowed":
+				return normalized;
+			default:
+				return "workspace_only";
+		}
+	}
+
 	private createHttpError(
 		message: string,
 		statusCode: number,
@@ -62,15 +78,15 @@ class SystemMessageService {
 			systemMessageConfigured:
 				user.system_message_configured ??
 				user.onboarding_completed,
+			knowledgeBoundary:
+				this.normalizeKnowledgeBoundary(
+					user.knowledge_boundary,
+				),
 			effectiveSystemMessage: useDefault
 				? platformDefaultSystemMessage
 				: trimmedCustom!,
 			mode: useDefault ? "default" : "custom",
 			updatedAt: user.updated_at ?? null,
-			workspaceMode:
-				user.workspace_mode === "workspace_only"
-					? "workspace_only"
-					: "workspace_prefer",
 		};
 	}
 
@@ -147,6 +163,7 @@ class SystemMessageService {
 		systemMessage: unknown,
 		options?: {
 			completeOnboarding?: boolean;
+			knowledgeBoundary?: unknown;
 		},
 	): Promise<SystemMessageSettings> {
 		await this.assertColumnsAvailable();
@@ -156,16 +173,21 @@ class SystemMessageService {
 			);
 		const completeOnboarding =
 			options?.completeOnboarding === true;
+		const knowledgeBoundary =
+			this.normalizeKnowledgeBoundary(
+				options?.knowledgeBoundary,
+			);
 		const result = await pool.query<User>(
 			`UPDATE users
        SET custom_system_message = $2,
            use_default_system_message = FALSE,
            system_message_configured = TRUE,
+           knowledge_boundary = $3,
            updated_at = CURRENT_TIMESTAMP
            ${this.buildOnboardingUpdate(completeOnboarding)}
        WHERE id = $1
        RETURNING *`,
-			[userId, normalized],
+			[userId, normalized, knowledgeBoundary],
 		);
 
 		if (result.rows.length === 0) {
@@ -179,21 +201,27 @@ class SystemMessageService {
 		userId: string,
 		options?: {
 			completeOnboarding?: boolean;
+			knowledgeBoundary?: unknown;
 		},
 	): Promise<SystemMessageSettings> {
 		await this.assertColumnsAvailable();
 		const completeOnboarding =
 			options?.completeOnboarding === true;
+		const knowledgeBoundary =
+			this.normalizeKnowledgeBoundary(
+				options?.knowledgeBoundary,
+			);
 		const result = await pool.query<User>(
 			`UPDATE users
        SET custom_system_message = NULL,
            use_default_system_message = TRUE,
            system_message_configured = TRUE,
+           knowledge_boundary = $2,
            updated_at = CURRENT_TIMESTAMP
            ${this.buildOnboardingUpdate(completeOnboarding)}
        WHERE id = $1
        RETURNING *`,
-			[userId],
+			[userId, knowledgeBoundary],
 		);
 
 		if (result.rows.length === 0) {
@@ -249,6 +277,19 @@ class SystemMessageService {
 				);
 			return this.renderPlatformDefaultSystemMessage(
 				websiteName,
+			);
+		}
+	}
+
+	async resolveKnowledgeBoundary(
+		userId: string,
+	): Promise<string> {
+		try {
+			const settings = await this.getSettings(userId);
+			return settings.knowledgeBoundary;
+		} catch {
+			return this.normalizeKnowledgeBoundary(
+				process.env.KNOWLEDGE_BOUNDARY,
 			);
 		}
 	}

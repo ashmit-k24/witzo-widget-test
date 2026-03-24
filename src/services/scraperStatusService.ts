@@ -1,16 +1,29 @@
 import crypto from "crypto";
-import pool from "../config/database";
+import { redisCache } from "../config/redis";
 import { ScrapeJobStatus } from "../types";
 import logger from "../utils/logger";
 
 type ScrapeMode = "scrape" | "retrain";
+
+type StoredScrapeJobStatus = Omit<
+	ScrapeJobStatus,
+	"startedAt" | "completedAt"
+> & {
+	userId: string;
+	url: string;
+	mode: ScrapeMode;
+	maxDepth: number;
+	maxPages?: number;
+	startedAt: string;
+	completedAt?: string;
+};
 
 interface StartJobParams {
 	userId: string;
 	url: string;
 	mode: ScrapeMode;
 	maxDepth: number;
-	maxPages: number;
+	maxPages?: number;
 }
 
 interface ProgressUpdate {
@@ -20,127 +33,120 @@ interface ProgressUpdate {
 	currentUrl?: string;
 }
 
+const SCRAPER_STATUS_TTL_SECONDS = 24 * 60 * 60;
+
 class ScraperStatusService {
-	private async assertUserExists(
-		userId: string,
-	): Promise<void> {
-		const result = await pool.query(
-			`SELECT 1 FROM users WHERE id = $1 LIMIT 1`,
-			[userId],
-		);
-		if (result.rows.length === 0) {
-			throw new Error(
-				`Cannot start scrape job: user ${userId} does not exist in users table.`,
-			);
-		}
+	private getJobKey(jobId: string): string {
+		return `scraper:job:${jobId}`;
 	}
 
-	private rowToStatus(row: any): ScrapeJobStatus {
+	private getLatestJobKey(userId: string): string {
+		return `scraper:user:${userId}:latest`;
+	}
+
+	private normalize(status: StoredScrapeJobStatus): ScrapeJobStatus {
 		return {
-			jobId: row.job_id,
-			userId: row.user_id,
-			url: row.url,
-			mode: row.mode as ScrapeMode,
-			currentUrl: row.current_url ?? row.url,
-			maxDepth: row.max_depth,
-			maxPages: row.max_pages,
-			status: row.status,
-			progress: {
-				totalPages: row.total_pages,
-				scrapedPages: row.scraped_pages,
-				storedPages: row.stored_pages,
-			},
-			startedAt: new Date(row.started_at),
-			completedAt: row.completed_at
-				? new Date(row.completed_at)
+			...status,
+			startedAt: new Date(status.startedAt),
+			completedAt: status.completedAt
+				? new Date(status.completedAt)
 				: undefined,
-			error: row.error ?? undefined,
 		};
 	}
 
-	async startJob(params: StartJobParams): Promise<ScrapeJobStatus> {
-		await this.assertUserExists(params.userId);
-		const jobId = crypto.randomUUID();
-		const result = await pool.query(
-			`INSERT INTO scraper_jobs
-				(job_id, user_id, url, mode, current_url, max_depth, max_pages, status,
-				 total_pages, scraped_pages, stored_pages, started_at, updated_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',0,0,0,NOW(),NOW())
-			 RETURNING *`,
-			[
-				jobId,
-				params.userId,
-				params.url,
-				params.mode,
-				params.url,
-				params.maxDepth,
-				params.maxPages,
-			],
+	private async persist(status: StoredScrapeJobStatus): Promise<void> {
+		const payload = JSON.stringify(status);
+		await redisCache.setex(
+			this.getJobKey(status.jobId),
+			SCRAPER_STATUS_TTL_SECONDS,
+			payload,
 		);
-		return this.rowToStatus(result.rows[0]);
+		await redisCache.setex(
+			this.getLatestJobKey(status.userId),
+			SCRAPER_STATUS_TTL_SECONDS,
+			payload,
+		);
+	}
+
+	async startJob(params: StartJobParams): Promise<ScrapeJobStatus> {
+		const job: StoredScrapeJobStatus = {
+			jobId: crypto.randomUUID(),
+			userId: params.userId,
+			url: params.url,
+			mode: params.mode,
+			currentUrl: params.url,
+			maxDepth: params.maxDepth,
+			maxPages: params.maxPages,
+			status: "pending",
+			progress: {
+				totalPages: 0,
+				scrapedPages: 0,
+				storedPages: 0,
+			},
+			startedAt: new Date().toISOString(),
+		};
+
+		await this.persist(job);
+		return this.normalize(job);
 	}
 
 	async updateProgress(
 		jobId: string,
 		progress: ProgressUpdate,
 	): Promise<ScrapeJobStatus | null> {
-		const totalPages = Math.max(
-			progress.totalPages,
-			progress.scrapedPages,
-			progress.storedPages,
-		);
-		const result = await pool.query(
-			`UPDATE scraper_jobs SET
-				status        = 'in_progress',
-				current_url   = COALESCE($2, current_url),
-				total_pages   = $3,
-				scraped_pages = $4,
-				stored_pages  = $5,
-				updated_at    = NOW()
-			 WHERE job_id = $1
-			 RETURNING *`,
-			[
-				jobId,
-				progress.currentUrl ?? null,
-				totalPages,
-				progress.scrapedPages,
-				progress.storedPages,
-			],
-		);
-		if (result.rows.length === 0) return null;
-		return this.rowToStatus(result.rows[0]);
+		const existing = await this.getStoredJob(jobId);
+		if (!existing) {
+			return null;
+		}
+
+		const nextStatus: StoredScrapeJobStatus = {
+			...existing,
+			status: "in_progress",
+			currentUrl:
+				progress.currentUrl || existing.currentUrl,
+			progress: {
+				totalPages: Math.max(
+					progress.totalPages,
+					progress.scrapedPages,
+					progress.storedPages,
+				),
+				scrapedPages: progress.scrapedPages,
+				storedPages: progress.storedPages,
+			},
+		};
+
+		await this.persist(nextStatus);
+		return this.normalize(nextStatus);
 	}
 
 	async completeJob(
 		jobId: string,
 		progress: ProgressUpdate,
 	): Promise<ScrapeJobStatus | null> {
-		const totalPages = Math.max(
-			progress.totalPages,
-			progress.scrapedPages,
-			progress.storedPages,
-		);
-		const result = await pool.query(
-			`UPDATE scraper_jobs SET
-				status        = 'completed',
-				current_url   = COALESCE($2, current_url),
-				total_pages   = $3,
-				scraped_pages = $4,
-				stored_pages  = $5,
-				completed_at  = NOW(),
-				updated_at    = NOW()
-			 WHERE job_id = $1
-			 RETURNING *`,
-			[
-				jobId,
-				progress.currentUrl ?? null,
-				totalPages,
-				progress.scrapedPages,
-				progress.storedPages,
-			],
-		);
-		if (result.rows.length === 0) return null;
-		return this.rowToStatus(result.rows[0]);
+		const existing = await this.getStoredJob(jobId);
+		if (!existing) {
+			return null;
+		}
+
+		const completed: StoredScrapeJobStatus = {
+			...existing,
+			status: "completed",
+			currentUrl:
+				progress.currentUrl || existing.currentUrl,
+			progress: {
+				totalPages: Math.max(
+					progress.totalPages,
+					progress.scrapedPages,
+					progress.storedPages,
+				),
+				scrapedPages: progress.scrapedPages,
+				storedPages: progress.storedPages,
+			},
+			completedAt: new Date().toISOString(),
+		};
+
+		await this.persist(completed);
+		return this.normalize(completed);
 	}
 
 	async failJob(
@@ -148,66 +154,87 @@ class ScraperStatusService {
 		errorMessage: string,
 		progress?: Partial<ProgressUpdate>,
 	): Promise<ScrapeJobStatus | null> {
-		const result = await pool.query(
-			`UPDATE scraper_jobs SET
-				status        = 'failed',
-				error         = $2,
-				current_url   = COALESCE($3, current_url),
-				total_pages   = COALESCE($4, total_pages),
-				scraped_pages = COALESCE($5, scraped_pages),
-				stored_pages  = COALESCE($6, stored_pages),
-				completed_at  = NOW(),
-				updated_at    = NOW()
-			 WHERE job_id = $1
-			 RETURNING *`,
-			[
-				jobId,
-				errorMessage,
-				progress?.currentUrl ?? null,
-				progress?.totalPages ?? null,
-				progress?.scrapedPages ?? null,
-				progress?.storedPages ?? null,
-			],
-		);
-		if (result.rows.length === 0) return null;
-		return this.rowToStatus(result.rows[0]);
+		const existing = await this.getStoredJob(jobId);
+		if (!existing) {
+			return null;
+		}
+
+		const failed: StoredScrapeJobStatus = {
+			...existing,
+			status: "failed",
+			error: errorMessage,
+			currentUrl:
+				progress?.currentUrl || existing.currentUrl,
+			progress: {
+				totalPages:
+					progress?.totalPages ??
+					existing.progress.totalPages,
+				scrapedPages:
+					progress?.scrapedPages ??
+					existing.progress.scrapedPages,
+				storedPages:
+					progress?.storedPages ??
+					existing.progress.storedPages,
+			},
+			completedAt: new Date().toISOString(),
+		};
+
+		await this.persist(failed);
+		return this.normalize(failed);
 	}
 
 	async getJob(jobId: string): Promise<ScrapeJobStatus | null> {
-		try {
-			const result = await pool.query(
-				`SELECT * FROM scraper_jobs WHERE job_id = $1`,
-				[jobId],
-			);
-			if (result.rows.length === 0) return null;
-			return this.rowToStatus(result.rows[0]);
-		} catch (error) {
-			logger.error("Error fetching scraper job", { error, jobId });
-			return null;
-		}
+		const stored = await this.getStoredJob(jobId);
+		return stored ? this.normalize(stored) : null;
 	}
 
 	async getLatestJobForUser(
 		userId: string,
 	): Promise<ScrapeJobStatus | null> {
 		try {
-			const result = await pool.query(
-				`SELECT * FROM scraper_jobs
-				 WHERE user_id = $1
-				 ORDER BY updated_at DESC
-				 LIMIT 1`,
-				[userId],
+			const raw = await redisCache.get(
+				this.getLatestJobKey(userId),
 			);
-			if (result.rows.length === 0) return null;
-			return this.rowToStatus(result.rows[0]);
+			if (!raw) {
+				return null;
+			}
+
+			return this.normalize(
+				JSON.parse(raw) as StoredScrapeJobStatus,
+			);
 		} catch (error) {
-			logger.error("Error fetching latest scraper job", {
+			logger.error(
+				"Error fetching latest scraper job",
+				{
+					error,
+					userId,
+				},
+			);
+			return null;
+		}
+	}
+
+	private async getStoredJob(
+		jobId: string,
+	): Promise<StoredScrapeJobStatus | null> {
+		try {
+			const raw = await redisCache.get(
+				this.getJobKey(jobId),
+			);
+			if (!raw) {
+				return null;
+			}
+
+			return JSON.parse(raw) as StoredScrapeJobStatus;
+		} catch (error) {
+			logger.error("Error fetching scraper job", {
 				error,
-				userId,
+				jobId,
 			});
 			return null;
 		}
 	}
 }
 
-export const scraperStatusService = new ScraperStatusService();
+export const scraperStatusService =
+	new ScraperStatusService();

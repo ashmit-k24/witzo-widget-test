@@ -8,7 +8,6 @@ export interface User {
 	id: string;
 	email: string;
 	is_verified: boolean;
-	password_hash?: string | null;
 	created_at: Date;
 	updated_at: Date;
 	last_login: Date | null;
@@ -34,14 +33,13 @@ export interface User {
 	custom_system_message: string | null;
 	use_default_system_message: boolean;
 	system_message_configured: boolean;
-	workspace_mode: "workspace_only" | "workspace_prefer";
+	knowledge_boundary?: string | null;
 }
 
 export interface UserResponse {
 	id: string;
 	email: string;
 	isVerified: boolean;
-	hasPassword?: boolean;
 	plan_type?: PlanType;
 	sessionId?: number;
 	loginCount?: number;
@@ -60,6 +58,7 @@ export interface UserResponse {
 	onboardingCompleted?: boolean;
 	useDefaultSystemMessage?: boolean;
 	systemMessageConfigured?: boolean;
+	knowledgeBoundary?: string | null;
 }
 
 export interface UpdateProfileBody {
@@ -80,15 +79,6 @@ export interface VerificationCode {
 	attempts: number;
 	expires_at: Date;
 	is_used: boolean;
-	created_at: Date;
-}
-
-export interface PasswordResetToken {
-	id: string;
-	user_id: string;
-	token_hash: string;
-	expires_at: Date;
-	used_at: Date | null;
 	created_at: Date;
 }
 
@@ -145,11 +135,6 @@ export interface LogoutResponse {
 	message: string;
 }
 
-export interface PasswordResetResponse {
-	success: boolean;
-	message: string;
-}
-
 export interface CleanupResult {
 	sessionsDeleted: number;
 	codesDeleted: number;
@@ -163,10 +148,6 @@ export interface EmailResult {
 
 // Request types
 export interface RequestCodeBody {
-	email: string;
-}
-
-export interface ForgotPasswordBody {
 	email: string;
 }
 
@@ -188,16 +169,6 @@ export interface RegisterBody {
 export interface LoginPasswordBody {
 	email: string;
 	password: string;
-}
-
-export interface ResetPasswordBody {
-	token: string;
-	password: string;
-}
-
-export interface ChangePasswordBody {
-	currentPassword?: string;
-	newPassword: string;
 }
 
 // Database query result types
@@ -255,27 +226,39 @@ export interface EnvConfig {
 	PINECONE_API_KEY: string;
 	PINECONE_ENVIRONMENT: string;
 	PINECONE_INDEX_NAME: string;
-	PINECONE_HOST?: string;
-	PINECONE_HYBRID: boolean;
-	PINECONE_UPSERT_BATCH_SIZE: number;
 	OPENAI_API_KEY: string;
 	OPENAI_MODEL: string;
-	OPENAI_CHAT_MODEL: string;
-	OPENAI_EMBEDDING_DIMENSIONS: number;
-	OPENAI_CHAT_MAX_TOKENS: number;
-	OPENAI_CHAT_TEMPERATURE: number;
 	RAZORPAY_KEY_ID: string;
 	RAZORPAY_KEY_SECRET: string;
 	RAZORPAY_WEBHOOK_SECRET: string;
 	LLM_PROMPT_COST_PER_1K_USD: number;
 	LLM_COMPLETION_COST_PER_1K_USD: number;
 
+	// Redis
+	REDIS_HOST: string;
+	REDIS_PORT: number;
+	REDIS_USERNAME?: string;
+	REDIS_PASSWORD?: string;
+	REDIS_TLS_ENABLED: boolean;
+
+	// Separate Redis Instances
+	REDIS_CACHE_HOST: string;
+	REDIS_CACHE_PORT: number;
+	REDIS_CACHE_USERNAME?: string;
+	REDIS_CACHE_PASSWORD?: string;
+
+	REDIS_QUEUE_HOST: string;
+	REDIS_QUEUE_PORT: number;
+	REDIS_QUEUE_USERNAME?: string;
+	REDIS_QUEUE_PASSWORD?: string;
+
+	REDIS_ANALYTICS_HOST: string;
+	REDIS_ANALYTICS_PORT: number;
+	REDIS_ANALYTICS_USERNAME?: string;
+	REDIS_ANALYTICS_PASSWORD?: string;
+
 	// Scraper Configuration
 	SCRAPER_CONCURRENCY: number;
-	SCRAPER_IGNORE_ROBOTS: boolean;
-	SCRAPER_BATCH_PAGE_SIZE: number;
-	SCRAPER_CHUNK_WORDS: number;
-	SCRAPER_CHUNK_OVERLAP_WORDS: number;
 
 	// Analytics Configuration
 	ANALYTICS_BUFFER_SIZE: number;
@@ -297,71 +280,23 @@ export interface EnvConfig {
 	// Email verification
 	EMAIL_LIST_VERIFY_API_KEY?: string;
 
-	// Cohere (reranker)
-	COHERE_API_KEY?: string;
-
-	// Firecrawl (primary scraper)
+	// Firecrawl
 	FIRECRAWL_API_KEY?: string;
 	FIRECRAWL_API_URL?: string;
-	FIRECRAWL_TIMEOUT_MS: number;
-	FIRECRAWL_POLL_INTERVAL_MS: number;
+	SCRAPER_RENDER_SERVICE_URL?: string;
+	SCRAPER_RENDER_SERVICE_TOKEN?: string;
+	SCRAPER_RENDER_SERVICE_MODE?: string;
 
-	// HyPE
+	// Cohere
+	COHERE_API_KEY?: string;
+
+	// RAG pipeline
+	PINECONE_HYBRID: boolean;
 	HYPE_QUESTIONS_PER_CHUNK: number;
-	HYPE_MAX_CHUNKS: number;
-
-	// Langfuse (observability)
-	LANGFUSE_SECRET_KEY?: string;
-	LANGFUSE_PUBLIC_KEY?: string;
-	LANGFUSE_HOST?: string;
+	KNOWLEDGE_BOUNDARY: string;
 }
 
 // Web Scraper types
-export type ScrapedPageBlockType =
-	| "summary"
-	| "paragraph"
-	| "list"
-	| "table"
-	| "faq"
-	| "contact";
-
-export type ScrapedPageType =
-	| "home"
-	| "about"
-	| "services"
-	| "pricing"
-	| "contact"
-	| "faq"
-	| "portfolio"
-	| "blog"
-	| "legal"
-	| "general";
-
-export type ScrapedStructuredFactType =
-	| "address"
-	| "phone"
-	| "email"
-	| "location"
-	| "service"
-	| "pricing"
-	| "case_study";
-
-export interface ScrapedStructuredFact {
-	type: ScrapedStructuredFactType;
-	value: string;
-	label?: string;
-	sourceText?: string;
-}
-
-export interface ScrapedPageContentBlock {
-	text: string;
-	blockType: ScrapedPageBlockType;
-	position: number;
-	sectionTitle?: string;
-	sectionPath?: string[];
-	factType?: ScrapedStructuredFactType;
-}
-
 export interface ScrapedPage {
 	url: string;
 	title: string;
@@ -371,14 +306,6 @@ export interface ScrapedPage {
 		description?: string;
 		keywords?: string;
 		author?: string;
-		canonicalUrl?: string;
-		pageType?: ScrapedPageType;
-		pagePriority?: number;
-		sourceRoot?: string;
-		sourceRootTitle?: string;
-		structuredFacts?: ScrapedStructuredFact[];
-		discoveredPageCount?: number;
-		contentBlocks?: ScrapedPageContentBlock[];
 		[key: string]: any;
 	};
 }
@@ -421,58 +348,37 @@ export interface PineconeMetadata {
 	totalChunks: number;
 	userId: string;
 	content?: string;
-	blockId?: number;
-	sourcePageId?: number;
-	pageType?: string;
-	blockType?: ScrapedPageBlockType | string;
-	sectionTitle?: string;
-	sectionPath?: string[];
-	position?: number;
+	text?: string;
+	parentText?: string;
+	sourceType?: "website" | "document";
+	sourceKey?: string;
 	sourceRoot?: string;
 	sourceRootTitle?: string;
-	canonicalUrl?: string;
-	pagePriority?: number;
-	structuredFactTypes?: string[];
-	structuredFactValues?: string[];
-	// HyPE (Hypothetical Prompt Embeddings) fields
-	chunkType?: "content" | "hype";        // "hype" = synthetic question vector
-	isHype?: boolean;                        // true when this vector is a HyPE question
-	sourceChunkId?: string;                  // parent content vector id
-	sourceBlockId?: number;                  // parent content block id in rag_source_blocks
-	sourceContent?: string;                  // original chunk text (used in LLM context instead of the question)
+	isHype?: boolean;
+	hypeParent?: string;
+	pageType?: string;
+	clientName?: string;
+	industry?: string;
+	services?: string;
+	cohereScore?: number;
 }
 
-export type StructuredQueryTopic =
-	| "case_studies"
-	| "contact"
-	| "pricing"
-	| "faq"
-	| "services"
-	| "about"
-	| "general";
-
-export interface StructuredQueryPlan {
-	topic: StructuredQueryTopic;
-	pageTypes?: string[];
-	blockTypes?: string[];
-	focusTerms?: string[];
-}
-
-export interface StructuredBlockSearchResult {
-	id: number;
-	sourcePageId?: number;
-	sourceType: "document" | "website";
-	sourceRoot?: string | null;
-	sourceUrl: string;
-	title: string;
-	pageType?: string | null;
-	blockType?: string | null;
-	sectionTitle?: string | null;
-	sectionPath?: string[];
-	position: number;
-	content: string;
-	scrapedAt?: string;
-	relevanceScore: number;
+export interface RagChunk {
+	userId: string;
+	url: string;
+	pageTitle: string;
+	childText: string;  // ~200 words, for embedding
+	parentText: string; // up to 600 words, for LLM
+	chunkIndex: number;
+	sourceType: "website" | "document";
+	sourceKey: string;
+	isHype: boolean;
+	hypeParent: string;
+	pageType?: string;
+	clientName?: string;
+	industry?: string;
+	services?: string;
+	vectorId?: string; // populated after upsert for metadata updates
 }
 
 // Chat types

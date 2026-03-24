@@ -14,12 +14,6 @@ import {
 	CHAT_SUPPORTED_LANGUAGE_CODES,
 	SYSTEM_MESSAGE_MAX_LENGTH,
 } from "../constants";
-import {
-	isStrongUserPassword,
-	USER_PASSWORD_MAX_LENGTH,
-	USER_PASSWORD_MIN_LENGTH,
-	USER_PASSWORD_POLICY_MESSAGE,
-} from "../utils/passwordPolicy";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
@@ -31,9 +25,6 @@ const SESSION_STATUS_VALUES = [
 ] as const;
 const SUPPORTED_LANGUAGE_LIST =
 	CHAT_SUPPORTED_LANGUAGE_CODES.join(", ");
-const USER_PASSWORD_LENGTH_MESSAGE = `Password must be ${USER_PASSWORD_MIN_LENGTH}-${USER_PASSWORD_MAX_LENGTH} characters`;
-const USER_NEW_PASSWORD_LENGTH_MESSAGE = `New password must be ${USER_PASSWORD_MIN_LENGTH}-${USER_PASSWORD_MAX_LENGTH} characters`;
-const USER_CURRENT_PASSWORD_LENGTH_MESSAGE = `Current password must be ${USER_PASSWORD_MIN_LENGTH}-${USER_PASSWORD_MAX_LENGTH} characters`;
 
 // Validation rules
 export const validationRules: Record<
@@ -41,15 +32,6 @@ export const validationRules: Record<
 	ValidationChain[]
 > = {
 	requestCode: [
-		body("email")
-			.trim()
-			.isEmail()
-			.withMessage("Valid email is required")
-			.normalizeEmail()
-			.toLowerCase(),
-	],
-
-	forgotPassword: [
 		body("email")
 			.trim()
 			.isEmail()
@@ -85,17 +67,8 @@ export const validationRules: Record<
 			.normalizeEmail()
 			.toLowerCase(),
 		body("password")
-			.isString()
-			.withMessage("Password is required")
-			.bail()
-			.isLength({
-				min: USER_PASSWORD_MIN_LENGTH,
-				max: USER_PASSWORD_MAX_LENGTH,
-			})
-			.withMessage(USER_PASSWORD_LENGTH_MESSAGE)
-			.bail()
-			.custom((value) => isStrongUserPassword(value))
-			.withMessage(USER_PASSWORD_POLICY_MESSAGE),
+			.isLength({ min: 8 })
+			.withMessage("Password must be at least 8 characters"),
 	],
 
 	loginWithPassword: [
@@ -106,60 +79,8 @@ export const validationRules: Record<
 			.normalizeEmail()
 			.toLowerCase(),
 		body("password")
-			.isString()
-			.withMessage("Password is required")
-			.bail()
-			.isLength({
-				min: USER_PASSWORD_MIN_LENGTH,
-				max: USER_PASSWORD_MAX_LENGTH,
-			})
-			.withMessage(USER_PASSWORD_LENGTH_MESSAGE),
-	],
-
-	resetPassword: [
-		body("token")
-			.trim()
-			.matches(/^[a-f0-9]{64}$/i)
-			.withMessage("Reset token is invalid"),
-		body("password")
-			.isString()
-			.withMessage("Password is required")
-			.bail()
-			.isLength({
-				min: USER_PASSWORD_MIN_LENGTH,
-				max: USER_PASSWORD_MAX_LENGTH,
-			})
-			.withMessage(USER_PASSWORD_LENGTH_MESSAGE)
-			.bail()
-			.custom((value) => isStrongUserPassword(value))
-			.withMessage(USER_PASSWORD_POLICY_MESSAGE),
-	],
-
-	changePassword: [
-		body("currentPassword")
-			.optional({ values: "falsy" })
-			.isString()
-			.withMessage("Current password must be a string")
-			.bail()
-			.isLength({
-				min: USER_PASSWORD_MIN_LENGTH,
-				max: USER_PASSWORD_MAX_LENGTH,
-			})
-			.withMessage(
-				USER_CURRENT_PASSWORD_LENGTH_MESSAGE,
-			),
-		body("newPassword")
-			.isString()
-			.withMessage("New password is required")
-			.bail()
-			.isLength({
-				min: USER_PASSWORD_MIN_LENGTH,
-				max: USER_PASSWORD_MAX_LENGTH,
-			})
-			.withMessage(USER_NEW_PASSWORD_LENGTH_MESSAGE)
-			.bail()
-			.custom((value) => isStrongUserPassword(value))
-			.withMessage(USER_PASSWORD_POLICY_MESSAGE),
+			.notEmpty()
+			.withMessage("Password is required"),
 	],
 
 	verifyGoogleCode: [
@@ -264,6 +185,16 @@ export const validationRules: Record<
 			.withMessage(
 				"completeOnboarding must be boolean",
 			),
+		body("knowledgeBoundary")
+			.optional()
+			.isIn([
+				"workspace_only",
+				"workspace_prefer",
+				"general_allowed",
+			])
+			.withMessage(
+				"knowledgeBoundary must be one of workspace_only, workspace_prefer, or general_allowed",
+			),
 	],
 
 	systemMessageDefaultUpdate: [
@@ -272,6 +203,16 @@ export const validationRules: Record<
 			.isBoolean()
 			.withMessage(
 				"completeOnboarding must be boolean",
+			),
+		body("knowledgeBoundary")
+			.optional()
+			.isIn([
+				"workspace_only",
+				"workspace_prefer",
+				"general_allowed",
+			])
+			.withMessage(
+				"knowledgeBoundary must be one of workspace_only, workspace_prefer, or general_allowed",
 			),
 	],
 
@@ -298,8 +239,8 @@ export const validationRules: Record<
 			.withMessage("maxDepth must be between 0 and 10"),
 		body("maxPages")
 			.optional({ values: "falsy" })
-			.isInt({ min: 1, max: 1200 })
-			.withMessage("maxPages must be between 1 and 1200"),
+			.isInt({ min: 1, max: 300 })
+			.withMessage("maxPages must be between 1 and 300"),
 	],
 
 	deleteByUrl: [

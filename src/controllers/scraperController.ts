@@ -1,29 +1,59 @@
 import { Request, Response } from "express";
-import { coercePlanType } from "../config/planConfig";
-import { boss, SCRAPER_QUEUE_NAME } from "../config/queue";
-import { domainPolicyService } from "../services/domainPolicyService";
+import {
+	coercePlanType,
+} from "../config/planConfig";
+import { chatService } from "../services/chatService";
 import { pineconeService } from "../services/pineconeService";
 import { scraperStatusService } from "../services/scraperStatusService";
+import { domainPolicyService } from "../services/domainPolicyService";
+import { runScrapeJob } from "../services/scrapeJobService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
-import { normalizeScrapeUrl } from "../utils/scrapeUrl";
 
-const SCRAPER_DEFAULT_MAX_PAGES = 1200;
-const SCRAPER_MAX_DEPTH = 30;
-const SCRAPER_MAX_PAGES = 1200;
+const SCRAPER_MAX_DEPTH = 10;
+const SCRAPER_MAX_PAGES = 300;
+
+const normalizeRequestedMaxPages = (
+	value: unknown,
+): number | undefined => {
+	const normalized = Number(value);
+	if (
+		!Number.isFinite(normalized) ||
+		normalized <= 0
+	) {
+		return undefined;
+	}
+
+	return Math.min(
+		SCRAPER_MAX_PAGES,
+		Math.trunc(normalized),
+	);
+};
+
+const resolveEffectiveMaxPages = (
+	requestedMaxPages: number | undefined,
+	pagesRemaining: number | null,
+): number | undefined => {
+	if (pagesRemaining === null) {
+		return requestedMaxPages;
+	}
+	if (requestedMaxPages === undefined) {
+		return pagesRemaining;
+	}
+	return Math.min(
+		requestedMaxPages,
+		pagesRemaining,
+	);
+};
 
 const getScraperUpgradeMessage = (
-	planType:
-		| "free"
-		| "basic"
-		| "standard"
-		| "enterprise",
+	planType: "free" | "basic" | "standard" | "enterprise",
 ): string => {
 	if (planType === "free") {
-		return "Upgrade to Basic plan for 100 website pages";
+		return "Upgrade to Basic plan for 30 website pages";
 	}
 	if (planType === "basic") {
-		return "Upgrade to Standard plan for 150 website pages";
+		return "Upgrade to Standard plan for 100 website pages";
 	}
 	if (planType === "standard") {
 		return "Upgrade to Enterprise plan for unlimited website pages";
@@ -32,26 +62,20 @@ const getScraperUpgradeMessage = (
 };
 
 const getScraperLimitPayload = (
-	planType:
-		| "free"
-		| "basic"
-		| "standard"
-		| "enterprise",
+	planType: "free" | "basic" | "standard" | "enterprise",
 	scraperUsage: Awaited<
-		ReturnType<
-			typeof pineconeService.getScraperUsageStats
-		>
+		ReturnType<typeof pineconeService.getScraperUsageStats>
 	>,
 ) => ({
-	planType: scraperUsage.planType,
-	pagesUsed: scraperUsage.pagesUsed,
-	pagesLimit: scraperUsage.pagesLimit,
-	pagesRemaining: scraperUsage.pagesRemaining,
-	upgradeMessage:
-		scraperUsage.pagesLimit === null
-			? undefined
-			: getScraperUpgradeMessage(planType),
-});
+		planType: scraperUsage.planType,
+		pagesUsed: scraperUsage.pagesUsed,
+		pagesLimit: scraperUsage.pagesLimit,
+		pagesRemaining: scraperUsage.pagesRemaining,
+		upgradeMessage:
+			scraperUsage.pagesLimit === null
+				? undefined
+				: getScraperUpgradeMessage(planType),
+	});
 
 export const scrapeWebsite = async (
 	req: Request,
@@ -60,9 +84,9 @@ export const scrapeWebsite = async (
 	let jobId: string | null = null;
 	try {
 		const {
-			url: rawUrl,
-			maxDepth = 30,
-			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
+			url,
+			maxDepth = 3,
+			maxPages,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType = coercePlanType(
@@ -77,7 +101,7 @@ export const scrapeWebsite = async (
 			return;
 		}
 
-		if (!rawUrl) {
+		if (!url) {
 			res.status(400).json({
 				success: false,
 				message: "URL is required",
@@ -85,25 +109,8 @@ export const scrapeWebsite = async (
 			return;
 		}
 
-		// Normalize bare domains (e.g. "example.com" → "https://example.com")
-		let url: string;
-		try {
-			url = await normalizeScrapeUrl(rawUrl);
-		} catch (error) {
-			res.status(400).json({
-				success: false,
-				message:
-					error instanceof Error
-						? error.message
-						: "URL is invalid",
-			});
-			return;
-		}
-
 		const policyCheck =
-			await domainPolicyService.isDomainDisallowed(
-				url,
-			);
+			await domainPolicyService.isDomainDisallowed(url);
 		if (policyCheck.blocked) {
 			res.status(403).json({
 				success: false,
@@ -116,10 +123,7 @@ export const scrapeWebsite = async (
 		// fall back to a fresh Pinecone call only if the middleware was bypassed.
 		const scraperUsage =
 			(res.locals as any).scraperUsage ??
-			(await pineconeService.getScraperUsageStats(
-				userId,
-				planType,
-			));
+			(await pineconeService.getScraperUsageStats(userId, planType));
 
 		if (
 			scraperUsage.pagesRemaining !== null &&
@@ -142,24 +146,40 @@ export const scrapeWebsite = async (
 			0,
 			Math.min(
 				SCRAPER_MAX_DEPTH,
-				Number(maxDepth) || 30,
+				Number(maxDepth) || 3,
 			),
 		);
-		const normalizedMaxPages = Math.max(
-			1,
-			Math.min(
-				SCRAPER_MAX_PAGES,
-				Number(maxPages) ||
-					SCRAPER_DEFAULT_MAX_PAGES,
-			),
-		);
-		const effectiveMaxPages = normalizedMaxPages;
+		const normalizedMaxPages =
+			normalizeRequestedMaxPages(maxPages);
+		const effectiveMaxPages =
+			resolveEffectiveMaxPages(
+				normalizedMaxPages,
+				scraperUsage.pagesRemaining,
+			);
+
+		if (
+			effectiveMaxPages !== undefined &&
+			effectiveMaxPages <= 0
+		) {
+			res.status(403).json({
+				success: false,
+				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+				data: {
+					...getScraperLimitPayload(
+						planType,
+						scraperUsage,
+					),
+				},
+			});
+			return;
+		}
 
 		logger.info(
 			`Starting scrape for URL: ${url}`,
 			{
 				maxDepth: normalizedMaxDepth,
-				maxPages: normalizedMaxPages,
+				maxPages:
+					normalizedMaxPages ?? null,
 				effectiveMaxPages,
 				userId,
 				planType,
@@ -176,14 +196,14 @@ export const scrapeWebsite = async (
 			});
 		jobId = job.jobId;
 
-		await boss.send(SCRAPER_QUEUE_NAME, {
+		const jobPayload = {
 			jobId: job.jobId,
 			userId,
 			url,
 			maxDepth: normalizedMaxDepth,
 			maxPages: effectiveMaxPages,
 			mode: "scrape",
-		});
+		} as const;
 
 		res.status(202).json({
 			success: true,
@@ -192,6 +212,22 @@ export const scrapeWebsite = async (
 			data: {
 				job,
 			},
+		});
+
+		void runScrapeJob(jobPayload, {
+			source: "direct",
+		}).catch((error) => {
+			logger.error(
+				"Direct scrape execution failed after request acceptance",
+				{
+					jobId: jobPayload.jobId,
+					url: jobPayload.url,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
 		});
 	} catch (error) {
 		if (jobId) {
@@ -221,7 +257,7 @@ export const queryDocuments = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const { query, topK = 10 } = req.body;
+		const { query, language } = req.body;
 		const userId = (req as any).user?.id;
 
 		if (!userId) {
@@ -242,28 +278,29 @@ export const queryDocuments = async (
 
 		logger.info(
 			`Querying documents with: ${query}`,
-			{
-				topK,
-				userId,
-			},
+			{ userId, language },
 		);
 
-		const results =
-			await pineconeService.queryDocuments(
+		const result =
+			await chatService.answerKnowledgeQuery(
 				userId,
 				query,
-				topK,
+				language,
 			);
 
 		res.status(200).json({
 			success: true,
 			message: "Query executed successfully",
 			data: {
-				results: results.map((match) => ({
+				answer: result.answer,
+				language: result.language,
+				sources: result.sources,
+				matches: result.matches.map((match) => ({
 					score: match.score,
+					cohereScore: match.cohereScore,
 					metadata: match.metadata,
 				})),
-				totalResults: results.length,
+				totalResults: result.matches.length,
 			},
 		});
 	} catch (error) {
@@ -303,24 +340,8 @@ export const deleteDocuments = async (
 			return;
 		}
 
-		let normalizedUrl: string;
-		try {
-			normalizedUrl = await normalizeScrapeUrl(url);
-		} catch (error) {
-			res.status(400).json({
-				success: false,
-				message:
-					error instanceof Error
-						? error.message
-						: "URL is invalid",
-			});
-			return;
-		}
-
 		const policyCheck =
-			await domainPolicyService.isDomainDisallowed(
-				normalizedUrl,
-			);
+			await domainPolicyService.isDomainDisallowed(url);
 		if (policyCheck.blocked) {
 			res.status(403).json({
 				success: false,
@@ -330,7 +351,7 @@ export const deleteDocuments = async (
 		}
 
 		logger.info(
-			`Deleting all documents for website: ${normalizedUrl}`,
+			`Deleting all documents for website: ${url}`,
 			{
 				userId,
 			},
@@ -338,12 +359,12 @@ export const deleteDocuments = async (
 
 		await pineconeService.deleteDocumentsByUrl(
 			userId,
-			normalizedUrl,
+			url,
 		);
 
 		res.status(200).json({
 			success: true,
-			message: `All documents for website ${normalizedUrl} have been deleted`,
+			message: `All documents for website ${url} have been deleted`,
 		});
 	} catch (error) {
 		logger.error(
@@ -382,33 +403,19 @@ export const deletePage = async (
 			return;
 		}
 
-		let normalizedUrl: string;
-		try {
-			normalizedUrl = await normalizeScrapeUrl(url);
-		} catch (error) {
-			res.status(400).json({
-				success: false,
-				message:
-					error instanceof Error
-						? error.message
-						: "URL is invalid",
-			});
-			return;
-		}
-
 		logger.info(
-			`Deleting individual page: ${normalizedUrl}`,
+			`Deleting individual page: ${url}`,
 			{ userId },
 		);
 
 		await pineconeService.deletePageByExactUrl(
 			userId,
-			normalizedUrl,
+			url,
 		);
 
 		res.status(200).json({
 			success: true,
-			message: `Page ${normalizedUrl} has been deleted`,
+			message: `Page ${url} has been deleted`,
 		});
 	} catch (error) {
 		logger.error(
@@ -507,10 +514,10 @@ export const getAllSources = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = (req as any).user?.id;
-		const planType = coercePlanType(
-			(req as any).user?.plan_type,
-		);
+			const userId = (req as any).user?.id;
+			const planType = coercePlanType(
+				(req as any).user?.plan_type,
+			);
 
 		if (!userId) {
 			res.status(401).json({
@@ -564,10 +571,12 @@ export const getAllSources = async (
 				scraperUsage: {
 					planType,
 					pagesUsed,
-					pagesLimit: scraperUsage.pagesLimit,
+					pagesLimit:
+						scraperUsage.pagesLimit,
 					pagesRemaining:
 						scraperUsage.pagesRemaining,
-					isAtLimit: scraperUsage.isAtLimit,
+					isAtLimit:
+						scraperUsage.isAtLimit,
 				},
 				documentUsage: {
 					planType,
@@ -577,7 +586,8 @@ export const getAllSources = async (
 						documentUsage.documentsLimit,
 					documentsRemaining:
 						documentUsage.documentsRemaining,
-					isAtLimit: documentUsage.isAtLimit,
+					isAtLimit:
+						documentUsage.isAtLimit,
 				},
 				scrapeJob: latestJob,
 			},
@@ -587,27 +597,29 @@ export const getAllSources = async (
 		const planType = coercePlanType(
 			(req as any).user?.plan_type,
 		);
-		const scraperUsage = userId
-			? await pineconeService.getScraperUsageStats(
-					userId,
-					planType,
-				)
-			: {
-					pagesLimit: 0,
-					pagesRemaining: 0,
-					isAtLimit: false,
-				};
-		const documentUsage = userId
-			? await pineconeService.getDocumentUsageStats(
-					userId,
-					planType,
-				)
-			: {
-					documentsUsed: 0,
-					documentsLimit: 0,
-					documentsRemaining: 0,
-					isAtLimit: false,
-				};
+		const scraperUsage =
+			userId
+				? await pineconeService.getScraperUsageStats(
+						userId,
+						planType,
+				  )
+				: {
+						pagesLimit: 0,
+						pagesRemaining: 0,
+						isAtLimit: false,
+				  };
+		const documentUsage =
+			userId
+				? await pineconeService.getDocumentUsageStats(
+						userId,
+						planType,
+				  )
+				: {
+						documentsUsed: 0,
+						documentsLimit: 0,
+						documentsRemaining: 0,
+						isAtLimit: false,
+				  };
 		const isPineconeConnectionError =
 			error &&
 			typeof error === "object" &&
@@ -634,10 +646,12 @@ export const getAllSources = async (
 					scraperUsage: {
 						planType,
 						pagesUsed: 0,
-						pagesLimit: scraperUsage.pagesLimit,
+						pagesLimit:
+							scraperUsage.pagesLimit,
 						pagesRemaining:
 							scraperUsage.pagesRemaining,
-						isAtLimit: scraperUsage.isAtLimit,
+						isAtLimit:
+							scraperUsage.isAtLimit,
 					},
 					documentUsage: {
 						planType,
@@ -647,13 +661,15 @@ export const getAllSources = async (
 							documentUsage.documentsLimit,
 						documentsRemaining:
 							documentUsage.documentsRemaining,
-						isAtLimit: documentUsage.isAtLimit,
+						isAtLimit:
+							documentUsage.isAtLimit,
 					},
-					scrapeJob: userId
-						? await scraperStatusService.getLatestJobForUser(
-								userId,
-							)
-						: null,
+					scrapeJob:
+						userId
+							? await scraperStatusService.getLatestJobForUser(
+									userId,
+							  )
+							: null,
 				},
 			});
 			return;
@@ -757,9 +773,9 @@ export const retrainWebsite = async (
 	let jobId: string | null = null;
 	try {
 		const {
-			url: rawUrl,
-			maxDepth = 30,
-			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
+			url,
+			maxDepth = 3,
+			maxPages,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType = coercePlanType(
@@ -774,7 +790,7 @@ export const retrainWebsite = async (
 			return;
 		}
 
-		if (!rawUrl) {
+		if (!url) {
 			res.status(400).json({
 				success: false,
 				message: "URL is required",
@@ -782,93 +798,87 @@ export const retrainWebsite = async (
 			return;
 		}
 
-		// Normalize bare domains (e.g. "example.com" → "https://example.com")
-		let url: string;
-		try {
-			url = await normalizeScrapeUrl(rawUrl);
-		} catch (error) {
-			res.status(400).json({
-				success: false,
-				message:
-					error instanceof Error
-						? error.message
-						: "URL is invalid",
-			});
-			return;
-		}
-
-		logger.info(`Retraining website: ${url}`, {
-			userId,
-		});
-
-		const policyCheck =
-			await domainPolicyService.isDomainDisallowed(
-				url,
-			);
-		if (policyCheck.blocked) {
-			res.status(403).json({
-				success: false,
-				message: `${policyCheck.matchedDomain} is not allowed for scraping.`,
-			});
-			return;
-		}
-
-		const scraperUsage =
-			await pineconeService.getScraperUsageStats(
-				userId,
-				planType,
-			);
-		if (
-			scraperUsage.pagesRemaining !== null &&
-			scraperUsage.pagesRemaining <= 0
-		) {
-			res.status(403).json({
-				success: false,
-				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
-				data: {
-					...getScraperLimitPayload(
-						planType,
-						scraperUsage,
-					),
-				},
-			});
-			return;
-		}
-
-		const normalizedMaxDepth = Math.max(
-			0,
-			Math.min(
-				SCRAPER_MAX_DEPTH,
-				Number(maxDepth) || 30,
-			),
+		logger.info(
+			`Retraining website: ${url}`,
+			{ userId },
 		);
-		const normalizedMaxPages = Math.max(
-			1,
-			Math.min(
-				SCRAPER_MAX_PAGES,
-				Number(maxPages) ||
-					SCRAPER_DEFAULT_MAX_PAGES,
-			),
-		);
-		const effectiveMaxPages = normalizedMaxPages;
-		const job =
-			await scraperStatusService.startJob({
+
+			// Delete all existing data for this website domain first
+			await pineconeService.deleteDocumentsByUrl(
 				userId,
 				url,
-				mode: "retrain",
+			);
+
+			const scraperUsage =
+				await pineconeService.getScraperUsageStats(
+					userId,
+					planType,
+				);
+			if (
+				scraperUsage.pagesRemaining !== null &&
+				scraperUsage.pagesRemaining <= 0
+			) {
+				res.status(403).json({
+					success: false,
+					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					data: {
+						...getScraperLimitPayload(
+							planType,
+							scraperUsage,
+						),
+					},
+				});
+				return;
+			}
+
+			const normalizedMaxDepth = Math.max(
+				0,
+				Math.min(
+					SCRAPER_MAX_DEPTH,
+					Number(maxDepth) || 3,
+				),
+			);
+			const normalizedMaxPages =
+				normalizeRequestedMaxPages(maxPages);
+			const effectiveMaxPages =
+				resolveEffectiveMaxPages(
+					normalizedMaxPages,
+					scraperUsage.pagesRemaining,
+				);
+			if (
+				effectiveMaxPages !== undefined &&
+				effectiveMaxPages <= 0
+			) {
+				res.status(403).json({
+					success: false,
+					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					data: {
+						...getScraperLimitPayload(
+							planType,
+							scraperUsage,
+						),
+					},
+				});
+				return;
+			}
+			const job =
+				await scraperStatusService.startJob({
+					userId,
+					url,
+					mode: "retrain",
+					maxDepth: normalizedMaxDepth,
+					maxPages: effectiveMaxPages,
+				});
+			jobId = job.jobId;
+
+			const jobPayload = {
+				jobId: job.jobId,
+				userId,
+				url,
 				maxDepth: normalizedMaxDepth,
 				maxPages: effectiveMaxPages,
-			});
-		jobId = job.jobId;
-
-		await boss.send(SCRAPER_QUEUE_NAME, {
-			jobId: job.jobId,
-			userId,
-			url,
-			maxDepth: normalizedMaxDepth,
-			maxPages: effectiveMaxPages,
-			mode: "retrain",
-		});
+				mode: "retrain",
+			} as const;
 
 		res.status(202).json({
 			success: true,
@@ -878,6 +888,22 @@ export const retrainWebsite = async (
 				job,
 			},
 		});
+
+			void runScrapeJob(jobPayload, {
+				source: "direct",
+			}).catch((error) => {
+				logger.error(
+					"Direct retrain execution failed after request acceptance",
+					{
+						jobId: jobPayload.jobId,
+						url: jobPayload.url,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			});
 	} catch (error) {
 		if (jobId) {
 			const message =

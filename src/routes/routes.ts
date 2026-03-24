@@ -90,24 +90,6 @@ router.post(
 );
 
 router.post(
-	"/forgot-password",
-	verifyCsrfToken,
-	authLimiter,
-	validationRules.forgotPassword,
-	validate,
-	authController.forgotPassword,
-);
-
-router.post(
-	"/reset-password",
-	verifyCsrfToken,
-	authLimiter,
-	validationRules.resetPassword,
-	validate,
-	authController.resetPassword,
-);
-
-router.post(
 	"/request-code",
 	verifyCsrfToken,
 	authLimiter,
@@ -181,12 +163,6 @@ router.get(
 	authController.getProfileStatus,
 );
 
-router.get(
-	"/settings",
-	authenticateToken,
-	authController.getSettings,
-);
-
 router.put(
 	"/profile",
 	verifyCsrfToken,
@@ -196,24 +172,6 @@ router.put(
 	authController.updateProfile,
 );
 
-router.put(
-	"/settings",
-	verifyCsrfToken,
-	authenticateToken,
-	validationRules.updateProfile,
-	validate,
-	authController.updateSettings,
-);
-
-router.put(
-	"/settings/password",
-	verifyCsrfToken,
-	authenticateToken,
-	validationRules.changePassword,
-	validate,
-	authController.changePassword,
-);
-
 /**
  * @route   PUT /api/auth/onboarding
  * @desc    Mark an onboarding step as complete
@@ -221,7 +179,6 @@ router.put(
  */
 router.put(
 	"/onboarding",
-	verifyCsrfToken,
 	authenticateToken,
 	validationRules.updateOnboarding,
 	validate,

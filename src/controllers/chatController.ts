@@ -94,7 +94,6 @@ export const chat = async (
 					type: "done",
 					sessionId: result.sessionId,
 					language: result.language,
-					sources: result.sources ?? [],
 					usage: usage
 						? {
 								conversationsRemaining:
@@ -140,7 +139,7 @@ export const chat = async (
 			sessionId: result.sessionId,
 			response: result.response,
 			language: result.language,
-			sources: result.sources ?? [],
+			// sources: result.sources,
 		};
 
 		// Include usage information if available

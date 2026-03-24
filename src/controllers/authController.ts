@@ -17,11 +17,8 @@ import googleAuthService, {
 } from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
-	ChangePasswordBody,
-	ForgotPasswordBody,
 	LoginPasswordBody,
 	RegisterBody,
-	ResetPasswordBody,
 	RequestCodeBody,
 	UpdateProfileBody,
 	VerifyGoogleCodeBody,
@@ -254,62 +251,6 @@ export const requestCode = async (
 		res.status(200).json({
 			success: result.success,
 			message: result.message,
-		});
-	} catch (error) {
-		next(error);
-	}
-};
-
-/**
- * @route   POST /api/auth/forgot-password
- * @desc    Request a password reset link
- * @access  Public
- */
-export const forgotPassword = async (
-	req: Request<{}, {}, ForgotPasswordBody>,
-	res: Response,
-	next: NextFunction,
-): Promise<void> => {
-	try {
-		const { email } = req.body;
-
-		logger.info("Password reset requested", {
-			email,
-			ip: req.ip,
-			userAgent: req.get("user-agent"),
-		});
-
-		const result =
-			await authService.requestPasswordReset(
-				email,
-			);
-
-		res.status(200).json(result);
-	} catch (error) {
-		next(error);
-	}
-};
-
-export const getSettings = async (
-	req: Request,
-	res: Response,
-	next: NextFunction,
-): Promise<void> => {
-	try {
-		const userId = req.user?.id;
-		if (!userId) {
-			res.status(401).json({
-				success: false,
-				message: "Authentication required",
-			});
-			return;
-		}
-
-		const settings =
-			await authService.getUserSettings(userId);
-		res.status(200).json({
-			success: true,
-			user: settings,
 		});
 	} catch (error) {
 		next(error);
@@ -1099,94 +1040,6 @@ export const loginWithPassword = async (
 				message: result.message,
 			});
 		}
-	} catch (error) {
-		next(error);
-	}
-};
-
-export const updateSettings = async (
-	req: Request<{}, {}, UpdateProfileBody>,
-	res: Response,
-	next: NextFunction,
-): Promise<void> => {
-	try {
-		const userId = req.user?.id;
-		if (!userId) {
-			res.status(401).json({
-				success: false,
-				message: "Authentication required",
-			});
-			return;
-		}
-
-		const updated = await authService.updateUserSettings(
-			userId,
-			req.body,
-		);
-		res.status(200).json({
-			success: true,
-			message: "Settings updated successfully",
-			user: updated,
-		});
-	} catch (error) {
-		next(error);
-	}
-};
-
-export const changePassword = async (
-	req: Request<{}, {}, ChangePasswordBody>,
-	res: Response,
-	next: NextFunction,
-): Promise<void> => {
-	try {
-		const userId = req.user?.id;
-		if (!userId) {
-			res.status(401).json({
-				success: false,
-				message: "Authentication required",
-			});
-			return;
-		}
-
-		const result = await authService.changePassword(
-			userId,
-			req.body.currentPassword,
-			req.body.newPassword,
-			req.user?.sessionId,
-		);
-
-		res.status(200).json(result);
-	} catch (error) {
-		next(error);
-	}
-};
-
-/**
- * @route   POST /api/auth/reset-password
- * @desc    Reset the user's password using a reset token
- * @access  Public
- */
-export const resetPassword = async (
-	req: Request<{}, {}, ResetPasswordBody>,
-	res: Response,
-	next: NextFunction,
-): Promise<void> => {
-	try {
-		const { token, password } = req.body;
-
-		logger.info("Password reset attempt", {
-			ip: req.ip,
-			userAgent: req.get("user-agent"),
-		});
-
-		const result = await authService.resetPassword(
-			token,
-			password,
-		);
-
-		res.status(result.success ? 200 : 400).json(
-			result,
-		);
 	} catch (error) {
 		next(error);
 	}

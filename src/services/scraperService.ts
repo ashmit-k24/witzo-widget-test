@@ -1,36 +1,19 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
-import pool from "../config/database";
 import { config } from "../config/env";
-import {
-	ScrapedPage,
-	ScrapedPageBlockType,
-	ScrapedPageContentBlock,
-	ScrapedPageType,
-} from "../types";
-import logger from "../utils/logger";
-import { firecrawlService } from "./firecrawlService";
 import { pineconeService } from "./pineconeService";
+import { RagChunk, ScrapedPage } from "../types";
+import logger from "../utils/logger";
 import {
-	isUrlUnderSourceRoot,
-	normalizeDiscoveredUrl,
-	normalizeScrapeUrl,
-	shouldSkipScrapeUrl,
-} from "../utils/scrapeUrl";
+	assertSafeOutgoingUrl,
+} from "../utils/networkSafety";
 import {
-	detectScrapedPageType,
-	enrichScrapedPage,
-	hasContactSignals,
-	normalizeScrapedText,
-	scorePagePriority,
-} from "../utils/scrapeAnalysis";
-import { pageClassificationService } from "./pageClassificationService";
-
-const BUILT_IN_CRAWLER_CONCURRENCY = Math.max(
-	1,
-	Math.min(config.SCRAPER_CONCURRENCY, 10),
-);
-const BUILT_IN_FETCH_TIMEOUT_MS = 15000;
+	firecrawlCrawlWebsite,
+	firecrawlEnabled,
+} from "./firecrawlService";
+import { chunkMarkdown } from "./chunkingService";
+import { upsertAsync as upsertHypeAsync } from "./hypeService";
+import { extractAsync as extractPageMetadataAsync } from "./pageMetadataService";
 
 interface CrawlOptions {
 	maxDepth?: number;
@@ -51,289 +34,306 @@ interface ScrapeResult {
 	storedPages: number;
 	pages: ScrapedPage[];
 	failureReason?: string;
-	failedUrls?: string[];
 }
 
-type RobotsRules = {
-	disallowPaths: string[];
-	sitemapUrls: string[];
-};
+interface RobotsPolicy {
+	allow: string[];
+	disallow: string[];
+	sitemaps: string[];
+}
 
-type DiscoveredPage = {
-	url: string;
-	pageType: ScrapedPageType;
-	priority: number;
-};
+interface FetchPageResult {
+	html: string;
+	status: number;
+	finalUrl: string;
+	contentType: string;
+}
 
-type SiteDiscoveryResult = {
-	pages: DiscoveredPage[];
-	discoveredCount: number;
-	usedSitemap: boolean;
-};
+const TRACKING_QUERY_KEYS = new Set([
+	"gclid",
+	"fbclid",
+	"msclkid",
+	"mc_cid",
+	"mc_eid",
+	"ref",
+	"ref_src",
+	"source",
+]);
 
 class ScraperService {
-	private async assertUserExists(
-		userId: string,
-	): Promise<void> {
-		const result = await pool.query(
-			`SELECT 1 FROM users WHERE id = $1 LIMIT 1`,
-			[userId],
-		);
-		if (result.rows.length === 0) {
-			throw new Error(
-				`Cannot scrape website: user ${userId} does not exist in users table.`,
-			);
-		}
-	}
-
-	private normalizeText(text: string): string {
-		return normalizeScrapedText(text);
-	}
-
-	private hasContactSignals(text: string): boolean {
-		return hasContactSignals(text);
-	}
-
-	private detectBlockType(
-		text: string,
-		tagName: string,
-		sectionTitle?: string,
-	): ScrapedPageBlockType {
-		const normalized = `${sectionTitle ?? ""} ${text}`.toLowerCase();
-		if (
-			tagName === "tr" ||
-			/\b(price|pricing|plan|package|fee|cost)\b/.test(normalized)
-		) {
-			return "table";
-		}
-		if (
-			tagName === "li" ||
-			tagName === "dt" ||
-			tagName === "dd"
-		) {
-			return "list";
-		}
-		if (
-			tagName === "details" ||
-			/\?$/.test(text) ||
-			/\b(faq|frequently asked|question|answer)\b/.test(normalized)
-		) {
-			return "faq";
-		}
-		if (this.hasContactSignals(normalized)) {
-			return "contact";
-		}
-		return "paragraph";
-	}
-
-	private extractContentBlocks(
-		$: ReturnType<typeof cheerio.load>,
-		title: string,
-		description: string,
-	): ScrapedPageContentBlock[] {
-		const root = $(
-			"main, [role='main'], article, body",
-		).first();
-		const candidates = root
-			.find(
-				"h1, h2, h3, h4, h5, h6, p, li, dt, dd, blockquote, tr, details",
-			)
-			.toArray();
-		const sectionStack: Array<{
-			level: number;
-			title: string;
-		}> = [];
-		const blocks: ScrapedPageContentBlock[] = [];
-		const seenText = new Set<string>();
-
-		const pushBlock = (
-			text: string,
-			tagName: string,
-		): void => {
-			const normalizedText =
-				this.normalizeText(text);
-			if (!normalizedText) {
-				return;
+	private normalizeUrl(url: string): string {
+		try {
+			const urlObj = new URL(url.trim());
+			if (
+				urlObj.protocol !== "http:" &&
+				urlObj.protocol !== "https:"
+			) {
+				throw new Error("invalid protocol");
 			}
-
-			const normalizedKey =
-				normalizedText.toLowerCase();
-			if (seenText.has(normalizedKey)) {
-				return;
+			urlObj.protocol = urlObj.protocol.toLowerCase();
+			urlObj.hash = "";
+			urlObj.username = "";
+			urlObj.password = "";
+			urlObj.hostname = urlObj.hostname.toLowerCase();
+			if (
+				(urlObj.protocol === "http:" &&
+					urlObj.port === "80") ||
+				(urlObj.protocol === "https:" &&
+					urlObj.port === "443")
+			) {
+				urlObj.port = "";
 			}
-
-			const sectionPath = sectionStack.map(
-				(entry) => entry.title,
-			);
-			const sectionTitle =
-				sectionPath[sectionPath.length - 1];
-			const isContactBlock =
-				this.hasContactSignals(normalizedText);
-			const isMeaningfulText =
-				normalizedText.length >= 30 ||
-				isContactBlock;
-
-			if (!isMeaningfulText) {
-				return;
+			urlObj.pathname =
+				urlObj.pathname === ""
+					? "/"
+					: urlObj.pathname;
+			if (urlObj.pathname.length > 1) {
+				urlObj.pathname =
+					urlObj.pathname.replace(/\/+$/, "") || "/";
 			}
-
-			seenText.add(normalizedKey);
-			blocks.push({
-				text: normalizedText,
-				blockType: this.detectBlockType(
-					normalizedText,
-					tagName,
-					sectionTitle,
-				),
-				position: blocks.length,
-				sectionTitle,
-				sectionPath:
-					sectionPath.length > 0
-						? sectionPath
-						: undefined,
-			});
-		};
-
-		for (const element of candidates) {
-			const tagName =
-				(
-					element as {
-						tagName?: string;
-					}
-				).tagName?.toLowerCase() ?? "";
-			if (!tagName) {
-				continue;
-			}
-
-			const $element = $(element);
-			const withinBoilerplate =
-				$element.closest(
-					"nav, header, form, aside",
-				).length > 0;
-			const withinFooter =
-				$element.closest("footer").length > 0;
-
-			if (/^h[1-6]$/.test(tagName)) {
-				const heading =
-					this.normalizeText(
-						$element.text(),
-					);
-				if (!heading) {
+			const cleanedParams = new URLSearchParams();
+			for (const [key, value] of urlObj.searchParams.entries()) {
+				const normalizedKey = key
+					.trim()
+					.toLowerCase();
+				if (
+					normalizedKey.startsWith("utm_") ||
+					TRACKING_QUERY_KEYS.has(normalizedKey)
+				) {
 					continue;
 				}
+				cleanedParams.append(key, value);
+			}
+			urlObj.search = cleanedParams.toString();
+			return urlObj.toString();
+		} catch {
+			return url;
+		}
+	}
 
-				const level = Number(tagName.slice(1));
-				while (
-					sectionStack.length > 0 &&
-					sectionStack[sectionStack.length - 1].level >=
-						level
-				) {
-					sectionStack.pop();
+	private hostNameFromUrl(url: string): string {
+		try {
+			return new URL(url).hostname
+				.toLowerCase()
+				.trim();
+		} catch {
+			return "";
+		}
+	}
+
+	private sameSiteHost(
+		left: string,
+		right: string,
+	): boolean {
+		const normalize = (value: string) =>
+			value
+				.toLowerCase()
+				.trim()
+				.replace(/^www\./, "");
+		return (
+			Boolean(left) &&
+			Boolean(right) &&
+			normalize(left) === normalize(right)
+		);
+	}
+
+	private shouldSkipCrawlPath(url: string): boolean {
+		try {
+			const parsed = new URL(url.trim());
+			const rawPath = parsed.pathname
+				.toLowerCase()
+				.trim();
+			for (const fragment of [
+				"/wp-admin",
+				"/admin",
+				"/signin",
+				"/sign-in",
+				"/signup",
+				"/sign-up",
+				"/login",
+				"/logout",
+				"/register",
+				"/cart",
+				"/checkout",
+				"/account",
+				"/auth",
+				"/api/",
+				"/cdn-cgi/",
+			]) {
+				if (rawPath.includes(fragment)) {
+					return true;
 				}
-				sectionStack.push({
-					level,
-					title: heading,
+			}
+
+			const ext = rawPath.match(/\.[a-z0-9]+$/i)?.[0] || "";
+			return new Set([
+				".png",
+				".jpg",
+				".jpeg",
+				".gif",
+				".webp",
+				".svg",
+				".ico",
+				".bmp",
+				".tiff",
+				".css",
+				".js",
+				".map",
+				".woff",
+				".woff2",
+				".ttf",
+				".otf",
+				".pdf",
+				".zip",
+				".tar",
+				".gz",
+				".rar",
+				".7z",
+				".mp3",
+				".wav",
+				".ogg",
+				".mp4",
+				".mov",
+				".avi",
+				".webm",
+				".json",
+				".xml",
+			]).has(ext);
+		} catch {
+			return true;
+		}
+	}
+
+	private isValidInternalUrl(
+		url: string,
+		baseUrl: string,
+	): boolean {
+		try {
+			const urlObj = new URL(url);
+			const baseUrlObj = new URL(baseUrl);
+			if (
+				!this.sameSiteHost(
+					urlObj.hostname,
+					baseUrlObj.hostname,
+				)
+			) {
+				return false;
+			}
+			if (this.shouldSkipCrawlPath(urlObj.toString())) {
+				return false;
+			}
+			if (!urlObj.protocol.startsWith("http"))
+				return false;
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	private async fetchPageContent(
+		url: string,
+	): Promise<FetchPageResult> {
+		let currentUrl = url;
+		const visitedRedirectStates = new Set<string>();
+		const maxRedirects = 10;
+		const cookieJar = new Map<string, string>();
+
+		for (
+			let redirectCount = 0;
+			redirectCount < maxRedirects;
+			redirectCount += 1
+		) {
+			const safeUrl =
+				await assertSafeOutgoingUrl(currentUrl, {
+					allowHttp: true,
 				});
-				continue;
-			}
-
-			if (withinBoilerplate) {
-				continue;
-			}
-
-			let text = "";
-			if (tagName === "tr") {
-				text = $element
-					.find("th, td")
-					.toArray()
-					.map((cell) =>
-						this.normalizeText(
-							$(cell).text(),
-						),
-					)
-					.filter(Boolean)
-					.join(" | ");
-			} else if (tagName === "details") {
-				const summary = this.normalizeText(
-					$element.find("summary").first().text(),
-				);
-				const body = this.normalizeText(
-					$element
-						.clone()
-						.find("summary")
-						.remove()
-						.end()
-						.text(),
-				);
-				text = [summary, body]
-					.filter(Boolean)
-					.join(" ");
-			} else {
-				text = this.normalizeText(
-					$element.text(),
+			const cookieHeader = Array.from(
+				cookieJar.entries(),
+			)
+				.map(([name, value]) => `${name}=${value}`)
+				.join("; ");
+			const requestStateKey = `${safeUrl.toString()}|${cookieHeader}`;
+			if (visitedRedirectStates.has(requestStateKey)) {
+				throw new Error(
+					"Redirect loop detected while scraping",
 				);
 			}
-
-			if (
-				withinFooter &&
-				!this.hasContactSignals(text)
-			) {
-				continue;
-			}
-
-			pushBlock(text, tagName);
-		}
-
-		// Also capture <a> tags containing contact signals (addresses, phones, emails)
-		// that are not in standard block elements (p, li, etc.) and not in boilerplate.
-		root.find("a").each((_, element) => {
-			const $el = $(element);
-			if (
-				$el.closest("nav, header, form, aside").length > 0
-			) {
-				return;
-			}
-			// Skip if this <a> is a child of already-processed block elements
-			if (
-				$el.closest("p, li, dt, dd, blockquote").length > 0
-			) {
-				return;
-			}
-			const anchorText = this.normalizeText($el.text());
-			if (
-				anchorText &&
-				this.hasContactSignals(anchorText)
-			) {
-				pushBlock(anchorText, "a");
-			}
-		});
-
-		if (description) {
-			blocks.unshift({
-				text: [title, description]
-					.filter(Boolean)
-					.join(". "),
-				blockType: "summary",
-				position: 0,
-				sectionTitle: title || undefined,
-				sectionPath: title ? [title] : undefined,
+			visitedRedirectStates.add(requestStateKey);
+			const response = await axios.get(safeUrl.toString(), {
+				headers: {
+					"User-Agent":
+						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+					...(cookieHeader
+						? {
+								Cookie: cookieHeader,
+						  }
+						: {}),
+				},
+				timeout: 10000,
+				maxRedirects: 0,
+				validateStatus: (status) =>
+					status >= 200 && status < 600,
 			});
+			const setCookieHeaders = response.headers["set-cookie"];
+			const cookies = Array.isArray(setCookieHeaders)
+				? setCookieHeaders
+				: typeof setCookieHeaders === "string"
+					? [setCookieHeaders]
+					: [];
+			for (const setCookie of cookies) {
+				const [cookiePair] = setCookie.split(";");
+				const separatorIndex = cookiePair.indexOf("=");
+				if (separatorIndex <= 0) {
+					continue;
+				}
+				const name = cookiePair.slice(0, separatorIndex).trim();
+				const value = cookiePair.slice(separatorIndex + 1).trim();
+				if (!name) {
+					continue;
+				}
+				cookieJar.set(name, value);
+			}
+
+			if (response.status >= 300 && response.status < 400) {
+				const location =
+					response.headers.location;
+				if (!location) {
+					throw new Error(
+						"Redirect response missing location header",
+					);
+				}
+				currentUrl = new URL(
+					location,
+					safeUrl,
+				).toString();
+				continue;
+			}
+
+			return {
+				html:
+					typeof response.data === "string"
+						? response.data
+						: String(response.data ?? ""),
+				status: response.status,
+				finalUrl: safeUrl.toString(),
+				contentType: String(
+					response.headers["content-type"] || "",
+				).toLowerCase(),
+			};
 		}
 
-		return blocks.map((block, index) => ({
-			...block,
-			position: index,
-		}));
+		throw new Error(
+			`Too many redirects while scraping (>${maxRedirects})`,
+		);
 	}
 
 	private extractPageData(
 		html: string,
 		url: string,
-		sourceRoot: string,
 	): ScrapedPage {
 		const $ = cheerio.load(html);
 		$(
-			"script, style, noscript, iframe, svg",
+			"script, style, noscript, iframe",
 		).remove();
 
 		const title =
@@ -345,34 +345,12 @@ class ScraperService {
 			$('meta[property="og:description"]').attr("content")?.trim() ||
 			$('meta[name="twitter:description"]').attr("content")?.trim() ||
 			"";
-		const canonicalUrl =
-			$("link[rel='canonical']")
-				.attr("href")
-				?.trim() || undefined;
-		const contentBlocks =
-			this.extractContentBlocks(
-				$,
-				title,
-				description,
-			);
 		const primaryText = $("main, article, body")
 			.first()
 			.text()
 			.replace(/\s+/g, " ")
 			.trim();
 		const content = (
-			contentBlocks
-				.map((block) =>
-					block.sectionTitle &&
-					!block.text
-						.toLowerCase()
-						.startsWith(
-							block.sectionTitle.toLowerCase(),
-						)
-						? `${block.sectionTitle}: ${block.text}`
-						: block.text,
-				)
-				.join("\n\n") ||
 			primaryText ||
 			[title, description].filter(Boolean).join(". ")
 		).trim();
@@ -381,743 +359,526 @@ class ScraperService {
 		$("a[href]").each((_, element) => {
 			const href = $(element).attr("href");
 			if (
-				!href ||
-				href.startsWith("#") ||
-				href.startsWith("javascript:") ||
-				href.startsWith("mailto:")
+				href &&
+				href.trim() &&
+				!href.startsWith("#") &&
+				!href.startsWith("javascript:") &&
+				!href.startsWith("mailto:")
 			) {
-				return;
-			}
-
-			const normalized = normalizeDiscoveredUrl(
-				href,
-				url,
-			);
-			if (
-				normalized &&
-				isUrlUnderSourceRoot(normalized, sourceRoot) &&
-				!shouldSkipScrapeUrl(normalized)
-			) {
-				links.push(normalized);
+				try {
+					links.push(new URL(href, url).href);
+				} catch {
+					// ignore invalid urls
+				}
 			}
 		});
 
-		const metadata: Record<string, unknown> = {};
-		if (description) metadata.description = description;
-		if (canonicalUrl)
-			metadata.canonicalUrl = canonicalUrl;
-		if (contentBlocks.length > 0) {
-			metadata.contentBlocks = contentBlocks;
+		const metadata: any = {};
+		if (description)
+			metadata.description = description;
+		const canonical =
+			$('link[rel="canonical"]').attr("href")?.trim() ||
+			"";
+		if (canonical) {
+			try {
+				metadata.canonical = new URL(
+					canonical,
+					url,
+				).toString();
+			} catch {
+				metadata.canonical = canonical;
+			}
 		}
-		metadata.scrapedVia = "builtin";
 
-		return enrichScrapedPage({
+		return {
 			url,
 			title,
 			content,
 			links: [...new Set(links)],
 			metadata,
-		});
-	}
-
-	private async fetchTextResponse(
-		url: string,
-	): Promise<{ html: string; contentType: string }> {
-		const response = await axios.get(url, {
-			timeout: BUILT_IN_FETCH_TIMEOUT_MS,
-			headers: {
-				"User-Agent": "WitzoCrawler/2.0",
-			},
-			maxRedirects: 5,
-			validateStatus: (status) =>
-				status >= 200 && status < 400,
-		});
-
-		const contentType =
-			String(response.headers["content-type"] ?? "");
-		return {
-			html:
-				typeof response.data === "string"
-					? response.data
-					: "",
-			contentType,
 		};
 	}
 
-	private parseSitemapXml(
-		xml: string,
-		sourceRoot: string,
-		seen = new Set<string>(),
-	): string[] {
-		const discovered: string[] = [];
-		const normalizedXml = xml.trim();
-
-		if (/<sitemapindex/i.test(normalizedXml)) {
-			const nestedSitemaps = [
-				...normalizedXml.matchAll(
-					/<loc>(.*?)<\/loc>/gi,
-				),
-			]
-				.map((match) =>
-					normalizeDiscoveredUrl(match[1] ?? ""),
-				)
-				.filter((url): url is string => {
-					return typeof url === "string" && !seen.has(url);
-				});
-			for (const sitemapUrl of nestedSitemaps) {
-				seen.add(sitemapUrl);
-			}
-			return nestedSitemaps;
+	private isLikelyBotChallenge(
+		status: number,
+		html: string,
+	): boolean {
+		if (
+			status === 403 ||
+			status === 429 ||
+			status === 503
+		) {
+			return true;
 		}
-
-		for (const match of normalizedXml.matchAll(
-			/<loc>(.*?)<\/loc>/gi,
-		)) {
-			const normalized = normalizeDiscoveredUrl(
-				match[1] ?? "",
-			);
-			if (
-				normalized &&
-				isUrlUnderSourceRoot(normalized, sourceRoot) &&
-				!shouldSkipScrapeUrl(normalized)
-			) {
-				discovered.push(normalized);
-			}
-		}
-
-		return discovered;
+		return /(captcha|cf-browser-verification|attention required|cloudflare|bot challenge)/i.test(
+			html,
+		);
 	}
 
-	private async readRobotsRules(
-		sourceRoot: string,
-	): Promise<RobotsRules> {
-		if (config.SCRAPER_IGNORE_ROBOTS) {
-			return {
-				disallowPaths: [],
-				sitemapUrls: [],
-			};
+	private buildPrioritySeedUrls(rootUrl: string): string[] {
+		const paths = [
+			"/",
+			"/about",
+			"/pricing",
+			"/contact",
+			"/faq",
+			"/docs",
+			"/support",
+		];
+		const seeds: string[] = [];
+		for (const path of paths) {
+			try {
+				seeds.push(
+					this.normalizeUrl(
+						new URL(path, rootUrl).toString(),
+					),
+				);
+			} catch {
+				// ignore invalid seed
+			}
 		}
+		return [...new Set(seeds)];
+	}
 
+	private async fetchRobotsPolicy(
+		rootUrl: string,
+	): Promise<RobotsPolicy> {
 		try {
-			const base = new URL(sourceRoot);
-			const robotsUrl = `${base.origin}/robots.txt`;
+			const base = new URL(rootUrl);
+			const robotsUrl = `${base.protocol}//${base.host}/robots.txt`;
 			const response = await axios.get(robotsUrl, {
-				timeout: 8000,
-				headers: {
-					"User-Agent": "WitzoCrawler/2.0",
-				},
+				timeout: 10000,
 				validateStatus: (status) =>
-					status >= 200 && status < 300,
+					status >= 200 && status < 500,
 			});
-			const text =
-				typeof response.data === "string"
-					? response.data
-					: "";
-			const lines = text
-				.split(/\r?\n/)
-				.map((line) => line.trim())
-				.filter(Boolean);
+			if (response.status >= 400) {
+				return {
+					allow: [],
+					disallow: [],
+					sitemaps: [],
+				};
+			}
 
-			const disallowPaths: string[] = [];
-			const sitemapUrls: string[] = [];
-			let appliesToWildcard = false;
-
-			for (const line of lines) {
-				const commentStripped = line
-					.split("#")[0]
+			const policy: RobotsPolicy = {
+				allow: [],
+				disallow: [],
+				sitemaps: [],
+			};
+			const lines = String(response.data || "").split(/\r?\n/);
+			let sectionApplies = false;
+			for (const rawLine of lines) {
+				const line = rawLine
+					.replace(/\s+#.*$/, "")
 					.trim();
-				if (!commentStripped) {
+				if (!line) continue;
+				const lower = line.toLowerCase();
+				if (lower.startsWith("user-agent:")) {
+					const agent = line
+						.split(":")
+						.slice(1)
+						.join(":")
+						.trim()
+						.toLowerCase();
+					sectionApplies =
+						agent === "*" ||
+						agent.includes("konvoqcrawler");
 					continue;
 				}
-
-				const separatorIndex =
-					commentStripped.indexOf(":");
-				if (separatorIndex <= 0) {
-					continue;
-				}
-
-				const key = commentStripped
-					.slice(0, separatorIndex)
-					.trim()
-					.toLowerCase();
-				const value = commentStripped
-					.slice(separatorIndex + 1)
-					.trim();
-
-				if (key === "user-agent") {
-					appliesToWildcard =
-						value === "*" ||
-						value.toLowerCase() ===
-							"witzocrawler";
-					continue;
-				}
-
-				if (key === "sitemap" && value) {
-					const normalized =
-						normalizeDiscoveredUrl(value);
-					if (normalized) {
-						sitemapUrls.push(normalized);
+				if (lower.startsWith("sitemap:")) {
+					const value = line
+						.split(":")
+						.slice(1)
+						.join(":")
+						.trim();
+					if (value) {
+						policy.sitemaps.push(
+							this.normalizeUrl(value),
+						);
 					}
 					continue;
 				}
-
-				if (
-					appliesToWildcard &&
-					key === "disallow" &&
-					value &&
-					value !== "/"
-				) {
-					disallowPaths.push(value);
+				if (!sectionApplies) continue;
+				if (lower.startsWith("allow:")) {
+					const value = line
+						.split(":")
+						.slice(1)
+						.join(":")
+						.trim();
+					if (value) {
+						policy.allow.push(value);
+					}
+					continue;
+				}
+				if (lower.startsWith("disallow:")) {
+					const value = line
+						.split(":")
+						.slice(1)
+						.join(":")
+						.trim();
+					if (value) {
+						policy.disallow.push(value);
+					}
 				}
 			}
-
-			return {
-				disallowPaths,
-				sitemapUrls,
-			};
+			return policy;
 		} catch {
 			return {
-				disallowPaths: [],
-				sitemapUrls: [],
+				allow: [],
+				disallow: [],
+				sitemaps: [],
 			};
 		}
 	}
 
-	private isBlockedByRobots(
-		url: string,
-		rules: RobotsRules,
+	private isRobotsAllowed(
+		policy: RobotsPolicy,
+		targetUrl: string,
 	): boolean {
-		if (config.SCRAPER_IGNORE_ROBOTS) {
-			return false;
+		if (
+			policy.allow.length === 0 &&
+			policy.disallow.length === 0
+		) {
+			return true;
 		}
-
 		try {
-			const pathname = new URL(url).pathname;
-			return rules.disallowPaths.some((path) => {
-				if (!path || path === "/") {
-					return false;
+			const parsed = new URL(targetUrl);
+			const targetPath =
+				parsed.pathname || "/";
+			let matchedLength = -1;
+			let allowed = true;
+			for (const rule of policy.disallow) {
+				if (
+					rule &&
+					targetPath.startsWith(rule) &&
+					rule.length > matchedLength
+				) {
+					matchedLength = rule.length;
+					allowed = false;
 				}
-				return pathname.startsWith(path);
-			});
+			}
+			for (const rule of policy.allow) {
+				if (
+					rule &&
+					targetPath.startsWith(rule) &&
+					rule.length > matchedLength
+				) {
+					matchedLength = rule.length;
+					allowed = true;
+				}
+			}
+			return allowed;
 		} catch {
 			return false;
+		}
+	}
+
+	private async parseSitemapUrls(
+		sitemapUrl: string,
+		depth: number = 0,
+	): Promise<string[]> {
+		if (depth > 2) {
+			return [];
+		}
+		try {
+			const response = await axios.get(sitemapUrl, {
+				timeout: 12000,
+				validateStatus: (status) =>
+					status >= 200 && status < 500,
+			});
+			if (response.status >= 400) {
+				return [];
+			}
+			const xml = String(response.data || "");
+			const locMatches = [
+				...xml.matchAll(/<loc>(.*?)<\/loc>/gi),
+			].map((match) => match[1]?.trim() || "");
+			const nested: string[] = [];
+			for (const loc of locMatches) {
+				if (!loc) continue;
+				if (/sitemap/i.test(loc) && /\.xml(\?.*)?$/i.test(loc)) {
+					nested.push(
+						...(await this.parseSitemapUrls(
+							loc,
+							depth + 1,
+						)),
+					);
+					continue;
+				}
+				nested.push(loc);
+			}
+			return nested;
+		} catch {
+			return [];
 		}
 	}
 
 	private async discoverSitemapUrls(
-		sourceRoot: string,
+		rootUrl: string,
+		maxCount: number,
 	): Promise<string[]> {
-		const rules =
-			await this.readRobotsRules(sourceRoot);
-		const sitemapCandidates = new Set<string>(
-			rules.sitemapUrls,
-		);
-
-		try {
-			const root = new URL(sourceRoot);
-			sitemapCandidates.add(
-				`${root.origin}/sitemap.xml`,
-			);
-		} catch {
-			// sourceRoot has already been normalized earlier
+		if (maxCount <= 0) {
+			return [];
 		}
-
-		const discovered = new Set<string>();
-		const pending = [...sitemapCandidates];
-		const seenSitemaps = new Set<string>();
-
-		while (pending.length > 0) {
-			const sitemapUrl = pending.shift()!;
-			if (seenSitemaps.has(sitemapUrl)) {
-				continue;
-			}
-			seenSitemaps.add(sitemapUrl);
-
-			try {
-				const response = await axios.get(sitemapUrl, {
-					timeout: 10000,
-					headers: {
-						"User-Agent": "WitzoCrawler/2.0",
-					},
-					validateStatus: (status) =>
-						status >= 200 && status < 300,
-				});
-				const xml =
-					typeof response.data === "string"
-						? response.data
-						: "";
-				const parsed = this.parseSitemapXml(
-					xml,
-					sourceRoot,
-					seenSitemaps,
-				);
-
-				for (const item of parsed) {
-					if (/\.xml(\?|$)/i.test(item)) {
-						if (!seenSitemaps.has(item)) {
-							pending.push(item);
-						}
-						continue;
-					}
-					discovered.add(item);
-				}
-			} catch {
-				// Ignore sitemap failures; HTML crawl is the fallback.
-			}
-		}
-
-		return [...discovered];
-	}
-
-	private classifyDiscoveredUrl(
-		url: string,
-	): DiscoveredPage {
-		const pageType = detectScrapedPageType(
-			url,
-			"",
-		);
-		return {
-			url,
-			pageType,
-			priority: scorePagePriority(pageType, url),
-		};
-	}
-
-	private async discoverHtmlInventory(
-		sourceRoot: string,
-	): Promise<DiscoveredPage[]> {
 		try {
-			const { html, contentType } =
-				await this.fetchTextResponse(sourceRoot);
-			if (
-				!contentType.includes("text/html") ||
-				!html.trim()
-			) {
-				return [];
-			}
-
-			const $ = cheerio.load(html);
-			const discovered = new Map<
-				string,
-				DiscoveredPage
-			>();
-			discovered.set(
-				sourceRoot,
-				this.classifyDiscoveredUrl(sourceRoot),
-			);
-
-			$("a[href]").each((_, element) => {
-				const href = $(element).attr("href");
-				if (!href) {
-					return;
-				}
-				const normalized =
-					normalizeDiscoveredUrl(
-						href,
-						sourceRoot,
-					);
-				if (
-					!normalized ||
-					!isUrlUnderSourceRoot(
-						normalized,
-						sourceRoot,
-					) ||
-					shouldSkipScrapeUrl(normalized)
-				) {
-					return;
-				}
-				if (!discovered.has(normalized)) {
-					discovered.set(
-						normalized,
-						this.classifyDiscoveredUrl(
-							normalized,
-						),
-					);
-				}
-			});
-
-			return Array.from(discovered.values());
-		} catch {
-			return [
-				this.classifyDiscoveredUrl(sourceRoot),
+			const base = new URL(rootUrl);
+			const policy =
+				await this.fetchRobotsPolicy(rootUrl);
+			const candidates = [
+				...policy.sitemaps,
+				`${base.protocol}//${base.host}/sitemap.xml`,
+				`${base.protocol}//${base.host}/sitemap_index.xml`,
 			];
-		}
-	}
-
-	private prioritizeDiscoveredPages(
-		pages: DiscoveredPage[],
-	): DiscoveredPage[] {
-		return [...pages].sort((left, right) => {
-			if (right.priority !== left.priority) {
-				return right.priority - left.priority;
-			}
-			return left.url.localeCompare(right.url);
-		});
-	}
-
-	private async discoverSiteInventory(
-		sourceRoot: string,
-	): Promise<SiteDiscoveryResult> {
-		const sitemapPages =
-			await this.discoverSitemapUrls(sourceRoot);
-		const htmlInventory =
-			await this.discoverHtmlInventory(sourceRoot);
-		const discovered = new Map<
-			string,
-			DiscoveredPage
-		>();
-
-		discovered.set(
-			sourceRoot,
-			this.classifyDiscoveredUrl(sourceRoot),
-		);
-		for (const url of sitemapPages) {
-			discovered.set(
-				url,
-				this.classifyDiscoveredUrl(url),
-			);
-		}
-		for (const page of htmlInventory) {
-			if (!discovered.has(page.url)) {
-				discovered.set(page.url, page);
-			}
-		}
-
-		const discoveredPages =
-			this.prioritizeDiscoveredPages(
-				Array.from(discovered.values()),
-			);
-		return {
-			pages: discoveredPages,
-			discoveredCount:
-				discoveredPages.length,
-			usedSitemap: sitemapPages.length > 0,
-		};
-	}
-
-	private async builtInCrawl(
-		startURL: string,
-		maxPages: number,
-		maxDepth: number,
-		discovery: SiteDiscoveryResult,
-		onProgress?: (
-			scraped: number,
-			total: number,
-		) => Promise<void> | void,
-	): Promise<ScrapedPage[]> {
-		const visited = new Set<string>();
-		const enqueued = new Set<string>();
-		const queue: Array<{
-			url: string;
-			depth: number;
-			priority: number;
-		}> = [];
-		const pages: ScrapedPage[] = [];
-		const robotsRules =
-			await this.readRobotsRules(startURL);
-		const seedPages =
-			discovery.pages.length > 0
-				? discovery.pages
-				: [this.classifyDiscoveredUrl(startURL)];
-
-		for (const page of seedPages) {
-			if (enqueued.has(page.url)) {
-				continue;
-			}
-			queue.push({
-				url: page.url,
-				depth: 0,
-				priority: page.priority,
-			});
-			enqueued.add(page.url);
-		}
-
-		while (
-			queue.length > 0 &&
-			pages.length < maxPages
-		) {
-			queue.sort((left, right) => {
-				if (right.priority !== left.priority) {
-					return right.priority - left.priority;
-				}
-				if (left.depth !== right.depth) {
-					return left.depth - right.depth;
-				}
-				return left.url.localeCompare(right.url);
-			});
-			const batch: Array<{
-				url: string;
-				depth: number;
-				priority: number;
-			}> = [];
-			while (
-				queue.length > 0 &&
-				batch.length <
-					BUILT_IN_CRAWLER_CONCURRENCY &&
-				visited.size + batch.length < maxPages
-			) {
-				const nextItem = queue.shift()!;
-				const nextUrl = nextItem.url;
-				if (visited.has(nextUrl)) {
-					continue;
-				}
-				visited.add(nextUrl);
-				batch.push(nextItem);
-			}
-
-			const results = await Promise.allSettled(
-				batch.map(async ({ url, depth, priority }) => {
-					if (
-						depth > maxDepth ||
-						shouldSkipScrapeUrl(url) ||
-						!isUrlUnderSourceRoot(
-							url,
-							startURL,
-						) ||
-						this.isBlockedByRobots(
-							url,
-							robotsRules,
-						)
-					) {
-						return null;
-					}
-
-					const { html, contentType } =
-						await this.fetchTextResponse(url);
-					if (
-						!contentType.includes("text/html") ||
-						!html.trim()
-					) {
-						return null;
-					}
-
-					const page = this.extractPageData(
-						html,
-						url,
-						startURL,
-					);
-					if (!page.content.trim()) {
-						return null;
-					}
-
-					return {
-						page,
-						depth,
-						priority,
-					};
-				}),
-			);
-
-			for (const result of results) {
+			const seen = new Set<string>();
+			const urls: string[] = [];
+			for (const candidate of candidates) {
+				const normalizedCandidate =
+					this.normalizeUrl(candidate);
 				if (
-					result.status !== "fulfilled" ||
-					!result.value
+					seen.has(normalizedCandidate)
 				) {
 					continue;
 				}
-
-				if (pages.length >= maxPages) {
-					break;
-				}
-
-				pages.push(result.value.page);
-				await onProgress?.(
-					pages.length,
-					Math.max(
-						1,
-						Math.min(
-							maxPages,
-							discovery.discoveredCount ||
-								maxPages,
-						),
-					),
-				);
-
-				if (result.value.depth >= maxDepth) {
-					continue;
-				}
-
-				for (const link of result.value.page.links) {
+				seen.add(normalizedCandidate);
+				for (const rawUrl of await this.parseSitemapUrls(
+					normalizedCandidate,
+				)) {
+					const normalizedUrl =
+						this.normalizeUrl(rawUrl);
 					if (
-						pages.length + queue.length >= maxPages &&
-						maxPages !== Number.POSITIVE_INFINITY
-					) {
-						break;
-					}
-					if (
-						visited.has(link) ||
-						enqueued.has(link) ||
-						shouldSkipScrapeUrl(link) ||
-						!isUrlUnderSourceRoot(
-							link,
-							startURL,
+						!this.sameSiteHost(
+							base.hostname,
+							this.hostNameFromUrl(
+								normalizedUrl,
+							),
 						) ||
-						this.isBlockedByRobots(
-							link,
-							robotsRules,
-						)
+						this.shouldSkipCrawlPath(
+							normalizedUrl,
+						) ||
+						seen.has(normalizedUrl)
 					) {
 						continue;
 					}
-					const discovered =
-						this.classifyDiscoveredUrl(link);
-					queue.push({
-						url: link,
-						depth: result.value.depth + 1,
-						priority: discovered.priority,
-					});
-					enqueued.add(link);
+					seen.add(normalizedUrl);
+					urls.push(normalizedUrl);
+					if (urls.length >= maxCount) {
+						return urls;
+					}
 				}
 			}
+			return urls;
+		} catch {
+			return [];
 		}
-
-		return pages;
 	}
 
-	private async indexPagesInBatches(
-		userId: string,
-		sourceRoot: string,
-		pages: ScrapedPage[],
-		reportProgress?: CrawlOptions["onProgress"],
+	private looksLikeClientRendered(
+		html: string,
+		content: string,
+	): boolean {
+		const textWordCount = content
+			.trim()
+			.split(/\s+/)
+			.filter(Boolean).length;
+		const scriptCount = (
+			html.match(/<script/gi) || []
+		).length;
+		return (
+			(textWordCount <= 40 &&
+				scriptCount >= 8) ||
+			(textWordCount <= 60 &&
+				/(data-reactroot|__NEXT_DATA__|id="root"|id="__next"|window\.__INITIAL_STATE__)/i.test(
+					html,
+				))
+		);
+	}
+
+	private canUseRenderFallback(): boolean {
+		return Boolean(
+			config.SCRAPER_RENDER_SERVICE_URL?.trim(),
+		);
+	}
+
+	private async fetchRenderedHTML(
+		targetUrl: string,
+		timeoutMs: number = 25000,
 	): Promise<{
-		storedPages: number;
-		failedUrls: string[];
+		html: string;
+		finalUrl?: string;
 	}> {
-		const prioritizedPages = [...pages].sort(
-			(left, right) => {
-				const rightPriority =
-					typeof right.metadata?.pagePriority ===
-					"number"
-						? right.metadata.pagePriority
-						: scorePagePriority(
-								detectScrapedPageType(
-									right.url,
-									right.title,
-									String(
-										right.metadata
-											?.description ?? "",
-									),
-									right.content,
-									Array.isArray(
-										right.metadata
-											?.contentBlocks,
-									)
-										? right.metadata
-												.contentBlocks
-										: [],
-								),
-								right.url,
-						  );
-				const leftPriority =
-					typeof left.metadata?.pagePriority ===
-					"number"
-						? left.metadata.pagePriority
-						: scorePagePriority(
-								detectScrapedPageType(
-									left.url,
-									left.title,
-									String(
-										left.metadata
-											?.description ?? "",
-									),
-									left.content,
-									Array.isArray(
-										left.metadata
-											?.contentBlocks,
-									)
-										? left.metadata
-												.contentBlocks
-										: [],
-								),
-								left.url,
-						  );
-				if (rightPriority !== leftPriority) {
-					return rightPriority - leftPriority;
-				}
-				return left.url.localeCompare(right.url);
+		const renderServiceUrl =
+			config.SCRAPER_RENDER_SERVICE_URL?.trim();
+		if (!renderServiceUrl) {
+			throw new Error(
+				"Render service is not configured",
+			);
+		}
+
+		const mode = (
+			config.SCRAPER_RENDER_SERVICE_MODE ||
+			"json"
+		)
+			.trim()
+			.toLowerCase();
+		const payload =
+			mode === "browserless"
+				? {
+						url: targetUrl,
+						waitUntil: "networkidle0",
+						timeout: timeoutMs,
+						bestAttempt: true,
+				  }
+				: {
+						url: targetUrl,
+						waitUntil: "networkidle",
+						timeoutMs,
+				  };
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+		};
+		if (
+			config.SCRAPER_RENDER_SERVICE_TOKEN &&
+			mode !== "browserless"
+		) {
+			headers.Authorization = `Bearer ${config.SCRAPER_RENDER_SERVICE_TOKEN}`;
+		}
+
+		let requestUrl = renderServiceUrl;
+		if (
+			mode === "browserless" &&
+			config.SCRAPER_RENDER_SERVICE_TOKEN
+		) {
+			const parsed = new URL(renderServiceUrl);
+			parsed.searchParams.set(
+				"token",
+				config.SCRAPER_RENDER_SERVICE_TOKEN,
+			);
+			requestUrl = parsed.toString();
+		}
+
+		const response = await axios.post(
+			requestUrl,
+			payload,
+			{
+				headers,
+				timeout: timeoutMs + 5000,
 			},
 		);
-		const rootPage =
-			prioritizedPages.find(
-				(page) => page.url === sourceRoot,
-			) ?? prioritizedPages[0];
-		const sourceRootTitle =
-			rootPage?.title || sourceRoot;
-		let indexedPages = 0;
-		const failedUrls: string[] = [];
-		const batchSize = Math.max(
-			1,
-			config.SCRAPER_BATCH_PAGE_SIZE,
-		);
+		const data = response.data ?? {};
+		return {
+			html:
+				typeof data.html === "string"
+					? data.html
+					: typeof data.content === "string"
+						? data.content
+						: "",
+			finalUrl:
+				typeof data.url === "string"
+					? data.url
+					: undefined,
+		};
+	}
 
-		for (
-			let i = 0;
-			i < prioritizedPages.length;
-			i += batchSize
-		) {
-			const batch = prioritizedPages.slice(
-				i,
-				i + batchSize,
+	private buildRagChunks(
+		userId: string,
+		sourceUrl: string,
+		pages: ScrapedPage[],
+	): RagChunk[] {
+		const chunks: RagChunk[] = [];
+		for (const page of pages) {
+			const pairs = chunkMarkdown(
+				page.content,
+				page.title,
 			);
-			const results = await Promise.allSettled(
-				batch.map(async (page) => {
-					await pineconeService.upsertDocument(
-						userId,
-						page.url,
-						page.title,
-						page.content,
-						{
-							...(page.metadata ?? {}),
-							sourceRoot,
-							sourceRootTitle,
-							sourceKey: sourceRoot,
-							sourceType: "website",
-						},
-					);
-					return page.url;
-				}),
-			);
-
-			for (let batchIndex = 0; batchIndex < results.length; batchIndex += 1) {
-				const result = results[batchIndex];
-				if (result.status === "fulfilled") {
-					indexedPages += 1;
-					continue;
-				}
-
-				const failedUrl =
-					batch[batchIndex]?.url ?? sourceRoot;
-				failedUrls.push(failedUrl);
-				logger.error(
-					"[Scraper] Failed to index page",
-					{
-						userId,
-						sourceRoot,
-						url: failedUrl,
-						error:
-							result.reason instanceof Error
-								? result.reason.message
-								: String(
-										result.reason,
-								  ),
-					},
-				);
+			for (let index = 0; index < pairs.length; index += 1) {
+				chunks.push({
+					userId,
+					url: page.url,
+					pageTitle: page.title,
+					childText: pairs[index].childText,
+					parentText: pairs[index].parentText,
+					chunkIndex: index,
+					sourceType: "website",
+					sourceKey: sourceUrl,
+					isHype: false,
+					hypeParent: "",
+				});
 			}
+		}
+		return chunks;
+	}
 
-			await reportProgress?.({
-				totalPages: prioritizedPages.length,
-				scrapedPages: prioritizedPages.length,
-				storedPages: indexedPages,
-				currentUrl:
-					batch[batch.length - 1]?.url ??
-					sourceRoot,
-			});
+	private async persistScrapedPages(
+		userId: string,
+		sourceUrl: string,
+		sourceTitle: string,
+		pages: ScrapedPage[],
+	): Promise<void> {
+		const startedAt = Date.now();
+		const chunks = this.buildRagChunks(
+			userId,
+			sourceUrl,
+			pages,
+		);
+		if (chunks.length === 0) {
+			throw new Error(
+				"No chunks generated from scraped pages",
+			);
 		}
 
-		return {
-			storedPages: indexedPages,
-			failedUrls,
-		};
+		logger.info("scraper: persistence pipeline starting", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+		});
+
+		const pineconeStartedAt = Date.now();
+		await pineconeService.upsertChunks(userId, chunks, {
+			sourceRoot: sourceUrl,
+			sourceRootTitle:
+				sourceTitle || pages[0]?.title || sourceUrl,
+			scrapedAt: new Date().toISOString(),
+		});
+		logger.info("scraper: primary Pinecone upsert completed", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+			durationMs: Date.now() - pineconeStartedAt,
+		});
+		logger.info("scraper: background enrichment queued", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+		});
+		upsertHypeAsync(userId, chunks, async (ownerId, hypeChunks) =>
+			pineconeService.upsertChunks(ownerId, hypeChunks, {
+				sourceRoot: sourceUrl,
+				sourceRootTitle:
+					sourceTitle ||
+					pages[0]?.title ||
+					sourceUrl,
+				scrapedAt: new Date().toISOString(),
+			}),
+		);
+		extractPageMetadataAsync(
+			pages,
+			chunks,
+			async (ownerId, vectorId, metadata) =>
+				pineconeService.updateVectorMetadata(
+					ownerId,
+					vectorId,
+					metadata,
+				),
+		);
+		logger.info("scraper: persistence pipeline finished", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+			durationMs: Date.now() - startedAt,
+		});
 	}
 
 	async scrapeWebsite(
@@ -1125,276 +886,392 @@ class ScraperService {
 		url: string,
 		options: CrawlOptions = {},
 	): Promise<ScrapeResult> {
-		await this.assertUserExists(userId);
-		const sourceRoot = await normalizeScrapeUrl(url);
-		const maxDepth = Math.max(
-			0,
-			options.maxDepth ?? 30,
+		const safeRootUrl =
+			await assertSafeOutgoingUrl(url, {
+				allowHttp: true,
+			});
+		const rootUrl = this.normalizeUrl(
+			safeRootUrl.toString(),
 		);
-		const maxPages = Math.max(
-			1,
-			options.maxPages ?? 1200,
-		);
+		let rootTitle = "";
+		const maxDepth = options.maxDepth || 4;
+		const requestedMaxPages =
+			typeof options.maxPages === "number" &&
+			Number.isFinite(options.maxPages) &&
+			options.maxPages > 0
+				? Math.trunc(options.maxPages)
+				: undefined;
+		const crawlerMaxPages =
+			requestedMaxPages ?? 300;
 		const reportProgress = options.onProgress;
+		const visitedUrls = new Set<string>();
+		const enqueuedUrls = new Set<string>();
+		const urlQueue: Array<{
+			url: string;
+			depth: number;
+		}> = [{ url: rootUrl, depth: 0 }];
+		enqueuedUrls.add(rootUrl);
+		const scrapedPages: ScrapedPage[] = [];
 		let firstFailureReason: string | null = null;
-		const discovery =
-			await this.discoverSiteInventory(sourceRoot);
-		const plannedPages = Math.max(
-			1,
-			Math.min(
-				maxPages,
-				discovery.discoveredCount || maxPages,
-			),
-		);
+		const robotsPolicy =
+			await this.fetchRobotsPolicy(rootUrl);
+
+		for (const seed of this.buildPrioritySeedUrls(rootUrl)) {
+			if (enqueuedUrls.has(seed)) continue;
+			urlQueue.push({ url: seed, depth: 1 });
+			enqueuedUrls.add(seed);
+		}
+		for (const seed of await this.discoverSitemapUrls(
+			rootUrl,
+			crawlerMaxPages * 2,
+		)) {
+			if (enqueuedUrls.has(seed)) continue;
+			urlQueue.push({ url: seed, depth: 1 });
+			enqueuedUrls.add(seed);
+		}
 
 		logger.info(
-			"[Scraper] Starting source pipeline",
+			`Starting synchronous scrape for user ${userId} on ${url}`,
 			{
-				sourceRoot,
-				userId,
-				maxPages,
-				discoveredCount:
-					discovery.discoveredCount,
-				usedSitemap: discovery.usedSitemap,
-				preferredCrawler: firecrawlService.isAvailable
-					? "firecrawl"
-					: "builtin",
+				maxDepth,
+				maxPages: requestedMaxPages ?? null,
+				crawlerMaxPages,
 			},
 		);
 
 		await pineconeService.ensureIndexExists();
-		await pineconeService.deleteDocumentsByUrl(
-			userId,
-			sourceRoot,
-		);
-
 		await reportProgress?.({
-			totalPages: plannedPages,
+			totalPages: 1,
 			scrapedPages: 0,
 			storedPages: 0,
-			currentUrl: sourceRoot,
+			currentUrl: rootUrl,
 		});
 
-		let pages: ScrapedPage[] = [];
 		let usedFirecrawl = false;
-
-		// Always try Firecrawl first (handles JS-rendered pages, cleaner markdown)
-		if (firecrawlService.isAvailable) {
+		if (firecrawlEnabled()) {
 			try {
-				pages = await firecrawlService.crawlWebsite(
-					sourceRoot,
-					maxPages,
-					maxDepth,
-					async (done, total) => {
-						await reportProgress?.({
-							totalPages: Math.max(
-								plannedPages,
-								total,
-								done,
-								1,
-							),
-							scrapedPages: done,
-							storedPages: 0,
-							currentUrl: sourceRoot,
-						});
-					},
-					discovery.pages.map((page) => page.url),
-				);
-				usedFirecrawl = pages.length > 0;
-			} catch (error) {
-				firstFailureReason =
-					error instanceof Error
-						? error.message
-						: String(error);
-				logger.warn(
-					"[Scraper] Firecrawl crawl failed; falling back to built-in crawler",
-					{
-						sourceRoot,
-						error: firstFailureReason,
-					},
-				);
-			}
-		}
-
-		// Fall back to built-in crawler only if Firecrawl is unavailable or failed
-		if (!usedFirecrawl) {
-			try {
-				pages = await this.builtInCrawl(
-					sourceRoot,
-					maxPages,
-					maxDepth,
-					discovery,
-					async (scraped, total) => {
-						await reportProgress?.({
-							totalPages: Math.max(
-								plannedPages,
-								total,
-								scraped,
-								1,
-							),
-							scrapedPages: scraped,
-							storedPages: 0,
-							currentUrl: sourceRoot,
-						});
-					},
-				);
-			} catch (error) {
-				firstFailureReason =
-					error instanceof Error
-						? error.message
-						: String(error);
-				logger.error(
-					"[Scraper] Built-in crawler failed",
-					{
-						sourceRoot,
-						error: firstFailureReason,
-					},
-				);
-			}
-		}
-
-		// Classify page types:
-		// - Firecrawl pages already have LLM-classified pageType — preserve it.
-		// - Built-in crawler pages have regex-classified pageType — upgrade with LLM.
-		const pagesWithOverrides = await Promise.all(
-			pages.map(async (page) => {
-				if (
-					page.metadata?.scrapedVia !== "builtin" &&
-					page.metadata?.pageType
-				) {
-					// Firecrawl: keep existing LLM-classified type
-					return {
-						page,
-						override: page.metadata.pageType as ScrapedPageType,
-					};
-				}
-				// Built-in: classify with LLM
-				try {
-					const result = await pageClassificationService.classifyPageType(
-						page.url,
-						page.title,
-						String(page.metadata?.description ?? ""),
-						page.content,
-					);
-					return {
-						page,
-						override: result.confidence >= 0.65 ? result.pageType : undefined,
-					};
-				} catch {
-					return { page, override: undefined };
-				}
-			}),
-		);
-
-		pages = Array.from(
-			new Map(
-				pagesWithOverrides.map(({ page, override }) => [
-					page.url,
-					enrichScrapedPage(
-						{
-							...page,
-							metadata: {
-								...(page.metadata ?? {}),
-								discoveredPageCount: discovery.discoveredCount,
-							},
+				const firecrawlPages =
+					await firecrawlCrawlWebsite(
+						rootUrl,
+						requestedMaxPages,
+						(completed, total) => {
+							void reportProgress?.({
+								totalPages: Math.max(
+									total,
+									completed,
+								),
+								scrapedPages: completed,
+								storedPages: 0,
+								currentUrl: rootUrl,
+							});
 						},
-						override,
-					),
-				]),
-			).values(),
-		)
-			.sort((left, right) => {
-				const rightPriority =
-					typeof right.metadata?.pagePriority ===
-					"number"
-						? right.metadata.pagePriority
-						: 0;
-				const leftPriority =
-					typeof left.metadata?.pagePriority ===
-					"number"
-						? left.metadata.pagePriority
-						: 0;
-				if (rightPriority !== leftPriority) {
-					return rightPriority - leftPriority;
+					);
+				if (firecrawlPages.length > 0) {
+					rootTitle =
+						firecrawlPages[0]?.title || "";
+					await this.persistScrapedPages(
+						userId,
+						rootUrl,
+						rootTitle,
+						firecrawlPages,
+					);
+					await reportProgress?.({
+						totalPages: firecrawlPages.length,
+						scrapedPages: firecrawlPages.length,
+						storedPages: firecrawlPages.length,
+						currentUrl: rootUrl,
+					});
+					return {
+						success: true,
+						message: `Successfully scraped ${firecrawlPages.length} page(s) via Firecrawl`,
+						pagesScraped:
+							firecrawlPages.length,
+						visitedPages:
+							firecrawlPages.length,
+						storedPages:
+							firecrawlPages.length,
+						pages: firecrawlPages,
+					};
 				}
-				return left.url.localeCompare(right.url);
-			})
-			.slice(0, maxPages);
-
-		if (pages.length === 0) {
-			return {
-				success: false,
-				message: firstFailureReason
-					? `Failed to scrape any pages from the provided website: ${firstFailureReason}`
-					: "Failed to scrape any pages from the provided website",
-				pagesScraped: 0,
-				visitedPages: 0,
-				storedPages: 0,
-				pages: [],
-				failureReason:
-					firstFailureReason ?? undefined,
-			};
+			} catch (error) {
+				usedFirecrawl = true;
+				const errorMessage =
+					error instanceof Error
+						? error.message
+						: String(error);
+				firstFailureReason =
+					firstFailureReason ||
+					errorMessage;
+				logger.warn(
+					"Firecrawl failed, falling back to built-in scraper",
+					{ url: rootUrl, error: errorMessage },
+				);
+			}
 		}
 
-		const indexingResult =
-			await this.indexPagesInBatches(
-			userId,
-			sourceRoot,
-			pages,
-			reportProgress,
+		while (
+			urlQueue.length > 0 &&
+			visitedUrls.size < crawlerMaxPages
+		) {
+			const { url: currentUrl, depth } =
+				urlQueue.shift()!;
+			const normalizedUrl =
+				this.normalizeUrl(currentUrl);
+
+			if (visitedUrls.has(normalizedUrl))
+				continue;
+			if (depth > maxDepth) continue;
+			if (this.shouldSkipCrawlPath(normalizedUrl))
+				continue;
+			if (
+				!this.isRobotsAllowed(
+					robotsPolicy,
+					normalizedUrl,
+				)
+			) {
+				continue;
+			}
+
+			visitedUrls.add(normalizedUrl);
+
+			try {
+				const pageResponse =
+					await this.fetchPageContent(
+						normalizedUrl,
+					);
+				let html = pageResponse.html;
+				let finalUrl = this.normalizeUrl(
+					pageResponse.finalUrl || normalizedUrl,
+				);
+				let contentType =
+					pageResponse.contentType;
+				let status = pageResponse.status;
+
+				if (
+					status >= 300 &&
+					this.canUseRenderFallback() &&
+					this.isLikelyBotChallenge(status, html)
+				) {
+					try {
+						const rendered =
+							await this.fetchRenderedHTML(
+								finalUrl,
+							);
+						if (rendered.html.trim()) {
+							html = rendered.html;
+							finalUrl =
+								this.normalizeUrl(
+									rendered.finalUrl ||
+										finalUrl,
+								);
+							contentType = "text/html";
+							status = 200;
+						}
+					} catch (renderError) {
+						logger.warn(
+							"Render fallback failed for blocked scraper page",
+							{
+								url: normalizedUrl,
+								renderError,
+								status,
+							},
+						);
+					}
+				}
+
+				if (status >= 300) {
+					continue;
+				}
+
+				let pageData =
+					this.extractPageData(
+						html,
+						finalUrl,
+					);
+
+				if (
+					this.canUseRenderFallback() &&
+					((contentType.includes("text/html") &&
+						this.looksLikeClientRendered(
+							html,
+							pageData.content,
+						)) ||
+						!pageData.content.trim())
+				) {
+					try {
+						const rendered =
+							await this.fetchRenderedHTML(
+								finalUrl,
+							);
+						if (rendered.html.trim()) {
+							html = rendered.html;
+							finalUrl =
+								this.normalizeUrl(
+									rendered.finalUrl ||
+										finalUrl,
+								);
+							pageData =
+								this.extractPageData(
+									rendered.html,
+									finalUrl,
+								);
+						}
+					} catch (renderError) {
+						logger.warn(
+							"Render fallback failed for scraper page",
+							{
+								url: normalizedUrl,
+								renderError,
+							},
+						);
+					}
+				}
+
+				if (!pageData.content.trim()) {
+					continue;
+				}
+
+				if (depth === 0 && pageData.title) {
+					rootTitle = pageData.title;
+				}
+
+				const canonical = String(
+					pageData.metadata?.canonical || "",
+				).trim();
+				if (
+					canonical &&
+					this.sameSiteHost(
+						this.hostNameFromUrl(rootUrl),
+						this.hostNameFromUrl(canonical),
+					)
+				) {
+					const normalizedCanonical =
+						this.normalizeUrl(canonical);
+					if (
+						!visitedUrls.has(
+							normalizedCanonical,
+						) &&
+						!enqueuedUrls.has(
+							normalizedCanonical,
+						)
+					) {
+						urlQueue.push({
+							url: normalizedCanonical,
+							depth: depth + 1,
+						});
+						enqueuedUrls.add(
+							normalizedCanonical,
+						);
+					}
+				}
+
+				scrapedPages.push(pageData);
+
+				if (depth < maxDepth) {
+					for (const link of pageData.links) {
+						const normalizedLink =
+							this.normalizeUrl(link);
+						if (
+							!visitedUrls.has(
+								normalizedLink,
+							) &&
+							!enqueuedUrls.has(
+								normalizedLink,
+							) &&
+							this.isValidInternalUrl(
+								normalizedLink,
+								url,
+							)
+						) {
+							urlQueue.push({
+								url: normalizedLink,
+								depth: depth + 1,
+							});
+							enqueuedUrls.add(
+								normalizedLink,
+							);
+						}
+					}
+				}
+			} catch (error) {
+				const errorMessage =
+					error instanceof Error
+						? error.message
+						: String(error);
+				if (!firstFailureReason) {
+					firstFailureReason = errorMessage;
+				}
+				logger.error(
+					`Error scraping ${normalizedUrl}`,
+					{ error, errorMessage },
+				);
+			} finally {
+				await reportProgress?.({
+					totalPages:
+						requestedMaxPages !== undefined
+							? Math.min(
+									requestedMaxPages,
+									Math.max(
+										visitedUrls.size +
+											urlQueue.length,
+										visitedUrls.size,
+									),
+							  )
+							: Math.max(
+									visitedUrls.size +
+										urlQueue.length,
+									visitedUrls.size,
+							  ),
+					scrapedPages: visitedUrls.size,
+					storedPages: 0,
+					currentUrl: normalizedUrl,
+				});
+			}
+		}
+
+		if (scrapedPages.length > 0) {
+			await this.persistScrapedPages(
+				userId,
+				rootUrl,
+				rootTitle,
+				scrapedPages,
+			);
+			await reportProgress?.({
+				totalPages: Math.max(
+					scrapedPages.length,
+					visitedUrls.size,
+				),
+				scrapedPages: scrapedPages.length,
+				storedPages: scrapedPages.length,
+				currentUrl: rootUrl,
+			});
+		}
+
+		logger.info(
+			`Scrape completed for user ${userId}`,
+			{
+				pagesScraped: scrapedPages.length,
+				url,
+				usedFirecrawl,
+			},
 		);
-		const storedPages =
-			indexingResult.storedPages;
-		const failedUrls =
-			indexingResult.failedUrls;
-		if (storedPages === 0) {
-			return {
-				success: false,
-				message:
-					"Scraping completed, but no pages could be indexed successfully",
-				pagesScraped: pages.length,
-				visitedPages: pages.length,
-				storedPages: 0,
-				pages,
-				failureReason:
-					failedUrls.length > 0
-						? `Indexing failed for ${failedUrls.length} page(s)`
-						: "No pages were indexed",
-				failedUrls,
-			};
-		}
 
-		const summary =
-			failedUrls.length > 0
-				? usedFirecrawl
-					? `Scraped ${pages.length} page(s) via Firecrawl and indexed ${storedPages}; ${failedUrls.length} page(s) failed during indexing`
-					: `Scraped ${pages.length} page(s) via built-in crawler and indexed ${storedPages}; ${failedUrls.length} page(s) failed during indexing`
-				: usedFirecrawl
-					? `Successfully scraped and indexed ${storedPages} page(s) via Firecrawl`
-					: `Successfully scraped and indexed ${storedPages} page(s) via built-in crawler`;
-
-		logger.info("[Scraper] Source pipeline completed", {
-			sourceRoot,
-			userId,
-			pages: pages.length,
-			storedPages,
-			failedPages: failedUrls.length,
-			usedFirecrawl,
-			discoveredCount:
-				discovery.discoveredCount,
-		});
+		const wasSuccessful =
+			scrapedPages.length > 0;
 
 		return {
-			success: true,
-			message: summary,
-			pagesScraped: pages.length,
-			visitedPages: pages.length,
-			storedPages,
-			pages,
-			failedUrls:
-				failedUrls.length > 0
-					? failedUrls
-					: undefined,
+			success: wasSuccessful,
+			message: wasSuccessful
+				? `Successfully scraped ${scrapedPages.length} page(s)`
+				: firstFailureReason
+					? `Failed to scrape any pages from the provided website: ${firstFailureReason}`
+					: "Failed to scrape any pages from the provided website",
+			pagesScraped: scrapedPages.length,
+			visitedPages: visitedUrls.size,
+			storedPages: scrapedPages.length,
+			pages: scrapedPages,
+			failureReason:
+				wasSuccessful ? undefined : firstFailureReason ?? undefined,
 		};
 	}
 }
