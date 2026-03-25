@@ -445,6 +445,30 @@ class SubscriptionService {
 		return result.rows[0] ?? null;
 	}
 
+	private getPlanRank(planName: string): number {
+		const ranks: Record<string, number> = {
+			free: 0,
+			basic: 1,
+			standard: 2,
+			enterprise: 3,
+		};
+		return ranks[planName] ?? 0;
+	}
+
+	private assertBillingCycleTransitionAllowed(
+		current: SubscriptionWithPlanRow,
+		targetCycle: BillingCycle,
+	): void {
+		if (
+			current.billing_cycle === "yearly" &&
+			targetCycle === "monthly"
+		) {
+			throw new Error(
+				"Yearly subscriptions can only move to yearly plans. Choose a yearly plan to continue.",
+			);
+		}
+	}
+
 	private async downgradeIfNoActiveSubscription(
 		client: PoolClient,
 		userId: string,
@@ -669,7 +693,13 @@ class SubscriptionService {
 		}
 
 		const currentSubscription =
-			await this.getCurrentSubscriptionRow(userId);
+			await this.getActiveSubscriptionRow(userId);
+		if (currentSubscription) {
+			this.assertBillingCycleTransitionAllowed(
+				currentSubscription,
+				input.billingCycle,
+			);
+		}
 
 		const transactionPromise = paddle.transactions.create({
 			items: [{ priceId, quantity: 1 }],
@@ -1378,6 +1408,11 @@ class SubscriptionService {
 			);
 		}
 
+		this.assertBillingCycleTransitionAllowed(
+			current,
+			input.billingCycle,
+		);
+
 		// Get new Paddle price ID
 		const newPriceId = this.normalizePriceId(
 			input.billingCycle === "monthly"
@@ -1391,14 +1426,12 @@ class SubscriptionService {
 		}
 
 		// Determine upgrade vs downgrade for proration mode
-		const PLAN_RANK: Record<string, number> = {
-			free: 0,
-			basic: 1,
-			standard: 2,
-			enterprise: 3,
-		};
-		const currentRank = PLAN_RANK[current.plan_name] ?? 0;
-		const targetRank = PLAN_RANK[targetPlan.name] ?? 0;
+		const currentRank = this.getPlanRank(
+			current.plan_name,
+		);
+		const targetRank = this.getPlanRank(
+			targetPlan.name,
+		);
 		const isUpgrade =
 			targetRank > currentRank ||
 			(targetRank === currentRank &&
