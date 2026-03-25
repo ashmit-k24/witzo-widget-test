@@ -39,11 +39,15 @@ import {
 	validate,
 	validationRules,
 } from "../middleware/validator";
+import { globalRateLimiter } from "../middleware/userRateLimiter";
 
 const router: Router = Router();
 
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
+
+// User-based rate limiter — runs after auth so it can key by userId, not just IP
+router.use(globalRateLimiter);
 
 /**
  * @route   GET /api/auth/csrf-token

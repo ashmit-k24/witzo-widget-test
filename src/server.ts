@@ -45,7 +45,8 @@ const maintenanceWorker =
 	createMaintenanceWorker();
 
 const app: Application = express();
-app.set("trust proxy", 1);
+// Trust all proxies so req.ip reflects the left-most client IP behind multi-hop proxies (e.g., Cloudflare -> Nginx -> Node)
+app.set("trust proxy", true);
 
 // Configure Passport
 configurePassport();
@@ -201,10 +202,11 @@ app.use(
 	}),
 );
 
-// Global rate limiting — only applies to /api routes; static files are excluded
+// Global rate limiting — IP-based safety net for DDoS; applies only to /api routes.
+// Limit is intentionally high (5x) since per-user limits on auth routes provide real throttling.
 const limiter = rateLimit({
 	windowMs: config.RATE_LIMIT_WINDOW_MS,
-	max: config.RATE_LIMIT_MAX_REQUESTS,
+	max: config.RATE_LIMIT_MAX_REQUESTS * 5,
 	message: {
 		success: false,
 		message:
