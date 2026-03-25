@@ -123,6 +123,19 @@ export interface PaymentRecord {
 	raw_payload: Record<string, unknown> | null;
 }
 
+export interface PaymentStatusResponse {
+	transactionId: string;
+	transactionStatus: string;
+	paymentStatus: "success" | "pending" | "failed";
+	planName: string | null;
+	billingCycle: BillingCycle | null;
+	amount: number | null;
+	currency: string | null;
+	subscriptionStatus: string | null;
+	nextBillingDate: string | null;
+	invoiceUrl: string | null;
+}
+
 export interface CancelSubscriptionInput {
 	cancelAtCycleEnd?: boolean;
 }
@@ -1657,6 +1670,140 @@ class SubscriptionService {
 		throw new Error(
 			"Invoice PDF is not available for this transaction.",
 		);
+	}
+
+	async getPaymentStatus(
+		userId: string,
+		transactionId: string,
+	): Promise<PaymentStatusResponse> {
+		const paymentResult = await pool.query<{
+			payment_status: string;
+			amount: number;
+			currency: string;
+			raw_payload: Record<string, unknown> | null;
+			plan_name: string | null;
+			billing_cycle: BillingCycle | null;
+			next_billing_date: Date | null;
+			subscription_status: string | null;
+		}>(
+			`SELECT
+				p.payment_status,
+				p.amount,
+				p.currency,
+				p.raw_payload,
+				pl.name AS plan_name,
+				s.billing_cycle,
+				s.next_billing_date,
+				s.status AS subscription_status
+			 FROM payments p
+			 LEFT JOIN subscriptions s ON s.id = p.subscription_id
+			 LEFT JOIN plans pl ON pl.id = COALESCE(p.plan_id, s.plan_id)
+			 WHERE p.user_id = $1
+			   AND p.paddle_transaction_id = $2
+			 LIMIT 1`,
+			[userId, transactionId],
+		);
+
+		const existing = paymentResult.rows[0];
+		const existingInvoiceUrl =
+			typeof existing?.raw_payload?.invoice_url === "string"
+				? existing.raw_payload.invoice_url
+				: typeof existing?.raw_payload?.receipt_url ===
+					  "string"
+					? existing.raw_payload.receipt_url
+					: null;
+
+		if (existing) {
+			return {
+				transactionId,
+				transactionStatus: existing.payment_status,
+				paymentStatus:
+					existing.payment_status === "completed"
+						? "success"
+						: existing.payment_status === "pending"
+							? "pending"
+							: "failed",
+				planName: existing.plan_name,
+				billingCycle: existing.billing_cycle,
+				amount: existing.amount,
+				currency: existing.currency,
+				subscriptionStatus:
+					existing.subscription_status,
+				nextBillingDate: this.formatDate(
+					existing.next_billing_date,
+				),
+				invoiceUrl: existingInvoiceUrl,
+			};
+		}
+
+		if (!this.paddle) {
+			throw new Error("Payment details are unavailable.");
+		}
+
+		const tx = await this.paddle.transactions.get(
+			transactionId,
+		);
+		const txCustomData =
+			(tx.customData ?? {}) as Record<string, unknown>;
+		const txUserId =
+			typeof txCustomData.user_id === "string"
+				? txCustomData.user_id
+				: null;
+		if (txUserId && txUserId !== userId) {
+			throw new Error("Payment not found.");
+		}
+
+		let paymentStatus: "success" | "pending" | "failed" =
+			"pending";
+		if (
+			tx.status === "paid" ||
+			tx.status === "completed"
+		) {
+			paymentStatus = "success";
+		} else if (tx.status === "canceled") {
+			paymentStatus = "failed";
+		}
+
+		let invoiceUrl: string | null = null;
+		try {
+			const invoicePdf =
+				await this.paddle.transactions.getInvoicePDF(
+					transactionId,
+				);
+			if (
+				invoicePdf?.url &&
+				invoicePdf.url.trim().length > 0
+			) {
+				invoiceUrl = invoicePdf.url;
+			}
+		} catch {
+			invoiceUrl = null;
+		}
+
+		return {
+			transactionId,
+			transactionStatus: tx.status,
+			paymentStatus,
+			planName:
+				typeof txCustomData.plan_name === "string"
+					? txCustomData.plan_name
+					: null,
+			billingCycle:
+				txCustomData.billing_cycle === "monthly" ||
+				txCustomData.billing_cycle === "yearly"
+					? (txCustomData.billing_cycle as BillingCycle)
+					: null,
+			amount: tx.details?.totals?.total
+				? Math.round(
+						parseFloat(tx.details.totals.total),
+					)
+				: null,
+			currency:
+				tx.details?.totals?.currencyCode ?? null,
+			subscriptionStatus: null,
+			nextBillingDate: null,
+			invoiceUrl,
+		};
 	}
 
 	private async resolveUserIdFromCustomer(

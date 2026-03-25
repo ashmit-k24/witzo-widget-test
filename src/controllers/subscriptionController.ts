@@ -306,6 +306,46 @@ export const downloadPaymentInvoice = async (
 	}
 };
 
+export const getPaymentStatus = async (
+	req: Request<{ transactionId: string }>,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = getUserId(req);
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const paymentStatus =
+			await subscriptionService.getPaymentStatus(
+				userId,
+				req.params.transactionId,
+			);
+		res.status(200).json({
+			success: true,
+			data: paymentStatus,
+		});
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Failed to fetch payment status";
+		logger.error("Failed to fetch payment status", {
+			error: message,
+			userId: req.user?.id,
+			transactionId: req.params.transactionId,
+		});
+		res.status(404).json({
+			success: false,
+			message,
+		});
+	}
+};
+
 export const upgradeSubscription = async (
 	req: Request<{}, {}, UpgradeSubscriptionInput>,
 	res: Response,

@@ -301,6 +301,12 @@ router.get(
 );
 
 router.get(
+	"/payments/:transactionId/status",
+	authenticateToken,
+	subscriptionController.getPaymentStatus,
+);
+
+router.get(
 	"/payments/:transactionId/invoice",
 	authenticateToken,
 	subscriptionController.downloadPaymentInvoice,
