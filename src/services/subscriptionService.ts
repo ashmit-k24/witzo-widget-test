@@ -876,7 +876,7 @@ class SubscriptionService {
 						action?: string;
 						resumeAt?: string | null;
 					} | null;
-					items?: Array<{ price?: { id?: string } }>;
+					items?: Array<{ price?: { id?: string; unitPrice?: { amount?: string } } }>;
 					customData?: Record<string, unknown> | null;
 				};
 
@@ -961,9 +961,9 @@ class SubscriptionService {
                  user_id, plan_id, billing_cycle,
                  paddle_subscription_id, paddle_customer_id,
                  status, start_date, end_date, next_billing_date,
-                 auto_renew, cancel_at_cycle_end, metadata
+                 auto_renew, cancel_at_cycle_end, metadata, amount_minor
                )
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13)
                ON CONFLICT DO NOTHING`,
 							[
 								userId,
@@ -979,6 +979,7 @@ class SubscriptionService {
 									status !== "canceled",
 								cancelAtCycleEnd,
 								JSON.stringify(sub),
+								parseInt(sub.items?.[0]?.price?.unitPrice?.amount ?? "0", 10),
 							],
 						);
 					} else {
@@ -1171,9 +1172,9 @@ class SubscriptionService {
                    user_id, plan_id, billing_cycle,
                    paddle_subscription_id, paddle_customer_id,
                    status, start_date, end_date,
-                   auto_renew, cancel_at_cycle_end, metadata
+                   auto_renew, cancel_at_cycle_end, metadata, amount_minor
                  )
-                 VALUES ($1,$2,$3,$4,$5,'active',$6,$7,TRUE,FALSE,$8::jsonb)
+                 VALUES ($1,$2,$3,$4,$5,'active',$6,$7,TRUE,FALSE,$8::jsonb,$9)
                  ON CONFLICT DO NOTHING`,
 							[
 								userId,
@@ -1186,6 +1187,7 @@ class SubscriptionService {
 									? new Date(tx.billingPeriod.endsAt)
 									: null,
 								JSON.stringify(tx),
+								amount,
 							],
 						);
 						const inserted = await client.query<SubscriptionRow>(
@@ -1260,11 +1262,12 @@ class SubscriptionService {
                paddle_customer_id,
                paddle_event_id,
                amount,
+               amount_minor,
                currency,
                payment_status,
                raw_payload
              )
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'completed',$9::jsonb)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'completed',$10::jsonb)
              ON CONFLICT (paddle_transaction_id) DO UPDATE
                SET payment_status = 'completed',
                    raw_payload = EXCLUDED.raw_payload`,
@@ -1275,6 +1278,7 @@ class SubscriptionService {
 							tx.id,
 							tx.customerId,
 							event.eventId ?? null,
+							amount,
 							amount,
 							currency,
 							JSON.stringify(tx),
