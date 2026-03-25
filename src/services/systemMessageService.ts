@@ -50,7 +50,7 @@ class SystemMessageService {
 		websiteName: string,
 	): string {
 		return PLATFORM_DEFAULT_SYSTEM_MESSAGE_TEMPLATE.replace(
-			"{{websiteName}}",
+			/\{\{websiteName\}\}/g,
 			websiteName,
 		);
 	}
@@ -63,7 +63,7 @@ class SystemMessageService {
 			(user.use_default_system_message ?? true) ||
 			!trimmedCustom;
 		const websiteName =
-			await websiteBrandingService.resolveUserWebsiteName(
+			await websiteBrandingService.resolveUserWidgetLabel(
 				user.id,
 			);
 		const platformDefaultSystemMessage =
@@ -272,7 +272,7 @@ class SystemMessageService {
 			return settings.effectiveSystemMessage;
 		} catch {
 			const websiteName =
-				await websiteBrandingService.resolveUserWebsiteName(
+				await websiteBrandingService.resolveUserWidgetLabel(
 					userId,
 				);
 			return this.renderPlatformDefaultSystemMessage(

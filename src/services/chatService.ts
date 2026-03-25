@@ -1658,3 +1658,4 @@ Question: ${query}${formatDirective}`;
 }
 
 export const chatService = new ChatService();
+

@@ -7,6 +7,7 @@ import { config } from "../config/env";
 import { chatService } from "../services/chatService";
 import { leadService } from "../services/leadService";
 import usageTrackingService from "../services/usageTrackingService";
+import websiteBrandingService from "../services/websiteBrandingService";
 import { widgetIconStorageService } from "../services/widgetIconStorageService";
 import widgetService, {
 	WidgetKey,
@@ -36,10 +37,37 @@ async function buildWidgetResponse(
 		await widgetService.getWidgetInstallationStatus(
 			widgetKey,
 		);
+	const normalizedExistingName = String(
+		widgetKey.widget_name || "",
+	)
+		.trim()
+		.toLowerCase();
+	const isGenericWidgetName =
+		!normalizedExistingName ||
+		normalizedExistingName === "my chat widget" ||
+		normalizedExistingName === "my-chat-widget" ||
+		normalizedExistingName === "my chatbot" ||
+		normalizedExistingName === "my-chatbot" ||
+		normalizedExistingName === "website assistant" ||
+		normalizedExistingName === "website-assistant";
+	const derivedWidgetName =
+		websiteBrandingService.extractWidgetLabelFromUrl(
+			installation.installedDomain,
+		) ||
+		websiteBrandingService.extractWidgetLabelFromUrl(
+			widgetKey.allowed_domains?.[0],
+		) ||
+		websiteBrandingService.extractWidgetLabelFromUrl(
+			widgetKey.company_website,
+		);
+	const responseWidgetName =
+		isGenericWidgetName && derivedWidgetName
+			? derivedWidgetName
+			: widgetKey.widget_name;
 
 	return {
 		widgetKey: widgetKey.widget_key,
-		widgetName: widgetKey.widget_name,
+		widgetName: responseWidgetName,
 		isActive: widgetKey.is_active,
 		allowedDomains:
 			widgetKey.allowed_domains || [],
