@@ -508,6 +508,31 @@ export const validationRules: Record<
 			),
 	],
 
+	subscriptionUpgrade: [
+		body("planId")
+			.optional()
+			.isInt({ min: 1 })
+			.withMessage("planId must be a positive integer"),
+		body("planName")
+			.optional()
+			.isString()
+			.isLength({ min: 2, max: 50 })
+			.withMessage("planName must be 2-50 characters"),
+		body("billingCycle")
+			.isIn(["monthly", "yearly"])
+			.withMessage(
+				'billingCycle must be either "monthly" or "yearly"',
+			),
+		body().custom((payload) => {
+			if (!payload?.planId && !payload?.planName) {
+				throw new Error(
+					"Either planId or planName is required",
+				);
+			}
+			return true;
+		}),
+	],
+
 	adminPlanIdParam: [
 		param("id")
 			.isInt({ min: 1 })

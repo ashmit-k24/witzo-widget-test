@@ -127,6 +127,12 @@ export interface CancelSubscriptionInput {
 	cancelAtCycleEnd?: boolean;
 }
 
+export interface UpgradeSubscriptionInput {
+	planId?: number;
+	planName?: string;
+	billingCycle: BillingCycle;
+}
+
 export interface UpsertPlanInput {
 	name: string;
 	description?: string | null;
@@ -935,12 +941,12 @@ class SubscriptionService {
 				}
 
 				const planId =
-					existing?.plan_id ??
 					resolvedPlan?.planId ??
+					existing?.plan_id ??
 					null;
 				const billingCycle: BillingCycle =
-					existing?.billing_cycle ??
 					resolvedPlan?.billingCycle ??
+					existing?.billing_cycle ??
 					"monthly";
 
 				const client = await pool.connect();
@@ -986,18 +992,22 @@ class SubscriptionService {
 						await client.query(
 							`UPDATE subscriptions
                SET
-                 paddle_customer_id = COALESCE($2, paddle_customer_id),
-                 status = $3,
-                 start_date = COALESCE(start_date, $4),
-                 end_date = COALESCE($5, end_date),
-                 next_billing_date = COALESCE($6, next_billing_date),
-                 auto_renew = $7,
-                 cancel_at_cycle_end = $8,
-                 metadata = COALESCE(metadata, '{}'::jsonb) || $9::jsonb,
+                 plan_id = COALESCE($2, plan_id),
+                 billing_cycle = COALESCE($3, billing_cycle),
+                 paddle_customer_id = COALESCE($4, paddle_customer_id),
+                 status = $5,
+                 start_date = COALESCE(start_date, $6),
+                 end_date = COALESCE($7, end_date),
+                 next_billing_date = COALESCE($8, next_billing_date),
+                 auto_renew = $9,
+                 cancel_at_cycle_end = $10,
+                 metadata = COALESCE(metadata, '{}'::jsonb) || $11::jsonb,
                  updated_at = CURRENT_TIMESTAMP
                WHERE id = $1`,
 							[
 								existing.id,
+								planId ?? null,
+								billingCycle,
 								paddleCustomerId,
 								status,
 								startDate,
@@ -1306,6 +1316,165 @@ class SubscriptionService {
 		}
 
 		return { processed: true, eventType };
+	}
+
+	async upgradeSubscription(
+		userId: string,
+		input: UpgradeSubscriptionInput,
+	): Promise<CurrentSubscriptionResponse> {
+		const paddle = this.getPaddleClient();
+
+		// Get current active subscription
+		const current = await this.getActiveSubscriptionRow(userId);
+		if (!current) {
+			throw new Error(
+				"No active subscription found. Use checkout to start a new subscription.",
+			);
+		}
+		if (!current.paddle_subscription_id) {
+			throw new Error(
+				"Subscription is not managed by Paddle. Please contact support.",
+			);
+		}
+
+		// Resolve target plan
+		const targetPlan = await this.findPlanByNameOrId({
+			planId: input.planId,
+			planName: input.planName,
+			includeInactive: false,
+		});
+
+		if (targetPlan.name === "free") {
+			throw new Error(
+				"To move to free plan, cancel your current subscription.",
+			);
+		}
+		if (targetPlan.name === "enterprise") {
+			throw new Error(
+				"Contact sales to switch to the enterprise plan.",
+			);
+		}
+
+		// Reject no-op changes
+		if (
+			current.plan_id === targetPlan.id &&
+			current.billing_cycle === input.billingCycle
+		) {
+			throw new Error(
+				"You are already on this plan and billing cycle.",
+			);
+		}
+
+		// Get new Paddle price ID
+		const newPriceId = this.normalizePriceId(
+			input.billingCycle === "monthly"
+				? targetPlan.paddle_monthly_price_id
+				: targetPlan.paddle_yearly_price_id,
+		);
+		if (!newPriceId) {
+			throw new Error(
+				`No Paddle price configured for ${targetPlan.name} ${input.billingCycle} billing.`,
+			);
+		}
+
+		// Determine upgrade vs downgrade for proration mode
+		const PLAN_RANK: Record<string, number> = {
+			free: 0,
+			basic: 1,
+			standard: 2,
+			enterprise: 3,
+		};
+		const currentRank = PLAN_RANK[current.plan_name] ?? 0;
+		const targetRank = PLAN_RANK[targetPlan.name] ?? 0;
+		const isUpgrade =
+			targetRank > currentRank ||
+			(targetRank === currentRank &&
+				input.billingCycle === "yearly" &&
+				current.billing_cycle === "monthly");
+
+		// prorated_immediately for upgrades, prorated_next_billing_period for downgrades
+		const prorationBillingMode = isUpgrade
+			? "prorated_immediately"
+			: "prorated_next_billing_period";
+
+		// Call Paddle to update the subscription
+		try {
+			await paddle.subscriptions.update(
+				current.paddle_subscription_id,
+				{
+					items: [{ priceId: newPriceId, quantity: 1 }],
+					prorationBillingMode,
+				},
+			);
+		} catch (err) {
+			logger.error("Paddle subscriptions.update failed", {
+				userId,
+				paddleSubId: current.paddle_subscription_id,
+				targetPlan: targetPlan.name,
+				billingCycle: input.billingCycle,
+				error:
+					err instanceof Error
+						? err.message
+						: String(err),
+			});
+			throw new Error(
+				err instanceof Error
+					? err.message
+					: "Failed to update subscription with Paddle.",
+			);
+		}
+
+		// Optimistically update local DB (webhook will confirm)
+		const client = await pool.connect();
+		try {
+			await client.query("BEGIN");
+			await client.query(
+				`UPDATE subscriptions
+         SET plan_id = $2,
+             billing_cycle = $3,
+             cancel_at_cycle_end = FALSE,
+             auto_renew = TRUE,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+				[current.id, targetPlan.id, input.billingCycle],
+			);
+			// Apply new plan immediately for upgrades
+			if (isUpgrade) {
+				await this.applyUserPlan(
+					client,
+					userId,
+					targetPlan.name,
+				);
+			}
+			await client.query("COMMIT");
+			logger.info("Subscription upgrade applied", {
+				userId,
+				fromPlan: current.plan_name,
+				fromCycle: current.billing_cycle,
+				toPlan: targetPlan.name,
+				toCycle: input.billingCycle,
+				prorationBillingMode,
+			});
+		} catch (err) {
+			await client.query("ROLLBACK");
+			// Paddle update succeeded but local DB failed — webhook will reconcile
+			logger.error(
+				"Local DB update failed after Paddle subscription update",
+				{
+					userId,
+					paddleSubId: current.paddle_subscription_id,
+					error:
+						err instanceof Error
+							? err.message
+							: String(err),
+				},
+			);
+			throw err;
+		} finally {
+			client.release();
+		}
+
+		return this.getCurrentSubscription(userId);
 	}
 
 	/**

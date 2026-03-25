@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import {
 	GetCheckoutInfoInput,
+	UpgradeSubscriptionInput,
 	subscriptionService,
 } from "../services/subscriptionService";
 import logger from "../utils/logger";
@@ -263,5 +264,42 @@ export const getPaymentHistory = async (
 		const message = error instanceof Error ? error.message : "Failed to fetch payment history";
 		logger.error("Failed to fetch payment history", { error: message });
 		res.status(500).json({ success: false, message });
+	}
+};
+
+export const upgradeSubscription = async (
+	req: Request<{}, {}, UpgradeSubscriptionInput>,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = getUserId(req);
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const response =
+			await subscriptionService.upgradeSubscription(
+				userId,
+				req.body,
+			);
+		res
+			.status(200)
+			.json({ success: true, data: response });
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Failed to upgrade subscription";
+		logger.error("Failed to upgrade subscription", {
+			error: message,
+			userId: req.user?.id,
+		});
+		res
+			.status(400)
+			.json({ success: false, message });
 	}
 };

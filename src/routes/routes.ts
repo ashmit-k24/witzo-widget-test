@@ -314,6 +314,15 @@ router.post(
 	subscriptionController.cancelSubscription,
 );
 
+router.post(
+	"/subscription/upgrade",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.subscriptionUpgrade,
+	validate,
+	subscriptionController.upgradeSubscription,
+);
+
 router.get(
 	"/overview/analytics",
 	authenticateToken,
