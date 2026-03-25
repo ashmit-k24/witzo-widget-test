@@ -1497,7 +1497,51 @@ class SubscriptionService {
 			LIMIT 50`,
 			[userId],
 		);
-		return result.rows;
+
+		// Enrich with live Paddle invoice/receipt URLs when missing
+		const rows = result.rows;
+		for (const row of rows) {
+			if (
+				row.raw_payload &&
+				(row.raw_payload as Record<string, unknown>)
+					.invoice_url
+			) {
+				continue;
+			}
+			if (!row.paddle_transaction_id || !this.paddle) {
+				continue;
+			}
+			try {
+				const tx = await this.paddle.transactions.get(
+					row.paddle_transaction_id,
+				);
+				const invoiceUrl =
+					(tx as unknown as { invoiceUrl?: string })
+						.invoiceUrl ||
+					(tx as unknown as { receiptUrl?: string })
+						.receiptUrl ||
+					null;
+				if (invoiceUrl) {
+					row.raw_payload = {
+						...(row.raw_payload ?? {}),
+						invoice_url: invoiceUrl,
+					};
+				}
+			} catch (err) {
+				logger.warn(
+					"Paddle: failed to fetch transaction for invoice URL",
+					{
+						txId: row.paddle_transaction_id,
+						error:
+							err instanceof Error
+								? err.message
+								: String(err),
+					},
+				);
+			}
+		}
+
+		return rows;
 	}
 
 	private async resolveUserIdFromCustomer(
