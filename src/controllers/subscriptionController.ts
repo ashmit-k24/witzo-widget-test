@@ -240,3 +240,22 @@ export const handlePaddleWebhook = async (
 			.json({ success: false, message });
 	}
 };
+
+export const getPaymentHistory = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = getUserId(req);
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
+		const payments = await subscriptionService.getPaymentHistory(userId);
+		res.status(200).json({ success: true, data: payments });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "Failed to fetch payment history";
+		logger.error("Failed to fetch payment history", { error: message });
+		res.status(500).json({ success: false, message });
+	}
+};

@@ -66,11 +66,6 @@ router.get(
 	subscriptionController.getPaddleRuntimeConfig,
 );
 
-router.post(
-	"/paddle/webhook",
-	subscriptionController.handlePaddleWebhook,
-);
-
 /**
  * @route   POST /api/auth/request-code
  * @desc    Request verification code for email authentication
@@ -293,6 +288,12 @@ router.get(
 	"/subscription/current",
 	authenticateToken,
 	subscriptionController.getCurrentSubscription,
+);
+
+router.get(
+	"/payments",
+	authenticateToken,
+	subscriptionController.getPaymentHistory,
 );
 
 router.post(

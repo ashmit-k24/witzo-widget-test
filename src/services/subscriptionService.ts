@@ -112,6 +112,17 @@ export interface PaddleRuntimeConfigResponse {
 	environment: "sandbox" | "production";
 }
 
+export interface PaymentRecord {
+	id: string;
+	paddle_transaction_id: string | null;
+	plan_id: number | null;
+	amount: number;
+	currency: string;
+	payment_status: string;
+	created_at: string;
+	raw_payload: Record<string, unknown> | null;
+}
+
 export interface CancelSubscriptionInput {
 	cancelAtCycleEnd?: boolean;
 }
@@ -1180,6 +1191,26 @@ class SubscriptionService {
 	/**
 	 * Looks up a user by their Paddle customer ID stored in subscriptions table.
 	 */
+	async getPaymentHistory(userId: string): Promise<PaymentRecord[]> {
+		const result = await pool.query<PaymentRecord>(
+			`SELECT
+				id,
+				paddle_transaction_id,
+				plan_id,
+				amount,
+				currency,
+				payment_status,
+				created_at,
+				raw_payload
+			FROM payments
+			WHERE user_id = $1
+			ORDER BY created_at DESC
+			LIMIT 50`,
+			[userId],
+		);
+		return result.rows;
+	}
+
 	private async resolveUserIdFromCustomer(
 		paddleCustomerId: string,
 	): Promise<string | null> {
