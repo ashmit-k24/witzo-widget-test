@@ -171,6 +171,15 @@ export interface LoginPasswordBody {
 	password: string;
 }
 
+export interface ForgotPasswordBody {
+	email: string;
+}
+
+export interface ResetPasswordBody {
+	token: string;
+	password: string;
+}
+
 // Database query result types
 export interface QueryResult<T> {
 	rows: T[];

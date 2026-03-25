@@ -1124,6 +1124,8 @@ class AuthService {
 	private readonly PW_ALGORITHM = "pbkdf2_sha512";
 	private readonly PW_ITERATIONS = 210_000;
 	private readonly PW_KEY_LENGTH = 64;
+	private readonly PASSWORD_RESET_EXPIRY_MINUTES = 30;
+	private readonly PASSWORD_RESET_REQUEST_COOLDOWN_MINUTES = 2;
 
 	private async hashPassword(password: string): Promise<string> {
 		const salt = crypto.randomBytes(16).toString("hex");
@@ -1252,6 +1254,227 @@ class AuthService {
 
 	// ── Password-based register ───────────────────────────────────────────────
 
+	async requestPasswordReset(
+		email: string,
+	): Promise<{ success: boolean; message: string }> {
+		const normalizedEmail = email.toLowerCase().trim();
+		const client: PoolClient = await pool.connect();
+		const genericResponse = {
+			success: true,
+			message:
+				"If that email is registered, a password reset link has been sent.",
+		};
+
+		try {
+			await client.query("BEGIN");
+
+			const userResult = await client.query<
+				User & {
+					password_reset_requested_at: Date | null;
+				}
+			>(
+				`SELECT *,
+				        password_reset_requested_at
+				 FROM users
+				 WHERE email = $1
+				 LIMIT 1`,
+				[normalizedEmail],
+			);
+
+			const user = userResult.rows[0];
+			if (!user) {
+				await client.query("COMMIT");
+				return genericResponse;
+			}
+
+			const requestedAt = user.password_reset_requested_at
+				? new Date(user.password_reset_requested_at)
+				: null;
+			if (
+				requestedAt &&
+				requestedAt.getTime() >
+					Date.now() -
+						this.PASSWORD_RESET_REQUEST_COOLDOWN_MINUTES *
+							60 *
+							1000
+			) {
+				await client.query("COMMIT");
+				return genericResponse;
+			}
+
+			const resetToken = tokenUtil.generateSecureToken();
+			const hashedResetToken =
+				tokenUtil.hashToken(resetToken);
+			const expiresAt = new Date(
+				Date.now() +
+					this.PASSWORD_RESET_EXPIRY_MINUTES *
+						60 *
+						1000,
+			);
+			const resetUrl = `${config.FRONTEND_URL.replace(/\/+$/, "")}/reset-password?token=${resetToken}`;
+
+			await client.query(
+				`UPDATE users
+				 SET password_reset_token_hash = $2,
+				     password_reset_token_expires_at = $3,
+				     password_reset_requested_at = CURRENT_TIMESTAMP,
+				     updated_at = CURRENT_TIMESTAMP
+				 WHERE id = $1`,
+				[user.id, hashedResetToken, expiresAt],
+			);
+
+			await emailService.sendPasswordResetEmail(
+				normalizedEmail,
+				resetUrl,
+				this.PASSWORD_RESET_EXPIRY_MINUTES,
+			);
+
+			await client.query("COMMIT");
+
+			logger.info("Password reset link requested", {
+				email: normalizedEmail,
+				userId: user.id,
+			});
+
+			return genericResponse;
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// ignore
+			}
+			const err = error as Error;
+			logger.error("Error requesting password reset", {
+				email: normalizedEmail,
+				error: err.message,
+				stack: err.stack,
+			});
+			if ("statusCode" in err) {
+				throw err;
+			}
+			throw this.createHttpError(
+				"Failed to start password reset.",
+				500,
+			);
+		} finally {
+			client.release();
+		}
+	}
+
+	async resetPassword(
+		token: string,
+		newPassword: string,
+	): Promise<{ success: boolean; message: string }> {
+		const client: PoolClient = await pool.connect();
+
+		try {
+			await client.query("BEGIN");
+
+			const hashedToken = tokenUtil.hashToken(token);
+			const userResult = await client.query<
+				User & {
+					password_hash: string | null;
+					password_reset_token_hash: string | null;
+					password_reset_token_expires_at: Date | null;
+				}
+			>(
+				`SELECT *,
+				        password_hash,
+				        password_reset_token_hash,
+				        password_reset_token_expires_at
+				 FROM users
+				 WHERE password_reset_token_hash = $1
+				 LIMIT 1`,
+				[hashedToken],
+			);
+
+			const user = userResult.rows[0];
+			if (!user) {
+				throw this.createHttpError(
+					"This reset link is invalid or has expired.",
+					400,
+				);
+			}
+
+			const expiresAt =
+				user.password_reset_token_expires_at
+					? new Date(
+							user.password_reset_token_expires_at,
+					  )
+					: null;
+			if (!expiresAt || expiresAt.getTime() < Date.now()) {
+				await client.query(
+					`UPDATE users
+					 SET password_reset_token_hash = NULL,
+					     password_reset_token_expires_at = NULL,
+					     updated_at = CURRENT_TIMESTAMP
+					 WHERE id = $1`,
+					[user.id],
+				);
+				throw this.createHttpError(
+					"This reset link is invalid or has expired.",
+					400,
+				);
+			}
+
+			const nextPasswordHash =
+				await this.hashPassword(newPassword);
+
+			await client.query(
+				`UPDATE users
+				 SET password_hash = $2,
+				     password_reset_token_hash = NULL,
+				     password_reset_token_expires_at = NULL,
+				     password_reset_requested_at = NULL,
+				     is_verified = TRUE,
+				     updated_at = CURRENT_TIMESTAMP
+				 WHERE id = $1`,
+				[user.id, nextPasswordHash],
+			);
+
+			await client.query(
+				`UPDATE sessions
+				 SET is_revoked = TRUE,
+				     updated_at = CURRENT_TIMESTAMP
+				 WHERE user_id = $1
+				   AND is_revoked = FALSE`,
+				[user.id],
+			);
+
+			await client.query("COMMIT");
+
+			logger.info("Password reset completed", {
+				userId: user.id,
+				email: user.email,
+			});
+
+			return {
+				success: true,
+				message:
+					"Your password has been reset successfully. Please log in with your new password.",
+			};
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// ignore
+			}
+			const err = error as Error;
+			logger.error("Error resetting password", {
+				error: err.message,
+				stack: err.stack,
+			});
+			if ("statusCode" in err) {
+				throw err;
+			}
+			throw this.createHttpError(
+				"Failed to reset password.",
+				500,
+			);
+		} finally {
+			client.release();
+		}
+	}
 	async registerWithPassword(
 		email: string,
 		password: string,
@@ -1475,3 +1698,4 @@ class AuthService {
 }
 
 export default new AuthService();
+

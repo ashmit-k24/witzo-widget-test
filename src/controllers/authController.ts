@@ -17,8 +17,10 @@ import googleAuthService, {
 } from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
+	ForgotPasswordBody,
 	LoginPasswordBody,
 	RegisterBody,
+	ResetPasswordBody,
 	RequestCodeBody,
 	UpdateProfileBody,
 	VerifyGoogleCodeBody,
@@ -997,6 +999,49 @@ export const register = async (
 				message: result.message,
 			});
 		}
+	} catch (error) {
+		next(error);
+	}
+};
+
+export const forgotPassword = async (
+	req: Request<{}, {}, ForgotPasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { email } = req.body;
+
+		logger.info("Forgot password requested", {
+			email,
+			ip: req.ip,
+			userAgent: req.get("user-agent"),
+		});
+
+		const result =
+			await authService.requestPasswordReset(email);
+
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+};
+
+export const resetPassword = async (
+	req: Request<{}, {}, ResetPasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { token, password } = req.body;
+
+		const result = await authService.resetPassword(
+			token,
+			password,
+		);
+
+		clearCookies(res);
+		res.status(200).json(result);
 	} catch (error) {
 		next(error);
 	}

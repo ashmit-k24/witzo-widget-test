@@ -199,6 +199,12 @@ const migrations: Migration[] = [
 			"Replace Razorpay billing columns with Paddle equivalents (price IDs, subscription ID, customer ID)",
 		file: "20260324_030_paddle_billing.sql",
 	},
+	{
+		id: "20260325_031_user_password_reset",
+		description:
+			"Add password reset token storage fields to users table",
+		file: "20260325_031_user_password_reset.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

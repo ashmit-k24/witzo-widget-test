@@ -94,6 +94,24 @@ router.post(
 );
 
 router.post(
+	"/forgot-password",
+	verifyCsrfToken,
+	authLimiter,
+	validationRules.forgotPassword,
+	validate,
+	authController.forgotPassword,
+);
+
+router.post(
+	"/reset-password",
+	verifyCsrfToken,
+	verifyLimiter,
+	validationRules.resetPassword,
+	validate,
+	authController.resetPassword,
+);
+
+router.post(
 	"/request-code",
 	verifyCsrfToken,
 	authLimiter,
