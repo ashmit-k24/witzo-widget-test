@@ -218,6 +218,12 @@ export const handlePaddleWebhook = async (
 				.rawBody ??
 			JSON.stringify(req.body ?? {});
 
+		logger.debug("Paddle webhook debug", {
+			hasRawBody: !!(req as Request & { rawBody?: string }).rawBody,
+			rawBodyLength: rawBody.length,
+			signaturePresent: !!signature,
+		});
+
 		const result =
 			await subscriptionService.processWebhook(
 				rawBody,
