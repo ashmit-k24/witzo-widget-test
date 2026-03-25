@@ -1094,6 +1094,11 @@ class SubscriptionService {
 					id: string;
 					customerId: string;
 					subscriptionId?: string | null;
+					billedAt?: string | null;
+					billingPeriod?: {
+						startsAt?: string;
+						endsAt?: string;
+					} | null;
 					details?: {
 						totals?: {
 							total?: string;
@@ -1101,12 +1106,29 @@ class SubscriptionService {
 						};
 					};
 					items?: Array<{ price?: { id?: string } }>;
+					customData?: Record<string, unknown> | null;
 				};
 
 				const priceId = tx.items?.[0]?.price?.id ?? null;
 				const resolvedPlan = priceId
 					? await this.resolvePlanFromPriceId(priceId)
 					: null;
+
+				// Extract user/plan info from custom_data set at transaction creation
+				const txCustomData = (tx.customData ?? {}) as Record<string, unknown>;
+				const userIdFromCustomData =
+					typeof txCustomData.user_id === "string"
+						? txCustomData.user_id
+						: null;
+				const planIdFromCustomData =
+					typeof txCustomData.plan_id === "number"
+						? txCustomData.plan_id
+						: null;
+				const billingCycleFromCustomData: BillingCycle | null =
+					txCustomData.billing_cycle === "monthly" ||
+					txCustomData.billing_cycle === "yearly"
+						? (txCustomData.billing_cycle as BillingCycle)
+						: null;
 
 				const subResult = tx.subscriptionId
 					? await pool.query<SubscriptionRow>(
@@ -1119,18 +1141,114 @@ class SubscriptionService {
 
 				const userId =
 					subRow?.user_id ??
-					(await this.resolveUserIdFromCustomer(
-						tx.customerId,
-					));
+					userIdFromCustomData ??
+					(await this.resolveUserIdFromCustomer(tx.customerId));
 				if (!userId) break;
 
-				const totalStr =
-					tx.details?.totals?.total ?? "0";
-				const amount = Math.round(
-					parseFloat(totalStr) * 100,
-				);
-				const currency =
-					tx.details?.totals?.currencyCode ?? "USD";
+				const planId =
+					resolvedPlan?.planId ??
+					subRow?.plan_id ??
+					planIdFromCustomData ??
+					null;
+				const billingCycle: BillingCycle =
+					resolvedPlan?.billingCycle ??
+					subRow?.billing_cycle ??
+					billingCycleFromCustomData ??
+					"monthly";
+
+				const totalStr = tx.details?.totals?.total ?? "0";
+				const amount = Math.round(parseFloat(totalStr));
+				const currency = tx.details?.totals?.currencyCode ?? "USD";
+
+				// If subscription.created was missed, create the row now and apply plan
+				let effectiveSubRow = subRow;
+				if (!subRow && tx.subscriptionId && planId) {
+					const client = await pool.connect();
+					try {
+						await client.query("BEGIN");
+						await client.query(
+							`INSERT INTO subscriptions (
+                   user_id, plan_id, billing_cycle,
+                   paddle_subscription_id, paddle_customer_id,
+                   status, start_date, end_date,
+                   auto_renew, cancel_at_cycle_end, metadata
+                 )
+                 VALUES ($1,$2,$3,$4,$5,'active',$6,$7,TRUE,FALSE,$8::jsonb)
+                 ON CONFLICT DO NOTHING`,
+							[
+								userId,
+								planId,
+								billingCycle,
+								tx.subscriptionId,
+								tx.customerId,
+								tx.billedAt ? new Date(tx.billedAt) : null,
+								tx.billingPeriod?.endsAt
+									? new Date(tx.billingPeriod.endsAt)
+									: null,
+								JSON.stringify(tx),
+							],
+						);
+						const inserted = await client.query<SubscriptionRow>(
+							`SELECT * FROM subscriptions
+                 WHERE paddle_subscription_id = $1 LIMIT 1`,
+							[tx.subscriptionId],
+						);
+						effectiveSubRow = inserted.rows[0] ?? null;
+						const planRow = await this.findPlanByNameOrId({
+							planId,
+							includeInactive: true,
+						}).catch(() => null);
+						if (planRow) {
+							await this.applyUserPlan(client, userId, planRow.name);
+						}
+						await client.query("COMMIT");
+						logger.info(
+							"Paddle webhook: created subscription from transaction.completed",
+							{ userId, subscriptionId: tx.subscriptionId, planId },
+						);
+					} catch (err) {
+						await client.query("ROLLBACK");
+						logger.warn(
+							"Paddle webhook: failed to create subscription from transaction",
+							{
+								txId: tx.id,
+								error:
+									err instanceof Error
+										? err.message
+										: String(err),
+							},
+						);
+					} finally {
+						client.release();
+					}
+				} else if (subRow && planId) {
+					// Subscription row exists — ensure user plan is up to date
+					const client = await pool.connect();
+					try {
+						await client.query("BEGIN");
+						const planRow = await this.findPlanByNameOrId({
+							planId,
+							includeInactive: true,
+						}).catch(() => null);
+						if (planRow) {
+							await this.applyUserPlan(client, userId, planRow.name);
+						}
+						await client.query("COMMIT");
+					} catch (err) {
+						await client.query("ROLLBACK");
+						logger.warn(
+							"Paddle webhook: failed to apply plan on transaction.completed",
+							{
+								error:
+									err instanceof Error
+										? err.message
+										: String(err),
+							},
+						);
+					} finally {
+						client.release();
+					}
+				}
 
 				try {
 					await pool.query(
@@ -1152,10 +1270,8 @@ class SubscriptionService {
                    raw_payload = EXCLUDED.raw_payload`,
 						[
 							userId,
-							subRow?.id ?? null,
-							resolvedPlan?.planId ??
-								subRow?.plan_id ??
-								null,
+							effectiveSubRow?.id ?? null,
+							planId ?? effectiveSubRow?.plan_id ?? null,
 							tx.id,
 							tx.customerId,
 							event.eventId ?? null,
