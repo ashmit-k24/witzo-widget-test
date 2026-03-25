@@ -1498,29 +1498,38 @@ class SubscriptionService {
 			[userId],
 		);
 
+		const pickInvoiceUrl = (payload: any): string | null => {
+			if (!payload || typeof payload !== "object") return null;
+			const candidates = [
+				payload.invoice_url,
+				payload.invoiceUrl,
+				payload.receipt_url,
+				payload.receiptUrl,
+				payload.statement_url,
+				payload.statementUrl,
+				payload?.links?.invoice,
+				payload?.links?.receipt,
+				payload?.urls?.invoice,
+				payload?.urls?.receipt,
+				payload?.checkout?.invoiceUrl,
+			];
+			const found = candidates.find(
+				(url) => typeof url === "string" && url.trim().length > 0,
+			);
+			return found ? String(found) : null;
+		};
+
 		// Enrich with live Paddle invoice/receipt URLs when missing
 		const rows = result.rows;
 		for (const row of rows) {
-			if (
-				row.raw_payload &&
-				(row.raw_payload as Record<string, unknown>)
-					.invoice_url
-			) {
-				continue;
-			}
-			if (!row.paddle_transaction_id || !this.paddle) {
-				continue;
-			}
+			const existingUrl = pickInvoiceUrl(row.raw_payload);
+			if (existingUrl) continue;
+
+			if (!row.paddle_transaction_id || !this.paddle) continue;
+
 			try {
-				const tx = await this.paddle.transactions.get(
-					row.paddle_transaction_id,
-				);
-				const invoiceUrl =
-					(tx as unknown as { invoiceUrl?: string })
-						.invoiceUrl ||
-					(tx as unknown as { receiptUrl?: string })
-						.receiptUrl ||
-					null;
+				const tx = await this.paddle.transactions.get(row.paddle_transaction_id);
+				const invoiceUrl = pickInvoiceUrl(tx);
 				if (invoiceUrl) {
 					row.raw_payload = {
 						...(row.raw_payload ?? {}),
@@ -1528,16 +1537,10 @@ class SubscriptionService {
 					};
 				}
 			} catch (err) {
-				logger.warn(
-					"Paddle: failed to fetch transaction for invoice URL",
-					{
-						txId: row.paddle_transaction_id,
-						error:
-							err instanceof Error
-								? err.message
-								: String(err),
-					},
-				);
+				logger.warn("Paddle: failed to fetch transaction for invoice URL", {
+					txId: row.paddle_transaction_id,
+					error: err instanceof Error ? err.message : String(err),
+				});
 			}
 		}
 
