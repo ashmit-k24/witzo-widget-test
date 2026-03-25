@@ -45,8 +45,10 @@ const maintenanceWorker =
 	createMaintenanceWorker();
 
 const app: Application = express();
-// Trust all proxies so req.ip reflects the left-most client IP behind multi-hop proxies (e.g., Cloudflare -> Nginx -> Node)
-app.set("trust proxy", true);
+// Trust the known proxy chain length; keeps IP-based rate limiting safe
+// If you add more proxy hops (e.g., Cloudflare + Nginx), set RATE_LIMIT_TRUST_PROXY_HOPS accordingly.
+const TRUSTED_PROXY_HOPS = config.RATE_LIMIT_TRUST_PROXY_HOPS ?? 1;
+app.set("trust proxy", TRUSTED_PROXY_HOPS);
 
 // Configure Passport
 configurePassport();

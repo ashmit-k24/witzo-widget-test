@@ -215,6 +215,7 @@ export interface EnvConfig {
 	REFRESH_TOKEN_EXPIRY_DAYS: number;
 	RATE_LIMIT_WINDOW_MS: number;
 	RATE_LIMIT_MAX_REQUESTS: number;
+	RATE_LIMIT_TRUST_PROXY_HOPS: number;
 	CORS_ORIGIN?: string;
 	JWT_SECRET: string;
 	JWT_REFRESH_SECRET: string;

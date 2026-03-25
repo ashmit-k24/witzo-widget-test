@@ -235,6 +235,10 @@ export const config: EnvConfig = {
 		"RATE_LIMIT_MAX_REQUESTS",
 		1000,
 	),
+	RATE_LIMIT_TRUST_PROXY_HOPS: getEnvNumber(
+		"RATE_LIMIT_TRUST_PROXY_HOPS",
+		1,
+	),
 
 	// Scraper Configuration
 	SCRAPER_CONCURRENCY: getEnvNumber(
