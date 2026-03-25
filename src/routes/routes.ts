@@ -185,6 +185,12 @@ router.get(
 	authController.getProfileStatus,
 );
 
+router.get(
+	"/settings",
+	authenticateToken,
+	authController.getProfileStatus,
+);
+
 router.put(
 	"/profile",
 	verifyCsrfToken,
@@ -192,6 +198,33 @@ router.put(
 	validationRules.updateProfile,
 	validate,
 	authController.updateProfile,
+);
+
+router.put(
+	"/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.updateProfile,
+	validate,
+	authController.updateProfile,
+);
+
+router.put(
+	"/profile/password",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.changePassword,
+	validate,
+	authController.updatePassword,
+);
+
+router.put(
+	"/settings/password",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.changePassword,
+	validate,
+	authController.updatePassword,
 );
 
 /**

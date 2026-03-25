@@ -183,6 +183,20 @@ export const validationRules: Record<
 			.withMessage("company_website must be a valid URL"),
 	],
 
+	changePassword: [
+		body("currentPassword")
+			.optional({ nullable: true })
+			.isString()
+			.withMessage("currentPassword must be a string")
+			.isLength({ min: 0, max: 256 })
+			.withMessage("currentPassword must be 0-256 characters"),
+		body("newPassword")
+			.isString()
+			.withMessage("newPassword is required")
+			.isLength({ min: 8, max: 256 })
+			.withMessage("newPassword must be 8-256 characters"),
+	],
+
 	updateOnboarding: [
 		body("step")
 			.isInt({ min: 1, max: 4 })

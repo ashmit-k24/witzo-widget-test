@@ -6,6 +6,7 @@ import { PlanType } from "../config/planConfig";
 import { config } from "../config/env";
 import {
 	CleanupResult,
+	ChangePasswordBody,
 	LogoutResponse,
 	RefreshTokenResponse,
 	RequestCodeResponse,
@@ -15,6 +16,10 @@ import {
 	VerificationCode,
 	VerifyCodeResponse,
 } from "../types";
+import {
+	isStrongUserPassword,
+	USER_PASSWORD_POLICY_MESSAGE,
+} from "../utils/passwordPolicy";
 import logger from "../utils/logger";
 import tokenUtil from "../utils/token";
 import uuidUtil from "../utils/uuid";
@@ -53,7 +58,7 @@ class AuthService {
 	 * Convert database user to API response format
 	 */
 	private formatUserResponse(
-		user: User,
+		user: User & { password_hash?: string | null },
 		sessionId?: number,
 	): UserResponse {
 		const requiresProfileCompletion =
@@ -65,6 +70,7 @@ class AuthService {
 			id: user.id,
 			email: user.email,
 			isVerified: user.is_verified,
+			hasPassword: Boolean(user.password_hash),
 			plan_type: user.plan_type,
 			sessionId,
 			loginCount: user.login_count,
@@ -976,6 +982,159 @@ class AuthService {
 		}
 
 		return this.formatUserResponse(result.rows[0]);
+	}
+
+	async updatePassword(
+		userId: string,
+		payload: ChangePasswordBody,
+		currentSessionId?: number,
+	): Promise<{
+		success: boolean;
+		message: string;
+		hasPassword: boolean;
+	}> {
+		const client: PoolClient = await pool.connect();
+
+		try {
+			await client.query("BEGIN");
+
+			const userResult = await client.query<
+				User & { password_hash: string | null }
+			>(
+				`SELECT *,
+				        password_hash
+				   FROM users
+				  WHERE id = $1
+				  LIMIT 1`,
+				[userId],
+			);
+
+			const user = userResult.rows[0];
+			if (!user) {
+				throw this.createHttpError("User not found", 404);
+			}
+
+			const nextPassword = String(
+				payload.newPassword || "",
+			).trim();
+			if (!isStrongUserPassword(nextPassword)) {
+				throw this.createHttpError(
+					USER_PASSWORD_POLICY_MESSAGE,
+					400,
+				);
+			}
+
+			const currentPassword = String(
+				payload.currentPassword || "",
+			);
+			const existingPasswordHash =
+				user.password_hash;
+
+			if (existingPasswordHash) {
+				if (!currentPassword.trim()) {
+					throw this.createHttpError(
+						"Current password is required.",
+						400,
+					);
+				}
+
+				const isCurrentPasswordValid =
+					await this.verifyPassword(
+						currentPassword,
+						existingPasswordHash,
+					);
+				if (!isCurrentPasswordValid) {
+					throw this.createHttpError(
+						"Current password is incorrect.",
+						400,
+					);
+				}
+
+				const isSamePassword =
+					await this.verifyPassword(
+						nextPassword,
+						existingPasswordHash,
+					);
+				if (isSamePassword) {
+					throw this.createHttpError(
+						"New password must be different from your current password.",
+						400,
+					);
+				}
+			}
+
+			const nextPasswordHash =
+				await this.hashPassword(nextPassword);
+
+			await client.query(
+				`UPDATE users
+				    SET password_hash = $2,
+				        updated_at = CURRENT_TIMESTAMP
+				  WHERE id = $1`,
+				[userId, nextPasswordHash],
+			);
+
+			if (typeof currentSessionId === "number") {
+				await client.query(
+					`UPDATE sessions
+					    SET is_revoked = TRUE,
+					        updated_at = CURRENT_TIMESTAMP
+					  WHERE user_id = $1
+					    AND is_revoked = FALSE
+					    AND id <> $2`,
+					[userId, currentSessionId],
+				);
+			} else {
+				await client.query(
+					`UPDATE sessions
+					    SET is_revoked = TRUE,
+					        updated_at = CURRENT_TIMESTAMP
+					  WHERE user_id = $1
+					    AND is_revoked = FALSE`,
+					[userId],
+				);
+			}
+
+			await client.query("COMMIT");
+
+			const isFirstPassword =
+				!existingPasswordHash;
+			logger.info("User password updated from settings", {
+				userId,
+				isFirstPassword,
+			});
+
+			return {
+				success: true,
+				message: isFirstPassword
+					? "Password set successfully."
+					: "Password updated successfully.",
+				hasPassword: true,
+			};
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// ignore rollback errors
+			}
+
+			const err = error as Error & {
+				statusCode?: number;
+			};
+			logger.error("Error updating password from settings", {
+				userId,
+				error: err.message,
+				stack: err.stack,
+			});
+			throw err.statusCode
+				? err
+				: this.createHttpError(
+						"Failed to update password.",
+						500,
+				  );
+		} finally {
+			client.release();
+		}
 	}
 
 	async updateUserProfile(

@@ -2825,6 +2825,21 @@
 			}
 		}
 
+		updateBackButtonVisibility(showingIntro = false) {
+			if (!this.elements.backBtn) {
+				return;
+			}
+
+			const shouldHideBackButton =
+				showingIntro ||
+				this.config.showIntroScreen === false;
+
+			this.elements.backBtn.classList.toggle(
+				"hidden",
+				shouldHideBackButton,
+			);
+		}
+
 		showIntroScreen(visible, animate = false) {
 			if (
 				!this.elements.introScreen ||
@@ -2856,11 +2871,7 @@
 							"intro-mode",
 						);
 					}
-					if (this.elements.backBtn) {
-						this.elements.backBtn.classList.add(
-							"hidden",
-						);
-					}
+					this.updateBackButtonVisibility(true);
 					if (this.elements.navHome)
 						this.elements.navHome.classList.add(
 							"active",
@@ -2879,11 +2890,7 @@
 						"intro-mode",
 					);
 				}
-				if (this.elements.backBtn) {
-					this.elements.backBtn.classList.remove(
-						"hidden",
-					);
-				}
+				this.updateBackButtonVisibility(false);
 				if (this.elements.navHome)
 					this.elements.navHome.classList.remove(
 						"active",
@@ -2908,11 +2915,7 @@
 						"intro-mode",
 					);
 				}
-				if (this.elements.backBtn) {
-					this.elements.backBtn.classList.add(
-						"hidden",
-					);
-				}
+				this.updateBackButtonVisibility(true);
 				if (this.elements.navHome)
 					this.elements.navHome.classList.add(
 						"active",
@@ -2954,11 +2957,7 @@
 					"intro-mode",
 				);
 			}
-			if (this.elements.backBtn) {
-				this.elements.backBtn.classList.remove(
-					"hidden",
-				);
-			}
+			this.updateBackButtonVisibility(false);
 			if (this.elements.navHome)
 				this.elements.navHome.classList.remove(
 					"active",

@@ -17,6 +17,7 @@ import googleAuthService, {
 } from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
+	ChangePasswordBody,
 	ForgotPasswordBody,
 	LoginPasswordBody,
 	RegisterBody,
@@ -515,6 +516,38 @@ export const updateProfile = async (
 			message: "Profile updated successfully",
 			user: updated,
 		});
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   PUT /api/auth/profile/password
+ * @desc    Set or change the current user's password
+ * @access  Protected
+ */
+export const updatePassword = async (
+	req: Request<{}, {}, ChangePasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const result = await authService.updatePassword(
+			userId,
+			req.body,
+			req.user?.sessionId,
+		);
+
+		res.status(200).json(result);
 	} catch (error) {
 		next(error);
 	}
