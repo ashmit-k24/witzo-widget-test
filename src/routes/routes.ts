@@ -300,6 +300,12 @@ router.get(
 	subscriptionController.getPaymentHistory,
 );
 
+router.get(
+	"/payments/:transactionId/invoice",
+	authenticateToken,
+	subscriptionController.downloadPaymentInvoice,
+);
+
 router.post(
 	"/subscription/checkout-info",
 	verifyCsrfToken,

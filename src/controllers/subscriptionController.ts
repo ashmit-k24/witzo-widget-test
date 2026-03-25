@@ -267,6 +267,45 @@ export const getPaymentHistory = async (
 	}
 };
 
+export const downloadPaymentInvoice = async (
+	req: Request<{ transactionId: string }>,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = getUserId(req);
+		if (!userId) {
+			res
+				.status(401)
+				.json({
+					success: false,
+					message: "Authentication required",
+				});
+			return;
+		}
+
+		const invoiceUrl =
+			await subscriptionService.getPaymentInvoiceUrl(
+				userId,
+				req.params.transactionId,
+			);
+		res.redirect(invoiceUrl);
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Failed to download invoice";
+		logger.error("Failed to download invoice", {
+			error: message,
+			userId: req.user?.id,
+			transactionId: req.params.transactionId,
+		});
+		res.status(404).json({
+			success: false,
+			message,
+		});
+	}
+};
+
 export const upgradeSubscription = async (
 	req: Request<{}, {}, UpgradeSubscriptionInput>,
 	res: Response,

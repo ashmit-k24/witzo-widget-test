@@ -1519,7 +1519,8 @@ class SubscriptionService {
 			return found ? String(found) : null;
 		};
 
-		// Enrich with live Paddle invoice/receipt URLs when missing
+		// Enrich with a live Paddle invoice PDF URL when missing.
+		// Paddle exposes this via a dedicated endpoint rather than the main transaction payload.
 		const rows = result.rows;
 		for (const row of rows) {
 			const existingUrl = pickInvoiceUrl(row.raw_payload);
@@ -1528,13 +1529,39 @@ class SubscriptionService {
 			if (!row.paddle_transaction_id || !this.paddle) continue;
 
 			try {
-				const tx = await this.paddle.transactions.get(row.paddle_transaction_id);
-				const invoiceUrl = pickInvoiceUrl(tx);
+				const invoicePdf =
+					await this.paddle.transactions.getInvoicePDF(
+						row.paddle_transaction_id,
+					);
+				let invoiceUrl =
+					invoicePdf?.url && invoicePdf.url.trim()
+						? invoicePdf.url
+						: null;
+
+				if (!invoiceUrl) {
+					const tx = await this.paddle.transactions.get(
+						row.paddle_transaction_id,
+					);
+					invoiceUrl = pickInvoiceUrl(tx);
+				}
+
 				if (invoiceUrl) {
 					row.raw_payload = {
 						...(row.raw_payload ?? {}),
 						invoice_url: invoiceUrl,
 					};
+
+					await pool.query(
+						`UPDATE payments
+						 SET raw_payload = COALESCE(raw_payload, '{}'::jsonb) || $2::jsonb
+						 WHERE id = $1`,
+						[
+							row.id,
+							JSON.stringify({
+								invoice_url: invoiceUrl,
+							}),
+						],
+					);
 				}
 			} catch (err) {
 				logger.warn("Paddle: failed to fetch transaction for invoice URL", {
@@ -1545,6 +1572,91 @@ class SubscriptionService {
 		}
 
 		return rows;
+	}
+
+	async getPaymentInvoiceUrl(
+		userId: string,
+		transactionId: string,
+	): Promise<string> {
+		const paymentResult = await pool.query<{
+			paddle_transaction_id: string | null;
+			raw_payload: Record<string, unknown> | null;
+		}>(
+			`SELECT paddle_transaction_id, raw_payload
+			 FROM payments
+			 WHERE user_id = $1
+			   AND paddle_transaction_id = $2
+			 LIMIT 1`,
+			[userId, transactionId],
+		);
+
+		const payment = paymentResult.rows[0];
+		if (!payment?.paddle_transaction_id) {
+			throw new Error("Invoice not found.");
+		}
+		if (!this.paddle) {
+			throw new Error("Paddle is not configured.");
+		}
+
+		const fromPayload = [
+			payment.raw_payload?.invoice_url,
+			payment.raw_payload?.invoiceUrl,
+			payment.raw_payload?.receipt_url,
+			payment.raw_payload?.receiptUrl,
+		].find(
+			(value) =>
+				typeof value === "string" &&
+				value.trim().length > 0,
+		);
+		if (fromPayload) {
+			return String(fromPayload);
+		}
+
+		try {
+			const invoicePdf =
+				await this.paddle.transactions.getInvoicePDF(
+					transactionId,
+				);
+			if (
+				invoicePdf?.url &&
+				invoicePdf.url.trim().length > 0
+			) {
+				return invoicePdf.url;
+			}
+		} catch (err) {
+			logger.warn(
+				"Paddle: getInvoicePDF failed for payment invoice download",
+				{
+					txId: transactionId,
+					error:
+						err instanceof Error
+							? err.message
+							: String(err),
+				},
+			);
+		}
+
+		const tx = await this.paddle.transactions.get(
+			transactionId,
+		);
+		const fallbackUrl = [
+			(tx as unknown as { invoiceUrl?: string })
+				.invoiceUrl,
+			(tx as unknown as { receiptUrl?: string })
+				.receiptUrl,
+		].find(
+			(value) =>
+				typeof value === "string" &&
+				value.trim().length > 0,
+		);
+
+		if (fallbackUrl) {
+			return String(fallbackUrl);
+		}
+
+		throw new Error(
+			"Invoice PDF is not available for this transaction.",
+		);
 	}
 
 	private async resolveUserIdFromCustomer(
