@@ -1113,9 +1113,15 @@ export const loginWithPassword = async (
 				expiresIn: result.expiresIn,
 			});
 		} else {
+			const verificationRequired =
+				typeof result.message === "string" &&
+				result.message
+					.toLowerCase()
+					.includes("not verified");
 			res.status(401).json({
 				success: false,
 				message: result.message,
+				verificationRequired,
 			});
 		}
 	} catch (error) {

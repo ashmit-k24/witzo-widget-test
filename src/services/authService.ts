@@ -1690,16 +1690,55 @@ class AuthService {
 			await client.query("BEGIN");
 
 			// Check if email already registered
-			const existing = await client.query<User>(
-				"SELECT id, password_hash FROM users WHERE email = $1",
+			const existing = await client.query<
+				User & {
+					password_hash: string | null;
+				}
+			>(
+				"SELECT id, email, is_verified, password_hash FROM users WHERE email = $1",
 				[normalizedEmail],
 			);
 
 			if (existing.rows.length > 0) {
-				await client.query("ROLLBACK");
+				const existingUser = existing.rows[0];
+
+				if (existingUser.is_verified) {
+					await client.query("ROLLBACK");
+					return {
+						success: false,
+						message: "An account with this email already exists. Please log in.",
+					};
+				}
+
+				const passwordHash =
+					await this.hashPassword(password);
+
+				await client.query(
+					`UPDATE users
+         SET password_hash = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+					[existingUser.id, passwordHash],
+				);
+
+				await client.query("COMMIT");
+
+				logger.info(
+					"Resuming signup for existing unverified user",
+					{
+						email: normalizedEmail,
+						userId: existingUser.id,
+					},
+				);
+
+				await this.requestVerificationCode(
+					normalizedEmail,
+				);
+
 				return {
-					success: false,
-					message: "An account with this email already exists. Please log in.",
+					success: true,
+					message:
+						"Your account is pending verification. We've sent a new verification code to your email.",
 				};
 			}
 
@@ -1727,7 +1766,11 @@ class AuthService {
 				message: "Verification code sent to your email",
 			};
 		} catch (error) {
-			await client.query("ROLLBACK");
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// Transaction may already be closed in early-return branches.
+			}
 			const err = error as Error;
 			logger.error("Error in registerWithPassword", {
 				email,
@@ -1794,6 +1837,20 @@ class AuthService {
 				};
 			}
 
+			if (!user.is_verified) {
+				await client.query("ROLLBACK");
+
+				await this.requestVerificationCode(
+					normalizedEmail,
+				);
+
+				return {
+					success: false,
+					message:
+						"Your account is not verified yet. We've sent a new verification code to your email. Please complete verification first.",
+				};
+			}
+
 			// Update last_login + login_count
 			const updatedUserResult = await client.query<User>(
 				`UPDATE users
@@ -1830,7 +1887,11 @@ class AuthService {
 				user: this.formatUserResponse(updatedUser, sessionId),
 			};
 		} catch (error) {
-			await client.query("ROLLBACK");
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// Transaction may already be closed in early-return branches.
+			}
 			const err = error as Error;
 			logger.error("Error in loginWithPassword", {
 				email,
