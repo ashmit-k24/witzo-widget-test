@@ -5,6 +5,7 @@ import pool from "../config/database";
 import { redisCache } from "../config/redis";
 import {
 	CHAT_COMPLETION_MAX_TOKENS,
+	CHAT_LANGUAGE_LABELS,
 	CHAT_COMPLETION_MODEL,
 	CHAT_COMPLETION_TEMPERATURE,
 	CHAT_DEFAULT_TIMEOUT_MS,
@@ -707,6 +708,34 @@ class ChatService {
 		return normalized;
 	}
 
+	private buildLanguageInstruction(
+		languageCode?: string,
+	): string | null {
+		if (!languageCode) {
+			return null;
+		}
+
+		const normalized =
+			this.normalizeLanguagePreference(
+				languageCode,
+			);
+		if (!normalized) {
+			return null;
+		}
+
+		const languageLabel =
+			CHAT_LANGUAGE_LABELS[
+				normalized as keyof typeof CHAT_LANGUAGE_LABELS
+			] || normalized;
+
+		return [
+			`IMPORTANT LANGUAGE RULE: Reply in ${languageLabel}.`,
+			`Use ${languageLabel} for the full answer, including headings, bullets, and summary sentences.`,
+			"Only keep URLs, brand names, product names, email addresses, and technical identifiers in their original form when needed.",
+			"Even if the visitor writes in English, keep the response in the requested language unless they explicitly ask you to switch languages.",
+		].join("\n");
+	}
+
 	private async getConversation(
 		sessionId: string,
 		userId: string,
@@ -1045,6 +1074,10 @@ Question: ${query}${formatDirective}`;
 			this.buildWidgetResponseStyleSystemPrompt(
 				query,
 			);
+		const languageInstruction =
+			this.buildLanguageInstruction(
+				_languageCode,
+			);
 
 		const conversationHistory: Array<any> = [
 			{
@@ -1056,6 +1089,12 @@ Question: ${query}${formatDirective}`;
 				content: stylePrompt,
 			},
 		];
+		if (languageInstruction) {
+			conversationHistory.push({
+				role: "system",
+				content: languageInstruction,
+			});
+		}
 
 		const recentMessages = messages.slice(
 			-CHAT_HISTORY_WINDOW_MESSAGES,
