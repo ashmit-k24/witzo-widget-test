@@ -45,7 +45,10 @@ const maintenanceWorker =
 	createMaintenanceWorker();
 
 const app: Application = express();
-app.set("trust proxy", 1);
+// Trust the known proxy chain length; keeps IP-based rate limiting safe
+// If you add more proxy hops (e.g., Cloudflare + Nginx), set RATE_LIMIT_TRUST_PROXY_HOPS accordingly.
+const TRUSTED_PROXY_HOPS = config.RATE_LIMIT_TRUST_PROXY_HOPS ?? 1;
+app.set("trust proxy", TRUSTED_PROXY_HOPS);
 
 // Configure Passport
 configurePassport();
@@ -201,10 +204,11 @@ app.use(
 	}),
 );
 
-// Global rate limiting — only applies to /api routes; static files are excluded
+// Global rate limiting — IP-based safety net for DDoS; applies only to /api routes.
+// Limit is intentionally high (5x) since per-user limits on auth routes provide real throttling.
 const limiter = rateLimit({
 	windowMs: config.RATE_LIMIT_WINDOW_MS,
-	max: config.RATE_LIMIT_MAX_REQUESTS,
+	max: config.RATE_LIMIT_MAX_REQUESTS * 5,
 	message: {
 		success: false,
 		message:

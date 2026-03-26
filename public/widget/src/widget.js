@@ -50,6 +50,7 @@ export class WitzoChatWidget extends HTMLElement {
 
     // Daily session limit state
     this._sessionLocked = false;
+    this.isAwaitingResponse = false;
 
     this.selectedLanguage = 'en';
     this.config           = { ...DEFAULT_CONFIG };
@@ -186,9 +187,17 @@ export class WitzoChatWidget extends HTMLElement {
   // ── Delegated to events.js ──────────────────────────────────────
   toggleChat()                     { events.toggleChat(this); }
   handleLanguageSelect(code)       { events.handleLanguageSelect(this, code); }
+  setAwaitingResponse(isAwaiting)  {
+    this.isAwaitingResponse = Boolean(isAwaiting);
+    this.updateSendButtonState();
+  }
 
   // ── Core send flow ───────────────────────────────────────────────
   async handleSend() {
+    if (this.isAwaitingResponse) {
+      return;
+    }
+
     const text = this.elements.input.value.trim();
     if (!text) {
       this.updateSendButtonState();
@@ -221,7 +230,7 @@ export class WitzoChatWidget extends HTMLElement {
       && this._wasEndIntent
       && !this.ratingShown && !this.ratingSubmitted;
     this.elements.input.value = '';
-    this.updateSendButtonState();
+    this.setAwaitingResponse(true);
 
     // Show typing indicator
     const typingEl = msg.createTypingIndicator(this.config.logoIcon);
@@ -255,21 +264,25 @@ export class WitzoChatWidget extends HTMLElement {
         }
         this.successfulChatCount = session.incrementChatCount(this.successfulChatCount);
         this.appendBotReply(typingEl, result.assembled);
+        msg.appendSources(typingEl, result.donePayload?.sources);
         return;
       }
 
       // — JSON path —
       const rawText = await response.text();
       let content   = "Sorry, didn't get that.";
+      let jsonSources = [];
 
       if (response.ok) {
         try {
           const result = JSON.parse(rawText);
           content = result.response || result.output || result.message || content;
           if (result.sessionId) this._updateSession(result.sessionId);
+          if (Array.isArray(result.sources)) jsonSources = result.sources;
         } catch (_) {}
         this.successfulChatCount = session.incrementChatCount(this.successfulChatCount);
         this.appendBotReply(typingEl, content);
+        msg.appendSources(typingEl, jsonSources);
         return;
       }
 
@@ -291,6 +304,8 @@ export class WitzoChatWidget extends HTMLElement {
     } catch (error) {
       msg.updateBubble(typingEl, "Sorry, a network error occurred.", this.config.logoIcon);
       this.pendingEndIntentRating = false;
+    } finally {
+      this.setAwaitingResponse(false);
     }
   }
 
@@ -533,8 +548,14 @@ export class WitzoChatWidget extends HTMLElement {
 
   updateSendButtonState() {
     if (!this.elements?.sendBtn || !this.elements?.input) return;
+    const inputDisabled = this._sessionLocked;
+    this.elements.input.disabled = inputDisabled;
+    if (this.elements.langPillBtn) {
+      this.elements.langPillBtn.style.pointerEvents = this.isAwaitingResponse ? 'none' : '';
+      this.elements.langPillBtn.style.opacity = this.isAwaitingResponse ? '0.55' : '';
+    }
     const hasValue = Boolean(this.elements.input.value.trim());
-    const disabled = this.elements.input.disabled || !hasValue;
+    const disabled = inputDisabled || this.isAwaitingResponse || !hasValue;
     this.elements.sendBtn.disabled = disabled;
     this.elements.sendBtn.setAttribute('aria-disabled', String(disabled));
     this.elements.sendBtn.classList.toggle('is-active', !disabled);

@@ -7,6 +7,7 @@ import { config } from "../config/env";
 import { chatService } from "../services/chatService";
 import { leadService } from "../services/leadService";
 import usageTrackingService from "../services/usageTrackingService";
+import websiteBrandingService from "../services/websiteBrandingService";
 import { widgetIconStorageService } from "../services/widgetIconStorageService";
 import widgetService, {
 	WidgetKey,
@@ -36,10 +37,39 @@ async function buildWidgetResponse(
 		await widgetService.getWidgetInstallationStatus(
 			widgetKey,
 		);
+	const normalizedExistingName = String(
+		widgetKey.widget_name || "",
+	)
+		.trim()
+		.toLowerCase();
+	const isGenericWidgetName =
+		!normalizedExistingName ||
+		normalizedExistingName === "my chat widget" ||
+		normalizedExistingName === "my-chat-widget" ||
+		normalizedExistingName === "my chatbot" ||
+		normalizedExistingName === "my-chatbot" ||
+		normalizedExistingName === "this business" ||
+		normalizedExistingName === "this-business" ||
+		normalizedExistingName === "website assistant" ||
+		normalizedExistingName === "website-assistant";
+	const derivedWidgetName =
+		websiteBrandingService.extractWidgetLabelFromUrl(
+			installation.installedDomain,
+		) ||
+		websiteBrandingService.extractWidgetLabelFromUrl(
+			widgetKey.allowed_domains?.[0],
+		) ||
+		websiteBrandingService.extractWidgetLabelFromUrl(
+			widgetKey.company_website,
+		);
+	const responseWidgetName =
+		isGenericWidgetName && derivedWidgetName
+			? derivedWidgetName
+			: widgetKey.widget_name;
 
 	return {
 		widgetKey: widgetKey.widget_key,
-		widgetName: widgetKey.widget_name,
+		widgetName: responseWidgetName,
 		isActive: widgetKey.is_active,
 		allowedDomains:
 			widgetKey.allowed_domains || [],
@@ -523,6 +553,10 @@ export const webhookChat = async (
 				await usageTrackingService.getUserUsage(
 					userId,
 				);
+			void usageTrackingService.notifyConversationLimitReachedIfNeeded(
+				userId,
+				currentUsage,
+			);
 
 			logger.warn(
 				"Widget user exceeded conversation limit",
@@ -563,6 +597,37 @@ export const webhookChat = async (
 			)
 			.catch(() => {});
 
+		const queueLeadExtraction = (
+			targetSessionId: string,
+		) => {
+			void (async () => {
+				try {
+					const session =
+						await chatService.getSession(
+							targetSessionId,
+						);
+					if (
+						session &&
+						session.messages.length >= 2
+					) {
+						await leadService.extractAndUpsertLead(
+							userId,
+							targetSessionId,
+							widget?.id ?? 0,
+							session.messages,
+							{
+								ipAddress: req.ip,
+								sourceUrl: referer,
+							},
+							usage!.planType,
+						);
+					}
+				} catch {
+					// Non-critical side effects
+				}
+			})();
+		};
+
 		if (streamRequested) {
 			res.status(200);
 			res.setHeader(
@@ -595,6 +660,23 @@ export const webhookChat = async (
 				  >
 				| undefined;
 			try {
+				const appointmentResult =
+					await chatService.handleAppointmentLeadCapture(
+						userId,
+						message,
+						{
+							sessionId,
+							language: resolvedLanguage,
+							onToken: (token) =>
+								writeEvent({
+									type: "token",
+									token,
+								}),
+						},
+					);
+				if (appointmentResult) {
+					result = appointmentResult;
+				} else {
 				result = await chatService.chatStream(
 					userId,
 					message,
@@ -604,10 +686,11 @@ export const webhookChat = async (
 							writeEvent({
 								type: "token",
 								token,
-							}),
+						}),
 					},
 					resolvedLanguage,
 				);
+				}
 				await chatService.attachConversationContext(
 					result.sessionId,
 					userId,
@@ -644,45 +727,29 @@ export const webhookChat = async (
 				res.end();
 
 				if (result) {
-					void (async () => {
-						try {
-							const session =
-								await chatService.getSession(
-									result!.sessionId,
-								);
-							if (
-								session &&
-								session.messages.length >= 2
-							) {
-								await leadService.extractAndUpsertLead(
-									userId,
-									result!.sessionId,
-									widget?.id ?? 0,
-									session.messages,
-									{
-										ipAddress:
-											req.ip,
-										sourceUrl:
-											referer,
-									},
-									usage!.planType,
-								);
-							}
-						} catch {
-							// Non-critical side effects
-						}
-					})();
+					queueLeadExtraction(
+						result.sessionId,
+					);
 				}
 			}
 			return;
 		}
 
-		const result = await chatService.chat(
-			userId,
-			message,
-			sessionId,
-			resolvedLanguage,
-		);
+		const result =
+			(await chatService.handleAppointmentLeadCapture(
+				userId,
+				message,
+				{
+					sessionId,
+					language: resolvedLanguage,
+				},
+			)) ??
+			(await chatService.chat(
+				userId,
+				message,
+				sessionId,
+				resolvedLanguage,
+			));
 		await chatService.attachConversationContext(
 			result.sessionId,
 			userId,
@@ -694,32 +761,7 @@ export const webhookChat = async (
 		);
 
 		// Queue non-critical writes out of request path
-		void (async () => {
-			try {
-				const session =
-					await chatService.getSession(
-						result.sessionId,
-					);
-				if (
-					session &&
-					session.messages.length >= 2
-				) {
-					await leadService.extractAndUpsertLead(
-						userId,
-						result.sessionId,
-						widget?.id ?? 0,
-						session.messages,
-						{
-							ipAddress: req.ip,
-							sourceUrl: referer,
-						},
-						usage!.planType,
-					);
-				}
-			} catch {
-				// Non-critical side effects
-			}
-		})();
+		queueLeadExtraction(result.sessionId);
 
 		// usage came from checkAndTrackConversation — no extra DB query needed
 		res.status(200).json({
@@ -858,6 +900,8 @@ export const generateEmbedScript = async (
 			// Layout / behavior
 			floatingType:              "launcher-type",
 			autoOpen:                  "auto-open",
+			showQuickOptions:          "show-quick-options",
+			showIntroScreen:           "show-intro-screen",
 			// Language
 			defaultLanguage:           "default-language",
 		};
@@ -1050,6 +1094,8 @@ function generateEmbedCode(
 			"intro-secondary-button-background-color",
 		floatingType:              "launcher-type",
 		autoOpen:                  "auto-open",
+		showQuickOptions:          "show-quick-options",
+		showIntroScreen:           "show-intro-screen",
 		defaultLanguage:           "default-language",
 	};
 

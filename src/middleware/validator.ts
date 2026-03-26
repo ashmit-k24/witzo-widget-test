@@ -14,6 +14,7 @@ import {
 	CHAT_SUPPORTED_LANGUAGE_CODES,
 	SYSTEM_MESSAGE_MAX_LENGTH,
 } from "../constants";
+import { SCRAPER_PAGE_LIMIT } from "../config/planConfig";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
@@ -81,6 +82,27 @@ export const validationRules: Record<
 		body("password")
 			.notEmpty()
 			.withMessage("Password is required"),
+	],
+
+	forgotPassword: [
+		body("email")
+			.trim()
+			.isEmail()
+			.withMessage("Valid email is required")
+			.normalizeEmail()
+			.toLowerCase(),
+	],
+
+	resetPassword: [
+		body("token")
+			.trim()
+			.matches(/^[a-f0-9]{64}$/i)
+			.withMessage("token must be a valid reset token"),
+		body("password")
+			.isString()
+			.withMessage("password is required")
+			.isLength({ min: 8, max: 256 })
+			.withMessage("password must be 8-256 characters"),
 	],
 
 	verifyGoogleCode: [
@@ -161,6 +183,20 @@ export const validationRules: Record<
 			.withMessage("company_website must be a valid URL"),
 	],
 
+	changePassword: [
+		body("currentPassword")
+			.optional({ nullable: true })
+			.isString()
+			.withMessage("currentPassword must be a string")
+			.isLength({ min: 0, max: 256 })
+			.withMessage("currentPassword must be 0-256 characters"),
+		body("newPassword")
+			.isString()
+			.withMessage("newPassword is required")
+			.isLength({ min: 8, max: 256 })
+			.withMessage("newPassword must be 8-256 characters"),
+	],
+
 	updateOnboarding: [
 		body("step")
 			.isInt({ min: 1, max: 4 })
@@ -185,6 +221,16 @@ export const validationRules: Record<
 			.withMessage(
 				"completeOnboarding must be boolean",
 			),
+		body("knowledgeBoundary")
+			.optional()
+			.isIn([
+				"workspace_only",
+				"workspace_prefer",
+				"general_allowed",
+			])
+			.withMessage(
+				"knowledgeBoundary must be one of workspace_only, workspace_prefer, or general_allowed",
+			),
 	],
 
 	systemMessageDefaultUpdate: [
@@ -193,6 +239,16 @@ export const validationRules: Record<
 			.isBoolean()
 			.withMessage(
 				"completeOnboarding must be boolean",
+			),
+		body("knowledgeBoundary")
+			.optional()
+			.isIn([
+				"workspace_only",
+				"workspace_prefer",
+				"general_allowed",
+			])
+			.withMessage(
+				"knowledgeBoundary must be one of workspace_only, workspace_prefer, or general_allowed",
 			),
 	],
 
@@ -219,8 +275,8 @@ export const validationRules: Record<
 			.withMessage("maxDepth must be between 0 and 10"),
 		body("maxPages")
 			.optional({ values: "falsy" })
-			.isInt({ min: 1, max: 300 })
-			.withMessage("maxPages must be between 1 and 300"),
+			.isInt({ min: 1, max: SCRAPER_PAGE_LIMIT })
+			.withMessage(`maxPages must be between 1 and ${SCRAPER_PAGE_LIMIT}`),
 	],
 
 	deleteByUrl: [
@@ -478,45 +534,6 @@ export const validationRules: Record<
 			}),
 	],
 
-	paymentVerify: [
-		body("razorpay_subscription_id")
-			.optional({ values: "falsy" })
-			.isString()
-			.isLength({ min: 3, max: 255 })
-			.withMessage(
-				"razorpay_subscription_id must be valid",
-			),
-		body("razorpay_order_id")
-			.optional({ values: "falsy" })
-			.isString()
-			.isLength({ min: 3, max: 255 })
-			.withMessage(
-				"razorpay_order_id must be valid",
-			),
-		body("razorpay_payment_id")
-			.isString()
-			.isLength({ min: 3, max: 255 })
-			.withMessage(
-				"razorpay_payment_id is required",
-			),
-		body("razorpay_signature")
-			.isString()
-			.isLength({ min: 10, max: 512 })
-			.withMessage("razorpay_signature is required"),
-		body()
-			.custom((payload) => {
-				if (
-					!payload?.razorpay_subscription_id &&
-					!payload?.razorpay_order_id
-				) {
-					throw new Error(
-						"Either razorpay_subscription_id or razorpay_order_id is required",
-					);
-				}
-				return true;
-			}),
-	],
-
 	subscriptionCancel: [
 		body("cancelAtCycleEnd")
 			.optional()
@@ -524,6 +541,31 @@ export const validationRules: Record<
 			.withMessage(
 				"cancelAtCycleEnd must be boolean",
 			),
+	],
+
+	subscriptionUpgrade: [
+		body("planId")
+			.optional()
+			.isInt({ min: 1 })
+			.withMessage("planId must be a positive integer"),
+		body("planName")
+			.optional()
+			.isString()
+			.isLength({ min: 2, max: 50 })
+			.withMessage("planName must be 2-50 characters"),
+		body("billingCycle")
+			.isIn(["monthly", "yearly"])
+			.withMessage(
+				'billingCycle must be either "monthly" or "yearly"',
+			),
+		body().custom((payload) => {
+			if (!payload?.planId && !payload?.planName) {
+				throw new Error(
+					"Either planId or planName is required",
+				);
+			}
+			return true;
+		}),
 	],
 
 	adminPlanIdParam: [
@@ -547,46 +589,20 @@ export const validationRules: Record<
 			.withMessage(
 				"yearlyPrice must be a non-negative integer",
 			),
-		body("razorpayMonthlyPlanId")
+		body("paddleMonthlyPriceId")
 			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ max: 255 })
 			.withMessage(
-				"razorpayMonthlyPlanId must be <= 255 characters",
+				"paddleMonthlyPriceId must be <= 255 characters",
 			),
-		body("razorpayYearlyPlanId")
+		body("paddleYearlyPriceId")
 			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ max: 255 })
 			.withMessage(
-				"razorpayYearlyPlanId must be <= 255 characters",
+				"paddleYearlyPriceId must be <= 255 characters",
 			),
-		body("websitePagesLimit")
-			.optional({ nullable: true })
-			.custom((value) => {
-				if (
-					value === null ||
-					value === undefined ||
-					value === ""
-				) {
-					return true;
-				}
-
-				const normalized =
-					typeof value === "number"
-						? value
-						: Number(value);
-				if (
-					!Number.isInteger(normalized) ||
-					normalized < 1
-				) {
-					throw new Error(
-						"websitePagesLimit must be a positive integer or empty for unlimited",
-					);
-				}
-
-				return true;
-			}),
 		body("isActive")
 			.optional()
 			.isBoolean()

@@ -235,6 +235,10 @@ export const config: EnvConfig = {
 		"RATE_LIMIT_MAX_REQUESTS",
 		1000,
 	),
+	RATE_LIMIT_TRUST_PROXY_HOPS: getEnvNumber(
+		"RATE_LIMIT_TRUST_PROXY_HOPS",
+		1,
+	),
 
 	// Scraper Configuration
 	SCRAPER_CONCURRENCY: getEnvNumber(
@@ -298,17 +302,24 @@ export const config: EnvConfig = {
 		"OPENAI_MODEL",
 		"text-embedding-3-small",
 	),
-	RAZORPAY_KEY_ID: getEnvString(
-		"RAZORPAY_KEY_ID",
+	PADDLE_API_KEY: getEnvString(
+		"PADDLE_API_KEY",
 		"",
 	),
-	RAZORPAY_KEY_SECRET: getEnvString(
-		"RAZORPAY_KEY_SECRET",
+	PADDLE_CLIENT_TOKEN: getEnvStringFromKeys(
+		[
+			"PADDLE_CLIENT_TOKEN",
+			"NEXT_PUBLIC_PADDLE_CLIENT_TOKEN",
+		],
 		"",
 	),
-	RAZORPAY_WEBHOOK_SECRET: getEnvString(
-		"RAZORPAY_WEBHOOK_SECRET",
+	PADDLE_WEBHOOK_SECRET: getEnvString(
+		"PADDLE_WEBHOOK_SECRET",
 		"",
+	),
+	PADDLE_ENVIRONMENT: getEnvString(
+		"PADDLE_ENVIRONMENT",
+		"sandbox",
 	),
 	LLM_PROMPT_COST_PER_1K_USD: getEnvNumber(
 		"LLM_PROMPT_COST_PER_1K_USD",
@@ -488,6 +499,21 @@ export const config: EnvConfig = {
 
 	// Email verification
 	EMAIL_LIST_VERIFY_API_KEY: getOptionalEnvString("EMAIL_LIST_VERIFY_API_KEY"),
+
+	// Firecrawl (primary scraper)
+	FIRECRAWL_API_KEY: getOptionalEnvString("FIRECRAWL_API_KEY"),
+	FIRECRAWL_API_URL: getOptionalEnvString("FIRECRAWL_API_URL"),
+	SCRAPER_RENDER_SERVICE_URL: getOptionalEnvString("SCRAPER_RENDER_SERVICE_URL"),
+	SCRAPER_RENDER_SERVICE_TOKEN: getOptionalEnvString("SCRAPER_RENDER_SERVICE_TOKEN"),
+	SCRAPER_RENDER_SERVICE_MODE: getOptionalEnvString("SCRAPER_RENDER_SERVICE_MODE"),
+
+	// Cohere reranking
+	COHERE_API_KEY: getOptionalEnvString("COHERE_API_KEY"),
+
+	// RAG pipeline settings
+	PINECONE_HYBRID: getEnvBoolean("PINECONE_HYBRID", false),
+	HYPE_QUESTIONS_PER_CHUNK: getEnvNumber("HYPE_QUESTIONS_PER_CHUNK", 0),
+	KNOWLEDGE_BOUNDARY: getEnvString("KNOWLEDGE_BOUNDARY", "workspace_only"),
 };
 
 export default config;

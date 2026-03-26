@@ -14,6 +14,7 @@ import {
 	WIDGET_ANALYTICS_BUFFER_KEY,
 	WIDGET_KEY_CACHE_TTL_SECONDS,
 } from "../constants";
+import websiteBrandingService from "./websiteBrandingService";
 import logger from "../utils/logger";
 
 export interface WidgetKey {
@@ -78,6 +79,79 @@ export interface WidgetInstallationStatus {
 class WidgetService {
 	private readonly originTokenTtlMs =
 		12 * 60 * 60 * 1000;
+
+	private isGenericWidgetName(
+		value?: string | null,
+	): boolean {
+		const normalized = String(value || "")
+			.trim()
+			.toLowerCase();
+		return (
+			!normalized ||
+			normalized === "my chat widget" ||
+			normalized === "my-chat-widget" ||
+			normalized === "my chatbot" ||
+			normalized === "my-chatbot" ||
+			normalized === "this business" ||
+			normalized === "this-business" ||
+			normalized === "website assistant" ||
+			normalized === "website-assistant"
+		);
+	}
+
+	private deriveWidgetLabelFromDomains(
+		domains?: string[] | null,
+	): string | null {
+		if (!domains || domains.length === 0) {
+			return null;
+		}
+
+		for (const domain of domains) {
+			const label =
+				websiteBrandingService.extractWidgetLabelFromUrl(
+					domain,
+				);
+			if (label) {
+				return label;
+			}
+		}
+
+		return null;
+	}
+
+	private async resolveWidgetName(
+		userId: string,
+		requestedName?: string | null,
+		allowedDomains?: string[] | null,
+	): Promise<string> {
+		const trimmedRequested = String(
+			requestedName || "",
+		).trim();
+		if (
+			trimmedRequested &&
+			!this.isGenericWidgetName(trimmedRequested)
+		) {
+			return trimmedRequested;
+		}
+
+		const fromDomains =
+			this.deriveWidgetLabelFromDomains(
+				allowedDomains,
+			);
+		if (fromDomains) {
+			return fromDomains;
+		}
+
+		const fromWebsite =
+			await websiteBrandingService.resolveUserWidgetLabel(
+				userId,
+			);
+		if (fromWebsite) {
+			return fromWebsite;
+		}
+
+		return trimmedRequested || "website-assistant";
+	}
 
 	/**
 	 * Generate a unique widget key
@@ -316,6 +390,12 @@ class WidgetService {
 				this.normalizeAllowedDomains(
 					allowedDomains,
 				);
+			const resolvedWidgetName =
+				await this.resolveWidgetName(
+					userId,
+					widgetName,
+					effectiveAllowedDomains,
+				);
 
 			const result = await pool.query(
 				`INSERT INTO widget_keys
@@ -325,7 +405,7 @@ class WidgetService {
 				[
 					userId,
 					widgetKey,
-					widgetName,
+					resolvedWidgetName,
 					effectiveAllowedDomains,
 					JSON.stringify(widgetConfig),
 				],
@@ -577,12 +657,39 @@ class WidgetService {
 			const setClauses: string[] = [];
 			const values: any[] = [];
 			let paramIndex = 1;
+			const nextAllowedDomains =
+				updates.allowedDomains !== undefined
+					? this.normalizeAllowedDomains(
+							updates.allowedDomains,
+					  )
+					: currentWidget.allowed_domains;
 
 			if (updates.widgetName !== undefined) {
+				const resolvedWidgetName =
+					await this.resolveWidgetName(
+						userId,
+						updates.widgetName,
+						nextAllowedDomains,
+					);
 				setClauses.push(
 					`widget_name = $${paramIndex++}`,
 				);
-				values.push(updates.widgetName);
+				values.push(resolvedWidgetName);
+			} else if (
+				this.isGenericWidgetName(
+					currentWidget.widget_name,
+				)
+			) {
+				const resolvedWidgetName =
+					await this.resolveWidgetName(
+						userId,
+						currentWidget.widget_name,
+						nextAllowedDomains,
+					);
+				setClauses.push(
+					`widget_name = $${paramIndex++}`,
+				);
+				values.push(resolvedWidgetName);
 			}
 
 			if (updates.isActive !== undefined) {
@@ -593,14 +700,10 @@ class WidgetService {
 			}
 
 			if (updates.allowedDomains !== undefined) {
-				const effectiveAllowedDomains =
-					this.normalizeAllowedDomains(
-						updates.allowedDomains,
-					);
 				setClauses.push(
 					`allowed_domains = $${paramIndex++}`,
 				);
-				values.push(effectiveAllowedDomains);
+				values.push(nextAllowedDomains);
 			}
 
 			if (updates.widgetConfig !== undefined) {

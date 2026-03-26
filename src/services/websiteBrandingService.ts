@@ -12,24 +12,9 @@ type UserBrandRow = {
 };
 
 class WebsiteBrandingService {
-	private toDisplayBrandName(raw: string): string {
-		const normalized = raw
-			.replace(/[-_]+/g, " ")
-			.replace(/\s+/g, " ")
-			.trim();
-		if (!normalized) return "";
-		return normalized
-			.split(" ")
-			.map((part) =>
-				part.length > 1
-					? part.charAt(0).toUpperCase() +
-					  part.slice(1)
-					: part.toUpperCase(),
-			)
-			.join(" ");
-	}
-
-	extractBrandFromUrl(url?: string | null): string | null {
+	private extractRootLabel(
+		url?: string | null,
+	): string | null {
 		if (!url) return null;
 		const raw = url.trim();
 		if (!raw) return null;
@@ -69,11 +54,40 @@ class WebsiteBrandingService {
 				root = parts[parts.length - 3];
 			}
 
-			const display = this.toDisplayBrandName(root);
-			return display || null;
+			return root.trim().toLowerCase() || null;
 		} catch {
 			return null;
 		}
+	}
+
+	private toDisplayBrandName(raw: string): string {
+		const normalized = raw
+			.replace(/[-_]+/g, " ")
+			.replace(/\s+/g, " ")
+			.trim();
+		if (!normalized) return "";
+		return normalized
+			.split(" ")
+			.map((part) =>
+				part.length > 1
+					? part.charAt(0).toUpperCase() +
+					  part.slice(1)
+					: part.toUpperCase(),
+			)
+			.join(" ");
+	}
+
+	extractBrandFromUrl(url?: string | null): string | null {
+		const root = this.extractRootLabel(url);
+		if (!root) return null;
+		const display = this.toDisplayBrandName(root);
+		return display || null;
+	}
+
+	extractWidgetLabelFromUrl(
+		url?: string | null,
+	): string | null {
+		return this.extractRootLabel(url);
 	}
 
 	private async resolveFromSources(
@@ -156,6 +170,45 @@ class WebsiteBrandingService {
 		}
 
 		return "This business";
+	}
+
+	async resolveUserWidgetLabel(
+		userId: string,
+	): Promise<string> {
+		try {
+			const fromSources =
+				await this.resolveFromSources(userId);
+			if (fromSources) {
+				return fromSources
+					.replace(/\s+/g, "")
+					.toLowerCase();
+			}
+
+			const userResult = await pool.query<UserBrandRow>(
+				`SELECT company_website
+				 FROM users
+				 WHERE id = $1
+				 LIMIT 1`,
+				[userId],
+			);
+			const fromWebsite =
+				this.extractWidgetLabelFromUrl(
+					userResult.rows[0]?.company_website,
+				);
+			if (fromWebsite) {
+				return fromWebsite;
+			}
+		} catch (error) {
+			logger.warn(
+				"Unable to resolve widget label",
+				{
+					error,
+					userId,
+				},
+			);
+		}
+
+		return "this-business";
 	}
 }
 

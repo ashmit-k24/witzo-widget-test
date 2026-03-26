@@ -187,6 +187,48 @@ const migrations: Migration[] = [
 			"Add password_hash column to users for password-based authentication",
 		file: "20260317_028_user_password_hash.sql",
 	},
+	{
+		id: "20260323_029_user_knowledge_boundary",
+		description:
+			"Add per-user knowledge boundary setting for widget/system prompt behavior",
+		file: "20260323_029_user_knowledge_boundary.sql",
+	},
+	{
+		id: "20260324_030_paddle_billing",
+		description:
+			"Replace Razorpay billing columns with Paddle equivalents (price IDs, subscription ID, customer ID)",
+		file: "20260324_030_paddle_billing.sql",
+	},
+	{
+		id: "20260325_031_user_password_reset",
+		description:
+			"Add password reset token storage fields to users table",
+		file: "20260325_031_user_password_reset.sql",
+	},
+	{
+		id: "20260326_032_password_reset_compatibility",
+		description:
+			"Backfill legacy password reset tokens into users table and remove obsolete table",
+		file: "20260326_032_password_reset_compatibility.sql",
+	},
+	{
+		id: "20260326_033_seed_default_plans",
+		description:
+			"Ensure default free, basic, standard, and enterprise plans exist",
+		file: "20260326_033_seed_default_plans.sql",
+	},
+	{
+		id: "20260326_034_billing_amount_minor_columns",
+		description:
+			"Add missing amount_minor columns for Paddle subscriptions and payments",
+		file: "20260326_034_billing_amount_minor_columns.sql",
+	},
+	{
+		id: "20260326_035_plan_limit_notification_tracking",
+		description:
+			"Track plan-limit notification emails to avoid duplicate sends within a billing cycle",
+		file: "20260326_035_plan_limit_notification_tracking.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

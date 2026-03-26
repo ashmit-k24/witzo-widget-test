@@ -6,6 +6,7 @@ import { PlanType } from "../config/planConfig";
 import { config } from "../config/env";
 import {
 	CleanupResult,
+	ChangePasswordBody,
 	LogoutResponse,
 	RefreshTokenResponse,
 	RequestCodeResponse,
@@ -15,6 +16,10 @@ import {
 	VerificationCode,
 	VerifyCodeResponse,
 } from "../types";
+import {
+	isStrongUserPassword,
+	USER_PASSWORD_POLICY_MESSAGE,
+} from "../utils/passwordPolicy";
 import logger from "../utils/logger";
 import tokenUtil from "../utils/token";
 import uuidUtil from "../utils/uuid";
@@ -53,7 +58,7 @@ class AuthService {
 	 * Convert database user to API response format
 	 */
 	private formatUserResponse(
-		user: User,
+		user: User & { password_hash?: string | null },
 		sessionId?: number,
 	): UserResponse {
 		const requiresProfileCompletion =
@@ -65,6 +70,7 @@ class AuthService {
 			id: user.id,
 			email: user.email,
 			isVerified: user.is_verified,
+			hasPassword: Boolean(user.password_hash),
 			plan_type: user.plan_type,
 			sessionId,
 			loginCount: user.login_count,
@@ -88,6 +94,8 @@ class AuthService {
 			systemMessageConfigured:
 				user.system_message_configured ??
 				user.onboarding_completed,
+			knowledgeBoundary:
+				user.knowledge_boundary ?? "workspace_only",
 		};
 	}
 
@@ -976,6 +984,177 @@ class AuthService {
 		return this.formatUserResponse(result.rows[0]);
 	}
 
+	async updatePassword(
+		userId: string,
+		payload: ChangePasswordBody,
+		currentSessionId?: number,
+	): Promise<{
+		success: boolean;
+		message: string;
+		hasPassword: boolean;
+	}> {
+		const client: PoolClient = await pool.connect();
+
+		try {
+			await client.query("BEGIN");
+
+			const userResult = await client.query<
+				User & { password_hash: string | null }
+			>(
+				`SELECT *,
+				        password_hash
+				   FROM users
+				  WHERE id = $1
+				  LIMIT 1`,
+				[userId],
+			);
+
+			const user = userResult.rows[0];
+			if (!user) {
+				throw this.createHttpError("User not found", 404);
+			}
+
+			const nextPassword = String(
+				payload.newPassword || "",
+			).trim();
+			if (!isStrongUserPassword(nextPassword)) {
+				throw this.createHttpError(
+					USER_PASSWORD_POLICY_MESSAGE,
+					400,
+				);
+			}
+
+			const currentPassword = String(
+				payload.currentPassword || "",
+			);
+			const existingPasswordHash =
+				user.password_hash;
+
+			if (existingPasswordHash) {
+				if (!currentPassword.trim()) {
+					throw this.createHttpError(
+						"Current password is required.",
+						400,
+					);
+				}
+
+				const isCurrentPasswordValid =
+					await this.verifyPassword(
+						currentPassword,
+						existingPasswordHash,
+					);
+				if (!isCurrentPasswordValid) {
+					throw this.createHttpError(
+						"Current password is incorrect.",
+						400,
+					);
+				}
+
+				const isSamePassword =
+					await this.verifyPassword(
+						nextPassword,
+						existingPasswordHash,
+					);
+				if (isSamePassword) {
+					throw this.createHttpError(
+						"New password must be different from your current password.",
+						400,
+					);
+				}
+			}
+
+			const nextPasswordHash =
+				await this.hashPassword(nextPassword);
+
+			await client.query(
+				`UPDATE users
+				    SET password_hash = $2,
+				        updated_at = CURRENT_TIMESTAMP
+				  WHERE id = $1`,
+				[userId, nextPasswordHash],
+			);
+
+			if (typeof currentSessionId === "number") {
+				await client.query(
+					`UPDATE sessions
+					    SET is_revoked = TRUE,
+					        updated_at = CURRENT_TIMESTAMP
+					  WHERE user_id = $1
+					    AND is_revoked = FALSE
+					    AND id <> $2`,
+					[userId, currentSessionId],
+				);
+			} else {
+				await client.query(
+					`UPDATE sessions
+					    SET is_revoked = TRUE,
+					        updated_at = CURRENT_TIMESTAMP
+					  WHERE user_id = $1
+					    AND is_revoked = FALSE`,
+					[userId],
+				);
+			}
+
+			await client.query("COMMIT");
+
+			const isFirstPassword =
+				!existingPasswordHash;
+			void emailService
+				.sendPasswordChangedEmail(
+					user.email,
+					new Date(),
+				)
+				.catch((error) => {
+					logger.warn(
+						"Failed to send password changed notification after settings update",
+						{
+							userId,
+							email: user.email,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				});
+			logger.info("User password updated from settings", {
+				userId,
+				isFirstPassword,
+			});
+
+			return {
+				success: true,
+				message: isFirstPassword
+					? "Password set successfully."
+					: "Password updated successfully.",
+				hasPassword: true,
+			};
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// ignore rollback errors
+			}
+
+			const err = error as Error & {
+				statusCode?: number;
+			};
+			logger.error("Error updating password from settings", {
+				userId,
+				error: err.message,
+				stack: err.stack,
+			});
+			throw err.statusCode
+				? err
+				: this.createHttpError(
+						"Failed to update password.",
+						500,
+				  );
+		} finally {
+			client.release();
+		}
+	}
+
 	async updateUserProfile(
 		userId: string,
 		payload: {
@@ -1122,6 +1301,8 @@ class AuthService {
 	private readonly PW_ALGORITHM = "pbkdf2_sha512";
 	private readonly PW_ITERATIONS = 210_000;
 	private readonly PW_KEY_LENGTH = 64;
+	private readonly PASSWORD_RESET_EXPIRY_MINUTES = 30;
+	private readonly PASSWORD_RESET_REQUEST_COOLDOWN_MINUTES = 2;
 
 	private async hashPassword(password: string): Promise<string> {
 		const salt = crypto.randomBytes(16).toString("hex");
@@ -1250,6 +1431,246 @@ class AuthService {
 
 	// ── Password-based register ───────────────────────────────────────────────
 
+	async requestPasswordReset(
+		email: string,
+	): Promise<{ success: boolean; message: string }> {
+		const normalizedEmail = email.toLowerCase().trim();
+		const client: PoolClient = await pool.connect();
+		const genericResponse = {
+			success: true,
+			message:
+				"If that email is registered, a password reset link has been sent.",
+		};
+
+		try {
+			await client.query("BEGIN");
+
+			const userResult = await client.query<
+				User & {
+					password_reset_requested_at: Date | null;
+				}
+			>(
+				`SELECT *,
+				        password_reset_requested_at
+				 FROM users
+				 WHERE email = $1
+				 LIMIT 1`,
+				[normalizedEmail],
+			);
+
+			const user = userResult.rows[0];
+			if (!user) {
+				await client.query("COMMIT");
+				return genericResponse;
+			}
+
+			const requestedAt = user.password_reset_requested_at
+				? new Date(user.password_reset_requested_at)
+				: null;
+			if (
+				requestedAt &&
+				requestedAt.getTime() >
+					Date.now() -
+						this.PASSWORD_RESET_REQUEST_COOLDOWN_MINUTES *
+							60 *
+							1000
+			) {
+				await client.query("COMMIT");
+				return genericResponse;
+			}
+
+			const resetToken = tokenUtil.generateSecureToken();
+			const hashedResetToken =
+				tokenUtil.hashToken(resetToken);
+			const expiresAt = new Date(
+				Date.now() +
+					this.PASSWORD_RESET_EXPIRY_MINUTES *
+						60 *
+						1000,
+			);
+			const resetUrl = `${config.FRONTEND_URL.replace(/\/+$/, "")}/reset-password?token=${resetToken}`;
+
+			await client.query(
+				`UPDATE users
+				 SET password_reset_token_hash = $2,
+				     password_reset_token_expires_at = $3,
+				     password_reset_requested_at = CURRENT_TIMESTAMP,
+				     updated_at = CURRENT_TIMESTAMP
+				 WHERE id = $1`,
+				[user.id, hashedResetToken, expiresAt],
+			);
+
+			await emailService.sendPasswordResetEmail(
+				normalizedEmail,
+				resetUrl,
+				this.PASSWORD_RESET_EXPIRY_MINUTES,
+			);
+
+			await client.query("COMMIT");
+
+			logger.info("Password reset link requested", {
+				email: normalizedEmail,
+				userId: user.id,
+			});
+
+			return genericResponse;
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// ignore
+			}
+			const err = error as Error;
+			logger.error("Error requesting password reset", {
+				email: normalizedEmail,
+				error: err.message,
+				stack: err.stack,
+			});
+			if ("statusCode" in err) {
+				throw err;
+			}
+			throw this.createHttpError(
+				"Failed to start password reset.",
+				500,
+			);
+		} finally {
+			client.release();
+		}
+	}
+
+	async resetPassword(
+		token: string,
+		newPassword: string,
+	): Promise<{ success: boolean; message: string }> {
+		const client: PoolClient = await pool.connect();
+
+		try {
+			await client.query("BEGIN");
+
+			const hashedToken = tokenUtil.hashToken(token);
+			const userResult = await client.query<
+				User & {
+					password_hash: string | null;
+					password_reset_token_hash: string | null;
+					password_reset_token_expires_at: Date | null;
+				}
+			>(
+				`SELECT *,
+				        password_hash,
+				        password_reset_token_hash,
+				        password_reset_token_expires_at
+				 FROM users
+				 WHERE password_reset_token_hash = $1
+				 LIMIT 1`,
+				[hashedToken],
+			);
+
+			const user = userResult.rows[0];
+			if (!user) {
+				throw this.createHttpError(
+					"This reset link is invalid or has expired.",
+					400,
+				);
+			}
+
+			const expiresAt =
+				user.password_reset_token_expires_at
+					? new Date(
+							user.password_reset_token_expires_at,
+					  )
+					: null;
+			if (!expiresAt || expiresAt.getTime() < Date.now()) {
+				await client.query(
+					`UPDATE users
+					 SET password_reset_token_hash = NULL,
+					     password_reset_token_expires_at = NULL,
+					     updated_at = CURRENT_TIMESTAMP
+					 WHERE id = $1`,
+					[user.id],
+				);
+				throw this.createHttpError(
+					"This reset link is invalid or has expired.",
+					400,
+				);
+			}
+
+			const nextPasswordHash =
+				await this.hashPassword(newPassword);
+
+			await client.query(
+				`UPDATE users
+				 SET password_hash = $2,
+				     password_reset_token_hash = NULL,
+				     password_reset_token_expires_at = NULL,
+				     password_reset_requested_at = NULL,
+				     is_verified = TRUE,
+				     updated_at = CURRENT_TIMESTAMP
+				 WHERE id = $1`,
+				[user.id, nextPasswordHash],
+			);
+
+			await client.query(
+				`UPDATE sessions
+				 SET is_revoked = TRUE,
+				     updated_at = CURRENT_TIMESTAMP
+				 WHERE user_id = $1
+				   AND is_revoked = FALSE`,
+				[user.id],
+			);
+
+			await client.query("COMMIT");
+
+			void emailService
+				.sendPasswordChangedEmail(
+					user.email,
+					new Date(),
+				)
+				.catch((error) => {
+					logger.warn(
+						"Failed to send password changed notification after password reset",
+						{
+							userId: user.id,
+							email: user.email,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				});
+
+			logger.info("Password reset completed", {
+				userId: user.id,
+				email: user.email,
+			});
+
+			return {
+				success: true,
+				message:
+					"Your password has been reset successfully. Please log in with your new password.",
+			};
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// ignore
+			}
+			const err = error as Error;
+			logger.error("Error resetting password", {
+				error: err.message,
+				stack: err.stack,
+			});
+			if ("statusCode" in err) {
+				throw err;
+			}
+			throw this.createHttpError(
+				"Failed to reset password.",
+				500,
+			);
+		} finally {
+			client.release();
+		}
+	}
 	async registerWithPassword(
 		email: string,
 		password: string,
@@ -1269,16 +1690,55 @@ class AuthService {
 			await client.query("BEGIN");
 
 			// Check if email already registered
-			const existing = await client.query<User>(
-				"SELECT id, password_hash FROM users WHERE email = $1",
+			const existing = await client.query<
+				User & {
+					password_hash: string | null;
+				}
+			>(
+				"SELECT id, email, is_verified, password_hash FROM users WHERE email = $1",
 				[normalizedEmail],
 			);
 
 			if (existing.rows.length > 0) {
-				await client.query("ROLLBACK");
+				const existingUser = existing.rows[0];
+
+				if (existingUser.is_verified) {
+					await client.query("ROLLBACK");
+					return {
+						success: false,
+						message: "An account with this email already exists. Please log in.",
+					};
+				}
+
+				const passwordHash =
+					await this.hashPassword(password);
+
+				await client.query(
+					`UPDATE users
+         SET password_hash = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+					[existingUser.id, passwordHash],
+				);
+
+				await client.query("COMMIT");
+
+				logger.info(
+					"Resuming signup for existing unverified user",
+					{
+						email: normalizedEmail,
+						userId: existingUser.id,
+					},
+				);
+
+				await this.requestVerificationCode(
+					normalizedEmail,
+				);
+
 				return {
-					success: false,
-					message: "An account with this email already exists. Please log in.",
+					success: true,
+					message:
+						"Your account is pending verification. We've sent a new verification code to your email.",
 				};
 			}
 
@@ -1306,7 +1766,11 @@ class AuthService {
 				message: "Verification code sent to your email",
 			};
 		} catch (error) {
-			await client.query("ROLLBACK");
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// Transaction may already be closed in early-return branches.
+			}
 			const err = error as Error;
 			logger.error("Error in registerWithPassword", {
 				email,
@@ -1373,6 +1837,20 @@ class AuthService {
 				};
 			}
 
+			if (!user.is_verified) {
+				await client.query("ROLLBACK");
+
+				await this.requestVerificationCode(
+					normalizedEmail,
+				);
+
+				return {
+					success: false,
+					message:
+						"Your account is not verified yet. We've sent a new verification code to your email. Please complete verification first.",
+				};
+			}
+
 			// Update last_login + login_count
 			const updatedUserResult = await client.query<User>(
 				`UPDATE users
@@ -1409,7 +1887,11 @@ class AuthService {
 				user: this.formatUserResponse(updatedUser, sessionId),
 			};
 		} catch (error) {
-			await client.query("ROLLBACK");
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// Transaction may already be closed in early-return branches.
+			}
 			const err = error as Error;
 			logger.error("Error in loginWithPassword", {
 				email,
@@ -1473,3 +1955,4 @@ class AuthService {
 }
 
 export default new AuthService();
+

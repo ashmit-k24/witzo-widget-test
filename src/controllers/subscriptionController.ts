@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import {
-	CreateSubscriptionInput,
+	GetCheckoutInfoInput,
+	UpgradeSubscriptionInput,
 	subscriptionService,
-	VerifyPaymentInput,
 } from "../services/subscriptionService";
 import logger from "../utils/logger";
 
@@ -12,9 +12,8 @@ const getUserId = (req: Request): string | null =>
 const getHeaderValue = (
 	header: string | string[] | undefined,
 ): string => {
-	if (Array.isArray(header)) {
+	if (Array.isArray(header))
 		return header[0] ?? "";
-	}
 	return header ?? "";
 };
 
@@ -32,10 +31,9 @@ export const getPlans = async (
 
 		const plans =
 			await subscriptionService.listPlans(false);
-		res.status(200).json({
-			success: true,
-			data: plans,
-		});
+		res
+			.status(200)
+			.json({ success: true, data: plans });
 	} catch (error) {
 		const message =
 			error instanceof Error
@@ -44,15 +42,17 @@ export const getPlans = async (
 		logger.error("Failed to fetch plans", {
 			error: message,
 		});
-		res.status(500).json({
-			success: false,
-			message: "Failed to fetch plans",
-		});
+		res
+			.status(500)
+			.json({
+				success: false,
+				message: "Failed to fetch plans",
+			});
 	}
 };
 
-export const createSubscription = async (
-	req: Request<{}, {}, CreateSubscriptionInput>,
+export const getCheckoutInfo = async (
+	req: Request<{}, {}, GetCheckoutInfoInput>,
 	res: Response,
 ): Promise<void> => {
 	try {
@@ -66,66 +66,53 @@ export const createSubscription = async (
 		}
 
 		const response =
-			await subscriptionService.createSubscription(
+			await subscriptionService.getCheckoutInfo(
 				userId,
 				req.body,
+				req.user?.email ?? null,
 			);
-		res.status(200).json({
-			success: true,
-			data: response,
-		});
+		res
+			.status(200)
+			.json({ success: true, data: response });
 	} catch (error) {
 		const message =
 			error instanceof Error
 				? error.message
-				: "Failed to create subscription";
-		logger.error("Failed to create subscription", {
+				: "Failed to get checkout info";
+		logger.error("Failed to get checkout info", {
 			error: message,
 			userId: req.user?.id,
 		});
-		res.status(400).json({
-			success: false,
-			message,
-		});
+		res
+			.status(400)
+			.json({ success: false, message });
 	}
 };
 
-export const verifyPayment = async (
-	req: Request<{}, {}, VerifyPaymentInput>,
+export const getPaddleRuntimeConfig = async (
+	_req: Request,
 	res: Response,
 ): Promise<void> => {
 	try {
-		const userId = getUserId(req);
-		if (!userId) {
-			res.status(401).json({
-				success: false,
-				message: "Authentication required",
-			});
-			return;
-		}
-
 		const response =
-			await subscriptionService.verifyPayment(
-				userId,
-				req.body,
-			);
-		res.status(200).json({
-			success: true,
-			data: response,
-		});
+			subscriptionService.getPublicPaddleRuntimeConfig();
+		res
+			.status(200)
+			.json({ success: true, data: response });
 	} catch (error) {
 		const message =
 			error instanceof Error
 				? error.message
-				: "Failed to verify payment";
-		logger.error("Failed to verify payment", {
-			error: message,
-			userId: req.user?.id,
-		});
-		res.status(400).json({
-			success: false,
-			message,
-		});
+				: "Failed to get Paddle runtime config";
+		logger.error(
+			"Failed to get Paddle runtime config",
+			{
+				error: message,
+			},
+		);
+		res
+			.status(400)
+			.json({ success: false, message });
 	}
 };
 
@@ -155,23 +142,24 @@ export const cancelSubscription = async (
 						req.body.cancelAtCycleEnd,
 				},
 			);
-		res.status(200).json({
-			success: true,
-			data: response,
-		});
+		res
+			.status(200)
+			.json({ success: true, data: response });
 	} catch (error) {
 		const message =
 			error instanceof Error
 				? error.message
 				: "Failed to cancel subscription";
-		logger.error("Failed to cancel subscription", {
-			error: message,
-			userId: req.user?.id,
-		});
-		res.status(400).json({
-			success: false,
-			message,
-		});
+		logger.error(
+			"Failed to cancel subscription",
+			{
+				error: message,
+				userId: req.user?.id,
+			},
+		);
+		res
+			.status(400)
+			.json({ success: false, message });
 	}
 };
 
@@ -193,10 +181,9 @@ export const getCurrentSubscription = async (
 			await subscriptionService.getCurrentSubscription(
 				userId,
 			);
-		res.status(200).json({
-			success: true,
-			data: response,
-		});
+		res
+			.status(200)
+			.json({ success: true, data: response });
 	} catch (error) {
 		const message =
 			error instanceof Error
@@ -209,25 +196,34 @@ export const getCurrentSubscription = async (
 				userId: req.user?.id,
 			},
 		);
-		res.status(400).json({
-			success: false,
-			message,
-		});
+		res
+			.status(400)
+			.json({ success: false, message });
 	}
 };
 
-export const handleRazorpayWebhook = async (
+export const handlePaddleWebhook = async (
 	req: Request,
 	res: Response,
 ): Promise<void> => {
 	try {
+		logger.info("Received Paddle webhook", {
+			body: req.body,
+			headers: req.headers,
+		});
 		const signature = getHeaderValue(
-			req.headers["x-razorpay-signature"],
+			req.headers["paddle-signature"],
 		);
 		const rawBody =
 			(req as Request & { rawBody?: string })
 				.rawBody ??
 			JSON.stringify(req.body ?? {});
+
+		logger.debug("Paddle webhook debug", {
+			hasRawBody: !!(req as Request & { rawBody?: string }).rawBody,
+			rawBodyLength: rawBody.length,
+			signaturePresent: !!signature,
+		});
 
 		const result =
 			await subscriptionService.processWebhook(
@@ -235,21 +231,154 @@ export const handleRazorpayWebhook = async (
 				signature,
 			);
 
-		res.status(200).json({
-			success: true,
-			data: result,
-		});
+		res
+			.status(200)
+			.json({ success: true, data: result });
 	} catch (error) {
 		const message =
 			error instanceof Error
 				? error.message
 				: "Failed to process webhook";
-		logger.error("Razorpay webhook failed", {
+		logger.error("Paddle webhook failed", {
 			error: message,
 		});
-		res.status(400).json({
+		res
+			.status(400)
+			.json({ success: false, message });
+	}
+};
+
+export const getPaymentHistory = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = getUserId(req);
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
+		const payments = await subscriptionService.getPaymentHistory(userId);
+		res.status(200).json({ success: true, data: payments });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "Failed to fetch payment history";
+		logger.error("Failed to fetch payment history", { error: message });
+		res.status(500).json({ success: false, message });
+	}
+};
+
+export const downloadPaymentInvoice = async (
+	req: Request<{ transactionId: string }>,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = getUserId(req);
+		if (!userId) {
+			res
+				.status(401)
+				.json({
+					success: false,
+					message: "Authentication required",
+				});
+			return;
+		}
+
+		const invoiceUrl =
+			await subscriptionService.getPaymentInvoiceUrl(
+				userId,
+				req.params.transactionId,
+			);
+		res.redirect(invoiceUrl);
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Failed to download invoice";
+		logger.error("Failed to download invoice", {
+			error: message,
+			userId: req.user?.id,
+			transactionId: req.params.transactionId,
+		});
+		res.status(404).json({
 			success: false,
 			message,
 		});
+	}
+};
+
+export const getPaymentStatus = async (
+	req: Request<{ transactionId: string }>,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = getUserId(req);
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const paymentStatus =
+			await subscriptionService.getPaymentStatus(
+				userId,
+				req.params.transactionId,
+			);
+		res.status(200).json({
+			success: true,
+			data: paymentStatus,
+		});
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Failed to fetch payment status";
+		logger.error("Failed to fetch payment status", {
+			error: message,
+			userId: req.user?.id,
+			transactionId: req.params.transactionId,
+		});
+		res.status(404).json({
+			success: false,
+			message,
+		});
+	}
+};
+
+export const upgradeSubscription = async (
+	req: Request<{}, {}, UpgradeSubscriptionInput>,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = getUserId(req);
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const response =
+			await subscriptionService.upgradeSubscription(
+				userId,
+				req.body,
+			);
+		res
+			.status(200)
+			.json({ success: true, data: response });
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: "Failed to upgrade subscription";
+		logger.error("Failed to upgrade subscription", {
+			error: message,
+			userId: req.user?.id,
+		});
+		res
+			.status(400)
+			.json({ success: false, message });
 	}
 };

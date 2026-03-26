@@ -17,8 +17,11 @@ import googleAuthService, {
 } from "../services/googleAuthService";
 import sessionService from "../services/sessionService";
 import {
+	ChangePasswordBody,
+	ForgotPasswordBody,
 	LoginPasswordBody,
 	RegisterBody,
+	ResetPasswordBody,
 	RequestCodeBody,
 	UpdateProfileBody,
 	VerifyGoogleCodeBody,
@@ -519,6 +522,38 @@ export const updateProfile = async (
 };
 
 /**
+ * @route   PUT /api/auth/profile/password
+ * @desc    Set or change the current user's password
+ * @access  Protected
+ */
+export const updatePassword = async (
+	req: Request<{}, {}, ChangePasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const result = await authService.updatePassword(
+			userId,
+			req.body,
+			req.user?.sessionId,
+		);
+
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
  * @route   PUT /api/auth/onboarding
  * @desc    Mark an onboarding step as complete (step 4 auto-completes onboarding)
  * @access  Protected
@@ -1002,6 +1037,49 @@ export const register = async (
 	}
 };
 
+export const forgotPassword = async (
+	req: Request<{}, {}, ForgotPasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { email } = req.body;
+
+		logger.info("Forgot password requested", {
+			email,
+			ip: req.ip,
+			userAgent: req.get("user-agent"),
+		});
+
+		const result =
+			await authService.requestPasswordReset(email);
+
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+};
+
+export const resetPassword = async (
+	req: Request<{}, {}, ResetPasswordBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const { token, password } = req.body;
+
+		const result = await authService.resetPassword(
+			token,
+			password,
+		);
+
+		clearCookies(res);
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+};
+
 /**
  * @route   POST /api/auth/login-password
  * @desc    Log in with email + password
@@ -1035,9 +1113,15 @@ export const loginWithPassword = async (
 				expiresIn: result.expiresIn,
 			});
 		} else {
+			const verificationRequired =
+				typeof result.message === "string" &&
+				result.message
+					.toLowerCase()
+					.includes("not verified");
 			res.status(401).json({
 				success: false,
 				message: result.message,
+				verificationRequired,
 			});
 		}
 	} catch (error) {

@@ -39,11 +39,15 @@ import {
 	validate,
 	validationRules,
 } from "../middleware/validator";
+import { globalRateLimiter } from "../middleware/userRateLimiter";
 
 const router: Router = Router();
 
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
+
+// User-based rate limiter — runs after auth so it can key by userId, not just IP
+router.use(globalRateLimiter);
 
 /**
  * @route   GET /api/auth/csrf-token
@@ -61,9 +65,9 @@ router.get(
 	subscriptionController.getPlans,
 );
 
-router.post(
-	"/razorpay/webhook",
-	subscriptionController.handleRazorpayWebhook,
+router.get(
+	"/subscription/paddle-runtime",
+	subscriptionController.getPaddleRuntimeConfig,
 );
 
 /**
@@ -87,6 +91,24 @@ router.post(
 	validationRules.loginWithPassword,
 	validate,
 	authController.loginWithPassword,
+);
+
+router.post(
+	"/forgot-password",
+	verifyCsrfToken,
+	authLimiter,
+	validationRules.forgotPassword,
+	validate,
+	authController.forgotPassword,
+);
+
+router.post(
+	"/reset-password",
+	verifyCsrfToken,
+	verifyLimiter,
+	validationRules.resetPassword,
+	validate,
+	authController.resetPassword,
 );
 
 router.post(
@@ -163,6 +185,12 @@ router.get(
 	authController.getProfileStatus,
 );
 
+router.get(
+	"/settings",
+	authenticateToken,
+	authController.getProfileStatus,
+);
+
 router.put(
 	"/profile",
 	verifyCsrfToken,
@@ -172,6 +200,33 @@ router.put(
 	authController.updateProfile,
 );
 
+router.put(
+	"/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.updateProfile,
+	validate,
+	authController.updateProfile,
+);
+
+router.put(
+	"/profile/password",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.changePassword,
+	validate,
+	authController.updatePassword,
+);
+
+router.put(
+	"/settings/password",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.changePassword,
+	validate,
+	authController.updatePassword,
+);
+
 /**
  * @route   PUT /api/auth/onboarding
  * @desc    Mark an onboarding step as complete
@@ -179,7 +234,6 @@ router.put(
  */
 router.put(
 	"/onboarding",
-	verifyCsrfToken,
 	authenticateToken,
 	validationRules.updateOnboarding,
 	validate,
@@ -291,22 +345,31 @@ router.get(
 	subscriptionController.getCurrentSubscription,
 );
 
+router.get(
+	"/payments",
+	authenticateToken,
+	subscriptionController.getPaymentHistory,
+);
+
+router.get(
+	"/payments/:transactionId/status",
+	authenticateToken,
+	subscriptionController.getPaymentStatus,
+);
+
+router.get(
+	"/payments/:transactionId/invoice",
+	authenticateToken,
+	subscriptionController.downloadPaymentInvoice,
+);
+
 router.post(
-	"/subscription/create",
+	"/subscription/checkout-info",
 	verifyCsrfToken,
 	authenticateToken,
 	validationRules.subscriptionCreate,
 	validate,
-	subscriptionController.createSubscription,
-);
-
-router.post(
-	"/payment/verify",
-	verifyCsrfToken,
-	authenticateToken,
-	validationRules.paymentVerify,
-	validate,
-	subscriptionController.verifyPayment,
+	subscriptionController.getCheckoutInfo,
 );
 
 router.post(
@@ -316,6 +379,15 @@ router.post(
 	validationRules.subscriptionCancel,
 	validate,
 	subscriptionController.cancelSubscription,
+);
+
+router.post(
+	"/subscription/upgrade",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.subscriptionUpgrade,
+	validate,
+	subscriptionController.upgradeSubscription,
 );
 
 router.get(

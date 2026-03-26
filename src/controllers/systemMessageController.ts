@@ -58,6 +58,8 @@ export const saveCustomSystemMessage = async (
 				{
 					completeOnboarding:
 						req.body.completeOnboarding === true,
+					knowledgeBoundary:
+						req.body.knowledgeBoundary,
 				},
 			);
 		const user =
@@ -95,6 +97,8 @@ export const useDefaultSystemMessage = async (
 				{
 					completeOnboarding:
 						req.body.completeOnboarding === true,
+					knowledgeBoundary:
+						req.body.knowledgeBoundary,
 				},
 			);
 		const user =

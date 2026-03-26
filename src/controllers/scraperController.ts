@@ -1,31 +1,200 @@
 import { Request, Response } from "express";
 import {
 	coercePlanType,
+	SCRAPER_PAGE_LIMIT,
 } from "../config/planConfig";
-import { scraperQueue } from "../config/queue";
+import { chatService } from "../services/chatService";
 import { pineconeService } from "../services/pineconeService";
 import { scraperStatusService } from "../services/scraperStatusService";
 import { domainPolicyService } from "../services/domainPolicyService";
+import { runScrapeJob } from "../services/scrapeJobService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
-const SCRAPER_DEFAULT_MAX_PAGES = 300;
 const SCRAPER_MAX_DEPTH = 10;
-const SCRAPER_MAX_PAGES = 300;
+const SCRAPER_MAX_PAGES = SCRAPER_PAGE_LIMIT;
+type DeleteJobMode =
+	| "delete_source"
+	| "delete_page"
+	| "delete_all";
 
-const getScraperUpgradeMessage = (
-	planType: "free" | "basic" | "standard" | "enterprise",
-): string => {
-	if (planType === "free") {
-		return "Upgrade to Basic plan for 30 website pages";
+const startDeleteJob = async (
+	userId: string,
+	url: string,
+	mode: DeleteJobMode,
+) =>
+	scraperStatusService.startJob({
+		userId,
+		url,
+		mode,
+	});
+
+const runDeleteJobInBackground = (
+	jobId: string,
+	userId: string,
+	url: string,
+	mode: DeleteJobMode,
+	task: () => Promise<void>,
+): void => {
+	void (async () => {
+		try {
+			await scraperStatusService.updateProgress(
+				jobId,
+				{
+					totalPages: 1,
+					scrapedPages: 0,
+					storedPages: 0,
+					currentUrl: url,
+				},
+			);
+
+			await task();
+
+			await scraperStatusService.completeJob(
+				jobId,
+				{
+					totalPages: 1,
+					scrapedPages: 1,
+					storedPages: 1,
+					currentUrl: url,
+				},
+			);
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Delete failed";
+			logger.error("Background delete job failed", {
+				jobId,
+				userId,
+				url,
+				mode,
+				error: message,
+			});
+			await scraperStatusService.failJob(
+				jobId,
+				message,
+				{
+					totalPages: 1,
+					currentUrl: url,
+				},
+			);
+		}
+	})();
+};
+
+const isActiveDeleteAllJob = (
+	job: Awaited<ReturnType<typeof scraperStatusService.getLatestJobForUser>>,
+): job is NonNullable<Awaited<ReturnType<typeof scraperStatusService.getLatestJobForUser>>> =>
+	Boolean(
+		job &&
+			job.mode === "delete_all" &&
+			["pending", "in_progress"].includes(job.status),
+	);
+
+const waitForJobTerminalState = async (
+	jobId: string,
+	timeoutMs = 15 * 60 * 1000,
+) => {
+	const deadline = Date.now() + timeoutMs;
+
+	while (Date.now() < deadline) {
+		const job = await scraperStatusService.getJob(jobId);
+		if (job && ["completed", "failed"].includes(job.status)) {
+			return job;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 1000));
 	}
-	if (planType === "basic") {
-		return "Upgrade to Standard plan for 100 website pages";
+
+	return null;
+};
+
+const queueScrapeAfterDeleteAll = (
+	deleteJobId: string,
+	jobPayload: {
+		jobId: string;
+		userId: string;
+		url: string;
+		maxDepth: number;
+		maxPages?: number;
+		mode: "scrape" | "retrain";
+	},
+) => {
+	void (async () => {
+		try {
+			logger.info("Queueing scrape until delete-all finishes", {
+				jobId: jobPayload.jobId,
+				deleteJobId,
+				url: jobPayload.url,
+				mode: jobPayload.mode,
+			});
+
+			const deleteJob = await waitForJobTerminalState(deleteJobId);
+			if (!deleteJob) {
+				await scraperStatusService.failJob(
+					jobPayload.jobId,
+					"Timed out waiting for existing delete-all job to finish.",
+				);
+				return;
+			}
+
+			if (deleteJob.status === "failed") {
+				await scraperStatusService.failJob(
+					jobPayload.jobId,
+					deleteJob.error || "Delete-all job failed before scrape could start.",
+				);
+				return;
+			}
+
+			await runScrapeJob(jobPayload, {
+				source: "direct",
+			});
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : String(error);
+			logger.error("Queued scrape failed after delete-all", {
+				jobId: jobPayload.jobId,
+				deleteJobId,
+				url: jobPayload.url,
+				mode: jobPayload.mode,
+				error: message,
+			});
+			await scraperStatusService.failJob(jobPayload.jobId, message);
+		}
+	})();
+};
+
+const normalizeRequestedMaxPages = (
+	value: unknown,
+): number | undefined => {
+	const normalized = Number(value);
+	if (
+		!Number.isFinite(normalized) ||
+		normalized <= 0
+	) {
+		return undefined;
 	}
-	if (planType === "standard") {
-		return "Upgrade to Enterprise plan for unlimited website pages";
+
+	return Math.min(
+		SCRAPER_MAX_PAGES,
+		Math.trunc(normalized),
+	);
+};
+
+const resolveEffectiveMaxPages = (
+	requestedMaxPages: number | undefined,
+	pagesRemaining: number | null,
+): number | undefined => {
+	if (pagesRemaining === null) {
+		return requestedMaxPages;
 	}
-	return "Your enterprise limits are managed through your custom plan.";
+	if (requestedMaxPages === undefined) {
+		return pagesRemaining;
+	}
+	return Math.min(
+		requestedMaxPages,
+		pagesRemaining,
+	);
 };
 
 const getScraperLimitPayload = (
@@ -33,16 +202,15 @@ const getScraperLimitPayload = (
 	scraperUsage: Awaited<
 		ReturnType<typeof pineconeService.getScraperUsageStats>
 	>,
-) => ({
+) => {
+	void planType;
+	return {
 		planType: scraperUsage.planType,
 		pagesUsed: scraperUsage.pagesUsed,
 		pagesLimit: scraperUsage.pagesLimit,
 		pagesRemaining: scraperUsage.pagesRemaining,
-		upgradeMessage:
-			scraperUsage.pagesLimit === null
-				? undefined
-				: getScraperUpgradeMessage(planType),
-	});
+	};
+};
 
 export const scrapeWebsite = async (
 	req: Request,
@@ -53,7 +221,7 @@ export const scrapeWebsite = async (
 		const {
 			url,
 			maxDepth = 3,
-			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
+			maxPages,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType = coercePlanType(
@@ -98,7 +266,7 @@ export const scrapeWebsite = async (
 		) {
 			res.status(403).json({
 				success: false,
-				message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+				message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
 				data: {
 					...getScraperLimitPayload(
 						planType,
@@ -116,25 +284,39 @@ export const scrapeWebsite = async (
 				Number(maxDepth) || 3,
 			),
 		);
-		const normalizedMaxPages = Math.max(
-			1,
-			Math.min(
-				SCRAPER_MAX_PAGES,
-				Number(maxPages) ||
-					SCRAPER_DEFAULT_MAX_PAGES,
-			),
-		);
-		const effectiveMaxPages = Math.min(
-			normalizedMaxPages,
-			scraperUsage.pagesRemaining ??
+		const normalizedMaxPages =
+			normalizeRequestedMaxPages(maxPages);
+		const effectiveMaxPages =
+			resolveEffectiveMaxPages(
 				normalizedMaxPages,
-		);
+				scraperUsage.pagesRemaining,
+			);
+		const blockingDeleteAllJob =
+			await scraperStatusService.getLatestJobForUser(userId);
+
+		if (
+			effectiveMaxPages !== undefined &&
+			effectiveMaxPages <= 0
+		) {
+			res.status(403).json({
+				success: false,
+				message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
+				data: {
+					...getScraperLimitPayload(
+						planType,
+						scraperUsage,
+					),
+				},
+			});
+			return;
+		}
 
 		logger.info(
 			`Starting scrape for URL: ${url}`,
 			{
 				maxDepth: normalizedMaxDepth,
-				maxPages: normalizedMaxPages,
+				maxPages:
+					normalizedMaxPages ?? null,
 				effectiveMaxPages,
 				userId,
 				planType,
@@ -151,14 +333,14 @@ export const scrapeWebsite = async (
 			});
 		jobId = job.jobId;
 
-		await scraperQueue.add("scrape-website", {
+		const jobPayload = {
 			jobId: job.jobId,
 			userId,
 			url,
 			maxDepth: normalizedMaxDepth,
 			maxPages: effectiveMaxPages,
 			mode: "scrape",
-		});
+		} as const;
 
 		res.status(202).json({
 			success: true,
@@ -168,6 +350,29 @@ export const scrapeWebsite = async (
 				job,
 			},
 		});
+
+		if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
+			queueScrapeAfterDeleteAll(
+				blockingDeleteAllJob.jobId,
+				jobPayload,
+			);
+		} else {
+			void runScrapeJob(jobPayload, {
+				source: "direct",
+			}).catch((error) => {
+				logger.error(
+					"Direct scrape execution failed after request acceptance",
+					{
+						jobId: jobPayload.jobId,
+						url: jobPayload.url,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			});
+		}
 	} catch (error) {
 		if (jobId) {
 			const message =
@@ -196,7 +401,7 @@ export const queryDocuments = async (
 	res: Response,
 ): Promise<void> => {
 	try {
-		const { query, topK = 10 } = req.body;
+		const { query, language } = req.body;
 		const userId = (req as any).user?.id;
 
 		if (!userId) {
@@ -217,28 +422,29 @@ export const queryDocuments = async (
 
 		logger.info(
 			`Querying documents with: ${query}`,
-			{
-				topK,
-				userId,
-			},
+			{ userId, language },
 		);
 
-		const results =
-			await pineconeService.queryDocuments(
+		const result =
+			await chatService.answerKnowledgeQuery(
 				userId,
 				query,
-				topK,
+				language,
 			);
 
 		res.status(200).json({
 			success: true,
 			message: "Query executed successfully",
 			data: {
-				results: results.map((match) => ({
+				answer: result.answer,
+				language: result.language,
+				sources: result.sources,
+				matches: result.matches.map((match) => ({
 					score: match.score,
+					cohereScore: match.cohereScore,
 					metadata: match.metadata,
 				})),
-				totalResults: results.length,
+				totalResults: result.matches.length,
 			},
 		});
 	} catch (error) {
@@ -295,15 +501,31 @@ export const deleteDocuments = async (
 			},
 		);
 
-		await pineconeService.deleteDocumentsByUrl(
+		const job = await startDeleteJob(
 			userId,
 			url,
+			"delete_source",
 		);
 
-		res.status(200).json({
+		res.status(202).json({
 			success: true,
-			message: `All documents for website ${url} have been deleted`,
+			message: `Deletion started for website ${url}`,
+			data: {
+				job,
+			},
 		});
+
+		runDeleteJobInBackground(
+			job.jobId,
+			userId,
+			url,
+			"delete_source",
+			() =>
+				pineconeService.deleteDocumentsByUrl(
+					userId,
+					url,
+				),
+		);
 	} catch (error) {
 		logger.error(
 			"Error in deleteDocuments controller",
@@ -346,15 +568,31 @@ export const deletePage = async (
 			{ userId },
 		);
 
-		await pineconeService.deletePageByExactUrl(
+		const job = await startDeleteJob(
 			userId,
 			url,
+			"delete_page",
 		);
 
-		res.status(200).json({
+		res.status(202).json({
 			success: true,
-			message: `Page ${url} has been deleted`,
+			message: `Deletion started for page ${url}`,
+			data: {
+				job,
+			},
 		});
+
+		runDeleteJobInBackground(
+			job.jobId,
+			userId,
+			url,
+			"delete_page",
+			() =>
+				pineconeService.deletePageByExactUrl(
+					userId,
+					url,
+				),
+		);
 	} catch (error) {
 		logger.error(
 			"Error in deletePage controller",
@@ -387,14 +625,31 @@ export const deleteAllDocuments = async (
 			`Deleting all documents for user: ${userId}`,
 		);
 
-		await pineconeService.deleteAllUserDocuments(
+		const deleteUrl = `delete-all://${userId}`;
+		const job = await startDeleteJob(
 			userId,
+			deleteUrl,
+			"delete_all",
 		);
 
-		res.status(200).json({
+		res.status(202).json({
 			success: true,
-			message: `All your documents have been deleted`,
+			message: "Deletion started for all data sources",
+			data: {
+				job,
+			},
 		});
+
+		runDeleteJobInBackground(
+			job.jobId,
+			userId,
+			deleteUrl,
+			"delete_all",
+			() =>
+				pineconeService.deleteAllUserDocuments(
+					userId,
+				),
+		);
 	} catch (error) {
 		logger.error(
 			"Error in deleteAllDocuments controller",
@@ -470,7 +725,7 @@ export const getAllSources = async (
 		);
 
 		const sources =
-			await pineconeService.getAllUserSources(
+			await pineconeService.getAllUserSourcesFromDB(
 				userId,
 			);
 		const latestJob =
@@ -713,7 +968,7 @@ export const retrainWebsite = async (
 		const {
 			url,
 			maxDepth = 3,
-			maxPages = SCRAPER_DEFAULT_MAX_PAGES,
+			maxPages,
 		} = req.body as ScrapeRequest;
 		const userId = (req as any).user?.id;
 		const planType = coercePlanType(
@@ -758,7 +1013,7 @@ export const retrainWebsite = async (
 			) {
 				res.status(403).json({
 					success: false,
-					message: `You've reached your website scraping limit. ${planType} plan allows ${scraperUsage.pagesLimit ?? "unlimited"} pages.`,
+					message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
 					data: {
 						...getScraperLimitPayload(
 							planType,
@@ -776,19 +1031,33 @@ export const retrainWebsite = async (
 					Number(maxDepth) || 3,
 				),
 			);
-			const normalizedMaxPages = Math.max(
-				1,
-				Math.min(
-					SCRAPER_MAX_PAGES,
-					Number(maxPages) ||
-						SCRAPER_DEFAULT_MAX_PAGES,
-				),
-			);
-			const effectiveMaxPages = Math.min(
-				normalizedMaxPages,
-				scraperUsage.pagesRemaining ??
+			const normalizedMaxPages =
+				normalizeRequestedMaxPages(maxPages);
+			const effectiveMaxPages =
+				resolveEffectiveMaxPages(
 					normalizedMaxPages,
-			);
+					scraperUsage.pagesRemaining,
+				);
+			const blockingDeleteAllJob =
+				await scraperStatusService.getLatestJobForUser(
+					userId,
+				);
+			if (
+				effectiveMaxPages !== undefined &&
+				effectiveMaxPages <= 0
+			) {
+				res.status(403).json({
+					success: false,
+					message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
+					data: {
+						...getScraperLimitPayload(
+							planType,
+							scraperUsage,
+						),
+					},
+				});
+				return;
+			}
 			const job =
 				await scraperStatusService.startJob({
 					userId,
@@ -799,14 +1068,14 @@ export const retrainWebsite = async (
 				});
 			jobId = job.jobId;
 
-			await scraperQueue.add("retrain-website", {
+			const jobPayload = {
 				jobId: job.jobId,
 				userId,
 				url,
 				maxDepth: normalizedMaxDepth,
 				maxPages: effectiveMaxPages,
 				mode: "retrain",
-			});
+			} as const;
 
 		res.status(202).json({
 			success: true,
@@ -816,6 +1085,29 @@ export const retrainWebsite = async (
 				job,
 			},
 		});
+
+			if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
+				queueScrapeAfterDeleteAll(
+					blockingDeleteAllJob.jobId,
+					jobPayload,
+				);
+			} else {
+				void runScrapeJob(jobPayload, {
+					source: "direct",
+				}).catch((error) => {
+					logger.error(
+						"Direct retrain execution failed after request acceptance",
+						{
+							jobId: jobPayload.jobId,
+							url: jobPayload.url,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				});
+			}
 	} catch (error) {
 		if (jobId) {
 			const message =

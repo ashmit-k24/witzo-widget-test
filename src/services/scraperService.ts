@@ -1,11 +1,19 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
+import { config } from "../config/env";
 import { pineconeService } from "./pineconeService";
-import { ScrapedPage } from "../types";
+import { RagChunk, ScrapedPage } from "../types";
 import logger from "../utils/logger";
 import {
 	assertSafeOutgoingUrl,
 } from "../utils/networkSafety";
+import {
+	firecrawlCrawlWebsite,
+	firecrawlEnabled,
+} from "./firecrawlService";
+import { chunkMarkdown } from "./chunkingService";
+import { upsertAsync as upsertHypeAsync } from "./hypeService";
+import { extractAsync as extractPageMetadataAsync } from "./pageMetadataService";
 
 interface CrawlOptions {
 	maxDepth?: number;
@@ -28,14 +36,171 @@ interface ScrapeResult {
 	failureReason?: string;
 }
 
+interface RobotsPolicy {
+	allow: string[];
+	disallow: string[];
+	sitemaps: string[];
+}
+
+interface FetchPageResult {
+	html: string;
+	status: number;
+	finalUrl: string;
+	contentType: string;
+}
+
+const TRACKING_QUERY_KEYS = new Set([
+	"gclid",
+	"fbclid",
+	"msclkid",
+	"mc_cid",
+	"mc_eid",
+	"ref",
+	"ref_src",
+	"source",
+]);
+
 class ScraperService {
 	private normalizeUrl(url: string): string {
 		try {
-			const urlObj = new URL(url);
+			const urlObj = new URL(url.trim());
+			if (
+				urlObj.protocol !== "http:" &&
+				urlObj.protocol !== "https:"
+			) {
+				throw new Error("invalid protocol");
+			}
+			urlObj.protocol = urlObj.protocol.toLowerCase();
 			urlObj.hash = "";
-			return urlObj.href.replace(/\/$/, "");
+			urlObj.username = "";
+			urlObj.password = "";
+			urlObj.hostname = urlObj.hostname.toLowerCase();
+			if (
+				(urlObj.protocol === "http:" &&
+					urlObj.port === "80") ||
+				(urlObj.protocol === "https:" &&
+					urlObj.port === "443")
+			) {
+				urlObj.port = "";
+			}
+			urlObj.pathname =
+				urlObj.pathname === ""
+					? "/"
+					: urlObj.pathname;
+			if (urlObj.pathname.length > 1) {
+				urlObj.pathname =
+					urlObj.pathname.replace(/\/+$/, "") || "/";
+			}
+			const cleanedParams = new URLSearchParams();
+			for (const [key, value] of urlObj.searchParams.entries()) {
+				const normalizedKey = key
+					.trim()
+					.toLowerCase();
+				if (
+					normalizedKey.startsWith("utm_") ||
+					TRACKING_QUERY_KEYS.has(normalizedKey)
+				) {
+					continue;
+				}
+				cleanedParams.append(key, value);
+			}
+			urlObj.search = cleanedParams.toString();
+			return urlObj.toString();
 		} catch {
 			return url;
+		}
+	}
+
+	private hostNameFromUrl(url: string): string {
+		try {
+			return new URL(url).hostname
+				.toLowerCase()
+				.trim();
+		} catch {
+			return "";
+		}
+	}
+
+	private sameSiteHost(
+		left: string,
+		right: string,
+	): boolean {
+		const normalize = (value: string) =>
+			value
+				.toLowerCase()
+				.trim()
+				.replace(/^www\./, "");
+		return (
+			Boolean(left) &&
+			Boolean(right) &&
+			normalize(left) === normalize(right)
+		);
+	}
+
+	private shouldSkipCrawlPath(url: string): boolean {
+		try {
+			const parsed = new URL(url.trim());
+			const rawPath = parsed.pathname
+				.toLowerCase()
+				.trim();
+			for (const fragment of [
+				"/wp-admin",
+				"/admin",
+				"/signin",
+				"/sign-in",
+				"/signup",
+				"/sign-up",
+				"/login",
+				"/logout",
+				"/register",
+				"/cart",
+				"/checkout",
+				"/account",
+				"/auth",
+				"/api/",
+				"/cdn-cgi/",
+			]) {
+				if (rawPath.includes(fragment)) {
+					return true;
+				}
+			}
+
+			const ext = rawPath.match(/\.[a-z0-9]+$/i)?.[0] || "";
+			return new Set([
+				".png",
+				".jpg",
+				".jpeg",
+				".gif",
+				".webp",
+				".svg",
+				".ico",
+				".bmp",
+				".tiff",
+				".css",
+				".js",
+				".map",
+				".woff",
+				".woff2",
+				".ttf",
+				".otf",
+				".pdf",
+				".zip",
+				".tar",
+				".gz",
+				".rar",
+				".7z",
+				".mp3",
+				".wav",
+				".ogg",
+				".mp4",
+				".mov",
+				".avi",
+				".webm",
+				".json",
+				".xml",
+			]).has(ext);
+		} catch {
+			return true;
 		}
 	}
 
@@ -46,60 +211,19 @@ class ScraperService {
 		try {
 			const urlObj = new URL(url);
 			const baseUrlObj = new URL(baseUrl);
-
-			const normalizeHostname = (
-				hostname: string,
-			) => hostname.replace(/^www\./, "");
-			const urlHostname = normalizeHostname(
-				urlObj.hostname,
-			);
-			const baseHostname = normalizeHostname(
-				baseUrlObj.hostname,
-			);
-
-			if (urlHostname !== baseHostname)
-				return false;
-
-			const excludeExtensions = [
-				".pdf",
-				".jpg",
-				".jpeg",
-				".png",
-				".gif",
-				".svg",
-				".webp",
-				".zip",
-				".rar",
-				".exe",
-				".dmg",
-				".doc",
-				".docx",
-				".xls",
-				".xlsx",
-				".ppt",
-				".pptx",
-				".mp4",
-				".mp3",
-				".avi",
-				".mov",
-				".wav",
-				".css",
-				".js",
-				".json",
-				".xml",
-			];
-
 			if (
-				excludeExtensions.some((ext) =>
-					urlObj.pathname
-						.toLowerCase()
-						.endsWith(ext),
+				!this.sameSiteHost(
+					urlObj.hostname,
+					baseUrlObj.hostname,
 				)
-			)
+			) {
 				return false;
+			}
+			if (this.shouldSkipCrawlPath(urlObj.toString())) {
+				return false;
+			}
 			if (!urlObj.protocol.startsWith("http"))
 				return false;
-
 			return true;
 		} catch {
 			return false;
@@ -108,7 +232,7 @@ class ScraperService {
 
 	private async fetchPageContent(
 		url: string,
-	): Promise<string> {
+	): Promise<FetchPageResult> {
 		let currentUrl = url;
 		const visitedRedirectStates = new Set<string>();
 		const maxRedirects = 10;
@@ -148,8 +272,7 @@ class ScraperService {
 				timeout: 10000,
 				maxRedirects: 0,
 				validateStatus: (status) =>
-					(status >= 200 && status < 300) ||
-					(status >= 300 && status < 400),
+					status >= 200 && status < 600,
 			});
 			const setCookieHeaders = response.headers["set-cookie"];
 			const cookies = Array.isArray(setCookieHeaders)
@@ -186,7 +309,17 @@ class ScraperService {
 				continue;
 			}
 
-			return response.data;
+			return {
+				html:
+					typeof response.data === "string"
+						? response.data
+						: String(response.data ?? ""),
+				status: response.status,
+				finalUrl: safeUrl.toString(),
+				contentType: String(
+					response.headers["content-type"] || "",
+				).toLowerCase(),
+			};
 		}
 
 		throw new Error(
@@ -243,6 +376,19 @@ class ScraperService {
 		const metadata: any = {};
 		if (description)
 			metadata.description = description;
+		const canonical =
+			$('link[rel="canonical"]').attr("href")?.trim() ||
+			"";
+		if (canonical) {
+			try {
+				metadata.canonical = new URL(
+					canonical,
+					url,
+				).toString();
+			} catch {
+				metadata.canonical = canonical;
+			}
+		}
 
 		return {
 			url,
@@ -251,6 +397,566 @@ class ScraperService {
 			links: [...new Set(links)],
 			metadata,
 		};
+	}
+
+	private isLikelyBotChallenge(
+		status: number,
+		html: string,
+	): boolean {
+		if (
+			status === 403 ||
+			status === 429 ||
+			status === 503
+		) {
+			return true;
+		}
+		return /(captcha|cf-browser-verification|attention required|cloudflare|bot challenge)/i.test(
+			html,
+		);
+	}
+
+	private buildPrioritySeedUrls(rootUrl: string): string[] {
+		const paths = [
+			"/",
+			"/about",
+			"/pricing",
+			"/contact",
+			"/faq",
+			"/docs",
+			"/support",
+		];
+		const seeds: string[] = [];
+		for (const path of paths) {
+			try {
+				seeds.push(
+					this.normalizeUrl(
+						new URL(path, rootUrl).toString(),
+					),
+				);
+			} catch {
+				// ignore invalid seed
+			}
+		}
+		return [...new Set(seeds)];
+	}
+
+	private async fetchRobotsPolicy(
+		rootUrl: string,
+	): Promise<RobotsPolicy> {
+		try {
+			const base = new URL(rootUrl);
+			const robotsUrl = `${base.protocol}//${base.host}/robots.txt`;
+			const response = await axios.get(robotsUrl, {
+				timeout: 10000,
+				validateStatus: (status) =>
+					status >= 200 && status < 500,
+			});
+			if (response.status >= 400) {
+				return {
+					allow: [],
+					disallow: [],
+					sitemaps: [],
+				};
+			}
+
+			const policy: RobotsPolicy = {
+				allow: [],
+				disallow: [],
+				sitemaps: [],
+			};
+			const lines = String(response.data || "").split(/\r?\n/);
+			let sectionApplies = false;
+			for (const rawLine of lines) {
+				const line = rawLine
+					.replace(/\s+#.*$/, "")
+					.trim();
+				if (!line) continue;
+				const lower = line.toLowerCase();
+				if (lower.startsWith("user-agent:")) {
+					const agent = line
+						.split(":")
+						.slice(1)
+						.join(":")
+						.trim()
+						.toLowerCase();
+					sectionApplies =
+						agent === "*" ||
+						agent.includes("konvoqcrawler");
+					continue;
+				}
+				if (lower.startsWith("sitemap:")) {
+					const value = line
+						.split(":")
+						.slice(1)
+						.join(":")
+						.trim();
+					if (value) {
+						policy.sitemaps.push(
+							this.normalizeUrl(value),
+						);
+					}
+					continue;
+				}
+				if (!sectionApplies) continue;
+				if (lower.startsWith("allow:")) {
+					const value = line
+						.split(":")
+						.slice(1)
+						.join(":")
+						.trim();
+					if (value) {
+						policy.allow.push(value);
+					}
+					continue;
+				}
+				if (lower.startsWith("disallow:")) {
+					const value = line
+						.split(":")
+						.slice(1)
+						.join(":")
+						.trim();
+					if (value) {
+						policy.disallow.push(value);
+					}
+				}
+			}
+			return policy;
+		} catch {
+			return {
+				allow: [],
+				disallow: [],
+				sitemaps: [],
+			};
+		}
+	}
+
+	private isRobotsAllowed(
+		policy: RobotsPolicy,
+		targetUrl: string,
+	): boolean {
+		if (
+			policy.allow.length === 0 &&
+			policy.disallow.length === 0
+		) {
+			return true;
+		}
+		try {
+			const parsed = new URL(targetUrl);
+			const targetPath =
+				parsed.pathname || "/";
+			let matchedLength = -1;
+			let allowed = true;
+			for (const rule of policy.disallow) {
+				if (
+					rule &&
+					targetPath.startsWith(rule) &&
+					rule.length > matchedLength
+				) {
+					matchedLength = rule.length;
+					allowed = false;
+				}
+			}
+			for (const rule of policy.allow) {
+				if (
+					rule &&
+					targetPath.startsWith(rule) &&
+					rule.length > matchedLength
+				) {
+					matchedLength = rule.length;
+					allowed = true;
+				}
+			}
+			return allowed;
+		} catch {
+			return false;
+		}
+	}
+
+	private async parseSitemapUrls(
+		sitemapUrl: string,
+		depth: number = 0,
+	): Promise<string[]> {
+		if (depth > 2) {
+			return [];
+		}
+		try {
+			const response = await axios.get(sitemapUrl, {
+				timeout: 12000,
+				validateStatus: (status) =>
+					status >= 200 && status < 500,
+			});
+			if (response.status >= 400) {
+				return [];
+			}
+			const xml = String(response.data || "");
+			const locMatches = [
+				...xml.matchAll(/<loc>(.*?)<\/loc>/gi),
+			].map((match) => match[1]?.trim() || "");
+			const nested: string[] = [];
+			for (const loc of locMatches) {
+				if (!loc) continue;
+				if (/sitemap/i.test(loc) && /\.xml(\?.*)?$/i.test(loc)) {
+					nested.push(
+						...(await this.parseSitemapUrls(
+							loc,
+							depth + 1,
+						)),
+					);
+					continue;
+				}
+				nested.push(loc);
+			}
+			return nested;
+		} catch {
+			return [];
+		}
+	}
+
+	private async discoverSitemapUrls(
+		rootUrl: string,
+		maxCount: number,
+	): Promise<string[]> {
+		if (maxCount <= 0) {
+			return [];
+		}
+		try {
+			const base = new URL(rootUrl);
+			const policy =
+				await this.fetchRobotsPolicy(rootUrl);
+			const candidates = [
+				...policy.sitemaps,
+				`${base.protocol}//${base.host}/sitemap.xml`,
+				`${base.protocol}//${base.host}/sitemap_index.xml`,
+			];
+			const seen = new Set<string>();
+			const urls: string[] = [];
+			for (const candidate of candidates) {
+				const normalizedCandidate =
+					this.normalizeUrl(candidate);
+				if (
+					seen.has(normalizedCandidate)
+				) {
+					continue;
+				}
+				seen.add(normalizedCandidate);
+				for (const rawUrl of await this.parseSitemapUrls(
+					normalizedCandidate,
+				)) {
+					const normalizedUrl =
+						this.normalizeUrl(rawUrl);
+					if (
+						!this.sameSiteHost(
+							base.hostname,
+							this.hostNameFromUrl(
+								normalizedUrl,
+							),
+						) ||
+						this.shouldSkipCrawlPath(
+							normalizedUrl,
+						) ||
+						seen.has(normalizedUrl)
+					) {
+						continue;
+					}
+					seen.add(normalizedUrl);
+					urls.push(normalizedUrl);
+					if (urls.length >= maxCount) {
+						return urls;
+					}
+				}
+			}
+			return urls;
+		} catch {
+			return [];
+		}
+	}
+
+	private looksLikeClientRendered(
+		html: string,
+		content: string,
+	): boolean {
+		const textWordCount = content
+			.trim()
+			.split(/\s+/)
+			.filter(Boolean).length;
+		const scriptCount = (
+			html.match(/<script/gi) || []
+		).length;
+		return (
+			(textWordCount <= 40 &&
+				scriptCount >= 8) ||
+			(textWordCount <= 60 &&
+				/(data-reactroot|__NEXT_DATA__|id="root"|id="__next"|window\.__INITIAL_STATE__)/i.test(
+					html,
+				))
+		);
+	}
+
+	private canUseRenderFallback(): boolean {
+		return Boolean(
+			config.SCRAPER_RENDER_SERVICE_URL?.trim(),
+		);
+	}
+
+	private async fetchRenderedHTML(
+		targetUrl: string,
+		timeoutMs: number = 25000,
+	): Promise<{
+		html: string;
+		finalUrl?: string;
+	}> {
+		const renderServiceUrl =
+			config.SCRAPER_RENDER_SERVICE_URL?.trim();
+		if (!renderServiceUrl) {
+			throw new Error(
+				"Render service is not configured",
+			);
+		}
+
+		const mode = (
+			config.SCRAPER_RENDER_SERVICE_MODE ||
+			"json"
+		)
+			.trim()
+			.toLowerCase();
+		const payload =
+			mode === "browserless"
+				? {
+						url: targetUrl,
+						waitUntil: "networkidle0",
+						timeout: timeoutMs,
+						bestAttempt: true,
+				  }
+				: {
+						url: targetUrl,
+						waitUntil: "networkidle",
+						timeoutMs,
+				  };
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+		};
+		if (
+			config.SCRAPER_RENDER_SERVICE_TOKEN &&
+			mode !== "browserless"
+		) {
+			headers.Authorization = `Bearer ${config.SCRAPER_RENDER_SERVICE_TOKEN}`;
+		}
+
+		let requestUrl = renderServiceUrl;
+		if (
+			mode === "browserless" &&
+			config.SCRAPER_RENDER_SERVICE_TOKEN
+		) {
+			const parsed = new URL(renderServiceUrl);
+			parsed.searchParams.set(
+				"token",
+				config.SCRAPER_RENDER_SERVICE_TOKEN,
+			);
+			requestUrl = parsed.toString();
+		}
+
+		const response = await axios.post(
+			requestUrl,
+			payload,
+			{
+				headers,
+				timeout: timeoutMs + 5000,
+			},
+		);
+		const data = response.data ?? {};
+		return {
+			html:
+				typeof data.html === "string"
+					? data.html
+					: typeof data.content === "string"
+						? data.content
+						: "",
+			finalUrl:
+				typeof data.url === "string"
+					? data.url
+					: undefined,
+		};
+	}
+
+	private buildRagChunks(
+		userId: string,
+		sourceUrl: string,
+		pages: ScrapedPage[],
+	): RagChunk[] {
+		const chunks: RagChunk[] = [];
+		for (const page of pages) {
+			const pairs = chunkMarkdown(
+				page.content,
+				page.title,
+			);
+			for (let index = 0; index < pairs.length; index += 1) {
+				chunks.push({
+					userId,
+					url: page.url,
+					pageTitle: page.title,
+					childText: pairs[index].childText,
+					parentText: pairs[index].parentText,
+					chunkIndex: index,
+					sourceType: "website",
+					sourceKey: sourceUrl,
+					isHype: false,
+					hypeParent: "",
+				});
+			}
+		}
+		return chunks;
+	}
+
+	private async persistScrapedPages(
+		userId: string,
+		sourceUrl: string,
+		sourceTitle: string,
+		pages: ScrapedPage[],
+		reportProgress?: (progress: {
+			totalPages: number;
+			scrapedPages: number;
+			storedPages: number;
+			currentUrl?: string;
+		}) => Promise<void> | void,
+	): Promise<void> {
+		const startedAt = Date.now();
+		const chunks = this.buildRagChunks(
+			userId,
+			sourceUrl,
+			pages,
+		);
+		if (chunks.length === 0) {
+			throw new Error(
+				"No chunks generated from scraped pages",
+			);
+		}
+
+		logger.info("scraper: persistence pipeline starting", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+		});
+
+		const pineconeStartedAt = Date.now();
+		await pineconeService.upsertChunks(userId, chunks, {
+			sourceRoot: sourceUrl,
+			sourceRootTitle:
+				sourceTitle || pages[0]?.title || sourceUrl,
+			scrapedAt: new Date().toISOString(),
+		});
+		logger.info("scraper: primary Pinecone upsert completed", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+			durationMs: Date.now() - pineconeStartedAt,
+		});
+		await reportProgress?.({
+			totalPages: pages.length,
+			scrapedPages: pages.length,
+			storedPages: pages.length,
+			currentUrl: sourceUrl,
+		});
+		logger.info("scraper: background enrichment queued", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+		});
+
+		// Let the primary scrape job finish as soon as pages are stored.
+		// Enrichment can continue independently without keeping the UI in an in-progress state.
+		void (async () => {
+			const enrichmentStartedAt = Date.now();
+			const enrichmentResults =
+				await Promise.allSettled([
+					upsertHypeAsync(
+						userId,
+						chunks,
+						async (ownerId, hypeChunks) =>
+							pineconeService.upsertChunks(
+								ownerId,
+								hypeChunks,
+								{
+									sourceRoot: sourceUrl,
+									sourceRootTitle:
+										sourceTitle ||
+										pages[0]?.title ||
+										sourceUrl,
+									scrapedAt:
+										new Date().toISOString(),
+								},
+							),
+					),
+					extractPageMetadataAsync(
+						pages,
+						chunks,
+						async (
+							ownerId,
+							vectorId,
+							metadata,
+						) =>
+							pineconeService.updateVectorMetadata(
+								ownerId,
+								vectorId,
+								metadata,
+							),
+					),
+				]);
+			for (const [index, result] of enrichmentResults.entries()) {
+				if (result.status === "rejected") {
+					logger.warn(
+						"scraper: background enrichment task failed",
+						{
+							userId,
+							sourceUrl,
+							task:
+								index === 0
+									? "hype"
+									: "page_metadata",
+							error:
+								result.reason instanceof Error
+									? result.reason.message
+									: String(
+											result.reason,
+										),
+						},
+					);
+				}
+			}
+			logger.info(
+				"scraper: background enrichment completed",
+				{
+					userId,
+					sourceUrl,
+					pages: pages.length,
+					chunks: chunks.length,
+					durationMs:
+						Date.now() - enrichmentStartedAt,
+				},
+			);
+		})().catch((error) => {
+			logger.warn(
+				"scraper: background enrichment pipeline failed",
+				{
+					userId,
+					sourceUrl,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+		});
+
+		logger.info("scraper: persistence pipeline finished", {
+			userId,
+			sourceUrl,
+			pages: pages.length,
+			chunks: chunks.length,
+			durationMs: Date.now() - startedAt,
+		});
 	}
 
 	async scrapeWebsite(
@@ -266,33 +972,125 @@ class ScraperService {
 			safeRootUrl.toString(),
 		);
 		let rootTitle = "";
-		const maxDepth = options.maxDepth || 3;
-		const maxPages = options.maxPages || 300;
+		const maxDepth = options.maxDepth || 4;
+		const requestedMaxPages =
+			typeof options.maxPages === "number" &&
+			Number.isFinite(options.maxPages) &&
+			options.maxPages > 0
+				? Math.trunc(options.maxPages)
+				: undefined;
+		const crawlerMaxPages =
+			requestedMaxPages ?? 300;
 		const reportProgress = options.onProgress;
 		const visitedUrls = new Set<string>();
+		const enqueuedUrls = new Set<string>();
 		const urlQueue: Array<{
 			url: string;
 			depth: number;
 		}> = [{ url: rootUrl, depth: 0 }];
+		enqueuedUrls.add(rootUrl);
 		const scrapedPages: ScrapedPage[] = [];
 		let firstFailureReason: string | null = null;
+		const robotsPolicy =
+			await this.fetchRobotsPolicy(rootUrl);
+
+		for (const seed of this.buildPrioritySeedUrls(rootUrl)) {
+			if (enqueuedUrls.has(seed)) continue;
+			urlQueue.push({ url: seed, depth: 1 });
+			enqueuedUrls.add(seed);
+		}
+		for (const seed of await this.discoverSitemapUrls(
+			rootUrl,
+			crawlerMaxPages * 2,
+		)) {
+			if (enqueuedUrls.has(seed)) continue;
+			urlQueue.push({ url: seed, depth: 1 });
+			enqueuedUrls.add(seed);
+		}
 
 		logger.info(
 			`Starting synchronous scrape for user ${userId} on ${url}`,
-			{ maxDepth, maxPages },
+			{
+				maxDepth,
+				maxPages: requestedMaxPages ?? null,
+				crawlerMaxPages,
+			},
 		);
 
 		await pineconeService.ensureIndexExists();
 		await reportProgress?.({
-			totalPages: Math.min(maxPages, urlQueue.length),
+			totalPages: 1,
 			scrapedPages: 0,
 			storedPages: 0,
 			currentUrl: rootUrl,
 		});
 
+		let usedFirecrawl = false;
+		if (firecrawlEnabled()) {
+			try {
+				const firecrawlPages =
+					await firecrawlCrawlWebsite(
+						rootUrl,
+						requestedMaxPages,
+						(completed, total) => {
+							void reportProgress?.({
+								totalPages: Math.max(
+									total,
+									completed,
+								),
+								scrapedPages: completed,
+								storedPages: 0,
+								currentUrl: rootUrl,
+							});
+						},
+					);
+				if (firecrawlPages.length > 0) {
+					rootTitle =
+						firecrawlPages[0]?.title || "";
+					await this.persistScrapedPages(
+						userId,
+						rootUrl,
+						rootTitle,
+						firecrawlPages,
+						reportProgress,
+					);
+					await reportProgress?.({
+						totalPages: firecrawlPages.length,
+						scrapedPages: firecrawlPages.length,
+						storedPages: firecrawlPages.length,
+						currentUrl: rootUrl,
+					});
+					return {
+						success: true,
+						message: `Successfully scraped ${firecrawlPages.length} page(s) via Firecrawl`,
+						pagesScraped:
+							firecrawlPages.length,
+						visitedPages:
+							firecrawlPages.length,
+						storedPages:
+							firecrawlPages.length,
+						pages: firecrawlPages,
+					};
+				}
+			} catch (error) {
+				usedFirecrawl = true;
+				const errorMessage =
+					error instanceof Error
+						? error.message
+						: String(error);
+				firstFailureReason =
+					firstFailureReason ||
+					errorMessage;
+				logger.warn(
+					"Firecrawl failed, falling back to built-in scraper",
+					{ url: rootUrl, error: errorMessage },
+				);
+			}
+		}
+
 		while (
 			urlQueue.length > 0 &&
-			visitedUrls.size < maxPages
+			visitedUrls.size < crawlerMaxPages
 		) {
 			const { url: currentUrl, depth } =
 				urlQueue.shift()!;
@@ -302,39 +1100,149 @@ class ScraperService {
 			if (visitedUrls.has(normalizedUrl))
 				continue;
 			if (depth > maxDepth) continue;
+			if (this.shouldSkipCrawlPath(normalizedUrl))
+				continue;
+			if (
+				!this.isRobotsAllowed(
+					robotsPolicy,
+					normalizedUrl,
+				)
+			) {
+				continue;
+			}
 
 			visitedUrls.add(normalizedUrl);
 
 			try {
-				const html =
+				const pageResponse =
 					await this.fetchPageContent(
 						normalizedUrl,
 					);
-				const pageData =
+				let html = pageResponse.html;
+				let finalUrl = this.normalizeUrl(
+					pageResponse.finalUrl || normalizedUrl,
+				);
+				let contentType =
+					pageResponse.contentType;
+				let status = pageResponse.status;
+
+				if (
+					status >= 300 &&
+					this.canUseRenderFallback() &&
+					this.isLikelyBotChallenge(status, html)
+				) {
+					try {
+						const rendered =
+							await this.fetchRenderedHTML(
+								finalUrl,
+							);
+						if (rendered.html.trim()) {
+							html = rendered.html;
+							finalUrl =
+								this.normalizeUrl(
+									rendered.finalUrl ||
+										finalUrl,
+								);
+							contentType = "text/html";
+							status = 200;
+						}
+					} catch (renderError) {
+						logger.warn(
+							"Render fallback failed for blocked scraper page",
+							{
+								url: normalizedUrl,
+								renderError,
+								status,
+							},
+						);
+					}
+				}
+
+				if (status >= 300) {
+					continue;
+				}
+
+				let pageData =
 					this.extractPageData(
 						html,
-						normalizedUrl,
+						finalUrl,
 					);
+
+				if (
+					this.canUseRenderFallback() &&
+					((contentType.includes("text/html") &&
+						this.looksLikeClientRendered(
+							html,
+							pageData.content,
+						)) ||
+						!pageData.content.trim())
+				) {
+					try {
+						const rendered =
+							await this.fetchRenderedHTML(
+								finalUrl,
+							);
+						if (rendered.html.trim()) {
+							html = rendered.html;
+							finalUrl =
+								this.normalizeUrl(
+									rendered.finalUrl ||
+										finalUrl,
+								);
+							pageData =
+								this.extractPageData(
+									rendered.html,
+									finalUrl,
+								);
+						}
+					} catch (renderError) {
+						logger.warn(
+							"Render fallback failed for scraper page",
+							{
+								url: normalizedUrl,
+								renderError,
+							},
+						);
+					}
+				}
+
+				if (!pageData.content.trim()) {
+					continue;
+				}
 
 				if (depth === 0 && pageData.title) {
 					rootTitle = pageData.title;
 				}
 
-				// Store in Pinecone
-				await pineconeService.upsertDocument(
-					userId,
-					pageData.url,
-					pageData.title,
-					pageData.content,
-					{
-						...pageData.metadata,
-						sourceRoot: rootUrl,
-						sourceRootTitle:
-							rootTitle ||
-							pageData.title ||
-							rootUrl,
-					},
-				);
+				const canonical = String(
+					pageData.metadata?.canonical || "",
+				).trim();
+				if (
+					canonical &&
+					this.sameSiteHost(
+						this.hostNameFromUrl(rootUrl),
+						this.hostNameFromUrl(canonical),
+					)
+				) {
+					const normalizedCanonical =
+						this.normalizeUrl(canonical);
+					if (
+						!visitedUrls.has(
+							normalizedCanonical,
+						) &&
+						!enqueuedUrls.has(
+							normalizedCanonical,
+						)
+					) {
+						urlQueue.push({
+							url: normalizedCanonical,
+							depth: depth + 1,
+						});
+						enqueuedUrls.add(
+							normalizedCanonical,
+						);
+					}
+				}
 
 				scrapedPages.push(pageData);
 
@@ -346,6 +1254,9 @@ class ScraperService {
 							!visitedUrls.has(
 								normalizedLink,
 							) &&
+							!enqueuedUrls.has(
+								normalizedLink,
+							) &&
 							this.isValidInternalUrl(
 								normalizedLink,
 								url,
@@ -355,6 +1266,9 @@ class ScraperService {
 								url: normalizedLink,
 								depth: depth + 1,
 							});
+							enqueuedUrls.add(
+								normalizedLink,
+							);
 						}
 					}
 				}
@@ -372,18 +1286,45 @@ class ScraperService {
 				);
 			} finally {
 				await reportProgress?.({
-					totalPages: Math.min(
-						maxPages,
-						Math.max(
-							visitedUrls.size + urlQueue.length,
-							visitedUrls.size,
-						),
-					),
+					totalPages:
+						requestedMaxPages !== undefined
+							? Math.min(
+									requestedMaxPages,
+									Math.max(
+										visitedUrls.size +
+											urlQueue.length,
+										visitedUrls.size,
+									),
+							  )
+							: Math.max(
+									visitedUrls.size +
+										urlQueue.length,
+									visitedUrls.size,
+							  ),
 					scrapedPages: visitedUrls.size,
-					storedPages: scrapedPages.length,
+					storedPages: 0,
 					currentUrl: normalizedUrl,
 				});
 			}
+		}
+
+		if (scrapedPages.length > 0) {
+			await this.persistScrapedPages(
+				userId,
+				rootUrl,
+				rootTitle,
+				scrapedPages,
+				reportProgress,
+			);
+			await reportProgress?.({
+				totalPages: Math.max(
+					scrapedPages.length,
+					visitedUrls.size,
+				),
+				scrapedPages: scrapedPages.length,
+				storedPages: scrapedPages.length,
+				currentUrl: rootUrl,
+			});
 		}
 
 		logger.info(
@@ -391,6 +1332,7 @@ class ScraperService {
 			{
 				pagesScraped: scrapedPages.length,
 				url,
+				usedFirecrawl,
 			},
 		);
 

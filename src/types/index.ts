@@ -33,12 +33,14 @@ export interface User {
 	custom_system_message: string | null;
 	use_default_system_message: boolean;
 	system_message_configured: boolean;
+	knowledge_boundary?: string | null;
 }
 
 export interface UserResponse {
 	id: string;
 	email: string;
 	isVerified: boolean;
+	hasPassword?: boolean;
 	plan_type?: PlanType;
 	sessionId?: number;
 	loginCount?: number;
@@ -57,6 +59,7 @@ export interface UserResponse {
 	onboardingCompleted?: boolean;
 	useDefaultSystemMessage?: boolean;
 	systemMessageConfigured?: boolean;
+	knowledgeBoundary?: string | null;
 }
 
 export interface UpdateProfileBody {
@@ -169,6 +172,20 @@ export interface LoginPasswordBody {
 	password: string;
 }
 
+export interface ForgotPasswordBody {
+	email: string;
+}
+
+export interface ResetPasswordBody {
+	token: string;
+	password: string;
+}
+
+export interface ChangePasswordBody {
+	currentPassword?: string;
+	newPassword: string;
+}
+
 // Database query result types
 export interface QueryResult<T> {
 	rows: T[];
@@ -213,6 +230,7 @@ export interface EnvConfig {
 	REFRESH_TOKEN_EXPIRY_DAYS: number;
 	RATE_LIMIT_WINDOW_MS: number;
 	RATE_LIMIT_MAX_REQUESTS: number;
+	RATE_LIMIT_TRUST_PROXY_HOPS: number;
 	CORS_ORIGIN?: string;
 	JWT_SECRET: string;
 	JWT_REFRESH_SECRET: string;
@@ -226,9 +244,10 @@ export interface EnvConfig {
 	PINECONE_INDEX_NAME: string;
 	OPENAI_API_KEY: string;
 	OPENAI_MODEL: string;
-	RAZORPAY_KEY_ID: string;
-	RAZORPAY_KEY_SECRET: string;
-	RAZORPAY_WEBHOOK_SECRET: string;
+	PADDLE_API_KEY: string;
+	PADDLE_CLIENT_TOKEN: string;
+	PADDLE_WEBHOOK_SECRET: string;
+	PADDLE_ENVIRONMENT: string;
 	LLM_PROMPT_COST_PER_1K_USD: number;
 	LLM_COMPLETION_COST_PER_1K_USD: number;
 
@@ -277,6 +296,61 @@ export interface EnvConfig {
 
 	// Email verification
 	EMAIL_LIST_VERIFY_API_KEY?: string;
+
+	// Firecrawl
+	FIRECRAWL_API_KEY?: string;
+	FIRECRAWL_API_URL?: string;
+	SCRAPER_RENDER_SERVICE_URL?: string;
+	SCRAPER_RENDER_SERVICE_TOKEN?: string;
+	SCRAPER_RENDER_SERVICE_MODE?: string;
+
+	// Cohere
+	COHERE_API_KEY?: string;
+
+	// RAG pipeline
+	PINECONE_HYBRID: boolean;
+	HYPE_QUESTIONS_PER_CHUNK: number;
+	KNOWLEDGE_BOUNDARY: string;
+}
+
+export type ScrapedPageType =
+	| "home"
+	| "contact"
+	| "pricing"
+	| "portfolio"
+	| "faq"
+	| "services"
+	| "service"
+	| "about"
+	| "blog"
+	| "legal"
+	| "general"
+	| "case_study"
+	| "other";
+
+export type ScrapedStructuredFactType =
+	| "email"
+	| "phone"
+	| "address"
+	| "location"
+	| "service"
+	| "case_study"
+	| "pricing";
+
+export interface ScrapedStructuredFact {
+	type: ScrapedStructuredFactType;
+	value: string;
+	label?: string;
+	sourceText?: string;
+}
+
+export interface ScrapedPageContentBlock {
+	text: string;
+	blockType: "paragraph" | "list" | "table" | "contact" | string;
+	position: number;
+	sectionTitle?: string;
+	sectionPath?: string[];
+	factType?: ScrapedStructuredFactType;
 }
 
 // Web Scraper types
@@ -289,6 +363,10 @@ export interface ScrapedPage {
 		description?: string;
 		keywords?: string;
 		author?: string;
+		pageType?: ScrapedPageType;
+		pagePriority?: number;
+		contentBlocks?: ScrapedPageContentBlock[];
+		structuredFacts?: ScrapedStructuredFact[];
 		[key: string]: any;
 	};
 }
@@ -303,7 +381,12 @@ export interface ScrapeJobStatus {
 	jobId: string;
 	userId?: string;
 	url?: string;
-	mode?: "scrape" | "retrain";
+	mode?:
+		| "scrape"
+		| "retrain"
+		| "delete_source"
+		| "delete_page"
+		| "delete_all";
 	currentUrl?: string;
 	maxDepth?: number;
 	maxPages?: number;
@@ -330,6 +413,38 @@ export interface PineconeMetadata {
 	chunkIndex: number;
 	totalChunks: number;
 	userId: string;
+	content?: string;
+	text?: string;
+	parentText?: string;
+	sourceType?: "website" | "document";
+	sourceKey?: string;
+	sourceRoot?: string;
+	sourceRootTitle?: string;
+	isHype?: boolean;
+	hypeParent?: string;
+	pageType?: string;
+	clientName?: string;
+	industry?: string;
+	services?: string;
+	cohereScore?: number;
+}
+
+export interface RagChunk {
+	userId: string;
+	url: string;
+	pageTitle: string;
+	childText: string;  // ~200 words, for embedding
+	parentText: string; // up to 600 words, for LLM
+	chunkIndex: number;
+	sourceType: "website" | "document";
+	sourceKey: string;
+	isHype: boolean;
+	hypeParent: string;
+	pageType?: string;
+	clientName?: string;
+	industry?: string;
+	services?: string;
+	vectorId?: string; // populated after upsert for metadata updates
 }
 
 // Chat types
@@ -402,19 +517,6 @@ export interface UsageStats {
 	isApproachingLimit: boolean;
 	isAtLimit: boolean;
 }
-
-// Scraper Page Limits by plan type
-export const SCRAPER_PAGE_LIMITS: Record<
-	PlanType,
-	number | null
-> = {
-	free: PLAN_CAPABILITIES.free.websitePagesLimit,
-	basic: PLAN_CAPABILITIES.basic.websitePagesLimit,
-	standard:
-		PLAN_CAPABILITIES.standard.websitePagesLimit,
-	enterprise:
-		PLAN_CAPABILITIES.enterprise.websitePagesLimit,
-};
 
 // Document Limits by plan type
 export const DOCUMENT_LIMITS: Record<

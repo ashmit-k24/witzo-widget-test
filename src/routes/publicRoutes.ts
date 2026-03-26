@@ -3,6 +3,7 @@ import {
 	publicWidgetActionLimiter,
 	publicWidgetChatLimiter,
 } from "../config/rateLimiters";
+import * as subscriptionController from "../controllers/subscriptionController";
 import * as widgetController from "../controllers/widgetController";
 import * as publicWidgetController from "../controllers/publicWidgetController";
 import {
@@ -57,6 +58,16 @@ console.warn('This endpoint is for serving your custom widget JavaScript. Please
 // <witzo-chat widget-key="your-key" api-url="http://localhost:3008/api/v1/webhook"></witzo-chat>
 	`);
 });
+
+/**
+ * @route   POST /api/v1/paddle/webhook
+ * @desc    Paddle billing webhook (no auth required — Paddle signs the payload)
+ * @access  Public
+ */
+router.post(
+	"/paddle/webhook",
+	subscriptionController.handlePaddleWebhook,
+);
 
 /**
  * @route   GET /api/v1/embed/:widgetKey.js

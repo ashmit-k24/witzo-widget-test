@@ -1,112 +1,32 @@
 import { Job, Worker } from "bullmq";
 import { config } from "../config/env";
 import { SCRAPER_QUEUE_NAME } from "../config/queue";
-import { scraperService } from "../services/scraperService";
-import { scraperStatusService } from "../services/scraperStatusService";
+import {
+	runScrapeJob,
+	ScrapeJobPayload,
+} from "../services/scrapeJobService";
 import logger from "../utils/logger";
 
-type ScrapeJobMode = "scrape" | "retrain";
-
-export interface ScrapeJobData {
-	jobId: string;
-	userId: string;
-	url: string;
-	maxDepth: number;
-	maxPages: number;
-	mode: ScrapeJobMode;
-}
+export interface ScrapeJobData
+	extends ScrapeJobPayload {}
 
 const processScrapeJob = async (
 	job: Job<ScrapeJobData>,
 ) => {
-	const {
-		jobId,
-		userId,
-		url,
-		maxDepth,
-		maxPages,
-		mode,
-	} = job.data;
+	const started = await runScrapeJob(job.data, {
+		source: "queue",
+		updateExternalProgress: async (
+			progress,
+		) => {
+			await job.updateProgress(progress);
+		},
+	});
 
-	logger.info(
-		`Starting queued ${mode} job ${job.id} for user ${userId} on ${url}`,
-		{ jobId, maxDepth, maxPages },
-	);
-
-	try {
-		const result =
-			await scraperService.scrapeWebsite(
-				userId,
-				url,
-				{
-					maxDepth,
-					maxPages,
-					onProgress: async (
-						progress,
-					) => {
-						await scraperStatusService.updateProgress(
-							jobId,
-							progress,
-						);
-						await job.updateProgress(
-							progress,
-						);
-					},
-				},
-			);
-
-		const finalProgress = {
-			totalPages: result.visitedPages,
-			scrapedPages: result.visitedPages,
-			storedPages: result.storedPages,
-			currentUrl: url,
-		};
-
-		if (result.success) {
-			await scraperStatusService.completeJob(
-				jobId,
-				finalProgress,
-			);
-		} else {
-			await scraperStatusService.failJob(
-				jobId,
-				result.message,
-				finalProgress,
-			);
-		}
-
-		return {
-			success: result.success,
-			message: result.message,
-			pagesScraped: result.pagesScraped,
-			visitedPages: result.visitedPages,
-			storedPages: result.storedPages,
-			jobId,
-			mode,
-		};
-	} catch (error) {
-		const errorMessage =
-			error instanceof Error
-				? error.message
-				: "Scrape job failed";
-
-		await scraperStatusService.failJob(
-			jobId,
-			errorMessage,
-		);
-
-		logger.error(
-			`Queued ${mode} job ${job.id} failed`,
-			{
-				error: errorMessage,
-				jobId,
-				userId,
-				url,
-			},
-		);
-
-		throw error;
-	}
+	return {
+		started,
+		jobId: job.data.jobId,
+		mode: job.data.mode,
+	};
 };
 
 export const createScraperWorker = () => {

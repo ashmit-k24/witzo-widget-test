@@ -59,57 +59,111 @@ jobs:
         run: |
           # Create .env with no leading indentation so docker --env-file can parse it correctly.
           cat > $GITHUB_WORKSPACE/.env <<'EOF'
-          APP_NAME=${{ secrets.APP_NAME }}
           PORT=${{ secrets.PORT }}
           NODE_ENV=${{ secrets.NODE_ENV }}
+
           DB_HOST=${{ secrets.DB_HOST }}
           DB_PORT=${{ secrets.DB_PORT }}
           DB_NAME=${{ secrets.DB_NAME }}
           DB_USER=${{ secrets.DB_USER }}
           DB_PASSWORD=${{ secrets.DB_PASSWORD }}
           DB_MAX_CONNECTIONS=${{ secrets.DB_MAX_CONNECTIONS }}
+          DB_MIN_CONNECTIONS=${{ secrets.DB_MIN_CONNECTIONS }}
+          DB_SSL_MODE=${{ secrets.DB_SSL_MODE }}
+          
           EMAIL_HOST=${{ secrets.EMAIL_HOST }}
           EMAIL_PORT=${{ secrets.EMAIL_PORT }}
+          EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}
           EMAIL_USER=${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_FROM=${{ secrets.EMAIL_FROM }}
           EMAIL_FROM_ADDRESS=${{ secrets.EMAIL_FROM_ADDRESS }}
+
           VERIFICATION_CODE_EXPIRY_MINUTES=${{ secrets.VERIFICATION_CODE_EXPIRY_MINUTES }}
           MAX_VERIFICATION_ATTEMPTS=${{ secrets.MAX_VERIFICATION_ATTEMPTS }}
           SESSION_EXPIRY_HOURS=${{ secrets.SESSION_EXPIRY_HOURS }}
+
           RATE_LIMIT_WINDOW_MS=${{ secrets.RATE_LIMIT_WINDOW_MS }}
           RATE_LIMIT_MAX_REQUESTS=${{ secrets.RATE_LIMIT_MAX_REQUESTS }}
+
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
           COOKIE_SECRET=${{ secrets.COOKIE_SECRET }}
           ACCESS_TOKEN_EXPIRY_MINUTES=${{ secrets.ACCESS_TOKEN_EXPIRY_MINUTES }}
           REFRESH_TOKEN_EXPIRY_DAYS=${{ secrets.REFRESH_TOKEN_EXPIRY_DAYS }}
+
           GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_CALLBACK_URL=${{ secrets.GOOGLE_CALLBACK_URL }}
           FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+
           WIDGET_API_URL=${{ secrets.WIDGET_API_URL }}
           WIDGET_SCRIPT_URL=${{ secrets.WIDGET_SCRIPT_URL }}
+
           PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
           PINECONE_ENVIRONMENT=${{ secrets.PINECONE_ENVIRONMENT }}
           PINECONE_INDEX_NAME=${{ secrets.PINECONE_INDEX_NAME }}
+          PINECONE_HOST=${{ secrets.PINECONE_HOST }}
+          PINECONE_HYBRID=${{ secrets.PINECONE_HYBRID }}
+          PINECONE_DIMENSION=${{ secrets.PINECONE_DIMENSION }}
+          
+          OPENAI_EMBEDDING_DIMENSIONS=${{ secrets.OPENAI_EMBEDDING_DIMENSIONS }}
+          OPENAI_CHAT_MAX_TOKENS=${{ secrets.OPENAI_CHAT_MAX_TOKENS }}
+          OPENAI_CHAT_TEMPERATURE=${{ secrets.OPENAI_CHAT_TEMPERATURE }}
+          CHAT_HISTORY_WINDOW_MESSAGES=${{ secrets.CHAT_HISTORY_WINDOW_MESSAGES }}
+          CHAT_SESSION_CACHE_MESSAGE_LIMIT=${{ secrets.CHAT_SESSION_CACHE_MESSAGE_LIMIT }}
+          OPENAI_CHAT_MODEL=${{ secrets.OPENAI_CHAT_MODEL }}
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL=${{ secrets.OPENAI_MODEL }}
+          LLM_PROMPT_COST_PER_1K_USD=${{ secrets.LLM_PROMPT_COST_PER_1K_USD }}
+          
           REDIS_HOST=${{ secrets.REDIS_HOST }}
           REDIS_PORT=${{ secrets.REDIS_PORT }}
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
           REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
           REDIS_TLS_ENABLED=${{ secrets.REDIS_TLS_ENABLED }}
+         
+          REDIS_CACHE_HOST=${{ secrets.REDIS_CACHE_HOST }}
+          REDIS_CACHE_PORT=${{ secrets.REDIS_CACHE_PORT }}
+          REDIS_CACHE_USERNAME=${{ secrets.REDIS_CACHE_USERNAME }}
+          REDIS_CACHE_PASSWORD=${{ secrets.REDIS_CACHE_PASSWORD }}
+          
+          REDIS_QUEUE_HOST=${{ secrets.REDIS_QUEUE_HOST }}
+          REDIS_QUEUE_PORT=${{ secrets.REDIS_QUEUE_PORT }}
+          REDIS_QUEUE_USERNAME=${{ secrets.REDIS_QUEUE_USERNAME }}
+          REDIS_QUEUE_PASSWORD=${{ secrets.REDIS_QUEUE_PASSWORD }}
+          
+          REDIS_ANALYTICS_HOST=${{ secrets.REDIS_ANALYTICS_HOST }}
+          REDIS_ANALYTICS_PORT=${{ secrets.REDIS_ANALYTICS_PORT }}
+          REDIS_ANALYTICS_USERNAME=${{ secrets.REDIS_ANALYTICS_USERNAME }}
+          REDIS_ANALYTICS_PASSWORD=${{ secrets.REDIS_ANALYTICS_PASSWORD }}
+          
           SCRAPER_CONCURRENCY=${{ secrets.SCRAPER_CONCURRENCY }}
+          SCRAPER_IGNORE_ROBOTS=${{ secrets.SCRAPER_IGNORE_ROBOTS }}
+          SCRAPER_RENDER_SERVICE_URL=${{ secrets.SCRAPER_RENDER_SERVICE_URL }}
+          SCRAPER_RENDER_SERVICE_TOKEN=${{ secrets.SCRAPER_RENDER_SERVICE_TOKEN }}
+          SCRAPER_RENDER_SERVICE_MODE=${{ secrets.SCRAPER_RENDER_SERVICE_MODE }}
+
           ANALYTICS_BUFFER_SIZE=${{ secrets.ANALYTICS_BUFFER_SIZE }}
           ANALYTICS_FLUSH_INTERVAL_MS=${{ secrets.ANALYTICS_FLUSH_INTERVAL_MS }}
+
           CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
 
           RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
           RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
           RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+          RAZORPAY_MAX_CHARGE_AMOUNT=${{ secrets.RAZORPAY_MAX_CHARGE_AMOUNT }}
+          SUBSCRIPTION_IDEMPOTENCY_WINDOW_MINUTES=${{ secrets.SUBSCRIPTION_IDEMPOTENCY_WINDOW_MINUTES }}
+
+          ADMIN_FRONTEND_URL=${{ secrets.ADMIN_FRONTEND_URL }}
+          ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+          ADMIN_JWT_SECRET=${{ secrets.ADMIN_JWT_SECRET }}
+          ADMIN_TOKEN_EXPIRY_HOURS=${{ secrets.ADMIN_TOKEN_EXPIRY_HOURS }}
 
           EMAIL_LIST_VERIFY_API_KEY=${{ secrets.EMAIL_LIST_VERIFY_API_KEY }}
+          LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
 
           S3_WIDGET_ICON_BUCKET=${{ secrets.S3_WIDGET_ICON_BUCKET }}
           S3_WIDGET_ICON_REGION=${{ secrets.S3_WIDGET_ICON_REGION }}    
@@ -117,6 +171,19 @@ jobs:
           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}  
           S3_WIDGET_ICON_PUBLIC_BASE_URL=${{ secrets.S3_WIDGET_ICON_PUBLIC_BASE_URL }}  
           AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}  
+          
+          COHERE_API_KEY=${{ secrets.COHERE_API_KEY }}
+
+          FIRECRAWL_API_KEY=${{ secrets.FIRECRAWL_API_KEY }}
+          FIRECRAWL_API_URL=${{ secrets.FIRECRAWL_API_URL }}
+
+          HYPE_QUESTIONS_PER_CHUNK=${{ secrets.HYPE_QUESTIONS_PER_CHUNK }}
+          KNOWLEDGE_BOUNDARY=${{ secrets.KNOWLEDGE_BOUNDARY }}
+
+          PADDLE_API_KEY=${{ secrets.PADDLE_API_KEY }}
+          PADDLE_CLIENT_TOKEN=${{ secrets.PADDLE_CLIENT_TOKEN }}
+          PADDLE_WEBHOOK_SECRET=${{ secrets.PADDLE_WEBHOOK_SECRET }}
+          PADDLE_ENVIRONMENT=${{ secrets.PADDLE_ENVIRONMENT }}
 
           EOF
 
