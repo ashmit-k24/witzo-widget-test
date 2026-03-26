@@ -229,6 +229,12 @@ const migrations: Migration[] = [
 			"Track plan-limit notification emails to avoid duplicate sends within a billing cycle",
 		file: "20260326_035_plan_limit_notification_tracking.sql",
 	},
+	{
+		id: "20260326_036_default_plans_repair",
+		description:
+			"Re-ensure default free, basic, standard, and enterprise plans exist for previously migrated databases",
+		file: "20260326_036_default_plans_repair.sql",
+	},
 ];
 
 const ensureMigrationTable = async (
