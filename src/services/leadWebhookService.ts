@@ -182,7 +182,7 @@ class LeadWebhookService {
 			getPlanCapabilities(planType);
 		if (!capabilities.crmIntegration) {
 			throw new Error(
-				"This feature is available on the Standard and Enterprise plans",
+				"This feature is available on the Basic, Standard, and Enterprise plans",
 			);
 		}
 	}

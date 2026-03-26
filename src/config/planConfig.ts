@@ -79,7 +79,7 @@ export const PLAN_CAPABILITIES: Record<
 		fallbackLeadForm: true,
 		chatRating: true,
 		autoFollowUpEmail: true,
-		crmIntegration: false,
+		crmIntegration: true,
 		multiLanguageSupport: false,
 		apiAccess: false,
 		customAiBehavior: false,
