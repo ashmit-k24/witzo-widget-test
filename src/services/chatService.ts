@@ -423,8 +423,11 @@ class ChatService {
 			"Lead with the answer immediately.",
 			"Do not open with greetings, thank-yous, or filler unless the user greeted you first.",
 			"Keep the reply concise, scannable, and commercially useful.",
-			"Prefer a short intro sentence plus a compact bullet list.",
-			"Use headings only when the answer genuinely needs multiple sections.",
+			"Prefer a short intro sentence plus grouped bullet lists.",
+			"When the answer covers multiple categories, services, locations, or examples, use short markdown headings for each group.",
+			"Under each heading, keep bullets tight and practical instead of writing a long mixed list.",
+			"Avoid one giant bullet block when the answer naturally breaks into sections.",
+			"Use headings only when the answer genuinely has more than one clear group.",
 			"Do not end with generic filler like 'If you need more information...' unless you offer one concrete next step.",
 		];
 
@@ -474,11 +477,15 @@ class ChatService {
 			"- Use **bold** sparingly for service names, company names, and metrics.",
 			"- Use bullet points (-) for lists.",
 			"- Use numbered lists only for steps or explicit rankings.",
+			"- Start with one short answer sentence before the list when helpful.",
+			"- If the answer includes multiple groups, use `##` headings and place bullets under each heading.",
+			"- Keep each bullet concise; avoid stacking too many unrelated bullets in one section.",
 			"- Keep short answers compact; do not turn simple answers into long reports.",
 			"- Never invent facts, locations, metrics, prices, or case-study outcomes.",
 		];
 		if (isWidgetServiceOverviewQuery(normalized)) {
 			lines.push(
+				"- For service overviews, always group related services under clear headings instead of returning one flat list.",
 				"- For service overviews, preserve the website's own category labels and service-family headings when they are visible in the context.",
 				"- If a source explicitly lists sub-services, show them as bullets under the main service family.",
 				"- Avoid generic umbrella wording when the context gives a more exact service name.",

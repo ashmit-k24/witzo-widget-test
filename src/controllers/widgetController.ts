@@ -48,6 +48,8 @@ async function buildWidgetResponse(
 		normalizedExistingName === "my-chat-widget" ||
 		normalizedExistingName === "my chatbot" ||
 		normalizedExistingName === "my-chatbot" ||
+		normalizedExistingName === "this business" ||
+		normalizedExistingName === "this-business" ||
 		normalizedExistingName === "website assistant" ||
 		normalizedExistingName === "website-assistant";
 	const derivedWidgetName =

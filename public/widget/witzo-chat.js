@@ -85,6 +85,7 @@
 			this._cfBound = false;
 			this._introAnimResetTimer = null;
 			this.isEmbeddedPreview = false;
+			this.isAwaitingResponse = false;
 
 			this.elements = {};
 			this.supportedLanguages = [
@@ -2357,8 +2358,7 @@
               		</div>
 			  	</div>
 				
-				${this.config.showQuickOptions !== false ? `
-				<div class="help-links-list" data-intro-anim="fade-up" style="--fade-order:7">
+				<div class="help-links-list${this.config.showQuickOptions === false ? " hidden" : ""}" data-intro-anim="fade-up" style="--fade-order:7">
 					<div id="introHelpOptionOne" class="help-link-item" data-intro-anim="soft" style="--fade-order:8" data-url="${sanitizeHTML(sanitizeURL(this.config.introHelpOptionOneUrl) || "")}">
 						<div class="help-link-content">
 							<span id="introHelpOptionOneText" class="help-link-text">${sanitizeHTML(this.config.introHelpOptionOneText || "How Witzo works")}</span>
@@ -2375,7 +2375,7 @@
 							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right h-3.5 w-3.5" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
 						</span>
 					</div>
-				</div>` : ""}
+				</div>
             </div>
 
             <div id="chatMainView" class="chat-main-view hidden">
@@ -2825,6 +2825,13 @@
 			}
 		}
 
+		setAwaitingResponse(isAwaiting) {
+			this.isAwaitingResponse = Boolean(
+				isAwaiting,
+			);
+			this.updateSendButtonState();
+		}
+
 		updateBackButtonVisibility(showingIntro = false) {
 			if (!this.elements.backBtn) {
 				return;
@@ -3022,7 +3029,10 @@
 			this.hasStartedChat = true;
 			this.showIntroScreen(false);
 			setTimeout(() => {
-				if (this.elements.input) {
+				if (
+					this.elements.input &&
+					!this.isEmbeddedPreview
+				) {
 					this.elements.input.focus();
 				}
 			}, 120);
@@ -3140,7 +3150,9 @@
 				this.displayDefaultMessage();
 			}
 			if (this.elements.input) {
-				this.elements.input.focus();
+				if (!this.isEmbeddedPreview) {
+					this.elements.input.focus();
+				}
 			}
 		}
 
@@ -3168,7 +3180,10 @@
 				this.showPendingHopeBanner();
 				if (!shouldShowIntro) {
 					setTimeout(() => {
-						if (this.elements.input) {
+						if (
+							this.elements.input &&
+							!this.isEmbeddedPreview
+						) {
 							this.elements.input.focus();
 						}
 					}, 100);
@@ -3201,6 +3216,10 @@
 		}
 
 		async handleSend() {
+			if (this.isAwaitingResponse) {
+				return;
+			}
+
 			const text =
 				this.elements.input.value.trim();
 			if (!text) {
@@ -3234,7 +3253,7 @@
 				!this.ratingShown &&
 				!this.ratingSubmitted;
 			this.elements.input.value = "";
-			this.updateSendButtonState();
+			this.setAwaitingResponse(true);
 
 			// Show Typing Indicator
 			const typingWrapper =
@@ -3365,6 +3384,8 @@
 					"Sorry, network error occurred.",
 				);
 				this.pendingEndIntentRating = false;
+			} finally {
+				this.setAwaitingResponse(false);
 			}
 		}
 
@@ -3375,11 +3396,23 @@
 			) {
 				return;
 			}
+			const inputDisabled =
+				this._sessionLocked;
+			this.elements.input.disabled =
+				inputDisabled;
+			if (this.elements.langPillBtn) {
+				this.elements.langPillBtn.style.pointerEvents =
+					this.isAwaitingResponse ? "none" : "";
+				this.elements.langPillBtn.style.opacity =
+					this.isAwaitingResponse ? "0.55" : "";
+			}
 			const hasValue = Boolean(
 				this.elements.input.value.trim(),
 			);
 			const disabled =
-				this.elements.input.disabled || !hasValue;
+				inputDisabled ||
+				this.isAwaitingResponse ||
+				!hasValue;
 			this.elements.sendBtn.disabled = disabled;
 			this.elements.sendBtn.setAttribute(
 				"aria-disabled",

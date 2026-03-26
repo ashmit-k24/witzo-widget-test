@@ -92,6 +92,8 @@ class WidgetService {
 			normalized === "my-chat-widget" ||
 			normalized === "my chatbot" ||
 			normalized === "my-chatbot" ||
+			normalized === "this business" ||
+			normalized === "this-business" ||
 			normalized === "website assistant" ||
 			normalized === "website-assistant"
 		);
