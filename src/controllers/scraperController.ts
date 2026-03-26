@@ -83,6 +83,87 @@ const runDeleteJobInBackground = (
 	})();
 };
 
+const isActiveDeleteAllJob = (
+	job: Awaited<ReturnType<typeof scraperStatusService.getLatestJobForUser>>,
+): job is NonNullable<Awaited<ReturnType<typeof scraperStatusService.getLatestJobForUser>>> =>
+	Boolean(
+		job &&
+			job.mode === "delete_all" &&
+			["pending", "in_progress"].includes(job.status),
+	);
+
+const waitForJobTerminalState = async (
+	jobId: string,
+	timeoutMs = 15 * 60 * 1000,
+) => {
+	const deadline = Date.now() + timeoutMs;
+
+	while (Date.now() < deadline) {
+		const job = await scraperStatusService.getJob(jobId);
+		if (job && ["completed", "failed"].includes(job.status)) {
+			return job;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 1000));
+	}
+
+	return null;
+};
+
+const queueScrapeAfterDeleteAll = (
+	deleteJobId: string,
+	jobPayload: {
+		jobId: string;
+		userId: string;
+		url: string;
+		maxDepth: number;
+		maxPages?: number;
+		mode: "scrape" | "retrain";
+	},
+) => {
+	void (async () => {
+		try {
+			logger.info("Queueing scrape until delete-all finishes", {
+				jobId: jobPayload.jobId,
+				deleteJobId,
+				url: jobPayload.url,
+				mode: jobPayload.mode,
+			});
+
+			const deleteJob = await waitForJobTerminalState(deleteJobId);
+			if (!deleteJob) {
+				await scraperStatusService.failJob(
+					jobPayload.jobId,
+					"Timed out waiting for existing delete-all job to finish.",
+				);
+				return;
+			}
+
+			if (deleteJob.status === "failed") {
+				await scraperStatusService.failJob(
+					jobPayload.jobId,
+					deleteJob.error || "Delete-all job failed before scrape could start.",
+				);
+				return;
+			}
+
+			await runScrapeJob(jobPayload, {
+				source: "direct",
+			});
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : String(error);
+			logger.error("Queued scrape failed after delete-all", {
+				jobId: jobPayload.jobId,
+				deleteJobId,
+				url: jobPayload.url,
+				mode: jobPayload.mode,
+				error: message,
+			});
+			await scraperStatusService.failJob(jobPayload.jobId, message);
+		}
+	})();
+};
+
 const normalizeRequestedMaxPages = (
 	value: unknown,
 ): number | undefined => {
@@ -210,6 +291,8 @@ export const scrapeWebsite = async (
 				normalizedMaxPages,
 				scraperUsage.pagesRemaining,
 			);
+		const blockingDeleteAllJob =
+			await scraperStatusService.getLatestJobForUser(userId);
 
 		if (
 			effectiveMaxPages !== undefined &&
@@ -268,21 +351,28 @@ export const scrapeWebsite = async (
 			},
 		});
 
-		void runScrapeJob(jobPayload, {
-			source: "direct",
-		}).catch((error) => {
-			logger.error(
-				"Direct scrape execution failed after request acceptance",
-				{
-					jobId: jobPayload.jobId,
-					url: jobPayload.url,
-					error:
-						error instanceof Error
-							? error.message
-							: String(error),
-				},
+		if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
+			queueScrapeAfterDeleteAll(
+				blockingDeleteAllJob.jobId,
+				jobPayload,
 			);
-		});
+		} else {
+			void runScrapeJob(jobPayload, {
+				source: "direct",
+			}).catch((error) => {
+				logger.error(
+					"Direct scrape execution failed after request acceptance",
+					{
+						jobId: jobPayload.jobId,
+						url: jobPayload.url,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			});
+		}
 	} catch (error) {
 		if (jobId) {
 			const message =
@@ -948,6 +1038,10 @@ export const retrainWebsite = async (
 					normalizedMaxPages,
 					scraperUsage.pagesRemaining,
 				);
+			const blockingDeleteAllJob =
+				await scraperStatusService.getLatestJobForUser(
+					userId,
+				);
 			if (
 				effectiveMaxPages !== undefined &&
 				effectiveMaxPages <= 0
@@ -992,21 +1086,28 @@ export const retrainWebsite = async (
 			},
 		});
 
-			void runScrapeJob(jobPayload, {
-				source: "direct",
-			}).catch((error) => {
-				logger.error(
-					"Direct retrain execution failed after request acceptance",
-					{
-						jobId: jobPayload.jobId,
-						url: jobPayload.url,
-						error:
-							error instanceof Error
-								? error.message
-								: String(error),
-					},
+			if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
+				queueScrapeAfterDeleteAll(
+					blockingDeleteAllJob.jobId,
+					jobPayload,
 				);
-			});
+			} else {
+				void runScrapeJob(jobPayload, {
+					source: "direct",
+				}).catch((error) => {
+					logger.error(
+						"Direct retrain execution failed after request acceptance",
+						{
+							jobId: jobPayload.jobId,
+							url: jobPayload.url,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				});
+			}
 	} catch (error) {
 		if (jobId) {
 			const message =

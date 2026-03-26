@@ -479,12 +479,58 @@ class PineconeService {
 		}
 
 		for (const batch of this.chunkArray(ids, 1000)) {
-			await pineconeCircuitBreaker.execute(
-				async () => {
-					await index.deleteMany(batch);
-				},
-			);
+			try {
+				// Delete calls are idempotent for our use case; treat "not found"
+				// as already-deleted instead of failing the whole background job.
+				await index.deleteMany(batch);
+			} catch (error) {
+				if (this.isIgnorableDeleteError(error)) {
+					logger.info(
+						"Pinecone deleteMany skipped because vectors were already gone",
+						{
+							batchSize: batch.length,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+					continue;
+				}
+
+				throw error;
+			}
 		}
+	}
+
+	private isIgnorableDeleteError(error: unknown): boolean {
+		if (!error || typeof error !== "object") {
+			return false;
+		}
+
+		const maybeError = error as {
+			name?: unknown;
+			message?: unknown;
+			status?: unknown;
+			statusCode?: unknown;
+		};
+		const name = typeof maybeError.name === "string" ? maybeError.name : "";
+		const message =
+			typeof maybeError.message === "string"
+				? maybeError.message
+				: "";
+		const status =
+			typeof maybeError.status === "number"
+				? maybeError.status
+				: typeof maybeError.statusCode === "number"
+					? maybeError.statusCode
+					: null;
+
+		return (
+			name === "PineconeNotFoundError" ||
+			status === 404 ||
+			message.includes("HTTP status 404")
+		);
 	}
 
 	private async deleteStaleChunksForUrls(
@@ -1216,7 +1262,24 @@ class PineconeService {
 				.index(this.indexName)
 				.namespace(namespace);
 
-			await index.deleteAll();
+			try {
+				await index.deleteAll();
+			} catch (error) {
+				if (!this.isIgnorableDeleteError(error)) {
+					throw error;
+				}
+
+				logger.info(
+					"Pinecone deleteAll skipped because the namespace was already empty",
+					{
+						userId,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			}
 			await pool.query(
 				`DELETE FROM rag_source_pages WHERE user_id = $1`,
 				[userId],

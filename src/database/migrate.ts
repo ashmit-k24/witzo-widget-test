@@ -211,6 +211,18 @@ const migrations: Migration[] = [
 			"Backfill legacy password reset tokens into users table and remove obsolete table",
 		file: "20260326_032_password_reset_compatibility.sql",
 	},
+	{
+		id: "20260326_033_seed_default_plans",
+		description:
+			"Ensure default free, basic, standard, and enterprise plans exist",
+		file: "20260326_033_seed_default_plans.sql",
+	},
+	{
+		id: "20260326_034_billing_amount_minor_columns",
+		description:
+			"Add missing amount_minor columns for Paddle subscriptions and payments",
+		file: "20260326_034_billing_amount_minor_columns.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

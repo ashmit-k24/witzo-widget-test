@@ -1045,6 +1045,7 @@ class SubscriptionService {
                  auto_renew = $9,
                  cancel_at_cycle_end = $10,
                  metadata = COALESCE(metadata, '{}'::jsonb) || $11::jsonb,
+                 amount_minor = COALESCE($12, amount_minor),
                  updated_at = CURRENT_TIMESTAMP
                WHERE id = $1`,
 							[
@@ -1059,6 +1060,7 @@ class SubscriptionService {
 								!cancelAtCycleEnd && status !== "canceled",
 								cancelAtCycleEnd,
 								JSON.stringify({ paddleWebhook: sub }),
+								parseInt(sub.items?.[0]?.price?.unitPrice?.amount ?? "0", 10),
 							],
 						);
 					}
