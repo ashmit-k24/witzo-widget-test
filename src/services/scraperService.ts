@@ -864,49 +864,92 @@ class ScraperService {
 			pages: pages.length,
 			chunks: chunks.length,
 		});
-		const enrichmentStartedAt = Date.now();
-		const enrichmentResults = await Promise.allSettled([
-			upsertHypeAsync(userId, chunks, async (ownerId, hypeChunks) =>
-				pineconeService.upsertChunks(ownerId, hypeChunks, {
-					sourceRoot: sourceUrl,
-					sourceRootTitle:
-						sourceTitle ||
-						pages[0]?.title ||
-						sourceUrl,
-					scrapedAt: new Date().toISOString(),
-				}),
-			),
-			extractPageMetadataAsync(
-				pages,
-				chunks,
-				async (ownerId, vectorId, metadata) =>
-					pineconeService.updateVectorMetadata(
-						ownerId,
-						vectorId,
-						metadata,
+
+		// Let the primary scrape job finish as soon as pages are stored.
+		// Enrichment can continue independently without keeping the UI in an in-progress state.
+		void (async () => {
+			const enrichmentStartedAt = Date.now();
+			const enrichmentResults =
+				await Promise.allSettled([
+					upsertHypeAsync(
+						userId,
+						chunks,
+						async (ownerId, hypeChunks) =>
+							pineconeService.upsertChunks(
+								ownerId,
+								hypeChunks,
+								{
+									sourceRoot: sourceUrl,
+									sourceRootTitle:
+										sourceTitle ||
+										pages[0]?.title ||
+										sourceUrl,
+									scrapedAt:
+										new Date().toISOString(),
+								},
+							),
 					),
-			),
-		]);
-		for (const [index, result] of enrichmentResults.entries()) {
-			if (result.status === "rejected") {
-				logger.warn("scraper: background enrichment task failed", {
+					extractPageMetadataAsync(
+						pages,
+						chunks,
+						async (
+							ownerId,
+							vectorId,
+							metadata,
+						) =>
+							pineconeService.updateVectorMetadata(
+								ownerId,
+								vectorId,
+								metadata,
+							),
+					),
+				]);
+			for (const [index, result] of enrichmentResults.entries()) {
+				if (result.status === "rejected") {
+					logger.warn(
+						"scraper: background enrichment task failed",
+						{
+							userId,
+							sourceUrl,
+							task:
+								index === 0
+									? "hype"
+									: "page_metadata",
+							error:
+								result.reason instanceof Error
+									? result.reason.message
+									: String(
+											result.reason,
+										),
+						},
+					);
+				}
+			}
+			logger.info(
+				"scraper: background enrichment completed",
+				{
 					userId,
 					sourceUrl,
-					task: index === 0 ? "hype" : "page_metadata",
+					pages: pages.length,
+					chunks: chunks.length,
+					durationMs:
+						Date.now() - enrichmentStartedAt,
+				},
+			);
+		})().catch((error) => {
+			logger.warn(
+				"scraper: background enrichment pipeline failed",
+				{
+					userId,
+					sourceUrl,
 					error:
-						result.reason instanceof Error
-							? result.reason.message
-							: String(result.reason),
-				});
-			}
-		}
-		logger.info("scraper: background enrichment completed", {
-			userId,
-			sourceUrl,
-			pages: pages.length,
-			chunks: chunks.length,
-			durationMs: Date.now() - enrichmentStartedAt,
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
 		});
+
 		logger.info("scraper: persistence pipeline finished", {
 			userId,
 			sourceUrl,
