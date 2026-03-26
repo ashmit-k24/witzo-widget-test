@@ -21,6 +21,16 @@ export function isContactIntent(q: string): boolean {
 	return /\b(contact|address|phone|email|location|office|reach|get in touch|find you|where are you|support email|contact us|reach out)\b/.test(q);
 }
 
+export function isAppointmentBookingIntent(
+	q: string,
+): boolean {
+	return (
+		/\b(book|schedule|arrange|set up|setup|plan|organize)\b[\s\w-]{0,30}\b(appointment|meeting|demo|consultation|call|callback)\b/.test(q) ||
+		/\b(appointment|meeting|demo|consultation|call|callback)\b[\s\w-]{0,20}\b(book|schedule|arrange|set up|setup)\b/.test(q) ||
+		/\b(talk to sales|speak to sales|connect with sales|connect with your team|speak with your team|sales call|book time with|schedule time with|book a slot|schedule a slot)\b/.test(q)
+	);
+}
+
 export function isWidgetLocationQuery(q: string): boolean {
 	return /\b(location|address|office|where are you located|where are you based|where are you|contact us)\b/.test(q);
 }

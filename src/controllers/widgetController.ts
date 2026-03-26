@@ -597,6 +597,37 @@ export const webhookChat = async (
 			)
 			.catch(() => {});
 
+		const queueLeadExtraction = (
+			targetSessionId: string,
+		) => {
+			void (async () => {
+				try {
+					const session =
+						await chatService.getSession(
+							targetSessionId,
+						);
+					if (
+						session &&
+						session.messages.length >= 2
+					) {
+						await leadService.extractAndUpsertLead(
+							userId,
+							targetSessionId,
+							widget?.id ?? 0,
+							session.messages,
+							{
+								ipAddress: req.ip,
+								sourceUrl: referer,
+							},
+							usage!.planType,
+						);
+					}
+				} catch {
+					// Non-critical side effects
+				}
+			})();
+		};
+
 		if (streamRequested) {
 			res.status(200);
 			res.setHeader(
@@ -629,6 +660,23 @@ export const webhookChat = async (
 				  >
 				| undefined;
 			try {
+				const appointmentResult =
+					await chatService.handleAppointmentLeadCapture(
+						userId,
+						message,
+						{
+							sessionId,
+							language: resolvedLanguage,
+							onToken: (token) =>
+								writeEvent({
+									type: "token",
+									token,
+								}),
+						},
+					);
+				if (appointmentResult) {
+					result = appointmentResult;
+				} else {
 				result = await chatService.chatStream(
 					userId,
 					message,
@@ -638,10 +686,11 @@ export const webhookChat = async (
 							writeEvent({
 								type: "token",
 								token,
-							}),
+						}),
 					},
 					resolvedLanguage,
 				);
+				}
 				await chatService.attachConversationContext(
 					result.sessionId,
 					userId,
@@ -678,45 +727,29 @@ export const webhookChat = async (
 				res.end();
 
 				if (result) {
-					void (async () => {
-						try {
-							const session =
-								await chatService.getSession(
-									result!.sessionId,
-								);
-							if (
-								session &&
-								session.messages.length >= 2
-							) {
-								await leadService.extractAndUpsertLead(
-									userId,
-									result!.sessionId,
-									widget?.id ?? 0,
-									session.messages,
-									{
-										ipAddress:
-											req.ip,
-										sourceUrl:
-											referer,
-									},
-									usage!.planType,
-								);
-							}
-						} catch {
-							// Non-critical side effects
-						}
-					})();
+					queueLeadExtraction(
+						result.sessionId,
+					);
 				}
 			}
 			return;
 		}
 
-		const result = await chatService.chat(
-			userId,
-			message,
-			sessionId,
-			resolvedLanguage,
-		);
+		const result =
+			(await chatService.handleAppointmentLeadCapture(
+				userId,
+				message,
+				{
+					sessionId,
+					language: resolvedLanguage,
+				},
+			)) ??
+			(await chatService.chat(
+				userId,
+				message,
+				sessionId,
+				resolvedLanguage,
+			));
 		await chatService.attachConversationContext(
 			result.sessionId,
 			userId,
@@ -728,32 +761,7 @@ export const webhookChat = async (
 		);
 
 		// Queue non-critical writes out of request path
-		void (async () => {
-			try {
-				const session =
-					await chatService.getSession(
-						result.sessionId,
-					);
-				if (
-					session &&
-					session.messages.length >= 2
-				) {
-					await leadService.extractAndUpsertLead(
-						userId,
-						result.sessionId,
-						widget?.id ?? 0,
-						session.messages,
-						{
-							ipAddress: req.ip,
-							sourceUrl: referer,
-						},
-						usage!.planType,
-					);
-				}
-			} catch {
-				// Non-critical side effects
-			}
-		})();
+		queueLeadExtraction(result.sessionId);
 
 		// usage came from checkAndTrackConversation — no extra DB query needed
 		res.status(200).json({

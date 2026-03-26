@@ -25,6 +25,7 @@ import websiteBrandingService from "./websiteBrandingService";
 import { openAICircuitBreaker } from "../utils/circuitBreaker";
 import { retryOnRateLimit } from "../utils/retry";
 import {
+	isAppointmentBookingIntent,
 	isContactIntent,
 	isLinkIntent,
 	isWidgetCaseStudyQuery,
@@ -35,6 +36,26 @@ import {
 	isWidgetTopListQuery,
 	normalizeWidgetQuery,
 } from "./queryService";
+
+type AppointmentLeadField =
+	| "name"
+	| "email"
+	| "phone"
+	| "country";
+
+type AppointmentLeadState = {
+	active: boolean;
+	intentMessage: string | null;
+	fields: Partial<
+		Record<AppointmentLeadField, string>
+	>;
+	updatedAt: string;
+};
+
+type AppointmentIntentClassification = {
+	isAppointmentIntent: boolean;
+	confidence: "high" | "medium" | "low";
+};
 
 type ContextResult = {
 	matches: any[];
@@ -101,6 +122,440 @@ class ChatService {
 			.update(normalized)
 			.digest("hex");
 		return `chat:retrieval:${userId}:${sessionId}:${digest}`;
+	}
+
+	private getAppointmentLeadStateKey(
+		sessionId: string,
+	): string {
+		return `chat:appointment-lead:${sessionId}`;
+	}
+
+	private async getAppointmentLeadState(
+		sessionId: string,
+	): Promise<AppointmentLeadState | null> {
+		const cached = await redisCache.get(
+			this.getAppointmentLeadStateKey(sessionId),
+		);
+		if (!cached) {
+			return null;
+		}
+
+		try {
+			return JSON.parse(
+				cached,
+			) as AppointmentLeadState;
+		} catch {
+			return null;
+		}
+	}
+
+	private async saveAppointmentLeadState(
+		sessionId: string,
+		state: AppointmentLeadState,
+	): Promise<void> {
+		await redisCache.setex(
+			this.getAppointmentLeadStateKey(sessionId),
+			60 * 60 * 24,
+			JSON.stringify(state),
+		);
+	}
+
+	private async clearAppointmentLeadState(
+		sessionId: string,
+	): Promise<void> {
+		await redisCache.del(
+			this.getAppointmentLeadStateKey(sessionId),
+		);
+	}
+
+	private shouldRunAppointmentIntentClassifier(
+		normalizedMessage: string,
+	): boolean {
+		if (!normalizedMessage) {
+			return false;
+		}
+
+		return (
+			/\b(book|booking|schedule|scheduling|arrange|arranging|set up|setup|plan|planning|meet|meeting|demo|consult|consultation|call|callback|connect|contact|sales|team|speak|talk|discuss)\b/.test(
+				normalizedMessage,
+			) ||
+			normalizedMessage.includes("appoint") ||
+			normalizedMessage.includes("appoin") ||
+			normalizedMessage.includes("meting") ||
+			normalizedMessage.includes("schedul")
+		);
+	}
+
+	private async classifyAppointmentIntent(
+		message: string,
+		recentMessages: ChatMessage[],
+	): Promise<AppointmentIntentClassification> {
+		if (
+			!config.OPENAI_API_KEY?.trim() ||
+			!this.shouldRunAppointmentIntentClassifier(
+				normalizeWidgetQuery(message),
+			)
+		) {
+			return {
+				isAppointmentIntent: false,
+				confidence: "low",
+			};
+		}
+
+		const recentConversation = recentMessages
+			.filter((entry) => entry.role !== "system")
+			.slice(-4)
+			.map(
+				(entry) =>
+					`${entry.role === "assistant" ? "Assistant" : "Visitor"}: ${entry.content}`,
+			)
+			.join("\n");
+
+		const prompt = `Classify whether the latest visitor message is asking to book or arrange a human follow-up such as an appointment, meeting, demo, consultation, callback, sales conversation, or team call.
+
+Be tolerant of typos, short phrases, and poor grammar.
+
+Return only valid JSON with this exact shape:
+{
+  "isAppointmentIntent": true,
+  "confidence": "high"
+}
+
+Use "high" when the visitor clearly wants to schedule or be contacted for a meeting/demo/call.
+Use "medium" when the visitor likely wants that but wording is indirect or typo-heavy.
+Use "low" when it is not a booking/contact request.
+
+Treat these as positive examples:
+- "i wanted to book an appoinment"
+- "can your team call me"
+- "i need a demo"
+- "want to discuss my project with sales"
+- "can we schedule a meeting"
+
+Treat these as negative examples:
+- asking for office address, phone number, or email only
+- asking what services are offered
+- asking for pricing or plans
+- general support questions without asking for a meeting/call
+
+Recent conversation:
+${recentConversation || "None"}
+
+Latest visitor message:
+${message}`;
+
+		try {
+			const timeoutController =
+				new AbortController();
+			const timeout = setTimeout(() => {
+				timeoutController.abort();
+			}, CHAT_DEFAULT_TIMEOUT_MS);
+
+			try {
+				const completion =
+					await openAICircuitBreaker.execute(
+						async () => {
+							return await retryOnRateLimit(
+								async () => {
+									return await this.openai.chat.completions.create(
+										{
+											model: CHAT_COMPLETION_MODEL,
+											messages: [
+												{
+													role: "user",
+													content: prompt,
+												},
+											],
+											temperature: 0,
+											max_tokens: 80,
+											response_format: {
+												type: "json_object",
+											},
+										},
+										{
+											signal: timeoutController.signal,
+										},
+									);
+								},
+								2,
+							);
+						},
+					);
+
+				const raw =
+					completion.choices[0]?.message
+						.content || "{}";
+				const parsed = JSON.parse(raw) as Partial<AppointmentIntentClassification>;
+				const confidence =
+					parsed.confidence === "high" ||
+					parsed.confidence === "medium" ||
+					parsed.confidence === "low"
+						? parsed.confidence
+						: "low";
+
+				return {
+					isAppointmentIntent:
+						parsed.isAppointmentIntent === true,
+					confidence,
+				};
+			} finally {
+				clearTimeout(timeout);
+			}
+		} catch (error) {
+			logger.warn(
+				"Appointment intent classification failed",
+				{
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+			return {
+				isAppointmentIntent: false,
+				confidence: "low",
+			};
+		}
+	}
+
+	private extractEmailCandidate(
+		message: string,
+	): string | null {
+		const match = message.match(
+			/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+		);
+		return match?.[0]?.trim() || null;
+	}
+
+	private extractPhoneCandidate(
+		message: string,
+	): string | null {
+		const match = message.match(
+			/(?:(?:\+?\d[\d\s().-]{6,}\d))/,
+		);
+		if (!match?.[0]) {
+			return null;
+		}
+
+		const candidate = match[0].trim();
+		const digits = candidate.replace(/\D/g, "");
+		if (digits.length < 7 || digits.length > 15) {
+			return null;
+		}
+
+		return candidate;
+	}
+
+	private extractNameCandidate(
+		message: string,
+	): string | null {
+		const patterns = [
+			/\bmy name is\s+([a-z][a-z\s.'-]{1,60})/i,
+			/\bi am\s+([a-z][a-z\s.'-]{1,60})/i,
+			/\bthis is\s+([a-z][a-z\s.'-]{1,60})/i,
+		];
+
+		for (const pattern of patterns) {
+			const match = message.match(pattern);
+			if (match?.[1]) {
+				return match[1].trim();
+			}
+		}
+
+		return null;
+	}
+
+	private extractCountryCandidate(
+		message: string,
+	): string | null {
+		const patterns = [
+			/\bi(?:'m| am) from\s+([a-z][a-z\s.'-]{1,60})/i,
+			/\bi am based in\s+([a-z][a-z\s.'-]{1,60})/i,
+			/\bcountry(?: is|:)?\s+([a-z][a-z\s.'-]{1,60})/i,
+		];
+
+		for (const pattern of patterns) {
+			const match = message.match(pattern);
+			if (match?.[1]) {
+				return match[1].trim();
+			}
+		}
+
+		return null;
+	}
+
+	private getNextAppointmentLeadField(
+		state: AppointmentLeadState,
+	): AppointmentLeadField | null {
+		const orderedFields: AppointmentLeadField[] = [
+			"name",
+			"email",
+			"phone",
+			"country",
+		];
+
+		for (const field of orderedFields) {
+			if (!state.fields[field]?.trim()) {
+				return field;
+			}
+		}
+
+		return null;
+	}
+
+	private buildAppointmentLeadPrompt(
+		nextField: AppointmentLeadField,
+		state: AppointmentLeadState,
+	): string {
+		switch (nextField) {
+			case "name":
+				return "We'd be happy to help you book an appointment. To get this arranged, may I have your full name?";
+			case "email":
+				return state.fields.name
+					? `Thanks, ${state.fields.name}. What email address should we use to confirm the appointment?`
+					: "Thanks. What email address should we use to confirm the appointment?";
+			case "phone":
+				return "Great. What phone number can we reach you on for the appointment?";
+			case "country":
+				return "Thank you. Which country are you based in?";
+			default:
+				return "Thanks. Please share the next detail so we can arrange the appointment.";
+		}
+	}
+
+	private buildInvalidAppointmentLeadPrompt(
+		field: AppointmentLeadField,
+	): string {
+		switch (field) {
+			case "email":
+				return "Please share a valid email address so we can confirm your appointment.";
+			case "phone":
+				return "Please share a valid phone number, including country code if possible.";
+			case "name":
+				return "Please share your full name so we can arrange the appointment for you.";
+			case "country":
+				return "Please share the country you're based in so our team can route your appointment correctly.";
+			default:
+				return "Please share that detail so we can continue with the appointment request.";
+		}
+	}
+
+	private hydrateAppointmentLeadState(
+		state: AppointmentLeadState,
+		message: string,
+	): AppointmentLeadState {
+		const nextState: AppointmentLeadState = {
+			...state,
+			fields: {
+				...state.fields,
+			},
+			updatedAt: new Date().toISOString(),
+		};
+
+		const email = this.extractEmailCandidate(
+			message,
+		);
+		if (email) {
+			nextState.fields.email = email;
+		}
+
+		const phone = this.extractPhoneCandidate(
+			message,
+		);
+		if (phone) {
+			nextState.fields.phone = phone;
+		}
+
+		const name = this.extractNameCandidate(
+			message,
+		);
+		if (name) {
+			nextState.fields.name = name;
+		}
+
+		const country = this.extractCountryCandidate(
+			message,
+		);
+		if (country) {
+			nextState.fields.country = country;
+		}
+
+		return nextState;
+	}
+
+	private captureExpectedAppointmentField(
+		state: AppointmentLeadState,
+		field: AppointmentLeadField,
+		message: string,
+	): {
+		state: AppointmentLeadState;
+		valid: boolean;
+	} {
+		const trimmed = message.trim();
+		const nextState: AppointmentLeadState = {
+			...state,
+			fields: {
+				...state.fields,
+			},
+			updatedAt: new Date().toISOString(),
+		};
+
+		switch (field) {
+			case "email": {
+				const email =
+					nextState.fields.email ||
+					this.extractEmailCandidate(trimmed);
+				if (!email) {
+					return { state: nextState, valid: false };
+				}
+				nextState.fields.email = email;
+				return { state: nextState, valid: true };
+			}
+			case "phone": {
+				const phone =
+					nextState.fields.phone ||
+					this.extractPhoneCandidate(trimmed);
+				if (!phone) {
+					return { state: nextState, valid: false };
+				}
+				nextState.fields.phone = phone;
+				return { state: nextState, valid: true };
+			}
+			case "name": {
+				if (nextState.fields.name) {
+					return { state: nextState, valid: true };
+				}
+				if (
+					!trimmed ||
+					trimmed.length > 80 ||
+					/@/.test(trimmed) ||
+					/\d/.test(trimmed) ||
+					isAppointmentBookingIntent(
+						normalizeWidgetQuery(trimmed),
+					)
+				) {
+					return { state: nextState, valid: false };
+				}
+				nextState.fields.name = trimmed;
+				return { state: nextState, valid: true };
+			}
+			case "country": {
+				if (nextState.fields.country) {
+					return { state: nextState, valid: true };
+				}
+				if (
+					!trimmed ||
+					trimmed.length > 80 ||
+					/@/.test(trimmed)
+				) {
+					return { state: nextState, valid: false };
+				}
+				nextState.fields.country = trimmed;
+				return { state: nextState, valid: true };
+			}
+			default:
+				return { state: nextState, valid: false };
+		}
 	}
 
 	private normalizeSessionId(sessionId?: string): string | null {
@@ -1274,6 +1729,211 @@ Question: ${query}${formatDirective}`;
 		};
 	}
 
+	async handleAppointmentLeadCapture(
+		userId: string,
+		message: string,
+		input: {
+			sessionId?: string;
+			language?: string;
+			onToken?: (token: string) => void;
+		},
+	): Promise<{
+		sessionId: string;
+		response: string;
+		language?: string;
+		sources: Array<{
+			url: string;
+			title: string;
+			relevanceScore: number;
+		}>;
+		timing: ChatTiming;
+	} | null> {
+		const startedAt = Date.now();
+		const timing: ChatTiming = {
+			sessionMs: 0,
+			retrievalMs: 0,
+			llmMs: 0,
+			saveMs: 0,
+			totalMs: 0,
+		};
+		const resolvedLanguage =
+			this.normalizeLanguagePreference(
+				input.language,
+			);
+		const normalizedMessage =
+			normalizeWidgetQuery(message);
+
+		const sessionStart = Date.now();
+		const session = await this.getOrCreateSession(
+			userId,
+			input.sessionId,
+		);
+		timing.sessionMs = Date.now() - sessionStart;
+
+		const existingState =
+			await this.getAppointmentLeadState(
+				session.sessionId,
+			);
+		const regexMatchedIntent =
+			isAppointmentBookingIntent(
+				normalizedMessage,
+			);
+		let classifiedIntent: AppointmentIntentClassification =
+			{
+				isAppointmentIntent: false,
+				confidence: "low",
+			};
+
+		if (
+			!existingState?.active &&
+			!regexMatchedIntent
+		) {
+			const classifierStart = Date.now();
+			classifiedIntent =
+				await this.classifyAppointmentIntent(
+					message,
+					session.messages,
+				);
+			timing.llmMs +=
+				Date.now() - classifierStart;
+		}
+
+		const isActive =
+			Boolean(existingState?.active) ||
+			regexMatchedIntent ||
+			(classifiedIntent.isAppointmentIntent &&
+				classifiedIntent.confidence !==
+					"low");
+
+		if (!isActive) {
+			return null;
+		}
+
+		const saveStart = Date.now();
+		const userTimestamp = await this.persistMessage(
+			session.sessionId,
+			userId,
+			"user",
+			message,
+			{
+				language: resolvedLanguage,
+				appointmentLeadCapture: true,
+			},
+		);
+		session.messages.push({
+			role: "user",
+			content: message,
+			timestamp: userTimestamp,
+		});
+
+		let state: AppointmentLeadState =
+			existingState ?? {
+				active: true,
+				intentMessage: message.trim() || null,
+				fields: {},
+				updatedAt: new Date().toISOString(),
+			};
+
+		state = this.hydrateAppointmentLeadState(
+			state,
+			message,
+		);
+
+		let response = "";
+		if (existingState?.active) {
+			const expectedField =
+				this.getNextAppointmentLeadField(
+					existingState,
+				);
+			if (expectedField) {
+				const captured =
+					this.captureExpectedAppointmentField(
+						state,
+						expectedField,
+						message,
+					);
+				state = captured.state;
+				if (!captured.valid) {
+					response =
+						this.buildInvalidAppointmentLeadPrompt(
+							expectedField,
+						);
+				}
+			}
+		}
+
+		const nextField =
+			this.getNextAppointmentLeadField(state);
+		if (!response) {
+			if (nextField) {
+				response =
+					this.buildAppointmentLeadPrompt(
+						nextField,
+						state,
+					);
+			} else {
+				response =
+					"Thank you. We've captured your appointment request, and our team will reach out soon to schedule the meeting.";
+			}
+		}
+
+		if (nextField) {
+			await this.saveAppointmentLeadState(
+				session.sessionId,
+				state,
+			);
+		} else {
+			await this.clearAppointmentLeadState(
+				session.sessionId,
+			);
+		}
+
+		const assistantTimestamp = await this.persistMessage(
+			session.sessionId,
+			userId,
+			"assistant",
+			response,
+			{
+				language: resolvedLanguage,
+				appointmentLeadCapture: true,
+				leadCaptureCompleted: !nextField,
+			},
+		);
+		session.messages.push({
+			role: "assistant",
+			content: response,
+			timestamp: assistantTimestamp,
+		});
+		session.updatedAt = assistantTimestamp;
+		await this.saveCachedSession(session);
+		input.onToken?.(response);
+
+		timing.saveMs = Date.now() - saveStart;
+		timing.totalMs = Date.now() - startedAt;
+
+		logger.info("Appointment lead capture handled", {
+			userId,
+			sessionId: session.sessionId,
+			completed: !nextField,
+			nextField,
+			intentSource: existingState?.active
+				? "session_state"
+				: regexMatchedIntent
+					? "rule"
+					: "openai_classifier",
+			intentConfidence:
+				classifiedIntent.confidence,
+		});
+
+		return {
+			sessionId: session.sessionId,
+			response,
+			language: resolvedLanguage,
+			sources: [],
+			timing,
+		};
+	}
+
 	async chat(
 		userId: string,
 		message: string,
@@ -1778,6 +2438,9 @@ Question: ${query}${formatDirective}`;
 
 		if ((result.rowCount ?? 0) > 0) {
 			await redisCache.del(this.getSessionKey(normalized));
+			await this.clearAppointmentLeadState(
+				normalized,
+			);
 			return true;
 		}
 		return false;
