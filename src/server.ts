@@ -39,6 +39,16 @@ import logger from "./utils/logger";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 import { createScraperWorker } from "./workers/scraperWorker";
 
+const isRateLimitExemptPath = (path: string): boolean => {
+	const normalized = path.toLowerCase();
+	return (
+		normalized === "/api/auth/scraper/progress" ||
+		/^\/api\/auth\/scraper\/progress\/[^/]+$/.test(
+			normalized,
+		)
+	);
+};
+
 // Start background workers and keep references for graceful shutdown
 const scraperWorker = createScraperWorker();
 const maintenanceWorker =
@@ -217,7 +227,8 @@ const limiter = rateLimit({
 	standardHeaders: true,
 	legacyHeaders: false,
 	skip: (req: Request) =>
-		!req.path.startsWith("/api"),
+		!req.path.startsWith("/api") ||
+		isRateLimitExemptPath(req.path),
 });
 
 app.use(limiter);

@@ -212,6 +212,32 @@ const getScraperLimitPayload = (
 	};
 };
 
+const buildScrapeProgressPayload = async (
+	jobId: string,
+) => {
+	const progress =
+		await scraperStatusService.getProgress(jobId);
+	if (!progress) {
+		return null;
+	}
+
+	return {
+		jobId: progress.jobId,
+		mode: progress.mode,
+		url: progress.url,
+		currentUrl: progress.currentUrl,
+		status: progress.status,
+		percent: progress.percent,
+		stage: progress.stage,
+		stageLabel: progress.stageLabel,
+		pageProgress: progress.pageProgress,
+		milestones: progress.milestones,
+		startedAt: progress.startedAt,
+		completedAt: progress.completedAt,
+		error: progress.error,
+	};
+};
+
 export const scrapeWebsite = async (
 	req: Request,
 	res: Response,
@@ -916,6 +942,54 @@ export const getLatestScrapeStatus = async (
 	}
 };
 
+export const getLatestScrapeProgress = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = (req as any).user?.id;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		const latestJob =
+			await scraperStatusService.getLatestJobForUser(
+				userId,
+			);
+		if (!latestJob) {
+			res.status(200).json({
+				success: true,
+				data: null,
+			});
+			return;
+		}
+
+		const progress =
+			await buildScrapeProgressPayload(
+				latestJob.jobId,
+			);
+		res.status(200).json({
+			success: true,
+			data: progress,
+		});
+	} catch (error) {
+		logger.error(
+			"Error in getLatestScrapeProgress controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while fetching scrape progress",
+		});
+	}
+};
+
 export const getScrapeStatusByJobId = async (
 	req: Request,
 	res: Response,
@@ -955,6 +1029,51 @@ export const getScrapeStatusByJobId = async (
 			success: false,
 			message:
 				"Internal server error while fetching scrape job",
+		});
+	}
+};
+
+export const getScrapeProgressByJobId = async (
+	req: Request,
+	res: Response,
+): Promise<void> => {
+	try {
+		const userId = (req as any).user?.id;
+		const { jobId } = req.params;
+
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "User not authenticated",
+			});
+			return;
+		}
+
+		const job =
+			await scraperStatusService.getJob(jobId);
+		if (!job || job.userId !== userId) {
+			res.status(404).json({
+				success: false,
+				message: "Scrape job not found",
+			});
+			return;
+		}
+
+		const progress =
+			await buildScrapeProgressPayload(jobId);
+		res.status(200).json({
+			success: true,
+			data: progress,
+		});
+	} catch (error) {
+		logger.error(
+			"Error in getScrapeProgressByJobId controller",
+			{ error },
+		);
+		res.status(500).json({
+			success: false,
+			message:
+				"Internal server error while fetching scrape progress",
 		});
 	}
 };
