@@ -7,6 +7,7 @@ import {
 import { redisCache } from "../config/redis";
 import logger from "../utils/logger";
 import { UsageStats } from "../types";
+import emailService from "./emailService";
 
 const usageCacheKey = (userId: string) =>
 	`usage:stats:${userId}`;
@@ -16,6 +17,20 @@ const usageCacheKey = (userId: string) =>
  * Manages conversation limits and usage tracking for free and basic plans
  */
 class UsageTrackingService {
+	private shouldNotifyLimitReached(
+		usage: UsageStats,
+	): usage is UsageStats & {
+		conversationsLimit: number;
+	} {
+		return (
+			usage.isAtLimit &&
+			usage.conversationsLimit !== null &&
+			(usage.planType === "free" ||
+				usage.planType === "basic" ||
+				usage.planType === "standard")
+		);
+	}
+
 	private buildUsageStats(user: {
 		plan_type: string;
 		conversations_used: number;
@@ -310,6 +325,7 @@ class UsageTrackingService {
 			const result = await pool.query(
 				`UPDATE users
         SET conversations_used = 0,
+            conversation_limit_email_sent_at = NULL,
             plan_reset_date = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
         WHERE plan_reset_date <= CURRENT_TIMESTAMP - INTERVAL '1 month'
@@ -339,6 +355,81 @@ class UsageTrackingService {
 				stack: err.stack,
 			});
 			throw error;
+		}
+	}
+
+	async notifyConversationLimitReachedIfNeeded(
+		userId: string,
+		usage: UsageStats,
+	): Promise<void> {
+		if (!this.shouldNotifyLimitReached(usage)) {
+			return;
+		}
+
+		try {
+			const result = await pool.query<{
+				email: string;
+				plan_type: string;
+				conversations_used: number;
+				conversations_limit: number;
+				plan_reset_date: Date;
+			}>(
+				`UPDATE users
+         SET conversation_limit_email_sent_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+           AND conversations_limit IS NOT NULL
+           AND plan_type = ANY($2::text[])
+           AND conversations_used >= conversations_limit
+           AND (
+             conversation_limit_email_sent_at IS NULL
+             OR conversation_limit_email_sent_at < plan_reset_date
+           )
+         RETURNING
+           email,
+           plan_type,
+           conversations_used,
+           conversations_limit,
+           plan_reset_date`,
+				[userId, ["free", "basic", "standard"]],
+			);
+
+			const user = result.rows[0];
+			if (!user?.email) {
+				return;
+			}
+
+			const nextResetDate = new Date(
+				user.plan_reset_date,
+			);
+			nextResetDate.setMonth(
+				nextResetDate.getMonth() + 1,
+			);
+
+			await emailService.sendPlanLimitReachedEmail(
+				user.email,
+				{
+					planType: coercePlanType(
+						user.plan_type,
+					),
+					conversationsUsed:
+						user.conversations_used,
+					conversationsLimit:
+						user.conversations_limit,
+					resetDate: nextResetDate,
+				},
+			);
+		} catch (error) {
+			logger.warn(
+				"Failed to send plan limit reached email",
+				{
+					userId,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
 		}
 	}
 

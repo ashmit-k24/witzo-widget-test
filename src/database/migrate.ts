@@ -223,6 +223,12 @@ const migrations: Migration[] = [
 			"Add missing amount_minor columns for Paddle subscriptions and payments",
 		file: "20260326_034_billing_amount_minor_columns.sql",
 	},
+	{
+		id: "20260326_035_plan_limit_notification_tracking",
+		description:
+			"Track plan-limit notification emails to avoid duplicate sends within a billing cycle",
+		file: "20260326_035_plan_limit_notification_tracking.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

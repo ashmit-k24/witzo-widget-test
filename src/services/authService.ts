@@ -1099,6 +1099,24 @@ class AuthService {
 
 			const isFirstPassword =
 				!existingPasswordHash;
+			void emailService
+				.sendPasswordChangedEmail(
+					user.email,
+					new Date(),
+				)
+				.catch((error) => {
+					logger.warn(
+						"Failed to send password changed notification after settings update",
+						{
+							userId,
+							email: user.email,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				});
 			logger.info("User password updated from settings", {
 				userId,
 				isFirstPassword,
@@ -1601,6 +1619,25 @@ class AuthService {
 			);
 
 			await client.query("COMMIT");
+
+			void emailService
+				.sendPasswordChangedEmail(
+					user.email,
+					new Date(),
+				)
+				.catch((error) => {
+					logger.warn(
+						"Failed to send password changed notification after password reset",
+						{
+							userId: user.id,
+							email: user.email,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				});
 
 			logger.info("Password reset completed", {
 				userId: user.id,

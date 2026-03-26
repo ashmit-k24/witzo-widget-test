@@ -8,6 +8,7 @@ import {
 import { config } from "../config/env";
 import pool from "../config/database";
 import logger from "../utils/logger";
+import emailService from "./emailService";
 
 export type BillingCycle = "monthly" | "yearly";
 
@@ -455,6 +456,109 @@ class SubscriptionService {
 		return ranks[planName] ?? 0;
 	}
 
+	private formatPlanDisplayName(
+		planName: string,
+		billingCycle?: BillingCycle | null,
+	): string {
+		const normalizedPlanName = planName.trim();
+		if (!billingCycle) {
+			return (
+				normalizedPlanName.charAt(0).toUpperCase() +
+				normalizedPlanName.slice(1)
+			);
+		}
+
+		return `${normalizedPlanName.charAt(0).toUpperCase()}${normalizedPlanName.slice(1)} ${billingCycle === "yearly" ? "Yearly" : "Monthly"}`;
+	}
+
+	private async getUserEmail(
+		userId: string,
+	): Promise<string | null> {
+		const result = await pool.query<{
+			email: string;
+		}>(
+			`SELECT email FROM users WHERE id = $1 LIMIT 1`,
+			[userId],
+		);
+		return result.rows[0]?.email ?? null;
+	}
+
+	private notifySubscriptionUpgraded(
+		userId: string,
+		planName: string,
+		billingCycle?: BillingCycle | null,
+	): void {
+		if (planName === "free") {
+			return;
+		}
+
+		const displayPlanName =
+			this.formatPlanDisplayName(
+				planName,
+				billingCycle,
+			);
+
+		void this.getUserEmail(userId)
+			.then((email) => {
+				if (!email) {
+					return;
+				}
+				return emailService.sendSubscriptionUpgradedEmail(
+					email,
+					displayPlanName,
+				);
+			})
+			.catch((error) => {
+				logger.warn(
+					"Failed to send subscription upgraded email",
+					{
+						userId,
+						planName: displayPlanName,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			});
+	}
+
+	private notifySubscriptionCancelled(
+		userId: string,
+		planName: string,
+		billingCycle?: BillingCycle | null,
+	): void {
+		const displayPlanName =
+			this.formatPlanDisplayName(
+				planName,
+				billingCycle,
+			);
+
+		void this.getUserEmail(userId)
+			.then((email) => {
+				if (!email) {
+					return;
+				}
+				return emailService.sendSubscriptionCancelledEmail(
+					email,
+					displayPlanName,
+				);
+			})
+			.catch((error) => {
+				logger.warn(
+					"Failed to send subscription cancelled email",
+					{
+						userId,
+						planName: displayPlanName,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			});
+	}
+
 	private assertBillingCycleTransitionAllowed(
 		current: SubscriptionWithPlanRow,
 		targetCycle: BillingCycle,
@@ -829,6 +933,12 @@ class SubscriptionService {
 		} finally {
 			client.release();
 		}
+
+		this.notifySubscriptionCancelled(
+			userId,
+			current.plan_name,
+			current.billing_cycle,
+		);
 
 		return this.getCurrentSubscription(userId);
 	}
@@ -1215,6 +1325,18 @@ class SubscriptionService {
 				const totalStr = tx.details?.totals?.total ?? "0";
 				const amount = Math.round(parseFloat(totalStr));
 				const currency = tx.details?.totals?.currencyCode ?? "USD";
+				const existingPaymentResult =
+					await pool.query<{
+						id: string;
+					}>(
+						`SELECT id FROM payments
+               WHERE paddle_transaction_id = $1
+               LIMIT 1`,
+						[tx.id],
+					);
+				const isFirstProcessedTransaction =
+					existingPaymentResult.rowCount === 0;
+				let activatedPlanName: string | null = null;
 
 				// If subscription.created was missed, create the row now and apply plan
 				let effectiveSubRow = subRow;
@@ -1257,6 +1379,7 @@ class SubscriptionService {
 						}).catch(() => null);
 						if (planRow) {
 							await this.applyUserPlan(client, userId, planRow.name);
+							activatedPlanName = planRow.name;
 						}
 						await client.query("COMMIT");
 						logger.info(
@@ -1289,6 +1412,7 @@ class SubscriptionService {
 						}).catch(() => null);
 						if (planRow) {
 							await this.applyUserPlan(client, userId, planRow.name);
+							activatedPlanName = planRow.name;
 						}
 						await client.query("COMMIT");
 					} catch (err) {
@@ -1349,6 +1473,17 @@ class SubscriptionService {
 									? err.message
 									: String(err),
 						},
+					);
+				}
+
+				if (
+					isFirstProcessedTransaction &&
+					activatedPlanName
+				) {
+					this.notifySubscriptionUpgraded(
+						userId,
+						activatedPlanName,
+						billingCycle,
 					);
 				}
 				break;

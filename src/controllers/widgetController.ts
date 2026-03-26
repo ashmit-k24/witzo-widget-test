@@ -553,6 +553,10 @@ export const webhookChat = async (
 				await usageTrackingService.getUserUsage(
 					userId,
 				);
+			void usageTrackingService.notifyConversationLimitReachedIfNeeded(
+				userId,
+				currentUsage,
+			);
 
 			logger.warn(
 				"Widget user exceeded conversation limit",
