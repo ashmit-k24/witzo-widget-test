@@ -20,6 +20,7 @@ import logger from "../utils/logger";
 import { pineconeService } from "./pineconeService";
 import { scraperStatusService } from "./scraperStatusService";
 import systemMessageService from "./systemMessageService";
+import websiteBrandingService from "./websiteBrandingService";
 import { openAICircuitBreaker } from "../utils/circuitBreaker";
 import { retryOnRateLimit } from "../utils/retry";
 import {
@@ -420,6 +421,8 @@ class ChatService {
 		const lines = [
 			"You are writing a reply for a public website chat widget.",
 			"Answer like a polished sales/support assistant, not a raw retrieval dump.",
+			"Write from the company's point of view using first-person plural voice like 'we', 'our', and 'us' whenever you describe services, capabilities, process, hiring, or support.",
+			"Avoid referring to the business in third person with its company name unless you are naming a specific page, brand, link, or formal legal/business entity.",
 			"Lead with the answer immediately.",
 			"Do not open with greetings, thank-yous, or filler unless the user greeted you first.",
 			"Keep the reply concise, scannable, and commercially useful.",
@@ -477,6 +480,7 @@ class ChatService {
 			"- Use **bold** sparingly for service names, company names, and metrics.",
 			"- Use bullet points (-) for lists.",
 			"- Use numbered lists only for steps or explicit rankings.",
+			"- When you use a numbered list, number items sequentially as 1., 2., 3. and never repeat 1. for every item.",
 			"- Start with one short answer sentence before the list when helpful.",
 			"- If the answer includes multiple groups, use `##` headings and place bullets under each heading.",
 			"- Keep each bullet concise; avoid stacking too many unrelated bullets in one section.",
@@ -510,10 +514,129 @@ class ChatService {
 	private formatAssistantResponse(
 		response: string,
 		_userMessage: string,
-		_websiteName: string = "this website",
+		websiteName: string = "this website",
 	): string {
-		return this.finalizeResponseEnding(
-			response.trim(),
+		let output = response.trim();
+		output = this.normalizeOrderedMarkdownLists(output);
+		output = this.normalizeCompanyVoice(
+			output,
+			websiteName,
+		);
+		return this.finalizeResponseEnding(output);
+	}
+
+	private normalizeOrderedMarkdownLists(
+		text: string,
+	): string {
+		const lines = text.split("\n");
+		let orderedIndex = 0;
+		let lastOrderedLine = false;
+		let pendingBlankAfterOrdered = false;
+
+		for (let i = 0; i < lines.length; i += 1) {
+			const line = lines[i];
+			const trimmed = line.trim();
+
+			if (!trimmed) {
+				if (lastOrderedLine) {
+					pendingBlankAfterOrdered = true;
+				} else {
+					orderedIndex = 0;
+				}
+				lastOrderedLine = false;
+				continue;
+			}
+
+			const orderedMatch = line.match(
+				/^(\s*)\d+\.\s+(.+)$/,
+			);
+			if (orderedMatch) {
+				orderedIndex += 1;
+				lines[i] = `${orderedMatch[1]}${orderedIndex}. ${orderedMatch[2]}`;
+				lastOrderedLine = true;
+				pendingBlankAfterOrdered = false;
+				continue;
+			}
+
+			if (pendingBlankAfterOrdered || !lastOrderedLine) {
+				orderedIndex = 0;
+			}
+			pendingBlankAfterOrdered = false;
+			lastOrderedLine = false;
+		}
+
+		return lines.join("\n");
+	}
+
+	private normalizeCompanyVoice(
+		text: string,
+		websiteName: string,
+	): string {
+		const normalizedWebsiteName = String(
+			websiteName || "",
+		).trim();
+		if (!normalizedWebsiteName) {
+			return text;
+		}
+
+		const escapedWebsiteName =
+			normalizedWebsiteName.replace(
+				/[.*+?^${}()|[\]\\]/g,
+				"\\$&",
+			);
+
+		const replacements: Array<[
+			RegExp,
+			string,
+		]> = [
+			[
+				new RegExp(
+					`(^|\\n)${escapedWebsiteName}\\s+offers\\b`,
+					"gi",
+				),
+				"$1We offer",
+			],
+			[
+				new RegExp(
+					`(^|\\n)${escapedWebsiteName}\\s+provides\\b`,
+					"gi",
+				),
+				"$1We provide",
+			],
+			[
+				new RegExp(
+					`(^|\\n)${escapedWebsiteName}\\s+has\\b`,
+					"gi",
+				),
+				"$1We have",
+			],
+			[
+				new RegExp(
+					`(^|\\n)${escapedWebsiteName}\\s+is\\b`,
+					"gi",
+				),
+				"$1We are",
+			],
+			[
+				new RegExp(
+					`(^|\\n)To apply for a job at\\s+${escapedWebsiteName}\\b`,
+					"gi",
+				),
+				"$1To apply for a job with us",
+			],
+			[
+				new RegExp(
+					`(^|\\n)At\\s+${escapedWebsiteName}\\b`,
+					"gi",
+				),
+				"$1With us",
+			],
+		];
+
+		return replacements.reduce(
+			(output, [pattern, replacement]) =>
+				output.replace(pattern, replacement),
+			text,
 		);
 	}
 
@@ -1094,10 +1217,14 @@ Question: ${query}${formatDirective}`;
 			answer = completion.response || fallbackResponse;
 		}
 
+		const websiteName =
+			await websiteBrandingService.resolveUserWebsiteName(
+				userId,
+			);
 		answer = this.formatAssistantResponse(
 			answer,
 			message,
-			"this website",
+			websiteName,
 		);
 
 		return {
@@ -1224,10 +1351,14 @@ Question: ${query}${formatDirective}`;
 					usedFallback = true;
 				}
 			}
+			const websiteName =
+				await websiteBrandingService.resolveUserWebsiteName(
+					userId,
+				);
 			assistantResponse = this.formatAssistantResponse(
 				assistantResponse,
 				message,
-				"this website",
+				websiteName,
 			);
 			timing.llmMs = Date.now() - llmStart;
 
@@ -1433,10 +1564,14 @@ Question: ${query}${formatDirective}`;
 			assistantResponse = fallbackResponse;
 			usedFallback = true;
 		}
+		const websiteName =
+			await websiteBrandingService.resolveUserWebsiteName(
+				userId,
+			);
 		assistantResponse = this.formatAssistantResponse(
 			assistantResponse,
 			message,
-			"this website",
+			websiteName,
 		);
 
 		const usageMeta = this.buildUsageMetadata(usage);
