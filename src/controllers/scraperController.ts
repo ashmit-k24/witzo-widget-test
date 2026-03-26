@@ -13,6 +13,75 @@ import logger from "../utils/logger";
 
 const SCRAPER_MAX_DEPTH = 10;
 const SCRAPER_MAX_PAGES = SCRAPER_PAGE_LIMIT;
+type DeleteJobMode =
+	| "delete_source"
+	| "delete_page"
+	| "delete_all";
+
+const startDeleteJob = async (
+	userId: string,
+	url: string,
+	mode: DeleteJobMode,
+) =>
+	scraperStatusService.startJob({
+		userId,
+		url,
+		mode,
+	});
+
+const runDeleteJobInBackground = (
+	jobId: string,
+	userId: string,
+	url: string,
+	mode: DeleteJobMode,
+	task: () => Promise<void>,
+): void => {
+	void (async () => {
+		try {
+			await scraperStatusService.updateProgress(
+				jobId,
+				{
+					totalPages: 1,
+					scrapedPages: 0,
+					storedPages: 0,
+					currentUrl: url,
+				},
+			);
+
+			await task();
+
+			await scraperStatusService.completeJob(
+				jobId,
+				{
+					totalPages: 1,
+					scrapedPages: 1,
+					storedPages: 1,
+					currentUrl: url,
+				},
+			);
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Delete failed";
+			logger.error("Background delete job failed", {
+				jobId,
+				userId,
+				url,
+				mode,
+				error: message,
+			});
+			await scraperStatusService.failJob(
+				jobId,
+				message,
+				{
+					totalPages: 1,
+					currentUrl: url,
+				},
+			);
+		}
+	})();
+};
 
 const normalizeRequestedMaxPages = (
 	value: unknown,
@@ -342,15 +411,31 @@ export const deleteDocuments = async (
 			},
 		);
 
-		await pineconeService.deleteDocumentsByUrl(
+		const job = await startDeleteJob(
 			userId,
 			url,
+			"delete_source",
 		);
 
-		res.status(200).json({
+		res.status(202).json({
 			success: true,
-			message: `All documents for website ${url} have been deleted`,
+			message: `Deletion started for website ${url}`,
+			data: {
+				job,
+			},
 		});
+
+		runDeleteJobInBackground(
+			job.jobId,
+			userId,
+			url,
+			"delete_source",
+			() =>
+				pineconeService.deleteDocumentsByUrl(
+					userId,
+					url,
+				),
+		);
 	} catch (error) {
 		logger.error(
 			"Error in deleteDocuments controller",
@@ -393,15 +478,31 @@ export const deletePage = async (
 			{ userId },
 		);
 
-		await pineconeService.deletePageByExactUrl(
+		const job = await startDeleteJob(
 			userId,
 			url,
+			"delete_page",
 		);
 
-		res.status(200).json({
+		res.status(202).json({
 			success: true,
-			message: `Page ${url} has been deleted`,
+			message: `Deletion started for page ${url}`,
+			data: {
+				job,
+			},
 		});
+
+		runDeleteJobInBackground(
+			job.jobId,
+			userId,
+			url,
+			"delete_page",
+			() =>
+				pineconeService.deletePageByExactUrl(
+					userId,
+					url,
+				),
+		);
 	} catch (error) {
 		logger.error(
 			"Error in deletePage controller",
@@ -434,14 +535,31 @@ export const deleteAllDocuments = async (
 			`Deleting all documents for user: ${userId}`,
 		);
 
-		await pineconeService.deleteAllUserDocuments(
+		const deleteUrl = `delete-all://${userId}`;
+		const job = await startDeleteJob(
 			userId,
+			deleteUrl,
+			"delete_all",
 		);
 
-		res.status(200).json({
+		res.status(202).json({
 			success: true,
-			message: `All your documents have been deleted`,
+			message: "Deletion started for all data sources",
+			data: {
+				job,
+			},
 		});
+
+		runDeleteJobInBackground(
+			job.jobId,
+			userId,
+			deleteUrl,
+			"delete_all",
+			() =>
+				pineconeService.deleteAllUserDocuments(
+					userId,
+				),
+		);
 	} catch (error) {
 		logger.error(
 			"Error in deleteAllDocuments controller",

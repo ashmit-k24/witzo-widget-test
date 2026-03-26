@@ -3,7 +3,12 @@ import { redisCache } from "../config/redis";
 import { ScrapeJobStatus } from "../types";
 import logger from "../utils/logger";
 
-type ScrapeMode = "scrape" | "retrain";
+type ScrapeMode =
+	| "scrape"
+	| "retrain"
+	| "delete_source"
+	| "delete_page"
+	| "delete_all";
 
 type StoredScrapeJobStatus = Omit<
 	ScrapeJobStatus,
@@ -22,7 +27,7 @@ interface StartJobParams {
 	userId: string;
 	url: string;
 	mode: ScrapeMode;
-	maxDepth: number;
+	maxDepth?: number;
 	maxPages?: number;
 }
 
@@ -75,7 +80,7 @@ class ScraperStatusService {
 			url: params.url,
 			mode: params.mode,
 			currentUrl: params.url,
-			maxDepth: params.maxDepth,
+			maxDepth: params.maxDepth ?? 0,
 			maxPages: params.maxPages,
 			status: "pending",
 			progress: {

@@ -70,6 +70,7 @@ jobs:
           DB_MAX_CONNECTIONS=${{ secrets.DB_MAX_CONNECTIONS }}
           DB_MIN_CONNECTIONS=${{ secrets.DB_MIN_CONNECTIONS }}
           DB_SSL_MODE=${{ secrets.DB_SSL_MODE }}
+          
           EMAIL_HOST=${{ secrets.EMAIL_HOST }}
           EMAIL_PORT=${{ secrets.EMAIL_PORT }}
           EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}

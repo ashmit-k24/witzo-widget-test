@@ -205,6 +205,12 @@ const migrations: Migration[] = [
 			"Add password reset token storage fields to users table",
 		file: "20260325_031_user_password_reset.sql",
 	},
+	{
+		id: "20260326_032_password_reset_compatibility",
+		description:
+			"Backfill legacy password reset tokens into users table and remove obsolete table",
+		file: "20260326_032_password_reset_compatibility.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

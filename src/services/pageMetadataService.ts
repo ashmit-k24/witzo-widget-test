@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { config } from "../config/env";
 import { ScrapedPage, RagChunk } from "../types";
+import { pineconeCircuitBreaker } from "../utils/circuitBreaker";
 import logger from "../utils/logger";
 
 const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
@@ -11,6 +12,17 @@ interface PageMetadata {
 	industry: string;
 	services: string;
 }
+
+const formatErrorMessage = (error: unknown): string => {
+	if (error instanceof Error) {
+		return error.message;
+	}
+
+	return String(error);
+};
+
+const isPineconeCircuitOpen = () =>
+	pineconeCircuitBreaker.getMetrics().state === "OPEN";
 
 async function extractPageMetadata(page: ScrapedPage): Promise<PageMetadata> {
 	const content = page.content.slice(0, 1500);
@@ -68,10 +80,15 @@ export async function extractAsync(
 	updateVectorMetadataFn: (userId: string, vectorId: string, metadata: Record<string, unknown>) => Promise<void>,
 ): Promise<void> {
 	if (pages.length === 0 || chunks.length === 0) return;
+	if (isPineconeCircuitOpen()) {
+		logger.warn("pageMetadataService: skipping metadata extraction because Pinecone circuit is open");
+		return;
+	}
 
 	const startedAt = Date.now();
 	let classifiedPages = 0;
 	let updatedVectors = 0;
+	let abortedDueToPinecone = false;
 	logger.info("pageMetadataService: background extraction started", {
 		pages: pages.length,
 		chunks: chunks.length,
@@ -87,6 +104,11 @@ export async function extractAsync(
 	}
 
 	for (const page of pages) {
+		if (abortedDueToPinecone || isPineconeCircuitOpen()) {
+			abortedDueToPinecone = true;
+			break;
+		}
+
 		const pageUrl = page.url;
 		const associated = pageChunks.get(pageUrl);
 		if (!associated || associated.length === 0) continue;
@@ -113,9 +135,25 @@ export async function extractAsync(
 			} catch (err) {
 				logger.warn("pageMetadataService: failed to update vector metadata", {
 					url: pageUrl,
-					err,
+					err: formatErrorMessage(err),
+					vectorId: chunk.vectorId ?? null,
 				});
+
+				if (isPineconeCircuitOpen()) {
+					abortedDueToPinecone = true;
+					logger.warn(
+						"pageMetadataService: stopping further metadata updates because Pinecone circuit is open",
+						{
+							url: pageUrl,
+						},
+					);
+					break;
+				}
 			}
+		}
+
+		if (abortedDueToPinecone) {
+			break;
 		}
 
 		await new Promise((r) => setTimeout(r, 80));
@@ -125,6 +163,7 @@ export async function extractAsync(
 		pages: pages.length,
 		classifiedPages,
 		updatedVectors,
+		abortedDueToPinecone,
 		durationMs: Date.now() - startedAt,
 	});
 }

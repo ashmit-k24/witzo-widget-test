@@ -381,7 +381,12 @@ export interface ScrapeJobStatus {
 	jobId: string;
 	userId?: string;
 	url?: string;
-	mode?: "scrape" | "retrain";
+	mode?:
+		| "scrape"
+		| "retrain"
+		| "delete_source"
+		| "delete_page"
+		| "delete_all";
 	currentUrl?: string;
 	maxDepth?: number;
 	maxPages?: number;
