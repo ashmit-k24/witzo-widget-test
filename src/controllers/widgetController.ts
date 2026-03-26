@@ -7,6 +7,7 @@ import { config } from "../config/env";
 import { chatService } from "../services/chatService";
 import { leadService } from "../services/leadService";
 import usageTrackingService from "../services/usageTrackingService";
+import { faviconService } from "../services/faviconService";
 import websiteBrandingService from "../services/websiteBrandingService";
 import { widgetIconStorageService } from "../services/widgetIconStorageService";
 import widgetService, {
@@ -364,6 +365,39 @@ export const uploadWidgetIcon = async (
 		});
 	} catch (error) {
 		logger.error("Error uploading widget icon", { error });
+		next(error);
+	}
+};
+
+/**
+ * @route   GET /api/auth/widget/favicon
+ * @desc    Resolve a website favicon for widget onboarding/customization
+ * @access  Protected
+ */
+export const resolveWidgetFavicon = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({ success: false, message: "Authentication required" });
+			return;
+		}
+
+		const rawUrl = String(req.query.url || "").trim();
+		if (!rawUrl) {
+			res.status(400).json({ success: false, message: "Website URL is required" });
+			return;
+		}
+
+		const resolved = await faviconService.resolveFavicon(rawUrl);
+		res.status(200).json({
+			success: true,
+			data: resolved,
+		});
+	} catch (error) {
 		next(error);
 	}
 };

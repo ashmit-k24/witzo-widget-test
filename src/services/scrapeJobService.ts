@@ -23,6 +23,16 @@ interface RunScrapeJobOptions {
 			scrapedPages: number;
 			storedPages: number;
 			currentUrl?: string;
+			stage?:
+				| "scraping_pages"
+				| "pinecone_upsert_started"
+				| "pinecone_embeddings_prepared"
+				| "pinecone_stale_chunk_cleanup_completed"
+				| "pinecone_upsert_completed"
+				| "scraper_primary_pinecone_upsert_completed"
+				| "hype_generation_started";
+			percent?: number;
+			stageLabel?: string;
 		},
 	) => Promise<void>;
 }

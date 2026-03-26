@@ -666,6 +666,15 @@ class PineconeService {
 		userId: string,
 		chunks: RagChunk[],
 		extraMetadata: Record<string, any> = {},
+		onStageProgress?: (progress: {
+			stage:
+				| "pinecone_upsert_started"
+				| "pinecone_embeddings_prepared"
+				| "pinecone_stale_chunk_cleanup_completed"
+				| "pinecone_upsert_completed";
+			percent: number;
+			label: string;
+		}) => Promise<void> | void,
 	): Promise<void> {
 		if (chunks.length === 0) {
 			return;
@@ -684,6 +693,11 @@ class PineconeService {
 			chunks: chunks.length,
 			uniquePages,
 			allHype,
+		});
+		await onStageProgress?.({
+			stage: "pinecone_upsert_started",
+			percent: 55,
+			label: "Pinecone upsert started",
 		});
 		const pageCounts = new Map<
 			string,
@@ -834,6 +848,11 @@ class PineconeService {
 			chunks: chunks.length,
 			durationMs: Date.now() - embeddingStartedAt,
 		});
+		await onStageProgress?.({
+			stage: "pinecone_embeddings_prepared",
+			percent: 70,
+			label: "Pinecone embeddings prepared",
+		});
 
 		const vectors: PineconeRecord[] = [];
 		for (const prepared of preparedVectors) {
@@ -891,6 +910,11 @@ class PineconeService {
 				uniquePages: validIdsByUrl.size,
 				durationMs: Date.now() - staleCleanupStartedAt,
 			});
+			await onStageProgress?.({
+				stage: "pinecone_stale_chunk_cleanup_completed",
+				percent: 80,
+				label: "Pinecone stale chunk cleanup completed",
+			});
 		}
 
 		const vectorBatches = this.chunkArray(
@@ -947,6 +971,11 @@ class PineconeService {
 			uniquePages,
 			allHype,
 			durationMs: Date.now() - startedAt,
+		});
+		await onStageProgress?.({
+			stage: "pinecone_upsert_completed",
+			percent: 90,
+			label: "Pinecone upsert pipeline completed",
 		});
 	}
 

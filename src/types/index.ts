@@ -400,6 +400,37 @@ export interface ScrapeJobStatus {
 		scrapedPages: number;
 		storedPages: number;
 	};
+	pipeline?: {
+		stage:
+			| "queued"
+			| "scraping_pages"
+			| "pinecone_upsert_started"
+			| "pinecone_embeddings_prepared"
+			| "pinecone_stale_chunk_cleanup_completed"
+			| "pinecone_upsert_completed"
+			| "scraper_primary_pinecone_upsert_completed"
+			| "hype_generation_started"
+			| "completed"
+			| "failed";
+		label: string;
+		percent: number;
+		updatedAt: Date;
+		milestones: Array<{
+			key:
+				| "queued"
+				| "scraping_pages"
+				| "pinecone_upsert_started"
+				| "pinecone_embeddings_prepared"
+				| "pinecone_stale_chunk_cleanup_completed"
+				| "pinecone_upsert_completed"
+				| "scraper_primary_pinecone_upsert_completed"
+				| "hype_generation_started";
+			label: string;
+			percent: number;
+			completed: boolean;
+			completedAt?: Date;
+		}>;
+	};
 	startedAt: Date;
 	completedAt?: Date;
 	error?: string;

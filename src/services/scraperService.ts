@@ -23,6 +23,16 @@ interface CrawlOptions {
 		scrapedPages: number;
 		storedPages: number;
 		currentUrl?: string;
+		stage?:
+			| "scraping_pages"
+			| "pinecone_upsert_started"
+			| "pinecone_embeddings_prepared"
+			| "pinecone_stale_chunk_cleanup_completed"
+			| "pinecone_upsert_completed"
+			| "scraper_primary_pinecone_upsert_completed"
+			| "hype_generation_started";
+		percent?: number;
+		stageLabel?: string;
 	}) => Promise<void> | void;
 }
 
@@ -817,6 +827,16 @@ class ScraperService {
 			scrapedPages: number;
 			storedPages: number;
 			currentUrl?: string;
+			stage?:
+				| "scraping_pages"
+				| "pinecone_upsert_started"
+				| "pinecone_embeddings_prepared"
+				| "pinecone_stale_chunk_cleanup_completed"
+				| "pinecone_upsert_completed"
+				| "scraper_primary_pinecone_upsert_completed"
+				| "hype_generation_started";
+			percent?: number;
+			stageLabel?: string;
 		}) => Promise<void> | void,
 	): Promise<void> {
 		const startedAt = Date.now();
@@ -844,6 +864,17 @@ class ScraperService {
 			sourceRootTitle:
 				sourceTitle || pages[0]?.title || sourceUrl,
 			scrapedAt: new Date().toISOString(),
+		},
+		async (stageProgress) => {
+			await reportProgress?.({
+				totalPages: pages.length,
+				scrapedPages: pages.length,
+				storedPages: 0,
+				currentUrl: sourceUrl,
+				stage: stageProgress.stage,
+				percent: stageProgress.percent,
+				stageLabel: stageProgress.label,
+			});
 		});
 		logger.info("scraper: primary Pinecone upsert completed", {
 			userId,
@@ -857,6 +888,10 @@ class ScraperService {
 			scrapedPages: pages.length,
 			storedPages: pages.length,
 			currentUrl: sourceUrl,
+			stage: "scraper_primary_pinecone_upsert_completed",
+			percent: 95,
+			stageLabel:
+				"Primary Pinecone upsert completed",
 		});
 		logger.info("scraper: background enrichment queued", {
 			userId,
@@ -869,6 +904,16 @@ class ScraperService {
 		// Enrichment can continue independently without keeping the UI in an in-progress state.
 		void (async () => {
 			const enrichmentStartedAt = Date.now();
+			await reportProgress?.({
+				totalPages: pages.length,
+				scrapedPages: pages.length,
+				storedPages: pages.length,
+				currentUrl: sourceUrl,
+				stage: "hype_generation_started",
+				percent: 100,
+				stageLabel:
+					"Background hype generation started",
+			});
 			const enrichmentResults =
 				await Promise.allSettled([
 					upsertHypeAsync(
@@ -1023,6 +1068,9 @@ class ScraperService {
 			scrapedPages: 0,
 			storedPages: 0,
 			currentUrl: rootUrl,
+			stage: "scraping_pages",
+			percent: 5,
+			stageLabel: "Scraping pages",
 		});
 
 		let usedFirecrawl = false;
@@ -1041,6 +1089,22 @@ class ScraperService {
 								scrapedPages: completed,
 								storedPages: 0,
 								currentUrl: rootUrl,
+								stage: "scraping_pages",
+								percent:
+									5 +
+									Math.round(
+										(Math.min(
+											1,
+											completed /
+												Math.max(
+													total,
+													1,
+												),
+										) *
+											40),
+									),
+								stageLabel:
+									"Scraping pages",
 							});
 						},
 					);
@@ -1304,6 +1368,21 @@ class ScraperService {
 					scrapedPages: visitedUrls.size,
 					storedPages: 0,
 					currentUrl: normalizedUrl,
+					stage: "scraping_pages",
+					percent:
+						5 +
+						Math.round(
+							Math.min(
+								1,
+								visitedUrls.size /
+									Math.max(
+										visitedUrls.size +
+											urlQueue.length,
+										1,
+									),
+							) * 40,
+						),
+					stageLabel: "Scraping pages",
 				});
 			}
 		}

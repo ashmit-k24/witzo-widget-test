@@ -43,11 +43,25 @@ import { globalRateLimiter } from "../middleware/userRateLimiter";
 
 const router: Router = Router();
 
+const isScrapeProgressRoute = (path: string): boolean => {
+	const normalized = path.toLowerCase();
+	return (
+		normalized === "/scraper/progress" ||
+		/^\/scraper\/progress\/[^/]+$/.test(normalized)
+	);
+};
+
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
 
 // User-based rate limiter — runs after auth so it can key by userId, not just IP
-router.use(globalRateLimiter);
+router.use((req, res, next) => {
+	if (isScrapeProgressRoute(req.path)) {
+		next();
+		return;
+	}
+	void globalRateLimiter(req, res, next);
+});
 
 /**
  * @route   GET /api/auth/csrf-token
@@ -484,9 +498,21 @@ router.get(
 );
 
 router.get(
+	"/scraper/progress",
+	authenticateToken,
+	scraperController.getLatestScrapeProgress,
+);
+
+router.get(
 	"/scraper/status/:jobId",
 	authenticateToken,
 	scraperController.getScrapeStatusByJobId,
+);
+
+router.get(
+	"/scraper/progress/:jobId",
+	authenticateToken,
+	scraperController.getScrapeProgressByJobId,
 );
 
 /**
@@ -673,6 +699,12 @@ router.post(
 	authenticateToken,
 	imageUpload.single("icon"),
 	widgetController.uploadWidgetIcon,
+);
+
+router.get(
+	"/widget/favicon",
+	authenticateToken,
+	widgetController.resolveWidgetFavicon,
 );
 
 /**
