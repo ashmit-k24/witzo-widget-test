@@ -761,7 +761,7 @@
             bottom: 6em;
             right: 2em;
             z-index: 2147483647;
-            width: 25.5em;
+            width: 30em;
     		height: 584px;
             max-width: 90vw;
             max-height: 80vh;
@@ -798,7 +798,7 @@
             min-height: 0;
           }
           :host([preview-mode="embedded"]) #textChatWidget.intro-mode {
-            width: min(25.5rem, calc(100% - 32px));
+            width: min(30em, calc(100% - 32px));
           }
           #textChatWidget.intro-mode .intro-screen {
             flex: 0 0 auto;
