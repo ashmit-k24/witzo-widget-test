@@ -1903,7 +1903,7 @@
               bottom: 14px;
             }
             #textChatWidget.intro-mode {
-              width: min(570px, 25.5rem);
+              width: min(570px, 30em);
               height: min(570px, 82vh);
               min-height: min(570px, 82vh);
               max-height: min(570px, 82vh);
