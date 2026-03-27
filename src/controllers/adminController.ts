@@ -242,6 +242,11 @@ export const getInsights = async (
 			const [
 				revenueResult,
 				tokenUsageResult,
+				recentTransactionsResult,
+				revenueDailyResult,
+				revenueStatusBreakdownResult,
+				tokenDailyUsageResult,
+				tokenUserUsageResult,
 				securityResult,
 				qualityResult,
 				funnelResult,
@@ -277,7 +282,7 @@ export const getInsights = async (
 						WHERE s.status IN ('active', 'authenticated'))::text AS mrr_estimate_usd,
 						(SELECT COALESCE(SUM(amount::numeric) / 100, 0)
 						FROM payments
-						WHERE payment_status IN ('captured', 'authorized')
+						WHERE payment_status IN ('captured', 'authorized', 'completed')
 						  AND created_at >= NOW() - INTERVAL '30 days')::text AS revenue_30d_usd,
 						(SELECT COUNT(*)
 						FROM payments
@@ -300,6 +305,115 @@ export const getInsights = async (
 					FROM chat_messages
 					WHERE role = 'assistant'
 					  AND created_at >= NOW() - INTERVAL '30 days'
+				`),
+				client.query<{
+					id: string;
+					paddle_transaction_id: string | null;
+					user_id: string;
+					user_email: string;
+					plan_name: string | null;
+					amount_minor: string;
+					currency: string;
+					payment_status: string;
+					created_at: string;
+					invoice_url: string | null;
+				}>(`
+					SELECT
+						p.id::text AS id,
+						p.paddle_transaction_id,
+						p.user_id::text AS user_id,
+						u.email AS user_email,
+						pl.name AS plan_name,
+						COALESCE(p.amount_minor, p.amount)::text AS amount_minor,
+						p.currency,
+						p.payment_status,
+						p.created_at::text AS created_at,
+						COALESCE(
+							p.raw_payload->>'invoice_url',
+							p.raw_payload->>'invoiceUrl',
+							p.raw_payload->>'receipt_url',
+							p.raw_payload->>'receiptUrl'
+						) AS invoice_url
+					FROM payments p
+					INNER JOIN users u ON u.id = p.user_id
+					LEFT JOIN plans pl ON pl.id = p.plan_id
+					ORDER BY p.created_at DESC
+					LIMIT 25
+				`),
+				client.query<{
+					date: string;
+					amount_minor: string;
+					payments_count: string;
+					successful_payments: string;
+					failed_payments: string;
+				}>(`
+					SELECT
+						DATE(created_at)::text AS date,
+						COALESCE(SUM(COALESCE(amount_minor, amount))
+							FILTER (WHERE payment_status IN ('captured', 'authorized', 'completed')), 0)::text AS amount_minor,
+						COUNT(*)::text AS payments_count,
+						COUNT(*) FILTER (WHERE payment_status IN ('captured', 'authorized', 'completed'))::text AS successful_payments,
+						COUNT(*) FILTER (WHERE payment_status = 'failed')::text AS failed_payments
+					FROM payments
+					WHERE created_at >= NOW() - INTERVAL '30 days'
+					GROUP BY DATE(created_at)
+					ORDER BY DATE(created_at) DESC
+				`),
+				client.query<{
+					status: string;
+					total: string;
+					amount_minor: string;
+				}>(`
+					SELECT
+						payment_status AS status,
+						COUNT(*)::text AS total,
+						COALESCE(SUM(COALESCE(amount_minor, amount)), 0)::text AS amount_minor
+					FROM payments
+					WHERE created_at >= NOW() - INTERVAL '30 days'
+					GROUP BY payment_status
+					ORDER BY COUNT(*) DESC, payment_status ASC
+				`),
+				client.query<{
+					date: string;
+					prompt_tokens: string;
+					completion_tokens: string;
+					total_tokens: string;
+				}>(`
+					SELECT
+						DATE(created_at)::text AS date,
+						COALESCE(SUM(COALESCE((metadata->>'promptTokens')::int, 0)), 0)::text AS prompt_tokens,
+						COALESCE(SUM(COALESCE((metadata->>'completionTokens')::int, 0)), 0)::text AS completion_tokens,
+						COALESCE(SUM(COALESCE(token_count, 0)), 0)::text AS total_tokens
+					FROM chat_messages
+					WHERE role = 'assistant'
+					  AND created_at >= NOW() - INTERVAL '30 days'
+					GROUP BY DATE(created_at)
+					ORDER BY DATE(created_at) DESC
+				`),
+				client.query<{
+					user_id: string;
+					email: string;
+					prompt_tokens: string;
+					completion_tokens: string;
+					total_tokens: string;
+					assistant_messages: string;
+					last_activity_at: string | null;
+				}>(`
+					SELECT
+						cm.user_id::text AS user_id,
+						u.email,
+						COALESCE(SUM(COALESCE((cm.metadata->>'promptTokens')::int, 0)), 0)::text AS prompt_tokens,
+						COALESCE(SUM(COALESCE((cm.metadata->>'completionTokens')::int, 0)), 0)::text AS completion_tokens,
+						COALESCE(SUM(COALESCE(cm.token_count, 0)), 0)::text AS total_tokens,
+						COUNT(*)::text AS assistant_messages,
+						MAX(cm.created_at)::text AS last_activity_at
+					FROM chat_messages cm
+					INNER JOIN users u ON u.id = cm.user_id
+					WHERE cm.role = 'assistant'
+					  AND cm.created_at >= NOW() - INTERVAL '30 days'
+					GROUP BY cm.user_id, u.email
+					ORDER BY SUM(COALESCE(cm.token_count, 0)) DESC, MAX(cm.created_at) DESC
+					LIMIT 20
 				`),
 				client.query<{
 					suspicious_ip_count_24h: string;
@@ -462,6 +576,14 @@ export const getInsights = async (
 
 			const revenue = revenueResult.rows[0];
 			const tokenUsage = tokenUsageResult.rows[0];
+			const recentTransactions = recentTransactionsResult.rows;
+			const revenueDaily = revenueDailyResult.rows;
+			const revenueStatusBreakdown =
+				revenueStatusBreakdownResult.rows;
+			const tokenDailyUsage =
+				tokenDailyUsageResult.rows;
+			const tokenUserUsage =
+				tokenUserUsageResult.rows;
 			const security = securityResult.rows[0];
 			const quality = qualityResult.rows[0];
 			const funnel = funnelResult.rows[0];
@@ -493,6 +615,48 @@ export const getInsights = async (
 						revenue_30d_usd: Number(revenue.revenue_30d_usd),
 						failed_payments_30d: Number(revenue.failed_payments_30d),
 						churn_risk_subscriptions: Number(revenue.churn_risk_subscriptions),
+						recent_transactions: recentTransactions.map((row) => ({
+							id: row.id,
+							transaction_id: row.paddle_transaction_id,
+							user_id: row.user_id,
+							user_email: row.user_email,
+							plan_name: row.plan_name,
+							amount_usd: Number(
+								(
+									Number(row.amount_minor) / 100
+								).toFixed(2),
+							),
+							currency: row.currency,
+							payment_status: row.payment_status,
+							created_at: row.created_at,
+							invoice_url: row.invoice_url,
+						})),
+						daily_revenue_30d: revenueDaily.map((row) => ({
+							date: row.date,
+							amount_usd: Number(
+								(
+									Number(row.amount_minor) / 100
+								).toFixed(2),
+							),
+							payments_count: Number(row.payments_count),
+							successful_payments: Number(
+								row.successful_payments,
+							),
+							failed_payments: Number(
+								row.failed_payments,
+							),
+						})),
+						payment_status_breakdown_30d:
+							revenueStatusBreakdown.map((row) => ({
+								status: row.status,
+								total: Number(row.total),
+								amount_usd: Number(
+									(
+										Number(row.amount_minor) /
+										100
+									).toFixed(2),
+								),
+							})),
 					},
 					tokens: {
 						prompt_tokens_estimated_30d: promptTokens,
@@ -501,6 +665,53 @@ export const getInsights = async (
 						estimated_llm_cost_30d_usd: Number(
 							estimatedCostUsd.toFixed(4),
 						),
+						daily_usage_30d: tokenDailyUsage.map((row) => {
+							const rowPromptTokens = Number(row.prompt_tokens);
+							const rowCompletionTokens = Number(
+								row.completion_tokens,
+							);
+							const rowEstimatedCost =
+								(rowPromptTokens / 1000) *
+									config.LLM_PROMPT_COST_PER_1K_USD +
+								(rowCompletionTokens / 1000) *
+									config.LLM_COMPLETION_COST_PER_1K_USD;
+
+							return {
+								date: row.date,
+								prompt_tokens: rowPromptTokens,
+								completion_tokens: rowCompletionTokens,
+								total_tokens: Number(row.total_tokens),
+								estimated_cost_usd: Number(
+									rowEstimatedCost.toFixed(4),
+								),
+							};
+						}),
+						top_users_30d: tokenUserUsage.map((row) => {
+							const rowPromptTokens = Number(row.prompt_tokens);
+							const rowCompletionTokens = Number(
+								row.completion_tokens,
+							);
+							const rowEstimatedCost =
+								(rowPromptTokens / 1000) *
+									config.LLM_PROMPT_COST_PER_1K_USD +
+								(rowCompletionTokens / 1000) *
+									config.LLM_COMPLETION_COST_PER_1K_USD;
+
+							return {
+								user_id: row.user_id,
+								email: row.email,
+								prompt_tokens: rowPromptTokens,
+								completion_tokens: rowCompletionTokens,
+								total_tokens: Number(row.total_tokens),
+								assistant_messages: Number(
+									row.assistant_messages,
+								),
+								last_activity_at: row.last_activity_at,
+								estimated_cost_usd: Number(
+									rowEstimatedCost.toFixed(4),
+								),
+							};
+						}),
 					},
 					quality: {
 						total_ratings: Number(quality.total_ratings),
