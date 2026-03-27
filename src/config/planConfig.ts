@@ -22,7 +22,7 @@ export type AnalyticsTier =
 	| "standard"
 	| "advanced";
 
-export const SCRAPER_PAGE_LIMIT = 1200;
+export const SCRAPER_PAGE_LIMIT = 600;
 
 export interface PlanCapabilities {
 	documentLimit: LimitValue;
