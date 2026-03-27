@@ -14,35 +14,48 @@
 		return "";
 	}
 	function appendSources(wrapper, sources) {
-		if (!Array.isArray(sources) || sources.length === 0) return;
+		if (
+			!Array.isArray(sources) ||
+			sources.length === 0
+		)
+			return;
 		const seen = new Set();
 		const unique = [];
 		for (const s of sources) {
-			const url = sanitizeURL(String(s.url || '').trim());
+			const url = sanitizeURL(
+				String(s.url || "").trim(),
+			);
 			if (!url || seen.has(url)) continue;
 			seen.add(url);
-			unique.push({ url, title: String(s.title || url).trim() || url });
+			unique.push({
+				url,
+				title:
+					String(s.title || url).trim() || url,
+			});
 			if (unique.length >= 5) break;
 		}
 		if (unique.length === 0) return;
-		const block = document.createElement('div');
-		block.style.cssText = 'margin-top:5px;padding:5px 10px;font-size:11px;line-height:1.7;opacity:0.65;border-top:1px solid rgba(128,128,128,0.2);';
-		const label = document.createElement('span');
-		label.textContent = 'Sources: ';
-		label.style.fontWeight = '600';
+		const block = document.createElement("div");
+		block.style.cssText =
+			"margin-top:5px;padding:5px 10px;font-size:11px;line-height:1.7;opacity:0.65;border-top:1px solid rgba(128,128,128,0.2);";
+		const label = document.createElement("span");
+		label.textContent = "Sources: ";
+		label.style.fontWeight = "600";
 		block.appendChild(label);
 		unique.forEach((s, i) => {
 			if (i > 0) {
-				const sep = document.createElement('span');
-				sep.textContent = '  ·  ';
+				const sep =
+					document.createElement("span");
+				sep.textContent = "  ·  ";
 				block.appendChild(sep);
 			}
-			const a = document.createElement('a');
+			const a = document.createElement("a");
 			a.href = s.url;
-			a.target = '_blank';
-			a.rel = 'noopener noreferrer';
+			a.target = "_blank";
+			a.rel = "noopener noreferrer";
 			a.textContent = s.title;
-			a.style.cssText = 'color:inherit;text-decoration:underline;text-underline-offset:2px;word-break:break-all;';
+			a.style.cssText =
+				"color:inherit;text-decoration:underline;text-underline-offset:2px;word-break:break-all;";
 			block.appendChild(a);
 		});
 		wrapper.appendChild(block);
@@ -245,7 +258,10 @@
 					"intro-secondary-button-background-color",
 					"introSecondaryButtonBackgroundColor",
 				],
-				["show-quick-options", "showQuickOptions"],
+				[
+					"show-quick-options",
+					"showQuickOptions",
+				],
 				["show-intro-screen", "showIntroScreen"],
 			];
 
@@ -353,8 +369,14 @@
 			const _iconUrl = this.getDisplayIconUrl();
 			if (_iconUrl) {
 				const _preload = new Image();
-				_preload.onload  = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
-				_preload.onerror = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
+				_preload.onload = () => {
+					this._logoReady = true;
+					this._maybeRevealFloatingBtn();
+				};
+				_preload.onerror = () => {
+					this._logoReady = true;
+					this._maybeRevealFloatingBtn();
+				};
 				_preload.src = _iconUrl;
 			} else {
 				this._logoReady = true;
@@ -645,12 +667,23 @@
 		}
 
 		_maybeRevealFloatingBtn() {
-			if (!this._logoReady || !this._floatingBtnTimerFired) return;
+			if (
+				!this._logoReady ||
+				!this._floatingBtnTimerFired
+			)
+				return;
 			const btn = this.elements.floatingBtn;
-			if (!btn || !btn.classList.contains("hidden")) return;
+			if (
+				!btn ||
+				!btn.classList.contains("hidden")
+			)
+				return;
 			btn.classList.remove("hidden");
 			btn.classList.add("entering");
-			setTimeout(() => btn.classList.remove("entering"), 550);
+			setTimeout(
+				() => btn.classList.remove("entering"),
+				550,
+			);
 		}
 
 		getUnifiedIconUrl() {
@@ -2380,7 +2413,7 @@
 
             <div id="chatMainView" class="chat-main-view hidden">
             <!-- Messages Area -->
-            <div id="textMessagesArea" class="chat-messages">
+            <div id="textMessagesArea" class="chat-messages" data-lenis-prevent>
                 <!-- Messages will be appended here -->
             </div>
 
@@ -2826,13 +2859,14 @@
 		}
 
 		setAwaitingResponse(isAwaiting) {
-			this.isAwaitingResponse = Boolean(
-				isAwaiting,
-			);
+			this.isAwaitingResponse =
+				Boolean(isAwaiting);
 			this.updateSendButtonState();
 		}
 
-		updateBackButtonVisibility(showingIntro = false) {
+		updateBackButtonVisibility(
+			showingIntro = false,
+		) {
 			if (!this.elements.backBtn) {
 				return;
 			}
@@ -3336,7 +3370,8 @@
 							this.ratingSubmitted =
 								this.getRatingSubmittedState();
 						}
-						if (Array.isArray(result.sources)) this._jsonSources = result.sources;
+						if (Array.isArray(result.sources))
+							this._jsonSources = result.sources;
 					} catch (e) {
 						console.error("JSON Error", e);
 					}
@@ -3349,7 +3384,10 @@
 						typingWrapper,
 						content,
 					);
-					appendSources(typingWrapper, this._jsonSources || []);
+					appendSources(
+						typingWrapper,
+						this._jsonSources || [],
+					);
 					this._jsonSources = null;
 					return;
 				} else {
@@ -3396,8 +3434,7 @@
 			) {
 				return;
 			}
-			const inputDisabled =
-				this._sessionLocked;
+			const inputDisabled = this._sessionLocked;
 			this.elements.input.disabled =
 				inputDisabled;
 			if (this.elements.langPillBtn) {
@@ -3731,7 +3768,11 @@
 				typingWrapper,
 				assembled,
 			);
-			appendSources(typingWrapper, donePayload && donePayload.sources || []);
+			appendSources(
+				typingWrapper,
+				(donePayload && donePayload.sources) ||
+					[],
+			);
 			return { completed: true };
 		}
 
@@ -4100,20 +4141,13 @@
 							.replace(/\s+$/g, "");
 						const boldMarkers =
 							line.match(/\*\*/g) || [];
-						if (
-							boldMarkers.length % 2 !== 0
-						) {
+						if (boldMarkers.length % 2 !== 0) {
 							const lastMarkerIndex =
 								line.lastIndexOf("**");
 							if (lastMarkerIndex >= 0) {
 								line =
-									line.slice(
-										0,
-										lastMarkerIndex,
-									) +
-									line.slice(
-										lastMarkerIndex + 2,
-									);
+									line.slice(0, lastMarkerIndex) +
+									line.slice(lastMarkerIndex + 2);
 							}
 						}
 						return line;
@@ -4121,9 +4155,8 @@
 					.join("\n");
 			};
 
-			const lines = normalizeMarkdown(text).split(
-				"\n",
-			);
+			const lines =
+				normalizeMarkdown(text).split("\n");
 			const blocks = [];
 			const paragraphLines = [];
 			const listItems = [];
@@ -4215,9 +4248,7 @@
 						flushList();
 					}
 					currentListType = "ul";
-					listItems.push(
-						unorderedMatch[1],
-					);
+					listItems.push(unorderedMatch[1]);
 					continue;
 				}
 
@@ -4287,4 +4318,3 @@
 		);
 	}
 })();
-
