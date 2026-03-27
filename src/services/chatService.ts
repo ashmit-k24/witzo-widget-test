@@ -380,6 +380,30 @@ ${message}`;
 		}
 
 		const normalized = normalizeWidgetQuery(trimmed);
+		const genericLeadBypassTerms = new Set([
+			"hi",
+			"hello",
+			"hey",
+			"services",
+			"service",
+			"pricing",
+			"price",
+			"plans",
+			"plan",
+			"support",
+			"help",
+			"info",
+			"information",
+			"details",
+			"okay",
+			"ok",
+			"thanks",
+			"thank you",
+		]);
+		if (genericLeadBypassTerms.has(normalized)) {
+			return false;
+		}
+
 		if (
 			/^(what|how|when|where|why|who|which|can|could|would|will|do|does|did|is|are|tell|show|explain|give|list|share|help|please)\b/.test(
 				normalized,
@@ -397,7 +421,7 @@ ${message}`;
 		}
 
 		const words = trimmed.split(/\s+/).filter(Boolean);
-		if (words.length < 1 || words.length > 4) {
+		if (words.length < 2 || words.length > 4) {
 			return false;
 		}
 
@@ -440,8 +464,40 @@ ${message}`;
 		}
 
 		const normalized = normalizeWidgetQuery(trimmed);
+		const genericCountryBypassTerms = new Set([
+			"hi",
+			"hello",
+			"hey",
+			"services",
+			"service",
+			"pricing",
+			"price",
+			"plans",
+			"plan",
+			"support",
+			"help",
+			"info",
+			"information",
+			"details",
+			"okay",
+			"ok",
+			"thanks",
+			"thank you",
+		]);
+		if (genericCountryBypassTerms.has(normalized)) {
+			return false;
+		}
+
 		if (
 			/^(what|how|when|where|why|who|which|can|could|would|will|do|does|did|is|are|tell|show|explain|give|list|share|help|please)\b/.test(
+				normalized,
+			)
+		) {
+			return false;
+		}
+
+		if (
+			/\b(appointment|meeting|demo|consultation|pricing|price|cost|service|services|feature|features|plan|plans|support|help)\b/.test(
 				normalized,
 			)
 		) {
