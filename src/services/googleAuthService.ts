@@ -6,6 +6,7 @@ import { User, UserResponse } from "../types";
 import logger from "../utils/logger";
 import tokenUtil from "../utils/token";
 import uuidUtil from "../utils/uuid";
+import emailService from "./emailService";
 
 export interface GoogleProfile {
 	id: string;
@@ -262,6 +263,32 @@ class GoogleAuthService {
 			user.is_verified =
 				profile.verified_email ||
 				user.is_verified;
+
+			if (isNewUser) {
+				emailService
+					.sendWelcomeEmail(normalizedEmail)
+					.then(() => {
+						logger.info(
+							"Welcome email flow completed for Google signup",
+							{
+								email: normalizedEmail,
+								userId,
+							},
+						);
+					})
+					.catch((welcomeError) => {
+						const err =
+							welcomeError as Error;
+						logger.warn(
+							"Welcome email failed after Google signup",
+							{
+								email: normalizedEmail,
+								userId,
+								error: err.message,
+							},
+						);
+					});
+			}
 
 			logger.info(
 				"Google OAuth authentication successful",
