@@ -365,6 +365,47 @@ ${message}`;
 		return null;
 	}
 
+	private isLikelyStandaloneName(
+		message: string,
+	): boolean {
+		const trimmed = message.trim();
+		if (
+			!trimmed ||
+			trimmed.length > 60 ||
+			trimmed.includes("?") ||
+			/@/.test(trimmed) ||
+			/\d/.test(trimmed)
+		) {
+			return false;
+		}
+
+		const normalized = normalizeWidgetQuery(trimmed);
+		if (
+			/^(what|how|when|where|why|who|which|can|could|would|will|do|does|did|is|are|tell|show|explain|give|list|share|help|please)\b/.test(
+				normalized,
+			)
+		) {
+			return false;
+		}
+
+		if (
+			/\b(appointment|meeting|demo|consultation|pricing|price|cost|service|services|feature|features|plan|plans|support|help)\b/.test(
+				normalized,
+			)
+		) {
+			return false;
+		}
+
+		const words = trimmed.split(/\s+/).filter(Boolean);
+		if (words.length < 1 || words.length > 4) {
+			return false;
+		}
+
+		return words.every((word) =>
+			/^[a-z]+(?:[.'-][a-z]+)*$/i.test(word),
+		);
+	}
+
 	private extractCountryCandidate(
 		message: string,
 	): string | null {
@@ -382,6 +423,74 @@ ${message}`;
 		}
 
 		return null;
+	}
+
+	private isLikelyStandaloneCountry(
+		message: string,
+	): boolean {
+		const trimmed = message.trim();
+		if (
+			!trimmed ||
+			trimmed.length > 60 ||
+			trimmed.includes("?") ||
+			/@/.test(trimmed) ||
+			/\d/.test(trimmed)
+		) {
+			return false;
+		}
+
+		const normalized = normalizeWidgetQuery(trimmed);
+		if (
+			/^(what|how|when|where|why|who|which|can|could|would|will|do|does|did|is|are|tell|show|explain|give|list|share|help|please)\b/.test(
+				normalized,
+			)
+		) {
+			return false;
+		}
+
+		const words = trimmed.split(/\s+/).filter(Boolean);
+		if (words.length < 1 || words.length > 4) {
+			return false;
+		}
+
+		return words.every((word) =>
+			/^[a-z]+(?:[.'-][a-z]+)*$/i.test(word),
+		);
+	}
+
+	private shouldAllowNormalChatDuringAppointmentCapture(
+		message: string,
+	): boolean {
+		const trimmed = message.trim();
+		if (!trimmed) {
+			return false;
+		}
+
+		if (
+			this.extractEmailCandidate(trimmed) ||
+			this.extractPhoneCandidate(trimmed) ||
+			this.extractNameCandidate(trimmed) ||
+			this.extractCountryCandidate(trimmed) ||
+			this.isLikelyStandaloneName(trimmed) ||
+			this.isLikelyStandaloneCountry(trimmed)
+		) {
+			return false;
+		}
+
+		const normalized = normalizeWidgetQuery(trimmed);
+		if (isAppointmentBookingIntent(normalized)) {
+			return false;
+		}
+
+		return (
+			trimmed.includes("?") ||
+			/^(what|how|when|where|why|who|which|can|could|would|will|do|does|did|is|are|tell|show|explain|give|list|share|help|please|i want to know|i need to know)\b/.test(
+				normalized,
+			) ||
+			/\b(pricing|price|cost|service|services|feature|features|plan|plans|support|integration|website|product|demo details)\b/.test(
+				normalized,
+			)
+		);
 	}
 
 	private getNextAppointmentLeadField(
@@ -522,14 +631,15 @@ ${message}`;
 				return { state: nextState, valid: true };
 			}
 			case "name": {
-				if (nextState.fields.name) {
+				const extractedName =
+					nextState.fields.name ||
+					this.extractNameCandidate(trimmed);
+				if (extractedName) {
+					nextState.fields.name = extractedName;
 					return { state: nextState, valid: true };
 				}
 				if (
-					!trimmed ||
-					trimmed.length > 80 ||
-					/@/.test(trimmed) ||
-					/\d/.test(trimmed) ||
+					!this.isLikelyStandaloneName(trimmed) ||
 					isAppointmentBookingIntent(
 						normalizeWidgetQuery(trimmed),
 					)
@@ -540,14 +650,14 @@ ${message}`;
 				return { state: nextState, valid: true };
 			}
 			case "country": {
-				if (nextState.fields.country) {
+				const extractedCountry =
+					nextState.fields.country ||
+					this.extractCountryCandidate(trimmed);
+				if (extractedCountry) {
+					nextState.fields.country = extractedCountry;
 					return { state: nextState, valid: true };
 				}
-				if (
-					!trimmed ||
-					trimmed.length > 80 ||
-					/@/.test(trimmed)
-				) {
+				if (!this.isLikelyStandaloneCountry(trimmed)) {
 					return { state: nextState, valid: false };
 				}
 				nextState.fields.country = trimmed;
@@ -1807,6 +1917,34 @@ Question: ${query}${formatDirective}`;
 
 		if (!isActive) {
 			return null;
+		}
+
+		if (existingState?.active) {
+			const expectedField =
+				this.getNextAppointmentLeadField(
+					existingState,
+				);
+			if (expectedField) {
+				const previewState =
+					this.hydrateAppointmentLeadState(
+						existingState,
+						message,
+					);
+				const previewCapture =
+					this.captureExpectedAppointmentField(
+						previewState,
+						expectedField,
+						message,
+					);
+				if (
+					!previewCapture.valid &&
+					this.shouldAllowNormalChatDuringAppointmentCapture(
+						message,
+					)
+				) {
+					return null;
+				}
+			}
 		}
 
 		const saveStart = Date.now();
