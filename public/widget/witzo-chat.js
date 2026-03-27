@@ -761,7 +761,7 @@
             bottom: 6em;
             right: 2em;
             z-index: 2147483647;
-            width: 25.5rem;
+            width: 25.5em;
     		height: 584px;
             max-width: 90vw;
             max-height: 80vh;
