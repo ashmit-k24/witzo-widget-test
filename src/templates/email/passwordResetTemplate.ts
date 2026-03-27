@@ -61,8 +61,7 @@ export function buildPasswordResetEmailTemplate(
 	const displayName = escapeHtml(
 		getDisplayNameFromEmail(recipientEmail),
 	);
-	const supportUrl =
-		`${config.FRONTEND_URL?.trim().replace(/\/+$/, "") || "https://witzo.ai"}/contact-us`;
+	const supportUrl = `${config.FRONTEND_URL?.trim().replace(/\/+$/, "") || "https://witzo.ai"}/contact-us`;
 	const currentYear = new Date().getFullYear();
 
 	const html = `<!DOCTYPE html>
@@ -110,11 +109,7 @@ export function buildPasswordResetEmailTemplate(
           >
             <tr>
               <td style="padding:30px 28px 24px 28px; color:#0f172a; font-size:14px; line-height:1.7;">
-                <p style="margin:0 0 8px 0; color:#6b21a8; font-size:12px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase;">
-                  Reset Your Password
-                </p>
-
-                <p style="margin:0 0 16px 0; color:#111827; font-size:24px; line-height:1.25; font-weight:700;">
+                               <p style="margin:0 0 16px 0; color:#111827; font-size:24px; line-height:1.25; font-weight:700;">
                   Password reset request
                 </p>
 

@@ -47,7 +47,9 @@ function escapeHtml(value: string): string {
 		.replace(/'/g, "&#39;");
 }
 
-function formatPlanName(planType: PlanType): string {
+function formatPlanName(
+	planType: PlanType,
+): string {
 	return (
 		planType.charAt(0).toUpperCase() +
 		planType.slice(1).toLowerCase()
@@ -76,14 +78,19 @@ export function buildPlanLimitReachedEmailTemplate(
 	const displayName = escapeHtml(
 		getDisplayNameFromEmail(recipientEmail),
 	);
-	const displayPlanName = formatPlanName(planType);
-	const escapedPlanName = escapeHtml(displayPlanName);
+	const displayPlanName =
+		formatPlanName(planType);
+	const escapedPlanName = escapeHtml(
+		displayPlanName,
+	);
 	const formattedResetDate = escapeHtml(
 		formatResetDate(resetDate),
 	);
 	const frontendBase =
-		config.FRONTEND_URL?.trim().replace(/\/+$/, "") ||
-		"https://witzo.ai";
+		config.FRONTEND_URL?.trim().replace(
+			/\/+$/,
+			"",
+		) || "https://witzo.ai";
 	const plansUrl = `${frontendBase}/dashboard/subscription?utm_source=plan_limit_email&utm_medium=email&utm_campaign=usage_limit_reached`;
 	const supportUrl = `${frontendBase}/contact-us`;
 	const currentYear = new Date().getFullYear();
@@ -134,11 +141,7 @@ export function buildPlanLimitReachedEmailTemplate(
           >
             <tr>
               <td style="padding:24px 22px 18px 22px; color:#0f172a; font-size:14px; line-height:1.55;">
-                <p style="margin:0 0 6px 0; color:#b45309; font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase;">
-                  Usage Limit Reached
-                </p>
-
-                <p style="margin:0 0 10px 0; color:#111827; font-size:21px; line-height:1.25; font-weight:700;">
+                                <p style="margin:0 0 10px 0; color:#111827; font-size:21px; line-height:1.25; font-weight:700;">
                   Your chatbot has reached the ${escapedPlanName} plan limit
                 </p>
 
