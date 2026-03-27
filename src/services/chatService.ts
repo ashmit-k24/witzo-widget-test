@@ -57,6 +57,11 @@ type AppointmentIntentClassification = {
 	confidence: "high" | "medium" | "low";
 };
 
+type AppointmentLeadTurnClassification = {
+	action: "requested_field" | "normal_chat" | "unclear";
+	confidence: "high" | "medium" | "low";
+};
+
 type ContextResult = {
 	matches: any[];
 	sources: Array<{
@@ -365,7 +370,7 @@ ${message}`;
 		return null;
 	}
 
-	private isLikelyStandaloneName(
+	private isBasicAppointmentTextFieldValue(
 		message: string,
 	): boolean {
 		const trimmed = message.trim();
@@ -375,23 +380,6 @@ ${message}`;
 			trimmed.includes("?") ||
 			/@/.test(trimmed) ||
 			/\d/.test(trimmed)
-		) {
-			return false;
-		}
-
-		const normalized = normalizeWidgetQuery(trimmed);
-		if (
-			/^(what|how|when|where|why|who|which|can|could|would|will|do|does|did|is|are|tell|show|explain|give|list|share|help|please)\b/.test(
-				normalized,
-			)
-		) {
-			return false;
-		}
-
-		if (
-			/\b(appointment|meeting|demo|consultation|pricing|price|cost|service|services|feature|features|plan|plans|support|help)\b/.test(
-				normalized,
-			)
 		) {
 			return false;
 		}
@@ -425,72 +413,147 @@ ${message}`;
 		return null;
 	}
 
-	private isLikelyStandaloneCountry(
+	private async classifyAppointmentLeadTurn(
 		message: string,
-	): boolean {
-		const trimmed = message.trim();
-		if (
-			!trimmed ||
-			trimmed.length > 60 ||
-			trimmed.includes("?") ||
-			/@/.test(trimmed) ||
-			/\d/.test(trimmed)
-		) {
-			return false;
-		}
-
-		const normalized = normalizeWidgetQuery(trimmed);
-		if (
-			/^(what|how|when|where|why|who|which|can|could|would|will|do|does|did|is|are|tell|show|explain|give|list|share|help|please)\b/.test(
-				normalized,
-			)
-		) {
-			return false;
-		}
-
-		const words = trimmed.split(/\s+/).filter(Boolean);
-		if (words.length < 1 || words.length > 4) {
-			return false;
-		}
-
-		return words.every((word) =>
-			/^[a-z]+(?:[.'-][a-z]+)*$/i.test(word),
-		);
-	}
-
-	private shouldAllowNormalChatDuringAppointmentCapture(
-		message: string,
-	): boolean {
+		expectedField: AppointmentLeadField,
+		state: AppointmentLeadState,
+		recentMessages: ChatMessage[],
+	): Promise<AppointmentLeadTurnClassification> {
 		const trimmed = message.trim();
 		if (!trimmed) {
-			return false;
+			return {
+				action: "unclear",
+				confidence: "low",
+			};
 		}
 
-		if (
-			this.extractEmailCandidate(trimmed) ||
-			this.extractPhoneCandidate(trimmed) ||
-			this.extractNameCandidate(trimmed) ||
-			this.extractCountryCandidate(trimmed) ||
-			this.isLikelyStandaloneName(trimmed) ||
-			this.isLikelyStandaloneCountry(trimmed)
-		) {
-			return false;
+		if (trimmed.includes("?")) {
+			return {
+				action: "normal_chat",
+				confidence: "medium",
+			};
 		}
 
-		const normalized = normalizeWidgetQuery(trimmed);
-		if (isAppointmentBookingIntent(normalized)) {
-			return false;
+		if (!config.OPENAI_API_KEY?.trim()) {
+			return {
+				action: "unclear",
+				confidence: "low",
+			};
 		}
 
-		return (
-			trimmed.includes("?") ||
-			/^(what|how|when|where|why|who|which|can|could|would|will|do|does|did|is|are|tell|show|explain|give|list|share|help|please|i want to know|i need to know)\b/.test(
-				normalized,
-			) ||
-			/\b(pricing|price|cost|service|services|feature|features|plan|plans|support|integration|website|product|demo details)\b/.test(
-				normalized,
+		const recentConversation = recentMessages
+			.filter((entry) => entry.role !== "system")
+			.slice(-6)
+			.map(
+				(entry) =>
+					`${entry.role === "assistant" ? "Assistant" : "Visitor"}: ${entry.content}`,
 			)
-		);
+			.join("\n");
+
+		const prompt = `You are classifying the visitor's latest message during an appointment booking flow.
+
+The assistant previously asked for this exact field: "${expectedField}".
+The original appointment request was: "${state.intentMessage || "Not provided"}".
+
+Return only valid JSON with this exact shape:
+{
+  "action": "requested_field",
+  "confidence": "high"
+}
+
+Valid actions:
+- "requested_field": the visitor is trying to provide the requested detail
+- "normal_chat": the visitor is asking a different question or changing topic and should get a normal chatbot answer
+- "unclear": the visitor is not clearly doing either
+
+Rules:
+- If the visitor asks a business question, requests information, or changes the topic, use "normal_chat"
+- If the visitor clearly provides the requested field value, use "requested_field"
+- Greetings, acknowledgements, or vague replies like "hi", "okay", "thanks" should usually be "unclear"
+- Be tolerant of typos and short casual wording
+
+Recent conversation:
+${recentConversation || "None"}
+
+Latest visitor message:
+${message}`;
+
+		try {
+			const timeoutController = new AbortController();
+			const timeout = setTimeout(() => {
+				timeoutController.abort();
+			}, CHAT_DEFAULT_TIMEOUT_MS);
+
+			try {
+				const completion =
+					await openAICircuitBreaker.execute(
+						async () => {
+							return await retryOnRateLimit(
+								async () => {
+									return await this.openai.chat.completions.create(
+										{
+											model: CHAT_COMPLETION_MODEL,
+											messages: [
+												{
+													role: "user",
+													content: prompt,
+												},
+											],
+											temperature: 0,
+											max_tokens: 80,
+											response_format: {
+												type: "json_object",
+											},
+										},
+										{
+											signal: timeoutController.signal,
+										},
+									);
+								},
+								2,
+							);
+						},
+					);
+
+				const raw =
+					completion.choices[0]?.message
+						.content || "{}";
+				const parsed = JSON.parse(raw) as Partial<AppointmentLeadTurnClassification>;
+				const action =
+					parsed.action === "requested_field" ||
+					parsed.action === "normal_chat" ||
+					parsed.action === "unclear"
+						? parsed.action
+						: "unclear";
+				const confidence =
+					parsed.confidence === "high" ||
+					parsed.confidence === "medium" ||
+					parsed.confidence === "low"
+						? parsed.confidence
+						: "low";
+
+				return {
+					action,
+					confidence,
+				};
+			} finally {
+				clearTimeout(timeout);
+			}
+		} catch (error) {
+			logger.warn(
+				"Appointment lead turn classification failed",
+				{
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+			return {
+				action: "unclear",
+				confidence: "low",
+			};
+		}
 	}
 
 	private getNextAppointmentLeadField(
@@ -638,16 +701,7 @@ ${message}`;
 					nextState.fields.name = extractedName;
 					return { state: nextState, valid: true };
 				}
-				if (
-					!this.isLikelyStandaloneName(trimmed) ||
-					isAppointmentBookingIntent(
-						normalizeWidgetQuery(trimmed),
-					)
-				) {
-					return { state: nextState, valid: false };
-				}
-				nextState.fields.name = trimmed;
-				return { state: nextState, valid: true };
+				return { state: nextState, valid: false };
 			}
 			case "country": {
 				const extractedCountry =
@@ -657,11 +711,7 @@ ${message}`;
 					nextState.fields.country = extractedCountry;
 					return { state: nextState, valid: true };
 				}
-				if (!this.isLikelyStandaloneCountry(trimmed)) {
-					return { state: nextState, valid: false };
-				}
-				nextState.fields.country = trimmed;
-				return { state: nextState, valid: true };
+				return { state: nextState, valid: false };
 			}
 			default:
 				return { state: nextState, valid: false };
@@ -1919,6 +1969,8 @@ Question: ${query}${formatDirective}`;
 			return null;
 		}
 
+		let leadTurnClassification: AppointmentLeadTurnClassification | null =
+			null;
 		if (existingState?.active) {
 			const expectedField =
 				this.getNextAppointmentLeadField(
@@ -1936,13 +1988,27 @@ Question: ${query}${formatDirective}`;
 						expectedField,
 						message,
 					);
-				if (
-					!previewCapture.valid &&
-					this.shouldAllowNormalChatDuringAppointmentCapture(
-						message,
-					)
-				) {
-					return null;
+				if (!previewCapture.valid) {
+					const leadTurnClassifierStart =
+						Date.now();
+					leadTurnClassification =
+						await this.classifyAppointmentLeadTurn(
+							message,
+							expectedField,
+							existingState,
+							session.messages,
+						);
+					timing.llmMs +=
+						Date.now() -
+						leadTurnClassifierStart;
+					if (
+						leadTurnClassification.action ===
+							"normal_chat" &&
+						leadTurnClassification.confidence !==
+							"low"
+					) {
+						return null;
+					}
 				}
 			}
 		}
@@ -1992,10 +2058,23 @@ Question: ${query}${formatDirective}`;
 					);
 				state = captured.state;
 				if (!captured.valid) {
-					response =
-						this.buildInvalidAppointmentLeadPrompt(
-							expectedField,
-						);
+					if (
+						leadTurnClassification?.action ===
+							"requested_field" &&
+						(expectedField === "name" ||
+							expectedField === "country") &&
+						this.isBasicAppointmentTextFieldValue(
+							message,
+						)
+					) {
+						state.fields[expectedField] =
+							message.trim();
+					} else {
+						response =
+							this.buildInvalidAppointmentLeadPrompt(
+								expectedField,
+							);
+					}
 				}
 			}
 		}
