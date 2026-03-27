@@ -1,19 +1,17 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { config } from "../config/env";
-import { pineconeService } from "./pineconeService";
 import { RagChunk, ScrapedPage } from "../types";
 import logger from "../utils/logger";
-import {
-	assertSafeOutgoingUrl,
-} from "../utils/networkSafety";
+import { assertSafeOutgoingUrl } from "../utils/networkSafety";
+import { chunkMarkdown } from "./chunkingService";
 import {
 	firecrawlCrawlWebsite,
 	firecrawlEnabled,
 } from "./firecrawlService";
-import { chunkMarkdown } from "./chunkingService";
 import { upsertAsync as upsertHypeAsync } from "./hypeService";
 import { extractAsync as extractPageMetadataAsync } from "./pageMetadataService";
+import { pineconeService } from "./pineconeService";
 
 interface CrawlOptions {
 	maxDepth?: number;
@@ -80,11 +78,13 @@ class ScraperService {
 			) {
 				throw new Error("invalid protocol");
 			}
-			urlObj.protocol = urlObj.protocol.toLowerCase();
+			urlObj.protocol =
+				urlObj.protocol.toLowerCase();
 			urlObj.hash = "";
 			urlObj.username = "";
 			urlObj.password = "";
-			urlObj.hostname = urlObj.hostname.toLowerCase();
+			urlObj.hostname =
+				urlObj.hostname.toLowerCase();
 			if (
 				(urlObj.protocol === "http:" &&
 					urlObj.port === "80") ||
@@ -99,10 +99,14 @@ class ScraperService {
 					: urlObj.pathname;
 			if (urlObj.pathname.length > 1) {
 				urlObj.pathname =
-					urlObj.pathname.replace(/\/+$/, "") || "/";
+					urlObj.pathname.replace(/\/+$/, "") ||
+					"/";
 			}
 			const cleanedParams = new URLSearchParams();
-			for (const [key, value] of urlObj.searchParams.entries()) {
+			for (const [
+				key,
+				value,
+			] of urlObj.searchParams.entries()) {
 				const normalizedKey = key
 					.trim()
 					.toLowerCase();
@@ -147,7 +151,9 @@ class ScraperService {
 		);
 	}
 
-	private shouldSkipCrawlPath(url: string): boolean {
+	private shouldSkipCrawlPath(
+		url: string,
+	): boolean {
 		try {
 			const parsed = new URL(url.trim());
 			const rawPath = parsed.pathname
@@ -175,7 +181,8 @@ class ScraperService {
 				}
 			}
 
-			const ext = rawPath.match(/\.[a-z0-9]+$/i)?.[0] || "";
+			const ext =
+				rawPath.match(/\.[a-z0-9]+$/i)?.[0] || "";
 			return new Set([
 				".png",
 				".jpg",
@@ -229,7 +236,11 @@ class ScraperService {
 			) {
 				return false;
 			}
-			if (this.shouldSkipCrawlPath(urlObj.toString())) {
+			if (
+				this.shouldSkipCrawlPath(
+					urlObj.toString(),
+				)
+			) {
 				return false;
 			}
 			if (!urlObj.protocol.startsWith("http"))
@@ -244,7 +255,8 @@ class ScraperService {
 		url: string,
 	): Promise<FetchPageResult> {
 		let currentUrl = url;
-		const visitedRedirectStates = new Set<string>();
+		const visitedRedirectStates =
+			new Set<string>();
 		const maxRedirects = 10;
 		const cookieJar = new Map<string, string>();
 
@@ -253,58 +265,78 @@ class ScraperService {
 			redirectCount < maxRedirects;
 			redirectCount += 1
 		) {
-			const safeUrl =
-				await assertSafeOutgoingUrl(currentUrl, {
+			const safeUrl = await assertSafeOutgoingUrl(
+				currentUrl,
+				{
 					allowHttp: true,
-				});
+				},
+			);
 			const cookieHeader = Array.from(
 				cookieJar.entries(),
 			)
-				.map(([name, value]) => `${name}=${value}`)
+				.map(
+					([name, value]) => `${name}=${value}`,
+				)
 				.join("; ");
 			const requestStateKey = `${safeUrl.toString()}|${cookieHeader}`;
-			if (visitedRedirectStates.has(requestStateKey)) {
+			if (
+				visitedRedirectStates.has(requestStateKey)
+			) {
 				throw new Error(
 					"Redirect loop detected while scraping",
 				);
 			}
 			visitedRedirectStates.add(requestStateKey);
-			const response = await axios.get(safeUrl.toString(), {
-				headers: {
-					"User-Agent":
-						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-					...(cookieHeader
-						? {
-								Cookie: cookieHeader,
-						  }
-						: {}),
+			const response = await axios.get(
+				safeUrl.toString(),
+				{
+					headers: {
+						"User-Agent":
+							"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+						...(cookieHeader
+							? {
+									Cookie: cookieHeader,
+								}
+							: {}),
+					},
+					timeout: 10000,
+					maxRedirects: 0,
+					validateStatus: (status) =>
+						status >= 200 && status < 600,
 				},
-				timeout: 10000,
-				maxRedirects: 0,
-				validateStatus: (status) =>
-					status >= 200 && status < 600,
-			});
-			const setCookieHeaders = response.headers["set-cookie"];
-			const cookies = Array.isArray(setCookieHeaders)
+			);
+			const setCookieHeaders =
+				response.headers["set-cookie"];
+			const cookies = Array.isArray(
+				setCookieHeaders,
+			)
 				? setCookieHeaders
 				: typeof setCookieHeaders === "string"
 					? [setCookieHeaders]
 					: [];
 			for (const setCookie of cookies) {
 				const [cookiePair] = setCookie.split(";");
-				const separatorIndex = cookiePair.indexOf("=");
+				const separatorIndex =
+					cookiePair.indexOf("=");
 				if (separatorIndex <= 0) {
 					continue;
 				}
-				const name = cookiePair.slice(0, separatorIndex).trim();
-				const value = cookiePair.slice(separatorIndex + 1).trim();
+				const name = cookiePair
+					.slice(0, separatorIndex)
+					.trim();
+				const value = cookiePair
+					.slice(separatorIndex + 1)
+					.trim();
 				if (!name) {
 					continue;
 				}
 				cookieJar.set(name, value);
 			}
 
-			if (response.status >= 300 && response.status < 400) {
+			if (
+				response.status >= 300 &&
+				response.status < 400
+			) {
 				const location =
 					response.headers.location;
 				if (!location) {
@@ -342,18 +374,22 @@ class ScraperService {
 		url: string,
 	): ScrapedPage {
 		const $ = cheerio.load(html);
-		$(
-			"script, style, noscript, iframe",
-		).remove();
+		$("script, style, noscript, iframe").remove();
 
 		const title =
 			$("title").text().trim() ||
 			$("h1").first().text().trim() ||
 			"No Title";
 		const description =
-			$('meta[name="description"]').attr("content")?.trim() ||
-			$('meta[property="og:description"]').attr("content")?.trim() ||
-			$('meta[name="twitter:description"]').attr("content")?.trim() ||
+			$('meta[name="description"]')
+				.attr("content")
+				?.trim() ||
+			$('meta[property="og:description"]')
+				.attr("content")
+				?.trim() ||
+			$('meta[name="twitter:description"]')
+				.attr("content")
+				?.trim() ||
 			"";
 		const primaryText = $("main, article, body")
 			.first()
@@ -362,7 +398,9 @@ class ScraperService {
 			.trim();
 		const content = (
 			primaryText ||
-			[title, description].filter(Boolean).join(". ")
+			[title, description]
+				.filter(Boolean)
+				.join(". ")
 		).trim();
 
 		const links: string[] = [];
@@ -387,8 +425,9 @@ class ScraperService {
 		if (description)
 			metadata.description = description;
 		const canonical =
-			$('link[rel="canonical"]').attr("href")?.trim() ||
-			"";
+			$('link[rel="canonical"]')
+				.attr("href")
+				?.trim() || "";
 		if (canonical) {
 			try {
 				metadata.canonical = new URL(
@@ -425,7 +464,9 @@ class ScraperService {
 		);
 	}
 
-	private buildPrioritySeedUrls(rootUrl: string): string[] {
+	private buildPrioritySeedUrls(
+		rootUrl: string,
+	): string[] {
 		const paths = [
 			"/",
 			"/about",
@@ -456,11 +497,14 @@ class ScraperService {
 		try {
 			const base = new URL(rootUrl);
 			const robotsUrl = `${base.protocol}//${base.host}/robots.txt`;
-			const response = await axios.get(robotsUrl, {
-				timeout: 10000,
-				validateStatus: (status) =>
-					status >= 200 && status < 500,
-			});
+			const response = await axios.get(
+				robotsUrl,
+				{
+					timeout: 10000,
+					validateStatus: (status) =>
+						status >= 200 && status < 500,
+				},
+			);
 			if (response.status >= 400) {
 				return {
 					allow: [],
@@ -474,7 +518,9 @@ class ScraperService {
 				disallow: [],
 				sitemaps: [],
 			};
-			const lines = String(response.data || "").split(/\r?\n/);
+			const lines = String(
+				response.data || "",
+			).split(/\r?\n/);
 			let sectionApplies = false;
 			for (const rawLine of lines) {
 				const line = rawLine
@@ -491,7 +537,7 @@ class ScraperService {
 						.toLowerCase();
 					sectionApplies =
 						agent === "*" ||
-						agent.includes("konvoqcrawler");
+						agent.includes("witzocrawler");
 					continue;
 				}
 				if (lower.startsWith("sitemap:")) {
@@ -552,8 +598,7 @@ class ScraperService {
 		}
 		try {
 			const parsed = new URL(targetUrl);
-			const targetPath =
-				parsed.pathname || "/";
+			const targetPath = parsed.pathname || "/";
 			let matchedLength = -1;
 			let allowed = true;
 			for (const rule of policy.disallow) {
@@ -590,11 +635,14 @@ class ScraperService {
 			return [];
 		}
 		try {
-			const response = await axios.get(sitemapUrl, {
-				timeout: 12000,
-				validateStatus: (status) =>
-					status >= 200 && status < 500,
-			});
+			const response = await axios.get(
+				sitemapUrl,
+				{
+					timeout: 12000,
+					validateStatus: (status) =>
+						status >= 200 && status < 500,
+				},
+			);
 			if (response.status >= 400) {
 				return [];
 			}
@@ -605,7 +653,10 @@ class ScraperService {
 			const nested: string[] = [];
 			for (const loc of locMatches) {
 				if (!loc) continue;
-				if (/sitemap/i.test(loc) && /\.xml(\?.*)?$/i.test(loc)) {
+				if (
+					/sitemap/i.test(loc) &&
+					/\.xml(\?.*)?$/i.test(loc)
+				) {
 					nested.push(
 						...(await this.parseSitemapUrls(
 							loc,
@@ -643,9 +694,7 @@ class ScraperService {
 			for (const candidate of candidates) {
 				const normalizedCandidate =
 					this.normalizeUrl(candidate);
-				if (
-					seen.has(normalizedCandidate)
-				) {
+				if (seen.has(normalizedCandidate)) {
 					continue;
 				}
 				seen.add(normalizedCandidate);
@@ -657,9 +706,7 @@ class ScraperService {
 					if (
 						!this.sameSiteHost(
 							base.hostname,
-							this.hostNameFromUrl(
-								normalizedUrl,
-							),
+							this.hostNameFromUrl(normalizedUrl),
 						) ||
 						this.shouldSkipCrawlPath(
 							normalizedUrl,
@@ -693,8 +740,7 @@ class ScraperService {
 			html.match(/<script/gi) || []
 		).length;
 		return (
-			(textWordCount <= 40 &&
-				scriptCount >= 8) ||
+			(textWordCount <= 40 && scriptCount >= 8) ||
 			(textWordCount <= 60 &&
 				/(data-reactroot|__NEXT_DATA__|id="root"|id="__next"|window\.__INITIAL_STATE__)/i.test(
 					html,
@@ -724,8 +770,7 @@ class ScraperService {
 		}
 
 		const mode = (
-			config.SCRAPER_RENDER_SERVICE_MODE ||
-			"json"
+			config.SCRAPER_RENDER_SERVICE_MODE || "json"
 		)
 			.trim()
 			.toLowerCase();
@@ -736,12 +781,12 @@ class ScraperService {
 						waitUntil: "networkidle0",
 						timeout: timeoutMs,
 						bestAttempt: true,
-				  }
+					}
 				: {
 						url: targetUrl,
 						waitUntil: "networkidle",
 						timeoutMs,
-				  };
+					};
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
 		};
@@ -799,7 +844,11 @@ class ScraperService {
 				page.content,
 				page.title,
 			);
-			for (let index = 0; index < pairs.length; index += 1) {
+			for (
+				let index = 0;
+				index < pairs.length;
+				index += 1
+			) {
 				chunks.push({
 					userId,
 					url: page.url,
@@ -851,54 +900,71 @@ class ScraperService {
 			);
 		}
 
-		logger.info("scraper: persistence pipeline starting", {
-			userId,
-			sourceUrl,
-			pages: pages.length,
-			chunks: chunks.length,
-		});
+		logger.info(
+			"scraper: persistence pipeline starting",
+			{
+				userId,
+				sourceUrl,
+				pages: pages.length,
+				chunks: chunks.length,
+			},
+		);
 
 		const pineconeStartedAt = Date.now();
-		await pineconeService.upsertChunks(userId, chunks, {
-			sourceRoot: sourceUrl,
-			sourceRootTitle:
-				sourceTitle || pages[0]?.title || sourceUrl,
-			scrapedAt: new Date().toISOString(),
-		},
-		async (stageProgress) => {
-			await reportProgress?.({
-				totalPages: pages.length,
-				scrapedPages: pages.length,
-				storedPages: 0,
-				currentUrl: sourceUrl,
-				stage: stageProgress.stage,
-				percent: stageProgress.percent,
-				stageLabel: stageProgress.label,
-			});
-		});
-		logger.info("scraper: primary Pinecone upsert completed", {
+		await pineconeService.upsertChunks(
 			userId,
-			sourceUrl,
-			pages: pages.length,
-			chunks: chunks.length,
-			durationMs: Date.now() - pineconeStartedAt,
-		});
+			chunks,
+			{
+				sourceRoot: sourceUrl,
+				sourceRootTitle:
+					sourceTitle ||
+					pages[0]?.title ||
+					sourceUrl,
+				scrapedAt: new Date().toISOString(),
+			},
+			async (stageProgress) => {
+				await reportProgress?.({
+					totalPages: pages.length,
+					scrapedPages: pages.length,
+					storedPages: 0,
+					currentUrl: sourceUrl,
+					stage: stageProgress.stage,
+					percent: stageProgress.percent,
+					stageLabel: stageProgress.label,
+				});
+			},
+		);
+		logger.info(
+			"scraper: primary Pinecone upsert completed",
+			{
+				userId,
+				sourceUrl,
+				pages: pages.length,
+				chunks: chunks.length,
+				durationMs:
+					Date.now() - pineconeStartedAt,
+			},
+		);
 		await reportProgress?.({
 			totalPages: pages.length,
 			scrapedPages: pages.length,
 			storedPages: pages.length,
 			currentUrl: sourceUrl,
-			stage: "scraper_primary_pinecone_upsert_completed",
+			stage:
+				"scraper_primary_pinecone_upsert_completed",
 			percent: 95,
 			stageLabel:
 				"Primary Pinecone upsert completed",
 		});
-		logger.info("scraper: background enrichment queued", {
-			userId,
-			sourceUrl,
-			pages: pages.length,
-			chunks: chunks.length,
-		});
+		logger.info(
+			"scraper: background enrichment queued",
+			{
+				userId,
+				sourceUrl,
+				pages: pages.length,
+				chunks: chunks.length,
+			},
+		);
 
 		// Let the primary scrape job finish as soon as pages are stored.
 		// Enrichment can continue independently without keeping the UI in an in-progress state.
@@ -937,11 +1003,7 @@ class ScraperService {
 					extractPageMetadataAsync(
 						pages,
 						chunks,
-						async (
-							ownerId,
-							vectorId,
-							metadata,
-						) =>
+						async (ownerId, vectorId, metadata) =>
 							pineconeService.updateVectorMetadata(
 								ownerId,
 								vectorId,
@@ -949,7 +1011,10 @@ class ScraperService {
 							),
 					),
 				]);
-			for (const [index, result] of enrichmentResults.entries()) {
+			for (const [
+				index,
+				result,
+			] of enrichmentResults.entries()) {
 				if (result.status === "rejected") {
 					logger.warn(
 						"scraper: background enrichment task failed",
@@ -963,9 +1028,7 @@ class ScraperService {
 							error:
 								result.reason instanceof Error
 									? result.reason.message
-									: String(
-											result.reason,
-										),
+									: String(result.reason),
 						},
 					);
 				}
@@ -995,13 +1058,16 @@ class ScraperService {
 			);
 		});
 
-		logger.info("scraper: persistence pipeline finished", {
-			userId,
-			sourceUrl,
-			pages: pages.length,
-			chunks: chunks.length,
-			durationMs: Date.now() - startedAt,
-		});
+		logger.info(
+			"scraper: persistence pipeline finished",
+			{
+				userId,
+				sourceUrl,
+				pages: pages.length,
+				chunks: chunks.length,
+				durationMs: Date.now() - startedAt,
+			},
+		);
 	}
 
 	async scrapeWebsite(
@@ -1039,7 +1105,9 @@ class ScraperService {
 		const robotsPolicy =
 			await this.fetchRobotsPolicy(rootUrl);
 
-		for (const seed of this.buildPrioritySeedUrls(rootUrl)) {
+		for (const seed of this.buildPrioritySeedUrls(
+			rootUrl,
+		)) {
 			if (enqueuedUrls.has(seed)) continue;
 			urlQueue.push({ url: seed, depth: 1 });
 			enqueuedUrls.add(seed);
@@ -1093,18 +1161,13 @@ class ScraperService {
 								percent:
 									5 +
 									Math.round(
-										(Math.min(
+										Math.min(
 											1,
 											completed /
-												Math.max(
-													total,
-													1,
-												),
-										) *
-											40),
+												Math.max(total, 1),
+										) * 40,
 									),
-								stageLabel:
-									"Scraping pages",
+								stageLabel: "Scraping pages",
 							});
 						},
 					);
@@ -1127,12 +1190,9 @@ class ScraperService {
 					return {
 						success: true,
 						message: `Successfully scraped ${firecrawlPages.length} page(s) via Firecrawl`,
-						pagesScraped:
-							firecrawlPages.length,
-						visitedPages:
-							firecrawlPages.length,
-						storedPages:
-							firecrawlPages.length,
+						pagesScraped: firecrawlPages.length,
+						visitedPages: firecrawlPages.length,
+						storedPages: firecrawlPages.length,
 						pages: firecrawlPages,
 					};
 				}
@@ -1143,8 +1203,7 @@ class ScraperService {
 						? error.message
 						: String(error);
 				firstFailureReason =
-					firstFailureReason ||
-					errorMessage;
+					firstFailureReason || errorMessage;
 				logger.warn(
 					"Firecrawl failed, falling back to built-in scraper",
 					{ url: rootUrl, error: errorMessage },
@@ -1202,11 +1261,9 @@ class ScraperService {
 							);
 						if (rendered.html.trim()) {
 							html = rendered.html;
-							finalUrl =
-								this.normalizeUrl(
-									rendered.finalUrl ||
-										finalUrl,
-								);
+							finalUrl = this.normalizeUrl(
+								rendered.finalUrl || finalUrl,
+							);
 							contentType = "text/html";
 							status = 200;
 						}
@@ -1226,11 +1283,10 @@ class ScraperService {
 					continue;
 				}
 
-				let pageData =
-					this.extractPageData(
-						html,
-						finalUrl,
-					);
+				let pageData = this.extractPageData(
+					html,
+					finalUrl,
+				);
 
 				if (
 					this.canUseRenderFallback() &&
@@ -1248,16 +1304,13 @@ class ScraperService {
 							);
 						if (rendered.html.trim()) {
 							html = rendered.html;
-							finalUrl =
-								this.normalizeUrl(
-									rendered.finalUrl ||
-										finalUrl,
-								);
-							pageData =
-								this.extractPageData(
-									rendered.html,
-									finalUrl,
-								);
+							finalUrl = this.normalizeUrl(
+								rendered.finalUrl || finalUrl,
+							);
+							pageData = this.extractPageData(
+								rendered.html,
+								finalUrl,
+							);
 						}
 					} catch (renderError) {
 						logger.warn(
@@ -1294,17 +1347,13 @@ class ScraperService {
 						!visitedUrls.has(
 							normalizedCanonical,
 						) &&
-						!enqueuedUrls.has(
-							normalizedCanonical,
-						)
+						!enqueuedUrls.has(normalizedCanonical)
 					) {
 						urlQueue.push({
 							url: normalizedCanonical,
 							depth: depth + 1,
 						});
-						enqueuedUrls.add(
-							normalizedCanonical,
-						);
+						enqueuedUrls.add(normalizedCanonical);
 					}
 				}
 
@@ -1315,12 +1364,8 @@ class ScraperService {
 						const normalizedLink =
 							this.normalizeUrl(link);
 						if (
-							!visitedUrls.has(
-								normalizedLink,
-							) &&
-							!enqueuedUrls.has(
-								normalizedLink,
-							) &&
+							!visitedUrls.has(normalizedLink) &&
+							!enqueuedUrls.has(normalizedLink) &&
 							this.isValidInternalUrl(
 								normalizedLink,
 								url,
@@ -1330,9 +1375,7 @@ class ScraperService {
 								url: normalizedLink,
 								depth: depth + 1,
 							});
-							enqueuedUrls.add(
-								normalizedLink,
-							);
+							enqueuedUrls.add(normalizedLink);
 						}
 					}
 				}
@@ -1359,12 +1402,12 @@ class ScraperService {
 											urlQueue.length,
 										visitedUrls.size,
 									),
-							  )
+								)
 							: Math.max(
 									visitedUrls.size +
 										urlQueue.length,
 									visitedUrls.size,
-							  ),
+								),
 					scrapedPages: visitedUrls.size,
 					storedPages: 0,
 					currentUrl: normalizedUrl,
@@ -1415,8 +1458,7 @@ class ScraperService {
 			},
 		);
 
-		const wasSuccessful =
-			scrapedPages.length > 0;
+		const wasSuccessful = scrapedPages.length > 0;
 
 		return {
 			success: wasSuccessful,
@@ -1429,8 +1471,9 @@ class ScraperService {
 			visitedPages: visitedUrls.size,
 			storedPages: scrapedPages.length,
 			pages: scrapedPages,
-			failureReason:
-				wasSuccessful ? undefined : firstFailureReason ?? undefined,
+			failureReason: wasSuccessful
+				? undefined
+				: (firstFailureReason ?? undefined),
 		};
 	}
 }
