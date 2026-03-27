@@ -51,8 +51,10 @@ export function buildWelcomeEmailTemplate(
 	);
 	const subject = "Welcome To Witzo AI";
 	const frontendBase =
-		config.FRONTEND_URL?.trim().replace(/\/+$/, "") ||
-		"https://witzo.ai";
+		config.FRONTEND_URL?.trim().replace(
+			/\/+$/,
+			"",
+		) || "https://witzo.ai";
 	const accountUrl = `${frontendBase}/dashboard?utm_source=welcome_email&utm_medium=email&utm_campaign=account_access`;
 	const supportUrl = `${frontendBase}/contact-us`;
 	const currentYear = new Date().getFullYear();
@@ -102,9 +104,7 @@ export function buildWelcomeEmailTemplate(
           >
             <tr>
               <td style="padding:30px 28px 24px 28px; color:#0f172a; font-size:14px; line-height:1.7;">
-                <p style="margin:0 0 8px 0; color:#6b21a8; font-size:12px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase;">
-                  Welcome To Witzo AI
-                </p>
+                
 
                 <p style="margin:0 0 16px 0; color:#111827; font-size:24px; line-height:1.25; font-weight:700;">
                   Your account is live
