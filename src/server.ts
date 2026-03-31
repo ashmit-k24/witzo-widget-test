@@ -22,6 +22,7 @@ import {
 	SERVER_REQUEST_TIMEOUT_MS,
 	SHUTDOWN_FORCE_TIMEOUT_MS,
 	WEBHOOK_PROCESS_INTERVAL_MS,
+	ZOHO_SYNC_PROCESS_INTERVAL_MS,
 } from "./constants";
 import {
 	errorHandler,
@@ -36,6 +37,7 @@ import adminAuthService from "./services/adminAuthService";
 import authService from "./services/authService";
 import { leadWebhookService } from "./services/leadWebhookService";
 import { hubspotIntegrationService } from "./services/hubspotIntegrationService";
+import { zohoIntegrationService } from "./services/zohoIntegrationService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
@@ -332,6 +334,18 @@ setInterval(() => {
 			);
 		});
 }, HUBSPOT_SYNC_PROCESS_INTERVAL_MS);
+
+// Process pending Zoho sync deliveries
+setInterval(() => {
+	zohoIntegrationService
+		.processPendingEvents()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled Zoho sync processing failed",
+				{ error: error.message },
+			);
+		});
+}, ZOHO_SYNC_PROCESS_INTERVAL_MS);
 
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {

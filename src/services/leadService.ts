@@ -10,6 +10,7 @@ import logger from "../utils/logger";
 import emailService from "./emailService";
 import { leadWebhookService } from "./leadWebhookService";
 import { hubspotIntegrationService } from "./hubspotIntegrationService";
+import { zohoIntegrationService } from "./zohoIntegrationService";
 
 const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
@@ -290,6 +291,37 @@ ${fullConversation}`;
 							},
 						);
 					});
+				void zohoIntegrationService
+					.queueLeadEvent(
+						userId,
+						"lead.upserted",
+						{
+							leadId,
+							sessionId,
+							widgetKeyId,
+							status:
+								leadResult.rows[0]?.status ?? "new",
+							contact: extracted,
+							metadata: {
+								ipAddress:
+									metadata?.ipAddress ?? null,
+								sourceUrl:
+									metadata?.sourceUrl ?? null,
+							},
+							messageCount: messages.length,
+						},
+						leadId,
+					)
+					.catch((error) => {
+						logger.error(
+							"Failed to queue Zoho sync for upserted lead",
+							{
+								error,
+								userId,
+								sessionId,
+							},
+						);
+					});
 			}
 
 			// Auto follow-up email — basic plan only, once per lead
@@ -464,6 +496,40 @@ ${fullConversation}`;
 						},
 					);
 				});
+			void zohoIntegrationService
+				.queueLeadEvent(
+					userId,
+					"lead.contact_form",
+					{
+						leadId,
+						sessionId,
+						widgetKeyId,
+						status:
+							result.rows[0]?.status ?? "new",
+						contact: {
+							name: data.name ?? null,
+							email: data.email,
+							summary: data.summary ?? null,
+						},
+						metadata: {
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
+						},
+					},
+					leadId,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue Zoho sync for contact-form lead",
+						{
+							error,
+							userId,
+							sessionId,
+						},
+					);
+				});
 		}
 	}
 
@@ -624,6 +690,26 @@ ${fullConversation}`;
 				.catch((error) => {
 					logger.error(
 						"Failed to queue HubSpot sync for lead status update",
+						{ error, userId, leadId },
+					);
+				});
+			void zohoIntegrationService
+				.queueLeadEvent(
+					userId,
+					"lead.status_updated",
+					{
+						leadId: updatedLead.id,
+						status: updatedLead.status,
+						name: updatedLead.name,
+						email: updatedLead.email,
+						company: updatedLead.company,
+						updatedAt: new Date().toISOString(),
+					},
+					updatedLead.id,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue Zoho sync for lead status update",
 						{ error, userId, leadId },
 					);
 				});

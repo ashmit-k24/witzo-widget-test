@@ -546,6 +546,72 @@ export const validationRules: Record<
 			.withMessage("eventId must be a valid UUID"),
 	],
 
+	zohoConnect: [
+		body("returnTo")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("returnTo must be a string")
+			.isLength({ max: 256 })
+			.withMessage("returnTo must be <= 256 characters")
+			.custom((value) => {
+				if (
+					!value.startsWith("/") ||
+					value.startsWith("//")
+				) {
+					throw new Error(
+						"returnTo must be a relative dashboard path",
+					);
+				}
+				return true;
+			}),
+	],
+
+	zohoSettings: [
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("leadSyncEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"leadSyncEnabled must be boolean",
+			),
+		body("noteSyncEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"noteSyncEnabled must be boolean",
+			),
+		body().custom((payload) => {
+			if (
+				typeof payload?.isActive !== "boolean" &&
+				typeof payload?.leadSyncEnabled !==
+					"boolean" &&
+				typeof payload?.noteSyncEnabled !==
+					"boolean"
+			) {
+				throw new Error(
+					"At least one Zoho setting field is required",
+				);
+			}
+			return true;
+		}),
+	],
+
+	zohoEventsQuery: [
+		query("limit")
+			.optional()
+			.isInt({ min: 1, max: 100 })
+			.withMessage("limit must be between 1 and 100"),
+	],
+
+	zohoEventParam: [
+		param("eventId")
+			.isUUID()
+			.withMessage("eventId must be a valid UUID"),
+	],
+
 	feedbackCreate: [
 		body("type")
 			.isIn(["feedback", "suggestion"])

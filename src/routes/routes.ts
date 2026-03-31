@@ -17,6 +17,7 @@ import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
 import * as leadWebhookController from "../controllers/leadWebhookController";
 import * as hubspotIntegrationController from "../controllers/hubspotIntegrationController";
+import * as zohoIntegrationController from "../controllers/zohoIntegrationController";
 import * as feedbackController from "../controllers/feedbackController";
 import * as promptBuilderController from "../controllers/promptBuilderController";
 import * as subscriptionController from "../controllers/subscriptionController";
@@ -60,6 +61,14 @@ const isHubspotEventRoute = (path: string): boolean => {
 	);
 };
 
+const isZohoEventRoute = (path: string): boolean => {
+	const normalized = path.toLowerCase();
+	return (
+		normalized === "/zoho/events" ||
+		/^\/zoho\/events\/[^/]+\/retry$/.test(normalized)
+	);
+};
+
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
 
@@ -67,7 +76,8 @@ router.use(setCsrfToken);
 router.use((req, res, next) => {
 	if (
 		isScrapeProgressRoute(req.path) ||
-		isHubspotEventRoute(req.path)
+		isHubspotEventRoute(req.path) ||
+		isZohoEventRoute(req.path)
 	) {
 		next();
 		return;
@@ -624,6 +634,10 @@ router.get(
 	"/hubspot/callback",
 	hubspotIntegrationController.handleHubspotCallback,
 );
+router.get(
+	"/zoho/callback",
+	zohoIntegrationController.handleZohoCallback,
+);
 
 router.post(
 	"/google/verify",
@@ -827,6 +841,61 @@ router.post(
 	validationRules.hubspotEventParam,
 	validate,
 	hubspotIntegrationController.retryHubspotEvent,
+);
+
+router.get(
+	"/zoho/config",
+	authenticateToken,
+	zohoIntegrationController.getZohoConfig,
+);
+
+router.post(
+	"/zoho/connect",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.zohoConnect,
+	validate,
+	zohoIntegrationController.getZohoConnectUrl,
+);
+
+router.put(
+	"/zoho/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.zohoSettings,
+	validate,
+	zohoIntegrationController.updateZohoSettings,
+);
+
+router.delete(
+	"/zoho/disconnect",
+	verifyCsrfToken,
+	authenticateToken,
+	zohoIntegrationController.disconnectZoho,
+);
+
+router.post(
+	"/zoho/test",
+	verifyCsrfToken,
+	authenticateToken,
+	zohoIntegrationController.sendZohoTest,
+);
+
+router.get(
+	"/zoho/events",
+	authenticateToken,
+	validationRules.zohoEventsQuery,
+	validate,
+	zohoIntegrationController.listZohoEvents,
+);
+
+router.post(
+	"/zoho/events/:eventId/retry",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.zohoEventParam,
+	validate,
+	zohoIntegrationController.retryZohoEvent,
 );
 
 router.put(

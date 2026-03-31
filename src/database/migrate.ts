@@ -241,6 +241,12 @@ const migrations: Migration[] = [
 			"Create HubSpot integration and sync event tables for native CRM connector",
 		file: "20260330_037_hubspot_crm_integration.sql",
 	},
+	{
+		id: "20260331_038_zoho_crm_integration",
+		description:
+			"Create Zoho CRM integration and sync event tables for native CRM connector",
+		file: "20260331_038_zoho_crm_integration.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

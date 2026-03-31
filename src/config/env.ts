@@ -1,8 +1,11 @@
 import crypto from "crypto";
 import dotenv from "dotenv";
+import path from "path";
 import { EnvConfig } from "../types";
 
-dotenv.config();
+dotenv.config({
+	path: path.resolve(__dirname, "../../.env"),
+});
 
 const normalizeEnvString = (
 	value: string | undefined,
@@ -300,6 +303,64 @@ export const config: EnvConfig = {
 			"crm.objects.companies.read",
 			"crm.objects.companies.write",
 		].join(" "),
+	),
+	ZOHO_CLIENT_ID: getEnvString(
+		"ZOHO_CLIENT_ID",
+		"",
+	),
+	ZOHO_CLIENT_SECRET: getEnvString(
+		"ZOHO_CLIENT_SECRET",
+		"",
+	),
+	ZOHO_CLIENT_SECRET_US: getEnvString(
+		"ZOHO_CLIENT_SECRET_US",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_EU: getEnvString(
+		"ZOHO_CLIENT_SECRET_EU",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_IN: getEnvString(
+		"ZOHO_CLIENT_SECRET_IN",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_AU: getEnvString(
+		"ZOHO_CLIENT_SECRET_AU",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_JP: getEnvString(
+		"ZOHO_CLIENT_SECRET_JP",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_CA: getEnvString(
+		"ZOHO_CLIENT_SECRET_CA",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_CN: getEnvString(
+		"ZOHO_CLIENT_SECRET_CN",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_REDIRECT_URI: getEnvString(
+		"ZOHO_REDIRECT_URI",
+		`${resolvedFrontendUrl}/api/auth/zoho/callback`,
+	),
+	ZOHO_OAUTH_SCOPES: getEnvString(
+		"ZOHO_OAUTH_SCOPES",
+		[
+			"ZohoCRM.modules.leads.CREATE",
+			"ZohoCRM.modules.leads.READ",
+			"ZohoCRM.modules.leads.UPDATE",
+			"ZohoCRM.modules.notes.CREATE",
+			"ZohoCRM.settings.fields.READ",
+		].join(","),
+	),
+	ZOHO_ACCOUNTS_SERVER: getEnvString(
+		"ZOHO_ACCOUNTS_SERVER",
+		"https://accounts.zoho.com",
+	),
+	ZOHO_API_DOMAIN: getEnvString(
+		"ZOHO_API_DOMAIN",
+		"https://www.zohoapis.com",
 	),
 
 	// Pinecone
