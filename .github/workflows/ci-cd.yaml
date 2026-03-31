@@ -187,6 +187,12 @@ jobs:
           PADDLE_WEBHOOK_SECRET=${{ secrets.PADDLE_WEBHOOK_SECRET }}
           PADDLE_ENVIRONMENT=${{ secrets.PADDLE_ENVIRONMENT }}
 
+          
+          HUBSPOT_CLIENT_ID=${{ secrets.HUBSPOT_CLIENT_ID }}
+          HUBSPOT_CLIENT_SECRET=${{ secrets.HUBSPOT_CLIENT_SECRET }}
+          HUBSPOT_REDIRECT_URI=${{ secrets.HUBSPOT_REDIRECT_URI }}
+          HUBSPOT_OAUTH_SCOPES=${{ secrets.HUBSPOT_OAUTH_SCOPES }}
+          
           EOF
 
       - name: Login to Docker Hub
