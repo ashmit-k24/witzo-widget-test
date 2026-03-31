@@ -213,7 +213,11 @@ const verifyEmailDeliverability = async (
 		);
 		const result = String(response.data).trim().toLowerCase();
 		logger.info("Email deliverability check", { email, result });
-		return result === "ok";
+		return new Set([
+			"ok",
+			"ok_for_all",
+			"antispam_system",
+		]).has(result);
 	} catch (err) {
 		logger.warn("Email deliverability check failed, allowing through", {
 			email,
