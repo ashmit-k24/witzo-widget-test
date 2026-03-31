@@ -41,7 +41,6 @@ export const floatingCSS = `
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #111827;
     position: relative;
     transform-style: preserve-3d;
     transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
