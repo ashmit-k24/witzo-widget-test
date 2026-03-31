@@ -44,23 +44,30 @@ function escapeHtml(value: string): string {
 }
 
 function formatUtcDateTime(date: Date) {
-	const formatted = new Intl.DateTimeFormat("en-GB", {
-		day: "2-digit",
-		month: "short",
-		year: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-		hour12: false,
-		timeZone: "UTC",
-	}).formatToParts(date);
+	const formatted = new Intl.DateTimeFormat(
+		"en-GB",
+		{
+			day: "2-digit",
+			month: "short",
+			year: "numeric",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+			hour12: false,
+			timeZone: "UTC",
+		},
+	).formatToParts(date);
 
 	const getPart = (type: string) =>
-		formatted.find((part) => part.type === type)?.value || "";
+		formatted.find((part) => part.type === type)
+			?.value || "";
 
 	return {
 		date: `${getPart("day")} ${getPart("month")} ${getPart("year")}`.trim(),
-		time: `${getPart("hour")}:${getPart("minute")}:${getPart("second")}`.replace(/:$/, ""),
+		time: `${getPart("hour")}:${getPart("minute")}:${getPart("second")}`.replace(
+			/:$/,
+			"",
+		),
 	};
 }
 
@@ -72,8 +79,10 @@ export function buildPasswordChangedEmailTemplate(
 		getDisplayNameFromEmail(recipientEmail),
 	);
 	const frontendBase =
-		config.FRONTEND_URL?.trim().replace(/\/+$/, "") ||
-		"https://witzo.ai";
+		config.FRONTEND_URL?.trim().replace(
+			/\/+$/,
+			"",
+		) || "https://witzo.ai";
 	const signInUrl = `${frontendBase}/login`;
 	const resetUrl = `${frontendBase}/forgot-password`;
 	const supportUrl = `${frontendBase}/contact-us`;
@@ -178,17 +187,21 @@ export function buildPasswordChangedEmailTemplate(
                   Your Witzo AI account password was successfully changed on <strong>${formatted.date}</strong> at <strong>${formatted.time} UTC</strong>.
                 </p>
                 <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:0 auto 24px auto;">
-                  <tr>
-                    <td align="center" bgcolor="#7916bb" style="border-radius:12px;">
-                      <a
-                        href="${signInUrl}"
-                        style="display:inline-block; padding:10px 24px; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none;"
+                    <tr>
+                      <td 
+                        align="center" 
+                        bgcolor="#7a08fa" 
+                        style="border-radius:12px; background:#7a08fa; background:linear-gradient(102.39deg, #7a08fa -79.19%, #f4464b 130.72%);"
                       >
-                        Sign in
-                      </a>
-                    </td>
-                  </tr>
-                </table>
+                        <a
+                          href="${signInUrl}"
+                          style="display:inline-block; padding:10px 24px; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none;"
+                        >
+                          Sign in
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
 
                 <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin:0 0 18px 0;">
                   <tr>

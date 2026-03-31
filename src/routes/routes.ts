@@ -16,6 +16,7 @@ import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
 import * as leadWebhookController from "../controllers/leadWebhookController";
+import * as hubspotIntegrationController from "../controllers/hubspotIntegrationController";
 import * as feedbackController from "../controllers/feedbackController";
 import * as promptBuilderController from "../controllers/promptBuilderController";
 import * as subscriptionController from "../controllers/subscriptionController";
@@ -51,12 +52,23 @@ const isScrapeProgressRoute = (path: string): boolean => {
 	);
 };
 
+const isHubspotEventRoute = (path: string): boolean => {
+	const normalized = path.toLowerCase();
+	return (
+		normalized === "/hubspot/events" ||
+		/^\/hubspot\/events\/[^/]+\/retry$/.test(normalized)
+	);
+};
+
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
 
 // User-based rate limiter — runs after auth so it can key by userId, not just IP
 router.use((req, res, next) => {
-	if (isScrapeProgressRoute(req.path)) {
+	if (
+		isScrapeProgressRoute(req.path) ||
+		isHubspotEventRoute(req.path)
+	) {
 		next();
 		return;
 	}
@@ -608,6 +620,10 @@ router.get(
 	}),
 	authController.googleCallback,
 );
+router.get(
+	"/hubspot/callback",
+	hubspotIntegrationController.handleHubspotCallback,
+);
 
 router.post(
 	"/google/verify",
@@ -757,6 +773,60 @@ router.get(
 	"/leads/webhook",
 	authenticateToken,
 	leadWebhookController.getLeadWebhookConfig,
+);
+router.get(
+	"/hubspot/config",
+	authenticateToken,
+	hubspotIntegrationController.getHubspotConfig,
+);
+
+router.post(
+	"/hubspot/connect",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.hubspotConnect,
+	validate,
+	hubspotIntegrationController.getHubspotConnectUrl,
+);
+
+router.put(
+	"/hubspot/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.hubspotSettings,
+	validate,
+	hubspotIntegrationController.updateHubspotSettings,
+);
+
+router.delete(
+	"/hubspot/disconnect",
+	verifyCsrfToken,
+	authenticateToken,
+	hubspotIntegrationController.disconnectHubspot,
+);
+
+router.post(
+	"/hubspot/test",
+	verifyCsrfToken,
+	authenticateToken,
+	hubspotIntegrationController.sendHubspotTest,
+);
+
+router.get(
+	"/hubspot/events",
+	authenticateToken,
+	validationRules.hubspotEventsQuery,
+	validate,
+	hubspotIntegrationController.listHubspotEvents,
+);
+
+router.post(
+	"/hubspot/events/:eventId/retry",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.hubspotEventParam,
+	validate,
+	hubspotIntegrationController.retryHubspotEvent,
 );
 
 router.put(

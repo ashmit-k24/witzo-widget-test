@@ -235,6 +235,12 @@ const migrations: Migration[] = [
 			"Re-ensure default free, basic, standard, and enterprise plans exist for previously migrated databases",
 		file: "20260326_036_default_plans_repair.sql",
 	},
+	{
+		id: "20260330_037_hubspot_crm_integration",
+		description:
+			"Create HubSpot integration and sync event tables for native CRM connector",
+		file: "20260330_037_hubspot_crm_integration.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

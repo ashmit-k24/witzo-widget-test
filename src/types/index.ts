@@ -239,6 +239,10 @@ export interface EnvConfig {
 	GOOGLE_CLIENT_SECRET: string;
 	GOOGLE_CALLBACK_URL: string;
 	FRONTEND_URL: string;
+	HUBSPOT_CLIENT_ID: string;
+	HUBSPOT_CLIENT_SECRET: string;
+	HUBSPOT_REDIRECT_URI: string;
+	HUBSPOT_OAUTH_SCOPES: string;
 	PINECONE_API_KEY: string;
 	PINECONE_ENVIRONMENT: string;
 	PINECONE_INDEX_NAME: string;

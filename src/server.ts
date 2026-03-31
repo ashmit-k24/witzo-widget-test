@@ -15,6 +15,7 @@ import passport, {
 } from "./config/passport";
 import {
 	AUTH_CLEANUP_INTERVAL_MS,
+	HUBSPOT_SYNC_PROCESS_INTERVAL_MS,
 	RESPONSE_COMPRESSION_MIN_BYTES,
 	SERVER_HEADERS_TIMEOUT_MS,
 	SERVER_KEEP_ALIVE_TIMEOUT_MS,
@@ -34,6 +35,7 @@ import authRoutes from "./routes/routes";
 import adminAuthService from "./services/adminAuthService";
 import authService from "./services/authService";
 import { leadWebhookService } from "./services/leadWebhookService";
+import { hubspotIntegrationService } from "./services/hubspotIntegrationService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
@@ -318,6 +320,18 @@ setInterval(() => {
 			);
 		});
 }, WEBHOOK_PROCESS_INTERVAL_MS);
+
+// Process pending HubSpot sync deliveries
+setInterval(() => {
+	hubspotIntegrationService
+		.processPendingEvents()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled HubSpot sync processing failed",
+				{ error: error.message },
+			);
+		});
+}, HUBSPOT_SYNC_PROCESS_INTERVAL_MS);
 
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {

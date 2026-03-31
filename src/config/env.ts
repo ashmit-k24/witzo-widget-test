@@ -152,6 +152,11 @@ const getRequiredSecret = (key: string): string => {
 	return generatedSecret;
 };
 
+const resolvedFrontendUrl = getEnvString(
+	"FRONTEND_URL",
+	"http://localhost:3001",
+);
+
 export const config: EnvConfig = {
 	PORT: getEnvNumber("PORT", 3000),
 	NODE_ENV: getEnvString(
@@ -274,9 +279,27 @@ export const config: EnvConfig = {
 		"GOOGLE_CALLBACK_URL",
 		"http://localhost:3000/api/auth/google/callback",
 	),
-	FRONTEND_URL: getEnvString(
-		"FRONTEND_URL",
-		"http://localhost:3001",
+	FRONTEND_URL: resolvedFrontendUrl,
+	HUBSPOT_CLIENT_ID: getEnvString(
+		"HUBSPOT_CLIENT_ID",
+		"",
+	),
+	HUBSPOT_CLIENT_SECRET: getEnvString(
+		"HUBSPOT_CLIENT_SECRET",
+		"",
+	),
+	HUBSPOT_REDIRECT_URI: getEnvString(
+		"HUBSPOT_REDIRECT_URI",
+		`${resolvedFrontendUrl}/api/auth/hubspot/callback`,
+	),
+	HUBSPOT_OAUTH_SCOPES: getEnvString(
+		"HUBSPOT_OAUTH_SCOPES",
+		[
+			"crm.objects.contacts.read",
+			"crm.objects.contacts.write",
+			"crm.objects.companies.read",
+			"crm.objects.companies.write",
+		].join(" "),
 	),
 
 	// Pinecone

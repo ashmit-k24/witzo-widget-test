@@ -52,8 +52,10 @@ export function buildSubscriptionCancelledEmailTemplate(
 	);
 	const escapedPlanName = escapeHtml(planName);
 	const frontendBase =
-		config.FRONTEND_URL?.trim().replace(/\/+$/, "") ||
-		"https://witzo.ai";
+		config.FRONTEND_URL?.trim().replace(
+			/\/+$/,
+			"",
+		) || "https://witzo.ai";
 	const plansUrl = `${frontendBase}/dashboard/subscription?utm_source=subscription_email&utm_medium=email&utm_campaign=plan_cancelled`;
 	const supportUrl = `${frontendBase}/contact-us`;
 	const currentYear = new Date().getFullYear();
@@ -122,7 +124,7 @@ export function buildSubscriptionCancelledEmailTemplate(
 
                 <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:20px auto 0 auto;">
                   <tr>
-                    <td align="center" bgcolor="#7916bb" style="border-radius:12px;">
+                    <td align="center" style="border-radius:12px; background:#7a08fa; background:linear-gradient(102.39deg, #7a08fa -79.19%, #f4464b 130.72%);">
                       <a
                         href="${plansUrl}"
                         style="display:inline-block; padding:10px 24px; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none;"

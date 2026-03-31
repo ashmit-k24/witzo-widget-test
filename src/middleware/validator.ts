@@ -472,6 +472,80 @@ export const validationRules: Record<
 			.withMessage("eventId must be a valid UUID"),
 	],
 
+	hubspotConnect: [
+		body("returnTo")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("returnTo must be a string")
+			.isLength({ max: 256 })
+			.withMessage("returnTo must be <= 256 characters")
+			.custom((value) => {
+				if (
+					!value.startsWith("/") ||
+					value.startsWith("//")
+				) {
+					throw new Error(
+						"returnTo must be a relative dashboard path",
+					);
+				}
+				return true;
+			}),
+	],
+
+	hubspotSettings: [
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("contactSyncEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"contactSyncEnabled must be boolean",
+			),
+		body("companySyncEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"companySyncEnabled must be boolean",
+			),
+		body("noteSyncEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"noteSyncEnabled must be boolean",
+			),
+		body().custom((payload) => {
+			if (
+				typeof payload?.isActive !== "boolean" &&
+				typeof payload?.contactSyncEnabled !==
+					"boolean" &&
+				typeof payload?.companySyncEnabled !==
+					"boolean" &&
+				typeof payload?.noteSyncEnabled !==
+					"boolean"
+			) {
+				throw new Error(
+					"At least one HubSpot setting field is required",
+				);
+			}
+			return true;
+		}),
+	],
+
+	hubspotEventsQuery: [
+		query("limit")
+			.optional()
+			.isInt({ min: 1, max: 100 })
+			.withMessage("limit must be between 1 and 100"),
+	],
+
+	hubspotEventParam: [
+		param("eventId")
+			.isUUID()
+			.withMessage("eventId must be a valid UUID"),
+	],
+
 	feedbackCreate: [
 		body("type")
 			.isIn(["feedback", "suggestion"])
