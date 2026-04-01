@@ -678,6 +678,74 @@ export const validationRules: Record<
 			.withMessage("eventId must be a valid UUID"),
 	],
 
+	calendlyConnect: [
+		body("returnTo")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("returnTo must be a string")
+			.isLength({ max: 256 })
+			.withMessage("returnTo must be <= 256 characters")
+			.custom((value) => {
+				if (!value.startsWith("/") || value.startsWith("//")) {
+					throw new Error("returnTo must be a relative dashboard path");
+				}
+				return true;
+			}),
+	],
+
+	calendlySettings: [
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("widgetBookingEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage("widgetBookingEnabled must be boolean"),
+		body("bookingIntentEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage("bookingIntentEnabled must be boolean"),
+		body("bookingLabel")
+			.optional({ nullable: true })
+			.isString()
+			.withMessage("bookingLabel must be a string")
+			.isLength({ min: 1, max: 120 })
+			.withMessage("bookingLabel must be 1-120 characters"),
+		body("selectedEventTypeUri")
+			.optional({ nullable: true })
+			.isString()
+			.withMessage("selectedEventTypeUri must be a string")
+			.isLength({ min: 1, max: 255 })
+			.withMessage("selectedEventTypeUri must be 1-255 characters"),
+		body().custom((payload) => {
+			if (
+				typeof payload?.isActive !== "boolean" &&
+				typeof payload?.widgetBookingEnabled !== "boolean" &&
+				typeof payload?.bookingIntentEnabled !== "boolean" &&
+				typeof payload?.bookingLabel !== "string" &&
+				typeof payload?.selectedEventTypeUri !== "string" &&
+				payload?.selectedEventTypeUri !== null
+			) {
+				throw new Error("At least one Calendly setting field is required");
+			}
+			return true;
+		}),
+	],
+
+	calendlyAppointmentsQuery: [
+		query("limit")
+			.optional()
+			.isInt({ min: 1, max: 100 })
+			.withMessage("limit must be between 1 and 100"),
+	],
+
+	calendlyWebhookParam: [
+		param("integrationId")
+			.isUUID()
+			.withMessage("integrationId must be a valid UUID"),
+	],
+
 	feedbackCreate: [
 		body("type")
 			.isIn(["feedback", "suggestion"])

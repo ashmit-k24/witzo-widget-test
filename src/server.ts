@@ -75,14 +75,15 @@ app.use(
 		contentSecurityPolicy: {
 			directives: {
 				defaultSrc: ["'self'"],
-				scriptSrc: ["'self'", "'unsafe-inline'"],
+				scriptSrc: ["'self'", "'unsafe-inline'", "https://assets.calendly.com"],
 				styleSrc: [
 					"'self'",
 					"'unsafe-inline'",
 					"https://fonts.googleapis.com",
+					"https://assets.calendly.com",
 				],
 				imgSrc: ["'self'", "data:", "https:"],
-				connectSrc: ["'self'"],
+				connectSrc: ["'self'", "https://calendly.com", "https://assets.calendly.com"],
 				fontSrc: [
 					"'self'",
 					"data:",
@@ -90,7 +91,7 @@ app.use(
 				],
 				objectSrc: ["'none'"],
 				mediaSrc: ["'self'"],
-				frameSrc: ["'self'"],
+				frameSrc: ["'self'", "https://calendly.com", "https://*.calendly.com"],
 				frameAncestors: [
 					"'self'",
 					"http://localhost:*",

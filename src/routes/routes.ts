@@ -17,6 +17,7 @@ import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
 import * as leadWebhookController from "../controllers/leadWebhookController";
 import * as hubspotIntegrationController from "../controllers/hubspotIntegrationController";
+import * as calendlyIntegrationController from "../controllers/calendlyIntegrationController";
 import * as salesforceIntegrationController from "../controllers/salesforceIntegrationController";
 import * as zohoIntegrationController from "../controllers/zohoIntegrationController";
 import * as feedbackController from "../controllers/feedbackController";
@@ -602,6 +603,11 @@ router.get(
 	authController.googleCallback,
 );
 router.get(
+	"/calendly/callback",
+	calendlyIntegrationController.handleCalendlyCallback,
+);
+
+router.get(
 	"/hubspot/callback",
 	hubspotIntegrationController.handleHubspotCallback,
 );
@@ -764,9 +770,24 @@ router.get(
 	leadWebhookController.getLeadWebhookConfig,
 );
 router.get(
+	"/calendly/config",
+	authenticateToken,
+	calendlyIntegrationController.getCalendlyConfig,
+);
+
+router.get(
 	"/hubspot/config",
 	authenticateToken,
 	hubspotIntegrationController.getHubspotConfig,
+);
+
+router.post(
+	"/calendly/connect",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.calendlyConnect,
+	validate,
+	calendlyIntegrationController.getCalendlyConnectUrl,
 );
 
 router.post(
@@ -779,12 +800,28 @@ router.post(
 );
 
 router.put(
+	"/calendly/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.calendlySettings,
+	validate,
+	calendlyIntegrationController.updateCalendlySettings,
+);
+
+router.put(
 	"/hubspot/settings",
 	verifyCsrfToken,
 	authenticateToken,
 	validationRules.hubspotSettings,
 	validate,
 	hubspotIntegrationController.updateHubspotSettings,
+);
+
+router.delete(
+	"/calendly/disconnect",
+	verifyCsrfToken,
+	authenticateToken,
+	calendlyIntegrationController.disconnectCalendly,
 );
 
 router.delete(
@@ -816,6 +853,14 @@ router.post(
 	validationRules.hubspotEventParam,
 	validate,
 	hubspotIntegrationController.retryHubspotEvent,
+);
+
+router.get(
+	"/calendly/appointments",
+	authenticateToken,
+	validationRules.calendlyAppointmentsQuery,
+	validate,
+	calendlyIntegrationController.listCalendlyAppointments,
 );
 
 router.get(

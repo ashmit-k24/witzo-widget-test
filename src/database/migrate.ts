@@ -253,6 +253,12 @@ const migrations: Migration[] = [
 			"Create Salesforce CRM integration and sync event tables for native CRM connector",
 		file: "20260331_039_salesforce_crm_integration.sql",
 	},
+	{
+		id: "20260401_040_calendly_integration",
+		description:
+			"Create Calendly integration and appointment tracking tables",
+		file: "20260401_040_calendly_integration.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

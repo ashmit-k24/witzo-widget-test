@@ -24,6 +24,7 @@ import systemMessageService from "./systemMessageService";
 import websiteBrandingService from "./websiteBrandingService";
 import { openAICircuitBreaker } from "../utils/circuitBreaker";
 import { retryOnRateLimit } from "../utils/retry";
+import { calendlyIntegrationService, CalendlyWidgetBookingAction } from "./calendlyIntegrationService";
 import {
 	isAppointmentBookingIntent,
 	isContactIntent,
@@ -1907,6 +1908,7 @@ Question: ${query}${formatDirective}`;
 			relevanceScore: number;
 		}>;
 		timing: ChatTiming;
+		calendlyBooking?: CalendlyWidgetBookingAction;
 	} | null> {
 		const startedAt = Date.now();
 		const timing: ChatTiming = {
@@ -2042,6 +2044,58 @@ Question: ${query}${formatDirective}`;
 			state,
 			message,
 		);
+
+		const calendlyBooking =
+			await calendlyIntegrationService.getWidgetBookingAction(
+				userId,
+				session.sessionId,
+			);
+
+		if (calendlyBooking) {
+			const response =
+				"Absolutely. You can choose a date and time directly in the calendar below.";
+			await this.clearAppointmentLeadState(
+				session.sessionId,
+			);
+			const assistantTimestamp =
+				await this.persistMessage(
+					session.sessionId,
+					userId,
+					"assistant",
+					response,
+					{
+						language: resolvedLanguage,
+						appointmentLeadCapture: true,
+						calendlyBookingPrompt: true,
+						leadCaptureCompleted: true,
+					},
+				);
+			session.messages.push({
+				role: "assistant",
+				content: response,
+				timestamp: assistantTimestamp,
+			});
+			session.updatedAt = assistantTimestamp;
+			await this.saveCachedSession(session);
+			input.onToken?.(response);
+
+			timing.saveMs = Date.now() - saveStart;
+			timing.totalMs = Date.now() - startedAt;
+
+			logger.info("Calendly booking prompt handled", {
+				userId,
+				sessionId: session.sessionId,
+			});
+
+			return {
+				sessionId: session.sessionId,
+				response,
+				language: resolvedLanguage,
+				sources: [],
+				timing,
+				calendlyBooking,
+			};
+		}
 
 		let response = "";
 		if (existingState?.active) {
