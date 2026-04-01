@@ -17,6 +17,7 @@ import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
 import * as leadWebhookController from "../controllers/leadWebhookController";
 import * as hubspotIntegrationController from "../controllers/hubspotIntegrationController";
+import * as salesforceIntegrationController from "../controllers/salesforceIntegrationController";
 import * as zohoIntegrationController from "../controllers/zohoIntegrationController";
 import * as feedbackController from "../controllers/feedbackController";
 import * as promptBuilderController from "../controllers/promptBuilderController";
@@ -41,49 +42,14 @@ import {
 	validate,
 	validationRules,
 } from "../middleware/validator";
-import { globalRateLimiter } from "../middleware/userRateLimiter";
 
 const router: Router = Router();
-
-const isScrapeProgressRoute = (path: string): boolean => {
-	const normalized = path.toLowerCase();
-	return (
-		normalized === "/scraper/progress" ||
-		/^\/scraper\/progress\/[^/]+$/.test(normalized)
-	);
-};
-
-const isHubspotEventRoute = (path: string): boolean => {
-	const normalized = path.toLowerCase();
-	return (
-		normalized === "/hubspot/events" ||
-		/^\/hubspot\/events\/[^/]+\/retry$/.test(normalized)
-	);
-};
-
-const isZohoEventRoute = (path: string): boolean => {
-	const normalized = path.toLowerCase();
-	return (
-		normalized === "/zoho/events" ||
-		/^\/zoho\/events\/[^/]+\/retry$/.test(normalized)
-	);
-};
 
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
 
-// User-based rate limiter — runs after auth so it can key by userId, not just IP
-router.use((req, res, next) => {
-	if (
-		isScrapeProgressRoute(req.path) ||
-		isHubspotEventRoute(req.path) ||
-		isZohoEventRoute(req.path)
-	) {
-		next();
-		return;
-	}
-	void globalRateLimiter(req, res, next);
-});
+// Global rate limiting is temporarily disabled.
+// TODO: Re-introduce this with route-level exemptions or post-auth user-based keys.
 
 /**
  * @route   GET /api/auth/csrf-token
@@ -104,6 +70,11 @@ router.get(
 router.get(
 	"/subscription/paddle-runtime",
 	subscriptionController.getPaddleRuntimeConfig,
+);
+
+router.get(
+	"/subscription/pricing-preview",
+	subscriptionController.getLocalizedPricingPreview,
 );
 
 /**
@@ -638,6 +609,10 @@ router.get(
 	"/zoho/callback",
 	zohoIntegrationController.handleZohoCallback,
 );
+router.get(
+	"/salesforce/callback",
+	salesforceIntegrationController.handleSalesforceCallback,
+);
 
 router.post(
 	"/google/verify",
@@ -849,6 +824,12 @@ router.get(
 	zohoIntegrationController.getZohoConfig,
 );
 
+router.get(
+	"/salesforce/config",
+	authenticateToken,
+	salesforceIntegrationController.getSalesforceConfig,
+);
+
 router.post(
 	"/zoho/connect",
 	verifyCsrfToken,
@@ -856,6 +837,15 @@ router.post(
 	validationRules.zohoConnect,
 	validate,
 	zohoIntegrationController.getZohoConnectUrl,
+);
+
+router.post(
+	"/salesforce/connect",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.salesforceConnect,
+	validate,
+	salesforceIntegrationController.getSalesforceConnectUrl,
 );
 
 router.put(
@@ -867,6 +857,15 @@ router.put(
 	zohoIntegrationController.updateZohoSettings,
 );
 
+router.put(
+	"/salesforce/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.salesforceSettings,
+	validate,
+	salesforceIntegrationController.updateSalesforceSettings,
+);
+
 router.delete(
 	"/zoho/disconnect",
 	verifyCsrfToken,
@@ -874,11 +873,25 @@ router.delete(
 	zohoIntegrationController.disconnectZoho,
 );
 
+router.delete(
+	"/salesforce/disconnect",
+	verifyCsrfToken,
+	authenticateToken,
+	salesforceIntegrationController.disconnectSalesforce,
+);
+
 router.post(
 	"/zoho/test",
 	verifyCsrfToken,
 	authenticateToken,
 	zohoIntegrationController.sendZohoTest,
+);
+
+router.post(
+	"/salesforce/test",
+	verifyCsrfToken,
+	authenticateToken,
+	salesforceIntegrationController.sendSalesforceTest,
 );
 
 router.get(
@@ -889,6 +902,14 @@ router.get(
 	zohoIntegrationController.listZohoEvents,
 );
 
+router.get(
+	"/salesforce/events",
+	authenticateToken,
+	validationRules.salesforceEventsQuery,
+	validate,
+	salesforceIntegrationController.listSalesforceEvents,
+);
+
 router.post(
 	"/zoho/events/:eventId/retry",
 	verifyCsrfToken,
@@ -896,6 +917,15 @@ router.post(
 	validationRules.zohoEventParam,
 	validate,
 	zohoIntegrationController.retryZohoEvent,
+);
+
+router.post(
+	"/salesforce/events/:eventId/retry",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.salesforceEventParam,
+	validate,
+	salesforceIntegrationController.retrySalesforceEvent,
 );
 
 router.put(

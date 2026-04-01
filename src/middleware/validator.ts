@@ -612,6 +612,72 @@ export const validationRules: Record<
 			.withMessage("eventId must be a valid UUID"),
 	],
 
+	salesforceConnect: [
+		body("returnTo")
+			.optional({ values: "falsy" })
+			.isString()
+			.withMessage("returnTo must be a string")
+			.isLength({ max: 256 })
+			.withMessage("returnTo must be <= 256 characters")
+			.custom((value) => {
+				if (
+					!value.startsWith("/") ||
+					value.startsWith("//")
+				) {
+					throw new Error(
+						"returnTo must be a relative dashboard path",
+					);
+				}
+				return true;
+			}),
+	],
+
+	salesforceSettings: [
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
+		body("leadSyncEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"leadSyncEnabled must be boolean",
+			),
+		body("taskSyncEnabled")
+			.optional()
+			.isBoolean()
+			.withMessage(
+				"taskSyncEnabled must be boolean",
+			),
+		body().custom((payload) => {
+			if (
+				typeof payload?.isActive !== "boolean" &&
+				typeof payload?.leadSyncEnabled !==
+					"boolean" &&
+				typeof payload?.taskSyncEnabled !==
+					"boolean"
+			) {
+				throw new Error(
+					"At least one Salesforce setting field is required",
+				);
+			}
+			return true;
+		}),
+	],
+
+	salesforceEventsQuery: [
+		query("limit")
+			.optional()
+			.isInt({ min: 1, max: 100 })
+			.withMessage("limit must be between 1 and 100"),
+	],
+
+	salesforceEventParam: [
+		param("eventId")
+			.isUUID()
+			.withMessage("eventId must be a valid UUID"),
+	],
+
 	feedbackCreate: [
 		body("type")
 			.isIn(["feedback", "suggestion"])

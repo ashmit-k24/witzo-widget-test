@@ -247,6 +247,12 @@ const migrations: Migration[] = [
 			"Create Zoho CRM integration and sync event tables for native CRM connector",
 		file: "20260331_038_zoho_crm_integration.sql",
 	},
+	{
+		id: "20260331_039_salesforce_crm_integration",
+		description:
+			"Create Salesforce CRM integration and sync event tables for native CRM connector",
+		file: "20260331_039_salesforce_crm_integration.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

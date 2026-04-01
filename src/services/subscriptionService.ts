@@ -1,5 +1,10 @@
 import { PoolClient } from "pg";
-import { Paddle, Environment, EventName } from "@paddle/paddle-node-sdk";
+import {
+	Paddle,
+	Environment,
+	EventName,
+	ApiError,
+} from "@paddle/paddle-node-sdk";
 import {
 	PLAN_CONVERSATION_DEFAULT_LIMITS,
 	PlanType,
@@ -111,6 +116,26 @@ export interface GetCheckoutInfoResponse {
 export interface PaddleRuntimeConfigResponse {
 	clientToken: string;
 	environment: "sandbox" | "production";
+}
+
+export interface LocalizedPricingPreviewItem {
+	priceId: string;
+	formattedSubtotal: string | null;
+	formattedTotal: string | null;
+	currencyCode: string | null;
+	countryCode: string | null;
+}
+
+export interface LocalizedPricingPreviewResponse {
+	pricesByPriceId: Record<string, LocalizedPricingPreviewItem>;
+	currencyCode: string | null;
+	countryCode: string | null;
+}
+
+export interface PricingPreviewLocationInput {
+	countryCode?: string | null;
+	postalCode?: string | null;
+	customerIpAddress?: string | null;
 }
 
 export interface PaymentRecord {
@@ -863,6 +888,125 @@ class SubscriptionService {
 
 	getPublicPaddleRuntimeConfig(): PaddleRuntimeConfigResponse {
 		return this.getPaddleRuntimeConfig();
+	}
+
+	async getLocalizedPricingPreview(
+		location: PricingPreviewLocationInput = {},
+	): Promise<LocalizedPricingPreviewResponse> {
+		const plans = await this.listPlans(false);
+		const priceIds = [...new Set(
+			plans.flatMap((plan) => [plan.paddleMonthlyPriceId, plan.paddleYearlyPriceId]).filter((value): value is string => Boolean(value)),
+		)];
+
+		const fallbackResponse: LocalizedPricingPreviewResponse = {
+			pricesByPriceId: {},
+			currencyCode: null,
+			countryCode: location.countryCode?.toUpperCase() ?? null,
+		};
+
+		if (priceIds.length === 0) {
+			return fallbackResponse;
+		}
+
+		if (!config.PADDLE_API_KEY) {
+			logger.warn(
+				"Skipping localized Paddle pricing preview because PADDLE_API_KEY is not configured",
+				{
+					priceCount: priceIds.length,
+					location,
+				},
+			);
+			return fallbackResponse;
+		}
+
+		const paddle = this.getPaddleClient();
+		const requestBody = {
+			items: priceIds.map((priceId) => ({
+				priceId,
+				quantity: 1,
+			})),
+		};
+
+		if (location.customerIpAddress) {
+			Object.assign(requestBody, {
+				customerIpAddress: location.customerIpAddress,
+			});
+		} else if (location.countryCode) {
+			Object.assign(requestBody, {
+				address: {
+					countryCode: location.countryCode.toUpperCase(),
+					...(location.postalCode
+						? { postalCode: location.postalCode }
+						: {}),
+				},
+			});
+		}
+
+		try {
+			const response =
+				await paddle.pricingPreview.preview(requestBody);
+
+			const lineItems = response.details?.lineItems ?? [];
+			const currencyCode = response.currencyCode ?? null;
+			const countryCode =
+				response.address?.countryCode?.toUpperCase() ??
+				location.countryCode?.toUpperCase() ??
+				null;
+
+			const pricesByPriceId = lineItems.reduce<
+				Record<string, LocalizedPricingPreviewItem>
+			>((acc, item) => {
+				const priceId = item.price?.id?.trim();
+				if (!priceId) {
+					return acc;
+				}
+
+				acc[priceId] = {
+					priceId,
+					formattedSubtotal:
+						item.formattedTotals?.subtotal ??
+						item.formattedUnitTotals?.subtotal ??
+						null,
+					formattedTotal:
+						item.formattedTotals?.total ??
+						item.formattedUnitTotals?.total ??
+						null,
+					currencyCode,
+					countryCode,
+				};
+				return acc;
+			}, {});
+
+			return {
+				pricesByPriceId,
+				currencyCode,
+				countryCode,
+			};
+		} catch (error) {
+			if (error instanceof ApiError) {
+				logger.error("Paddle pricing preview failed", {
+					errorType: error.type,
+					errorCode: error.code,
+					errorDetail: error.detail,
+					documentationUrl: error.documentationUrl,
+					fieldErrors: error.errors,
+					retryAfter: error.retryAfter,
+					priceCount: priceIds.length,
+					location,
+				});
+			} else {
+				logger.error("Paddle pricing preview failed", {
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+					priceCount: priceIds.length,
+					location,
+				});
+			}
+
+			return fallbackResponse;
+		}
 	}
 
 	async cancelSubscription(

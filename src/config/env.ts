@@ -362,6 +362,26 @@ export const config: EnvConfig = {
 		"ZOHO_API_DOMAIN",
 		"https://www.zohoapis.com",
 	),
+	SALESFORCE_CLIENT_ID: getEnvString(
+		"SALESFORCE_CLIENT_ID",
+		"",
+	),
+	SALESFORCE_CLIENT_SECRET: getEnvString(
+		"SALESFORCE_CLIENT_SECRET",
+		"",
+	),
+	SALESFORCE_REDIRECT_URI: getEnvString(
+		"SALESFORCE_REDIRECT_URI",
+		`${resolvedFrontendUrl}/api/auth/salesforce/callback`,
+	),
+	SALESFORCE_OAUTH_SCOPES: getEnvString(
+		"SALESFORCE_OAUTH_SCOPES",
+		["api", "refresh_token", "offline_access"].join(" "),
+	),
+	SALESFORCE_AUTH_BASE_URL: getEnvString(
+		"SALESFORCE_AUTH_BASE_URL",
+		"https://login.salesforce.com",
+	),
 
 	// Pinecone
 	PINECONE_API_KEY: getEnvString(
