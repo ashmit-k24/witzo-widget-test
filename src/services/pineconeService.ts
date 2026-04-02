@@ -28,7 +28,7 @@ import {
 	retryWithBackoff,
 } from "../utils/retry";
 import { chunkMarkdown, bm25SparseVector } from "./chunkingService";
-import { buildPineconeFilter, stepBackRewrite } from "./queryService";
+import { buildPineconeFilter, stepBackRewrite, generateQueryVariations } from "./queryService";
 import { cohereRerank } from "./rerankService";
 import { subscriptionService } from "./subscriptionService";
 
@@ -1032,14 +1032,19 @@ class PineconeService {
 					query,
 					options?.history,
 				);
-			const queryEmbedding =
-				await this.generateEmbedding(
-					rewrittenQuery,
-				);
+			const [rewrittenEmbedding, originalEmbedding] =
+				await Promise.all([
+					this.generateEmbedding(rewrittenQuery),
+					rewrittenQuery !== query
+						? this.generateEmbedding(query)
+						: Promise.resolve(null),
+				]);
 			const filter =
 				buildPineconeFilter(query);
 
 			const runQuery = async (
+				embedding: number[],
+				queryText: string,
 				withFilter: boolean,
 				withSparse: boolean,
 			) => {
@@ -1047,7 +1052,7 @@ class PineconeService {
 					string,
 					unknown
 				> = {
-					vector: queryEmbedding,
+					vector: embedding,
 					topK: fetchTopK,
 					includeMetadata: true,
 				};
@@ -1056,7 +1061,7 @@ class PineconeService {
 				}
 				if (withSparse && config.PINECONE_HYBRID) {
 					const sparse =
-						bm25SparseVector(rewrittenQuery);
+						bm25SparseVector(queryText);
 					if (sparse.indices.length > 0) {
 						(payload as any).sparseVector =
 							sparse;
@@ -1072,9 +1077,22 @@ class PineconeService {
 				);
 			};
 
+			const mergeMatches = (a: any[], b: any[]): any[] => {
+				const seen = new Map<string, any>();
+				for (const m of [...a, ...b]) {
+					const id = m.id;
+					if (!seen.has(id) || m.score > seen.get(id).score) {
+						seen.set(id, m);
+					}
+				}
+				return Array.from(seen.values());
+			};
+
 			let queryResponse: any;
 			try {
 				queryResponse = await runQuery(
+					rewrittenEmbedding,
+					rewrittenQuery,
 					true,
 					true,
 				);
@@ -1087,15 +1105,53 @@ class PineconeService {
 					},
 				);
 				queryResponse = await runQuery(
+					rewrittenEmbedding,
+					rewrittenQuery,
 					true,
 					false,
 				);
 			}
 
 			let matches = queryResponse.matches || [];
+
+			if (originalEmbedding) {
+				try {
+					const originalResponse = await runQuery(
+						originalEmbedding,
+						query,
+						true,
+						false,
+					);
+					matches = mergeMatches(matches, originalResponse.matches || []);
+				} catch {
+					// original query search failed, proceed with rewritten only
+				}
+			}
+
+			if (config.HYPE_QUESTIONS_PER_CHUNK > 0) {
+				try {
+					const variations = await generateQueryVariations(query, 3);
+					const variationEmbeddings = await Promise.all(
+						variations.map((v) => this.generateEmbedding(v)),
+					);
+					const variationResults = await Promise.allSettled(
+						variationEmbeddings.map((emb, i) =>
+							runQuery(emb, variations[i], true, false),
+						),
+					);
+					for (const result of variationResults) {
+						if (result.status === "fulfilled") {
+							matches = mergeMatches(matches, result.value.matches || []);
+						}
+					}
+				} catch {
+					// variation search failed, proceed with existing matches
+				}
+			}
+
 			if (matches.length === 0 && filter) {
 				const retryResponse =
-					await runQuery(false, false);
+					await runQuery(rewrittenEmbedding, rewrittenQuery, false, false);
 				matches = retryResponse.matches || [];
 			}
 

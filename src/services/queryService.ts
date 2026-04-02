@@ -282,3 +282,36 @@ export async function stepBackRewrite(
 		return q;
 	}
 }
+
+// generateQueryVariations generates N question variations of the user's query
+// to improve matching against HyPE vectors stored in Pinecone.
+export async function generateQueryVariations(query: string, n: number = 3): Promise<string[]> {
+	if (!query.trim() || n <= 0) return [];
+	const prompt = `Generate exactly ${n} different ways to ask the following question. Keep each variation short and direct. Output ONLY the questions, one per line, no numbering, no extra text.\n\nOriginal: ${query}\n\nVariations:`;
+	try {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 8000);
+		try {
+			const completion = await openai.chat.completions.create(
+				{
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: prompt }],
+					temperature: 0.7,
+					max_tokens: 120,
+				},
+				{ signal: controller.signal as any },
+			);
+			const lines = (completion.choices[0]?.message?.content ?? "")
+				.trim()
+				.split("\n")
+				.map((l) => l.trim())
+				.filter(Boolean);
+			logger.info("[HyPE query-time] generated variations", { original: query, variations: lines });
+			return lines.slice(0, n);
+		} finally {
+			clearTimeout(timeout);
+		}
+	} catch {
+		return [];
+	}
+}
