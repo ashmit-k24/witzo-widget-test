@@ -9,6 +9,7 @@
 		"dev": "tsx watch src/server.ts",
 		"migrate": "tsx src/database/migrate.ts",
 		"purge:hype-jobs": "tsx src/scripts/purgeQueuedHypeJobs.ts",
+		"purge:hype-jobs:force": "tsx src/scripts/forcePurgeAllHypeJobs.ts",
 		"lint": "eslint . --ext .ts",
 		"format": "prettier --write \"src/**/*.ts\"",
 		"clean": "rm -rf dist",
