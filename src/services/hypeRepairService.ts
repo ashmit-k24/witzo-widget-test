@@ -2,6 +2,7 @@ import crypto from "crypto";
 import pool from "../config/database";
 import { redisCache } from "../config/redis";
 import { config } from "../config/env";
+import { hypeQueue } from "../config/hypeQueue";
 import {
 	HYPE_REPAIR_LOCK_TTL_MS,
 } from "../constants";
@@ -11,6 +12,58 @@ import { pineconeService } from "./pineconeService";
 import { scraperStatusService } from "./scraperStatusService";
 
 class HypeRepairService {
+	private getSourceKeyFromPayload(
+		payload: unknown,
+	): string | null {
+		if (!payload || typeof payload !== "object") {
+			return null;
+		}
+
+		const maybePayload = payload as {
+			rawChunks?: Array<{ sourceKey?: unknown }>;
+		};
+		const sourceKey =
+			maybePayload.rawChunks?.[0]?.sourceKey;
+		return typeof sourceKey === "string" &&
+			sourceKey.trim()
+			? sourceKey.trim()
+			: null;
+	}
+
+	private async getPendingOrActiveHypeSources(
+		userId: string,
+	): Promise<Set<string>> {
+		const jobs = await hypeQueue.getJobs([
+			"waiting",
+			"active",
+			"delayed",
+			"prioritized",
+		]);
+		const sources = new Set<string>();
+
+		for (const job of jobs) {
+			const payload = job.data as
+				| {
+						userId?: string;
+						rawChunks?: Array<{
+							sourceKey?: string;
+						}>;
+				  }
+				| undefined;
+			if (payload?.userId !== userId) {
+				continue;
+			}
+
+			const sourceKey =
+				this.getSourceKeyFromPayload(payload);
+			if (sourceKey) {
+				sources.add(sourceKey);
+			}
+		}
+
+		return sources;
+	}
+
 	private getSourceRepairLockKey(
 		userId: string,
 		sourceRoot: string,
@@ -99,12 +152,33 @@ class HypeRepairService {
 				userId,
 				expectedQuestionsPerChunk,
 			);
+		const activeHypeSources =
+			await this.getPendingOrActiveHypeSources(
+				userId,
+			);
 
 		let sourcesQueued = 0;
 		let sourcesSkipped = 0;
 		let staleVectorsDeleted = 0;
 
 		for (const coverage of coverages) {
+			if (
+				activeHypeSources.has(
+					coverage.sourceRoot,
+				)
+			) {
+				logger.info(
+					"Skipping HyPE repair because HyPE generation is already queued or active for the source",
+					{
+						userId,
+						sourceRoot:
+							coverage.sourceRoot,
+					},
+				);
+				sourcesSkipped += 1;
+				continue;
+			}
+
 			if (coverage.staleHypeVectorIds.length > 0) {
 				await pineconeService.deleteVectorsByIds(
 					userId,
