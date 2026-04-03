@@ -821,13 +821,18 @@ ${message}`;
 
 	// ── Email lead capture helpers ──────────────────────────────────────────
 
-	private getEmailLeadStateKey(sessionId: string): string {
+	private getEmailLeadStateKey(
+		sessionId: string,
+	): string {
 		return `chat:email-lead:${sessionId}`;
 	}
 
 	private async getEmailLeadState(
 		sessionId: string,
-	): Promise<{ asked: boolean; email: string | null } | null> {
+	): Promise<{
+		asked: boolean;
+		email: string | null;
+	} | null> {
 		const cached = await redisCache.get(
 			this.getEmailLeadStateKey(sessionId),
 		);
@@ -844,7 +849,10 @@ ${message}`;
 
 	private async saveEmailLeadState(
 		sessionId: string,
-		state: { asked: boolean; email: string | null },
+		state: {
+			asked: boolean;
+			email: string | null;
+		},
 	): Promise<void> {
 		await redisCache.setex(
 			this.getEmailLeadStateKey(sessionId),
@@ -853,7 +861,9 @@ ${message}`;
 		);
 	}
 
-	private tryExtractEmail(message: string): string | null {
+	private tryExtractEmail(
+		message: string,
+	): string | null {
 		const match = message.match(
 			/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/,
 		);
@@ -861,34 +871,62 @@ ${message}`;
 	}
 
 	private buildEmailAskSuffix(): string {
-		return "May I have your email address? It would help us follow up with you personally.";
+		return "To assist you better, could you please share your name, email address, and phone number?";
 	}
 
 	private buildNoDataEmailAskResponse(): string {
 		return "I'd love to connect you with the right person from our team! May I have your email ID so we can reach out to you directly?";
 	}
 
-	private looksLikeNoDataResponse(response: string): boolean {
+	private looksLikeNoDataResponse(
+		response: string,
+	): boolean {
 		const lower = response.toLowerCase();
 		return (
-			lower.includes("doesn't seem to be a question") ||
-			lower.includes("does not seem to be a question") ||
-			lower.includes("don't have information about that") ||
-			lower.includes("do not have information about that") ||
-			lower.includes("no information available") ||
+			lower.includes(
+				"doesn't seem to be a question",
+			) ||
+			lower.includes(
+				"does not seem to be a question",
+			) ||
+			lower.includes(
+				"don't have information about that",
+			) ||
+			lower.includes(
+				"do not have information about that",
+			) ||
+			lower.includes(
+				"no information available",
+			) ||
 			lower.includes("not able to find") ||
 			lower.includes("unable to find") ||
-			lower.includes("couldn't find information") ||
-			lower.includes("i don't have the right information") ||
-			lower.includes("i may not have the right information") ||
-			lower.includes("doesn't appear to be related") ||
-			lower.includes("does not appear to be related") ||
-			lower.includes("not find any information") ||
+			lower.includes(
+				"couldn't find information",
+			) ||
+			lower.includes(
+				"i don't have the right information",
+			) ||
+			lower.includes(
+				"i may not have the right information",
+			) ||
+			lower.includes(
+				"doesn't appear to be related",
+			) ||
+			lower.includes(
+				"does not appear to be related",
+			) ||
+			lower.includes(
+				"not find any information",
+			) ||
 			lower.includes("no relevant information") ||
 			lower.includes("doesn't seem related") ||
 			lower.includes("does not seem related") ||
-			lower.includes("i'm not sure what you're asking") ||
-			lower.includes("i'm not sure what you are asking") ||
+			lower.includes(
+				"i'm not sure what you're asking",
+			) ||
+			lower.includes(
+				"i'm not sure what you are asking",
+			) ||
 			lower.includes("could you clarify") ||
 			lower.includes("could you please clarify")
 		);
@@ -2570,18 +2608,23 @@ Question: ${query}${formatDirective}`;
 			timing.llmMs = Date.now() - llmStart;
 
 			// ── Email lead capture ───────────────────────────────────────────
-			const emailLeadState = await this.getEmailLeadState(
-				session.sessionId,
-			);
+			const emailLeadState =
+				await this.getEmailLeadState(
+					session.sessionId,
+				);
 			if (!emailLeadState?.email) {
-				const extractedEmail = emailLeadState?.asked
-					? this.tryExtractEmail(message)
-					: null;
+				const extractedEmail =
+					emailLeadState?.asked
+						? this.tryExtractEmail(message)
+						: null;
 				if (extractedEmail) {
-					await this.saveEmailLeadState(session.sessionId, {
-						asked: true,
-						email: extractedEmail,
-					});
+					await this.saveEmailLeadState(
+						session.sessionId,
+						{
+							asked: true,
+							email: extractedEmail,
+						},
+					);
 				} else {
 					const isNoData =
 						!shouldSkipRetrieval &&
@@ -2590,9 +2633,10 @@ Question: ${query}${formatDirective}`;
 							this.looksLikeNoDataResponse(
 								assistantResponse,
 							));
-					const userMsgCount = session.messages.filter(
-						(m) => m.role === "user",
-					).length;
+					const userMsgCount =
+						session.messages.filter(
+							(m) => m.role === "user",
+						).length;
 					if (isNoData) {
 						assistantResponse =
 							this.buildNoDataEmailAskResponse();
@@ -2853,18 +2897,22 @@ Question: ${query}${formatDirective}`;
 			);
 
 		// ── Email lead capture ─────────────────────────────────────────────
-		const emailLeadState = await this.getEmailLeadState(
-			session.sessionId,
-		);
+		const emailLeadState =
+			await this.getEmailLeadState(
+				session.sessionId,
+			);
 		if (!emailLeadState?.email) {
 			const extractedEmail = emailLeadState?.asked
 				? this.tryExtractEmail(message)
 				: null;
 			if (extractedEmail) {
-				await this.saveEmailLeadState(session.sessionId, {
-					asked: true,
-					email: extractedEmail,
-				});
+				await this.saveEmailLeadState(
+					session.sessionId,
+					{
+						asked: true,
+						email: extractedEmail,
+					},
+				);
 			} else {
 				const isHardNoData =
 					!shouldCallLlm && !shouldSkipRetrieval;
@@ -2875,9 +2923,10 @@ Question: ${query}${formatDirective}`;
 						this.looksLikeNoDataResponse(
 							assistantResponse,
 						));
-				const userMsgCount = session.messages.filter(
-					(m) => m.role === "user",
-				).length;
+				const userMsgCount =
+					session.messages.filter(
+						(m) => m.role === "user",
+					).length;
 
 				if (isHardNoData) {
 					// Nothing was streamed yet — send the full email ask
@@ -2886,7 +2935,10 @@ Question: ${query}${formatDirective}`;
 					assistantResponse = emailMsg;
 					usedFallback = true;
 					options?.onToken?.(emailMsg);
-				} else if (isSoftNoData || userMsgCount >= 3) {
+				} else if (
+					isSoftNoData ||
+					userMsgCount >= 3
+				) {
 					// LLM already streamed — append email ask as extra token
 					const suffix =
 						"\n\n" + this.buildEmailAskSuffix();
@@ -2894,7 +2946,11 @@ Question: ${query}${formatDirective}`;
 						assistantResponse.trimEnd() + suffix;
 					options?.onToken?.(suffix);
 				}
-				if (isHardNoData || isSoftNoData || userMsgCount >= 3) {
+				if (
+					isHardNoData ||
+					isSoftNoData ||
+					userMsgCount >= 3
+				) {
 					await this.saveEmailLeadState(
 						session.sessionId,
 						{ asked: true, email: null },
