@@ -86,6 +86,9 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
         <button id="cf-submit" class="contact-form-submit">Send Message</button>
       </div>
 
+      <!-- Calendly booking slot -->
+      <div id="calendlySlot" class="contact-form hidden"></div>
+
       <!-- Conversation rating slot (paid plans) -->
       <div id="conversationRatingSlot" class="hidden"></div>
 

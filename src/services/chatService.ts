@@ -1,29 +1,33 @@
-import OpenAI from "openai";
 import crypto from "crypto";
-import { config } from "../config/env";
+import OpenAI from "openai";
 import pool from "../config/database";
+import { config } from "../config/env";
 import { redisCache } from "../config/redis";
 import {
 	CHAT_COMPLETION_MAX_TOKENS,
-	CHAT_LANGUAGE_LABELS,
 	CHAT_COMPLETION_MODEL,
 	CHAT_COMPLETION_TEMPERATURE,
 	CHAT_DEFAULT_TIMEOUT_MS,
 	CHAT_HISTORY_WINDOW_MESSAGES,
+	CHAT_LANGUAGE_LABELS,
 	CHAT_RETRIEVAL_CACHE_TTL_SECONDS,
 	CHAT_SESSION_CACHE_MESSAGE_LIMIT,
 	CHAT_SESSION_CACHE_TTL_SECONDS,
 	CHAT_SUPPORTED_LANGUAGE_SET,
 	UUID_V1_TO_V5_REGEX,
 } from "../constants";
-import { ChatMessage, ChatSession } from "../types";
-import logger from "../utils/logger";
-import { pineconeService } from "./pineconeService";
-import { scraperStatusService } from "./scraperStatusService";
-import systemMessageService from "./systemMessageService";
-import websiteBrandingService from "./websiteBrandingService";
+import {
+	ChatMessage,
+	ChatSession,
+} from "../types";
 import { openAICircuitBreaker } from "../utils/circuitBreaker";
+import logger from "../utils/logger";
 import { retryOnRateLimit } from "../utils/retry";
+import {
+	calendlyIntegrationService,
+	CalendlyWidgetBookingAction,
+} from "./calendlyIntegrationService";
+import { pineconeService } from "./pineconeService";
 import {
 	isAppointmentBookingIntent,
 	isContactIntent,
@@ -36,6 +40,9 @@ import {
 	isWidgetTopListQuery,
 	normalizeWidgetQuery,
 } from "./queryService";
+import { scraperStatusService } from "./scraperStatusService";
+import systemMessageService from "./systemMessageService";
+import websiteBrandingService from "./websiteBrandingService";
 
 type AppointmentLeadField =
 	| "name"
@@ -58,7 +65,10 @@ type AppointmentIntentClassification = {
 };
 
 type AppointmentLeadTurnClassification = {
-	action: "requested_field" | "normal_chat" | "unclear";
+	action:
+		| "requested_field"
+		| "normal_chat"
+		| "unclear";
 	confidence: "high" | "medium" | "low";
 };
 
@@ -109,7 +119,9 @@ class ChatService {
 		});
 	}
 
-	private getSessionKey(sessionId: string): string {
+	private getSessionKey(
+		sessionId: string,
+	): string {
 		return `chat:session:${sessionId}`;
 	}
 
@@ -264,7 +276,8 @@ ${message}`;
 								async () => {
 									return await this.openai.chat.completions.create(
 										{
-											model: CHAT_COMPLETION_MODEL,
+											model:
+												CHAT_COMPLETION_MODEL,
 											messages: [
 												{
 													role: "user",
@@ -278,7 +291,8 @@ ${message}`;
 											},
 										},
 										{
-											signal: timeoutController.signal,
+											signal:
+												timeoutController.signal,
 										},
 									);
 								},
@@ -290,7 +304,9 @@ ${message}`;
 				const raw =
 					completion.choices[0]?.message
 						.content || "{}";
-				const parsed = JSON.parse(raw) as Partial<AppointmentIntentClassification>;
+				const parsed = JSON.parse(
+					raw,
+				) as Partial<AppointmentIntentClassification>;
 				const confidence =
 					parsed.confidence === "high" ||
 					parsed.confidence === "medium" ||
@@ -384,7 +400,9 @@ ${message}`;
 			return false;
 		}
 
-		const words = trimmed.split(/\s+/).filter(Boolean);
+		const words = trimmed
+			.split(/\s+/)
+			.filter(Boolean);
 		if (words.length < 1 || words.length > 4) {
 			return false;
 		}
@@ -479,7 +497,8 @@ Latest visitor message:
 ${message}`;
 
 		try {
-			const timeoutController = new AbortController();
+			const timeoutController =
+				new AbortController();
 			const timeout = setTimeout(() => {
 				timeoutController.abort();
 			}, CHAT_DEFAULT_TIMEOUT_MS);
@@ -492,7 +511,8 @@ ${message}`;
 								async () => {
 									return await this.openai.chat.completions.create(
 										{
-											model: CHAT_COMPLETION_MODEL,
+											model:
+												CHAT_COMPLETION_MODEL,
 											messages: [
 												{
 													role: "user",
@@ -506,7 +526,8 @@ ${message}`;
 											},
 										},
 										{
-											signal: timeoutController.signal,
+											signal:
+												timeoutController.signal,
 										},
 									);
 								},
@@ -518,7 +539,9 @@ ${message}`;
 				const raw =
 					completion.choices[0]?.message
 						.content || "{}";
-				const parsed = JSON.parse(raw) as Partial<AppointmentLeadTurnClassification>;
+				const parsed = JSON.parse(
+					raw,
+				) as Partial<AppointmentLeadTurnClassification>;
 				const action =
 					parsed.action === "requested_field" ||
 					parsed.action === "normal_chat" ||
@@ -559,12 +582,8 @@ ${message}`;
 	private getNextAppointmentLeadField(
 		state: AppointmentLeadState,
 	): AppointmentLeadField | null {
-		const orderedFields: AppointmentLeadField[] = [
-			"name",
-			"email",
-			"phone",
-			"country",
-		];
+		const orderedFields: AppointmentLeadField[] =
+			["name", "email", "phone", "country"];
 
 		for (const field of orderedFields) {
 			if (!state.fields[field]?.trim()) {
@@ -624,30 +643,26 @@ ${message}`;
 			updatedAt: new Date().toISOString(),
 		};
 
-		const email = this.extractEmailCandidate(
-			message,
-		);
+		const email =
+			this.extractEmailCandidate(message);
 		if (email) {
 			nextState.fields.email = email;
 		}
 
-		const phone = this.extractPhoneCandidate(
-			message,
-		);
+		const phone =
+			this.extractPhoneCandidate(message);
 		if (phone) {
 			nextState.fields.phone = phone;
 		}
 
-		const name = this.extractNameCandidate(
-			message,
-		);
+		const name =
+			this.extractNameCandidate(message);
 		if (name) {
 			nextState.fields.name = name;
 		}
 
-		const country = this.extractCountryCandidate(
-			message,
-		);
+		const country =
+			this.extractCountryCandidate(message);
 		if (country) {
 			nextState.fields.country = country;
 		}
@@ -678,7 +693,10 @@ ${message}`;
 					nextState.fields.email ||
 					this.extractEmailCandidate(trimmed);
 				if (!email) {
-					return { state: nextState, valid: false };
+					return {
+						state: nextState,
+						valid: false,
+					};
 				}
 				nextState.fields.email = email;
 				return { state: nextState, valid: true };
@@ -688,7 +706,10 @@ ${message}`;
 					nextState.fields.phone ||
 					this.extractPhoneCandidate(trimmed);
 				if (!phone) {
-					return { state: nextState, valid: false };
+					return {
+						state: nextState,
+						valid: false,
+					};
 				}
 				nextState.fields.phone = phone;
 				return { state: nextState, valid: true };
@@ -699,7 +720,10 @@ ${message}`;
 					this.extractNameCandidate(trimmed);
 				if (extractedName) {
 					nextState.fields.name = extractedName;
-					return { state: nextState, valid: true };
+					return {
+						state: nextState,
+						valid: true,
+					};
 				}
 				return { state: nextState, valid: false };
 			}
@@ -708,8 +732,12 @@ ${message}`;
 					nextState.fields.country ||
 					this.extractCountryCandidate(trimmed);
 				if (extractedCountry) {
-					nextState.fields.country = extractedCountry;
-					return { state: nextState, valid: true };
+					nextState.fields.country =
+						extractedCountry;
+					return {
+						state: nextState,
+						valid: true,
+					};
 				}
 				return { state: nextState, valid: false };
 			}
@@ -718,35 +746,50 @@ ${message}`;
 		}
 	}
 
-	private normalizeSessionId(sessionId?: string): string | null {
+	private normalizeSessionId(
+		sessionId?: string,
+	): string | null {
 		if (!sessionId) return null;
-		const normalized = sessionId.trim().toLowerCase();
-		if (!UUID_V1_TO_V5_REGEX.test(normalized)) return null;
+		const normalized = sessionId
+			.trim()
+			.toLowerCase();
+		if (!UUID_V1_TO_V5_REGEX.test(normalized))
+			return null;
 		return normalized;
 	}
 
-	private mapCachedSession(data: string): ChatSession {
-		const parsed = JSON.parse(data) as ChatSession;
+	private mapCachedSession(
+		data: string,
+	): ChatSession {
+		const parsed = JSON.parse(
+			data,
+		) as ChatSession;
 		return {
 			...parsed,
 			createdAt: new Date(parsed.createdAt),
 			updatedAt: new Date(parsed.updatedAt),
-			messages: (parsed.messages || []).map((msg) => ({
-				...msg,
-				timestamp: new Date(msg.timestamp),
-			})),
+			messages: (parsed.messages || []).map(
+				(msg) => ({
+					...msg,
+					timestamp: new Date(msg.timestamp),
+				}),
+			),
 		};
 	}
 
 	private async getCachedSession(
 		sessionId: string,
 	): Promise<ChatSession | null> {
-		const data = await redisCache.get(this.getSessionKey(sessionId));
+		const data = await redisCache.get(
+			this.getSessionKey(sessionId),
+		);
 		if (!data) return null;
 		return this.mapCachedSession(data);
 	}
 
-	private async saveCachedSession(session: ChatSession): Promise<void> {
+	private async saveCachedSession(
+		session: ChatSession,
+	): Promise<void> {
 		const payload: ChatSession = {
 			...session,
 			messages: session.messages.slice(
@@ -761,7 +804,11 @@ ${message}`;
 	}
 
 	private getTopKForQuery(query: string): number {
-		return isWidgetServiceOverviewQuery(normalizeWidgetQuery(query)) ? 25 : 15;
+		return isWidgetServiceOverviewQuery(
+			normalizeWidgetQuery(query),
+		)
+			? 25
+			: 15;
 	}
 
 	private getFallbackResponse(): string {
@@ -770,6 +817,81 @@ ${message}`;
 
 	private getLearningFallbackResponse(): string {
 		return "I'm still learning this site. Try again in a few minutes.";
+	}
+
+	// ── Email lead capture helpers ──────────────────────────────────────────
+
+	private getEmailLeadStateKey(sessionId: string): string {
+		return `chat:email-lead:${sessionId}`;
+	}
+
+	private async getEmailLeadState(
+		sessionId: string,
+	): Promise<{ asked: boolean; email: string | null } | null> {
+		const cached = await redisCache.get(
+			this.getEmailLeadStateKey(sessionId),
+		);
+		if (!cached) return null;
+		try {
+			return JSON.parse(cached) as {
+				asked: boolean;
+				email: string | null;
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	private async saveEmailLeadState(
+		sessionId: string,
+		state: { asked: boolean; email: string | null },
+	): Promise<void> {
+		await redisCache.setex(
+			this.getEmailLeadStateKey(sessionId),
+			60 * 60 * 24 * 7,
+			JSON.stringify(state),
+		);
+	}
+
+	private tryExtractEmail(message: string): string | null {
+		const match = message.match(
+			/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/,
+		);
+		return match ? match[0] : null;
+	}
+
+	private buildEmailAskSuffix(): string {
+		return "May I have your email address? It would help us follow up with you personally.";
+	}
+
+	private buildNoDataEmailAskResponse(): string {
+		return "I'd love to connect you with the right person from our team! May I have your email ID so we can reach out to you directly?";
+	}
+
+	private looksLikeNoDataResponse(response: string): boolean {
+		const lower = response.toLowerCase();
+		return (
+			lower.includes("doesn't seem to be a question") ||
+			lower.includes("does not seem to be a question") ||
+			lower.includes("don't have information about that") ||
+			lower.includes("do not have information about that") ||
+			lower.includes("no information available") ||
+			lower.includes("not able to find") ||
+			lower.includes("unable to find") ||
+			lower.includes("couldn't find information") ||
+			lower.includes("i don't have the right information") ||
+			lower.includes("i may not have the right information") ||
+			lower.includes("doesn't appear to be related") ||
+			lower.includes("does not appear to be related") ||
+			lower.includes("not find any information") ||
+			lower.includes("no relevant information") ||
+			lower.includes("doesn't seem related") ||
+			lower.includes("does not seem related") ||
+			lower.includes("i'm not sure what you're asking") ||
+			lower.includes("i'm not sure what you are asking") ||
+			lower.includes("could you clarify") ||
+			lower.includes("could you please clarify")
+		);
 	}
 
 	private async hasActiveScrapeJob(
@@ -803,7 +925,8 @@ ${message}`;
 
 	private ragMatchScore(match: any): number {
 		const raw = match?.score;
-		return typeof raw === "number" && Number.isFinite(raw)
+		return typeof raw === "number" &&
+			Number.isFinite(raw)
 			? raw
 			: 0;
 	}
@@ -818,15 +941,23 @@ ${message}`;
 	}
 
 	private extractMatchTitle(match: any): string {
-		return String(match?.metadata?.title || "").trim();
+		return String(
+			match?.metadata?.title || "",
+		).trim();
 	}
 
 	private extractMatchUrl(match: any): string {
-		return String(match?.metadata?.url || "").trim();
+		return String(
+			match?.metadata?.url || "",
+		).trim();
 	}
 
-	private extractMatchPageType(match: any): string {
-		return String(match?.metadata?.pageType || "").trim();
+	private extractMatchPageType(
+		match: any,
+	): string {
+		return String(
+			match?.metadata?.pageType || "",
+		).trim();
 	}
 
 	private relevantRagMatches(
@@ -835,14 +966,13 @@ ${message}`;
 	): any[] {
 		return matches.filter((match) => {
 			const score = this.ragMatchScore(match);
-			if (score < minScore) {
-				return false;
-			}
-			return !Boolean(match?.metadata?.isHype);
+			return score >= minScore;
 		});
 	}
 
-	private ragScoreThreshold(query: string): number {
+	private ragScoreThreshold(
+		query: string,
+	): number {
 		const n = normalizeWidgetQuery(query);
 		if (isContactIntent(n)) return 0.25;
 		if (isWidgetTechProjectQuery(n)) return 0.25;
@@ -855,10 +985,16 @@ ${message}`;
 		right: string,
 	): number {
 		const a = new Set(
-			left.toLowerCase().split(/\s+/).filter(Boolean),
+			left
+				.toLowerCase()
+				.split(/\s+/)
+				.filter(Boolean),
 		);
 		const b = new Set(
-			right.toLowerCase().split(/\s+/).filter(Boolean),
+			right
+				.toLowerCase()
+				.split(/\s+/)
+				.filter(Boolean),
 		);
 		if (a.size === 0 || b.size === 0) {
 			return 0;
@@ -890,9 +1026,14 @@ ${message}`;
 		) {
 			let bestIndex = 0;
 			let bestScore = -Infinity;
-			for (let index = 0; index < remaining.length; index += 1) {
+			for (
+				let index = 0;
+				index < remaining.length;
+				index += 1
+			) {
 				const candidate = remaining[index];
-				const relevance = this.ragMatchScore(candidate);
+				const relevance =
+					this.ragMatchScore(candidate);
 				const candidateText =
 					this.extractMatchText(candidate);
 				let diversityPenalty = 0;
@@ -922,9 +1063,13 @@ ${message}`;
 		return selected;
 	}
 
-	private isServiceHeavyMatch(match: any): boolean {
+	private isServiceHeavyMatch(
+		match: any,
+	): boolean {
 		const pageType =
-			this.extractMatchPageType(match).toLowerCase();
+			this.extractMatchPageType(
+				match,
+			).toLowerCase();
 		if (
 			pageType === "service" ||
 			pageType === "home" ||
@@ -933,8 +1078,10 @@ ${message}`;
 			return true;
 		}
 
-		const title = this.extractMatchTitle(match).toLowerCase();
-		const url = this.extractMatchUrl(match).toLowerCase();
+		const title =
+			this.extractMatchTitle(match).toLowerCase();
+		const url =
+			this.extractMatchUrl(match).toLowerCase();
 		return /\b(service|solutions?|web development|website development|seo|hosting|content writing|brochure|e-?commerce|ui\/ux|cms)\b/.test(
 			`${title} ${url}`,
 		);
@@ -950,29 +1097,35 @@ ${message}`;
 			return matches.slice(0, 8);
 		}
 
-		if (!isWidgetServiceOverviewQuery(normalized)) {
+		if (
+			!isWidgetServiceOverviewQuery(normalized)
+		) {
 			return this.mmrRerank(matches, 8);
 		}
 
-		const preferredMatches = matches.filter((match) =>
-			this.isServiceHeavyMatch(match),
+		const preferredMatches = matches.filter(
+			(match) => this.isServiceHeavyMatch(match),
 		);
 		const pool =
 			preferredMatches.length >= 4
 				? preferredMatches
 				: matches;
-		const ranked = [...pool].sort((left, right) => {
-			const serviceBoost =
-				Number(this.isServiceHeavyMatch(right)) -
-				Number(this.isServiceHeavyMatch(left));
-			if (serviceBoost !== 0) {
-				return serviceBoost;
-			}
-			return (
-				this.ragMatchScore(right) -
-				this.ragMatchScore(left)
-			);
-		});
+		const ranked = [...pool].sort(
+			(left, right) => {
+				const serviceBoost =
+					Number(
+						this.isServiceHeavyMatch(right),
+					) -
+					Number(this.isServiceHeavyMatch(left));
+				if (serviceBoost !== 0) {
+					return serviceBoost;
+				}
+				return (
+					this.ragMatchScore(right) -
+					this.ragMatchScore(left)
+				);
+			},
+		);
 		const dedupedByUrl: any[] = [];
 		const seenUrls = new Set<string>();
 		for (const match of ranked) {
@@ -997,15 +1150,16 @@ ${message}`;
 	private buildServiceOverviewPromptNote(): string {
 		return [
 			"For service-overview questions, preserve the website's own service structure whenever possible.",
-			"If the context contains a named section like 'Our website development services', use that exact category wording instead of replacing it with a generic umbrella label.",
+			"If the knowledge base contains a named section like 'Our website development services', use that exact category wording instead of replacing it with a generic umbrella label.",
 			"List explicitly mentioned sub-services beneath the relevant main service family.",
-			"After the strongest primary service section, add a short 'Other services we offer' section for additional categories if the context supports them.",
+			"After the strongest primary service section, add a short 'Other services we offer' section for additional categories if the knowledge base supports them.",
 			"Do not collapse distinct website-listed services into a vague digital-agency summary.",
 		].join("\n");
 	}
 
 	private defaultGeneratedSystemPrompt(): string {
-		return "You are an expert AI assistant embedded on this company's website. Your mission is to give visitors the most complete, accurate, and well-structured answers possible — better than any competitor chatbot.\n\n" +
+		return (
+			"You are an expert AI assistant embedded on this company's website. Your mission is to give visitors the most complete, accurate, and well-structured answers possible — better than any competitor chatbot.\n\n" +
 			"## Formatting Rules (always follow these)\n" +
 			"- Use **bold** for key terms, names, metrics, and important points.\n" +
 			"- Use bullet points (`-`) for lists of 3 or more items.\n" +
@@ -1020,13 +1174,14 @@ ${message}`;
 			"- Match response depth to the question — factual questions get concise answers, detail-seeking questions get thorough answers.\n" +
 			"- If the question is broad (e.g. 'what do you do'), give a structured overview covering all major areas.\n\n" +
 			"## Accuracy Rules\n" +
-			"- Use the provided context as your primary source. Extract all relevant details — names, stats, descriptions.\n" +
-			"- Never invent facts, prices, metrics, or claims not found in the context.\n" +
+			"- Use the provided knowledge base as your primary source. Extract all relevant details — names, stats, descriptions.\n" +
+			"- Never invent facts, prices, metrics, or claims not found in the knowledge base.\n" +
 			"- If specific information is missing, say so clearly and suggest where the visitor can learn more.\n\n" +
 			"## Tone Rules\n" +
 			"- Be friendly, confident, and professional.\n" +
 			"- Respond to greetings warmly before helping.\n" +
-			"- Never be dismissive — every question deserves a complete answer.";
+			"- Never be dismissive — every question deserves a complete answer."
+		);
 	}
 
 	private buildWidgetResponseStyleSystemPrompt(
@@ -1050,12 +1205,14 @@ ${message}`;
 			"Do not end with generic filler like 'If you need more information...' unless you offer one concrete next step.",
 		];
 
-		if (isWidgetServiceOverviewQuery(normalized)) {
+		if (
+			isWidgetServiceOverviewQuery(normalized)
+		) {
 			lines.push(
 				"For service-overview questions, mirror the website's own service structure when possible.",
-				"If the context shows a named service family like 'Our website development services', use that exact wording as a heading.",
+				"If the knowledge base shows a named service family like 'Our website development services', use that exact wording as a heading.",
 				"List the explicitly mentioned sub-services underneath that heading instead of flattening everything into generic agency categories.",
-				"After the lead section, add 'Other services we offer' only when there are clearly separate additional categories in the context.",
+				"After the lead section, add 'Other services we offer' only when there are clearly separate additional categories in the knowledge base.",
 			);
 		}
 		if (
@@ -1063,7 +1220,7 @@ ${message}`;
 			isWidgetTopListQuery(normalized)
 		) {
 			lines.push(
-				"For top case studies or project questions, curate the strongest 3-6 examples from the context instead of dumping everything.",
+				"For top case studies or project questions, curate the strongest 3-6 examples from the knowledge base instead of dumping everything.",
 				"Prioritize named brands, flagship work, and concrete outcomes or metrics when available.",
 				"Format each example in one tight bullet: Brand - what was done and the strongest result.",
 			);
@@ -1073,14 +1230,14 @@ ${message}`;
 			isWidgetCaseStudyQuery(normalized)
 		) {
 			lines.push(
-				"For medical or healthcare case-study questions, include only the clearly relevant healthcare examples from the context.",
+				"For medical or healthcare case-study questions, include only the clearly relevant healthcare examples from the knowledge base.",
 				"For each example, give the brand or clinic name plus the key result, objective, or channel in one or two lines.",
 			);
 		}
 		if (isWidgetLocationQuery(normalized)) {
 			lines.push(
-				"For location questions, answer with exact office addresses first when they are present in the context.",
-				"If the context only confirms cities or countries, say that clearly instead of implying a full street address.",
+				"For location questions, answer with exact office addresses first when they are present in the knowledge base.",
+				"If the knowledge base only confirms cities or countries, say that clearly instead of implying a full street address.",
 			);
 		}
 		return lines.join("\n");
@@ -1103,12 +1260,14 @@ ${message}`;
 			"- Keep short answers compact; do not turn simple answers into long reports.",
 			"- Never invent facts, locations, metrics, prices, or case-study outcomes.",
 		];
-		if (isWidgetServiceOverviewQuery(normalized)) {
+		if (
+			isWidgetServiceOverviewQuery(normalized)
+		) {
 			lines.push(
 				"- For service overviews, always group related services under clear headings instead of returning one flat list.",
-				"- For service overviews, preserve the website's own category labels and service-family headings when they are visible in the context.",
+				"- For service overviews, preserve the website's own category labels and service-family headings when they are visible in the knowledge base.",
 				"- If a source explicitly lists sub-services, show them as bullets under the main service family.",
-				"- Avoid generic umbrella wording when the context gives a more exact service name.",
+				"- Avoid generic umbrella wording when the knowledge base gives a more exact service name.",
 			);
 		}
 		if (
@@ -1133,7 +1292,8 @@ ${message}`;
 		websiteName: string = "this website",
 	): string {
 		let output = response.trim();
-		output = this.normalizeOrderedMarkdownLists(output);
+		output =
+			this.normalizeOrderedMarkdownLists(output);
 		output = this.normalizeCompanyVoice(
 			output,
 			websiteName,
@@ -1168,13 +1328,17 @@ ${message}`;
 			);
 			if (orderedMatch) {
 				orderedIndex += 1;
-				lines[i] = `${orderedMatch[1]}${orderedIndex}. ${orderedMatch[2]}`;
+				lines[i] =
+					`${orderedMatch[1]}${orderedIndex}. ${orderedMatch[2]}`;
 				lastOrderedLine = true;
 				pendingBlankAfterOrdered = false;
 				continue;
 			}
 
-			if (pendingBlankAfterOrdered || !lastOrderedLine) {
+			if (
+				pendingBlankAfterOrdered ||
+				!lastOrderedLine
+			) {
 				orderedIndex = 0;
 			}
 			pendingBlankAfterOrdered = false;
@@ -1201,53 +1365,51 @@ ${message}`;
 				"\\$&",
 			);
 
-		const replacements: Array<[
-			RegExp,
-			string,
-		]> = [
+		const replacements: Array<[RegExp, string]> =
 			[
-				new RegExp(
-					`(^|\\n)${escapedWebsiteName}\\s+offers\\b`,
-					"gi",
-				),
-				"$1We offer",
-			],
-			[
-				new RegExp(
-					`(^|\\n)${escapedWebsiteName}\\s+provides\\b`,
-					"gi",
-				),
-				"$1We provide",
-			],
-			[
-				new RegExp(
-					`(^|\\n)${escapedWebsiteName}\\s+has\\b`,
-					"gi",
-				),
-				"$1We have",
-			],
-			[
-				new RegExp(
-					`(^|\\n)${escapedWebsiteName}\\s+is\\b`,
-					"gi",
-				),
-				"$1We are",
-			],
-			[
-				new RegExp(
-					`(^|\\n)To apply for a job at\\s+${escapedWebsiteName}\\b`,
-					"gi",
-				),
-				"$1To apply for a job with us",
-			],
-			[
-				new RegExp(
-					`(^|\\n)At\\s+${escapedWebsiteName}\\b`,
-					"gi",
-				),
-				"$1With us",
-			],
-		];
+				[
+					new RegExp(
+						`(^|\\n)${escapedWebsiteName}\\s+offers\\b`,
+						"gi",
+					),
+					"$1We offer",
+				],
+				[
+					new RegExp(
+						`(^|\\n)${escapedWebsiteName}\\s+provides\\b`,
+						"gi",
+					),
+					"$1We provide",
+				],
+				[
+					new RegExp(
+						`(^|\\n)${escapedWebsiteName}\\s+has\\b`,
+						"gi",
+					),
+					"$1We have",
+				],
+				[
+					new RegExp(
+						`(^|\\n)${escapedWebsiteName}\\s+is\\b`,
+						"gi",
+					),
+					"$1We are",
+				],
+				[
+					new RegExp(
+						`(^|\\n)To apply for a job at\\s+${escapedWebsiteName}\\b`,
+						"gi",
+					),
+					"$1To apply for a job with us",
+				],
+				[
+					new RegExp(
+						`(^|\\n)At\\s+${escapedWebsiteName}\\b`,
+						"gi",
+					),
+					"$1With us",
+				],
+			];
 
 		return replacements.reduce(
 			(output, [pattern, replacement]) =>
@@ -1256,13 +1418,20 @@ ${message}`;
 		);
 	}
 
-	private finalizeResponseEnding(text: string): string {
+	private finalizeResponseEnding(
+		text: string,
+	): string {
 		let output = text.trim();
 		if (!output) return output;
 
-		const boldMarkerCount = (output.match(/\*\*/g) || []).length;
+		const boldMarkerCount = (
+			output.match(/\*\*/g) || []
+		).length;
 		if (boldMarkerCount % 2 !== 0) {
-			output = output.replace(/\*\*([^*]*)$/g, "$1");
+			output = output.replace(
+				/\*\*([^*]*)$/g,
+				"$1",
+			);
 		}
 
 		if (/[,:;]$/.test(output)) {
@@ -1294,14 +1463,18 @@ ${message}`;
 		for (const pattern of patterns) {
 			const match = text.match(pattern);
 			if (!match || !match[1]) continue;
-			const normalized = this.normalizePersonName(match[1]);
+			const normalized = this.normalizePersonName(
+				match[1],
+			);
 			if (normalized) return normalized;
 		}
 
 		return null;
 	}
 
-	private isLikelySmallTalk(message: string): boolean {
+	private isLikelySmallTalk(
+		message: string,
+	): boolean {
 		const value = message.toLowerCase().trim();
 		if (!value) return false;
 		return /\b(hi|hello|hey|good morning|good evening|thanks|thank you|bye)\b/.test(
@@ -1317,7 +1490,9 @@ ${message}`;
 			.trim()
 			.toLowerCase();
 		if (!normalized) return undefined;
-		if (!CHAT_SUPPORTED_LANGUAGE_SET.has(normalized)) {
+		if (
+			!CHAT_SUPPORTED_LANGUAGE_SET.has(normalized)
+		) {
 			return undefined;
 		}
 		return normalized;
@@ -1355,13 +1530,14 @@ ${message}`;
 		sessionId: string,
 		userId: string,
 	): Promise<ConversationRow | null> {
-		const result = await pool.query<ConversationRow>(
-			`SELECT id, user_id, widget_key_id, visitor_id, created_at, updated_at
+		const result =
+			await pool.query<ConversationRow>(
+				`SELECT id, user_id, widget_key_id, visitor_id, created_at, updated_at
 			 FROM chat_conversations
 			 WHERE id = $1 AND user_id = $2 AND is_deleted = FALSE
 			 LIMIT 1`,
-			[sessionId, userId],
-		);
+				[sessionId, userId],
+			);
 
 		return result.rows[0] ?? null;
 	}
@@ -1371,28 +1547,33 @@ ${message}`;
 		sessionId?: string,
 	): Promise<ConversationRow> {
 		if (sessionId) {
-			const explicit = await pool.query<ConversationRow>(
-				`INSERT INTO chat_conversations (id, user_id)
+			const explicit =
+				await pool.query<ConversationRow>(
+					`INSERT INTO chat_conversations (id, user_id)
 				 VALUES ($1, $2)
 				 ON CONFLICT (id) DO NOTHING
 				 RETURNING id, user_id, widget_key_id, visitor_id, created_at, updated_at`,
-				[sessionId, userId],
-			);
+					[sessionId, userId],
+				);
 
 			if (explicit.rows[0]) {
 				return explicit.rows[0];
 			}
 
-			const existing = await this.getConversation(sessionId, userId);
+			const existing = await this.getConversation(
+				sessionId,
+				userId,
+			);
 			if (existing) return existing;
 		}
 
-		const created = await pool.query<ConversationRow>(
-			`INSERT INTO chat_conversations (id, user_id)
+		const created =
+			await pool.query<ConversationRow>(
+				`INSERT INTO chat_conversations (id, user_id)
 			 VALUES ($1, $2)
 			 RETURNING id, user_id, widget_key_id, visitor_id, created_at, updated_at`,
-			[crypto.randomUUID(), userId],
-		);
+				[crypto.randomUUID(), userId],
+			);
 
 		return created.rows[0];
 	}
@@ -1410,39 +1591,50 @@ ${message}`;
 			[sessionId, limit],
 		);
 
-		return result.rows
-			.reverse()
-			.map((row) => ({
-				role: row.role,
-				content: row.content,
-				timestamp: row.created_at,
-			}));
+		return result.rows.reverse().map((row) => ({
+			role: row.role,
+			content: row.content,
+			timestamp: row.created_at,
+		}));
 	}
 
 	private async getOrCreateSession(
 		userId: string,
 		rawSessionId?: string,
 	): Promise<ChatSession> {
-		const sessionId = this.normalizeSessionId(rawSessionId) ?? undefined;
-		let conversation: ConversationRow | null = null;
+		const sessionId =
+			this.normalizeSessionId(rawSessionId) ??
+			undefined;
+		let conversation: ConversationRow | null =
+			null;
 
 		if (sessionId) {
-			conversation = await this.getConversation(sessionId, userId);
+			conversation = await this.getConversation(
+				sessionId,
+				userId,
+			);
 		}
 
 		if (!conversation) {
-			conversation = await this.createConversation(userId, sessionId);
+			conversation =
+				await this.createConversation(
+					userId,
+					sessionId,
+				);
 		}
 
-		const cached = await this.getCachedSession(conversation.id);
+		const cached = await this.getCachedSession(
+			conversation.id,
+		);
 		if (cached && cached.userId === userId) {
 			return cached;
 		}
 
-		const messages = await this.loadRecentMessages(
-			conversation.id,
-			CHAT_SESSION_CACHE_MESSAGE_LIMIT,
-		);
+		const messages =
+			await this.loadRecentMessages(
+				conversation.id,
+				CHAT_SESSION_CACHE_MESSAGE_LIMIT,
+			);
 
 		const session: ChatSession = {
 			sessionId: conversation.id,
@@ -1464,7 +1656,9 @@ ${message}`;
 		metadata: Record<string, unknown> = {},
 		tokenCount?: number,
 	): Promise<Date> {
-		const result = await pool.query<{ created_at: Date }>(
+		const result = await pool.query<{
+			created_at: Date;
+		}>(
 			`WITH inserted AS (
 				INSERT INTO chat_messages (conversation_id, user_id, role, content, metadata, token_count)
 				VALUES ($1, $2, $3, $4, $5::jsonb, $6)
@@ -1488,7 +1682,9 @@ ${message}`;
 		);
 
 		if (!result.rows[0]) {
-			throw new Error("Failed to persist chat message");
+			throw new Error(
+				"Failed to persist chat message",
+			);
 		}
 
 		return result.rows[0].created_at;
@@ -1501,10 +1697,17 @@ ${message}`;
 		history: ChatMessage[],
 	): Promise<ContextResult> {
 		try {
-			const cacheKey = this.getRetrievalCacheKey(userId, sessionId, query);
-			const cached = await redisCache.get(cacheKey);
+			const cacheKey = this.getRetrievalCacheKey(
+				userId,
+				sessionId,
+				query,
+			);
+			const cached =
+				await redisCache.get(cacheKey);
 			if (cached) {
-				return JSON.parse(cached) as ContextResult;
+				return JSON.parse(
+					cached,
+				) as ContextResult;
 			}
 
 			const topK = this.getTopKForQuery(query);
@@ -1565,7 +1768,10 @@ ${message}`;
 			);
 			return responseData;
 		} catch (error) {
-			logger.error("Error retrieving context from Pinecone", { error, userId });
+			logger.error(
+				"Error retrieving context from Pinecone",
+				{ error, userId },
+			);
 			return { matches: [], sources: [] };
 		}
 	}
@@ -1584,14 +1790,10 @@ ${message}`;
 		const normalized =
 			normalizeWidgetQuery(query);
 		const selectedMatches =
-			this.selectMatchesForPrompt(
-				query,
-				matches,
-			);
+			this.selectMatchesForPrompt(query, matches);
 		const contextParts: string[] = [];
 		for (const match of selectedMatches) {
-			const text =
-				this.extractMatchText(match);
+			const text = this.extractMatchText(match);
 			if (!text) {
 				continue;
 			}
@@ -1611,12 +1813,8 @@ ${message}`;
 				sourceTitle
 					? `Title: ${sourceTitle}`
 					: "",
-				pageType
-					? `Page Type: ${pageType}`
-					: "",
-				sourceUrl
-					? `Source: ${sourceUrl}`
-					: "",
+				pageType ? `Page Type: ${pageType}` : "",
+				sourceUrl ? `Source: ${sourceUrl}` : "",
 			].filter(Boolean);
 			contextParts.push(
 				headerParts.length > 0
@@ -1638,37 +1836,43 @@ ${message}`;
 				: "";
 
 		if (contextParts.length > 0) {
-			const contextBlock =
-				contextParts.join("\n\n---\n\n");
-			if (knowledgeBoundary === "workspace_only") {
-				userPrompt = `Answer using ONLY the information provided in the context below.
+			const contextBlock = contextParts.join(
+				"\n\n---\n\n",
+			);
+			if (
+				knowledgeBoundary === "workspace_only"
+			) {
+				userPrompt = `Answer using ONLY the information provided in the knowledge base below or the conversation history above.
 Treat page titles, URLs, headings, and snippets as relevant evidence about the business.
-Synthesize across multiple context sections to form the most complete answer you can.
-For broad overview questions asking for services, products, features, or capabilities, compile a combined list from every relevant context section and infer the service or category name from the source title or URL when needed.
-If the context partially answers the question, provide the supported details you do have instead of refusing.
-If the user is asking for "more" or additional items and the context does not contain more items beyond what was already discussed, acknowledge that these are all the results available and suggest they visit the website or contact the team for a complete list.
-When the context includes a URL for a specific blog post, article, or resource the user is asking about, include it as a clickable markdown link — e.g. [Read more](https://...).
-Only say you don't have information when the context is genuinely not related to the question at all.
+Synthesize across multiple sections to form the most complete answer you can.
+For broad overview questions asking for services, products, features, or capabilities, compile a combined list from every relevant section and infer the service or category name from the source title or URL when needed.
+If the answer to this question was already stated in the conversation history above, use that — do not say the information is not in the knowledge base.
+If the knowledge base partially answers the question, provide the supported details you do have instead of refusing.
+If the user is asking for "more" or additional items and the knowledge base does not contain more items beyond what was already discussed, acknowledge that these are all the results available and suggest they visit the website or contact the team for a complete list.
+When the knowledge base includes a URL for a specific blog post, article, or resource the user is asking about, include it as a clickable markdown link — e.g. [Read more](https://...).
+Only say you don't have information when the knowledge base is genuinely not related to the question at all.
 ${serviceOverviewNote}
 
-Context:
+Knowledge Base:
 ${contextBlock}
 
 Question: ${query}${formatDirective}`;
 			} else {
-				userPrompt = `Answer the user's question using the context below as your primary source.
-If the context does not fully cover the question, use your general knowledge to fill in, but never fabricate specific facts, prices, features, or policies about this company that are not in the context.
-If the user is asking for "more" items and the context has no further results, acknowledge that and suggest they visit the website.
-When the context includes a URL for a blog post, article, or resource being asked about, include it as a clickable markdown link.
+				userPrompt = `Answer the user's question using the knowledge base below as your primary source.
+If the knowledge base does not fully cover the question, use your general knowledge to fill in, but never fabricate specific facts, prices, features, or policies about this company that are not in the knowledge base.
+If the user is asking for "more" items and the knowledge base has no further results, acknowledge that and suggest they visit the website.
+When the knowledge base includes a URL for a blog post, article, or resource being asked about, include it as a clickable markdown link.
 ${serviceOverviewNote}
 
-Context:
+Knowledge Base:
 ${contextBlock}
 
 Question: ${query}${formatDirective}`;
 			}
 		} else {
-			if (knowledgeBoundary === "workspace_only") {
+			if (
+				knowledgeBoundary === "workspace_only"
+			) {
 				userPrompt = `The user sent: "${query}"
 
 If this is a greeting, thank you, farewell, or casual conversational message, respond warmly and naturally as a helpful assistant.
@@ -1734,27 +1938,38 @@ Question: ${query}${formatDirective}`;
 		response: string;
 		usage?: CompletionUsage;
 	}> {
-		const timeoutController = new AbortController();
+		const timeoutController =
+			new AbortController();
 		const timeout = setTimeout(() => {
-			timeoutController.abort("OpenAI request timeout");
+			timeoutController.abort(
+				"OpenAI request timeout",
+			);
 		}, timeoutMs);
 
 		try {
-			const completion = await openAICircuitBreaker.execute(async () => {
-				return await retryOnRateLimit(async () => {
-					return await this.openai.chat.completions.create(
-						{
-							model: CHAT_COMPLETION_MODEL,
-							messages: conversationHistory,
-							temperature: CHAT_COMPLETION_TEMPERATURE,
-							max_tokens: CHAT_COMPLETION_MAX_TOKENS,
-						},
-						{
-							signal: timeoutController.signal,
-						},
-					);
-				});
-			});
+			const completion =
+				await openAICircuitBreaker.execute(
+					async () => {
+						return await retryOnRateLimit(
+							async () => {
+								return await this.openai.chat.completions.create(
+									{
+										model: CHAT_COMPLETION_MODEL,
+										messages: conversationHistory,
+										temperature:
+											CHAT_COMPLETION_TEMPERATURE,
+										max_tokens:
+											CHAT_COMPLETION_MAX_TOKENS,
+									},
+									{
+										signal:
+											timeoutController.signal,
+									},
+								);
+							},
+						);
+					},
+				);
 
 			return {
 				response:
@@ -1762,11 +1977,16 @@ Question: ${query}${formatDirective}`;
 					this.getFallbackResponse(),
 				usage: completion.usage
 					? {
-							prompt_tokens: completion.usage.prompt_tokens ?? 0,
+							prompt_tokens:
+								completion.usage.prompt_tokens ??
+								0,
 							completion_tokens:
-								completion.usage.completion_tokens ?? 0,
-							total_tokens: completion.usage.total_tokens ?? 0,
-					  }
+								completion.usage
+									.completion_tokens ?? 0,
+							total_tokens:
+								completion.usage.total_tokens ??
+								0,
+						}
 					: undefined,
 			};
 		} finally {
@@ -1822,24 +2042,24 @@ Question: ${query}${formatDirective}`;
 		matches: any[];
 	}> {
 		const resolvedLanguage =
-			this.normalizeLanguagePreference(
-				language,
-			);
+			this.normalizeLanguagePreference(language);
 		const shouldSkipRetrieval =
 			this.isLikelySmallTalk(message);
 		const syntheticSessionId = `adhoc:${crypto
 			.createHash("sha1")
 			.update(`${userId}:${message}`)
 			.digest("hex")}`;
-		const { matches, sources } = shouldSkipRetrieval
-			? { matches: [], sources: [] }
-			: await this.retrieveRelevantContext(
-					userId,
-					message,
-					syntheticSessionId,
-					[],
-			  );
-		const ragThreshold = this.ragScoreThreshold(message);
+		const { matches, sources } =
+			shouldSkipRetrieval
+				? { matches: [], sources: [] }
+				: await this.retrieveRelevantContext(
+						userId,
+						message,
+						syntheticSessionId,
+						[],
+					);
+		const ragThreshold =
+			this.ragScoreThreshold(message);
 		const relevantMatches =
 			this.relevantRagMatches(
 				matches,
@@ -1868,7 +2088,8 @@ Question: ${query}${formatDirective}`;
 					),
 					CHAT_DEFAULT_TIMEOUT_MS,
 				);
-			answer = completion.response || fallbackResponse;
+			answer =
+				completion.response || fallbackResponse;
 		}
 
 		const websiteName =
@@ -1907,6 +2128,7 @@ Question: ${query}${formatDirective}`;
 			relevanceScore: number;
 		}>;
 		timing: ChatTiming;
+		calendlyBooking?: CalendlyWidgetBookingAction;
 	} | null> {
 		const startedAt = Date.now();
 		const timing: ChatTiming = {
@@ -1962,8 +2184,7 @@ Question: ${query}${formatDirective}`;
 			Boolean(existingState?.active) ||
 			regexMatchedIntent ||
 			(classifiedIntent.isAppointmentIntent &&
-				classifiedIntent.confidence !==
-					"low");
+				classifiedIntent.confidence !== "low");
 
 		if (!isActive) {
 			return null;
@@ -1999,8 +2220,7 @@ Question: ${query}${formatDirective}`;
 							session.messages,
 						);
 					timing.llmMs +=
-						Date.now() -
-						leadTurnClassifierStart;
+						Date.now() - leadTurnClassifierStart;
 					if (
 						leadTurnClassification.action ===
 							"normal_chat" &&
@@ -2014,16 +2234,17 @@ Question: ${query}${formatDirective}`;
 		}
 
 		const saveStart = Date.now();
-		const userTimestamp = await this.persistMessage(
-			session.sessionId,
-			userId,
-			"user",
-			message,
-			{
-				language: resolvedLanguage,
-				appointmentLeadCapture: true,
-			},
-		);
+		const userTimestamp =
+			await this.persistMessage(
+				session.sessionId,
+				userId,
+				"user",
+				message,
+				{
+					language: resolvedLanguage,
+					appointmentLeadCapture: true,
+				},
+			);
 		session.messages.push({
 			role: "user",
 			content: message,
@@ -2042,6 +2263,61 @@ Question: ${query}${formatDirective}`;
 			state,
 			message,
 		);
+
+		const calendlyBooking =
+			await calendlyIntegrationService.getWidgetBookingAction(
+				userId,
+				session.sessionId,
+			);
+
+		if (calendlyBooking) {
+			const response =
+				"Absolutely. You can choose a date and time directly in the calendar below.";
+			await this.clearAppointmentLeadState(
+				session.sessionId,
+			);
+			const assistantTimestamp =
+				await this.persistMessage(
+					session.sessionId,
+					userId,
+					"assistant",
+					response,
+					{
+						language: resolvedLanguage,
+						appointmentLeadCapture: true,
+						calendlyBookingPrompt: true,
+						leadCaptureCompleted: true,
+					},
+				);
+			session.messages.push({
+				role: "assistant",
+				content: response,
+				timestamp: assistantTimestamp,
+			});
+			session.updatedAt = assistantTimestamp;
+			await this.saveCachedSession(session);
+			input.onToken?.(response);
+
+			timing.saveMs = Date.now() - saveStart;
+			timing.totalMs = Date.now() - startedAt;
+
+			logger.info(
+				"Calendly booking prompt handled",
+				{
+					userId,
+					sessionId: session.sessionId,
+				},
+			);
+
+			return {
+				sessionId: session.sessionId,
+				response,
+				language: resolvedLanguage,
+				sources: [],
+				timing,
+				calendlyBooking,
+			};
+		}
 
 		let response = "";
 		if (existingState?.active) {
@@ -2105,17 +2381,18 @@ Question: ${query}${formatDirective}`;
 			);
 		}
 
-		const assistantTimestamp = await this.persistMessage(
-			session.sessionId,
-			userId,
-			"assistant",
-			response,
-			{
-				language: resolvedLanguage,
-				appointmentLeadCapture: true,
-				leadCaptureCompleted: !nextField,
-			},
-		);
+		const assistantTimestamp =
+			await this.persistMessage(
+				session.sessionId,
+				userId,
+				"assistant",
+				response,
+				{
+					language: resolvedLanguage,
+					appointmentLeadCapture: true,
+					leadCaptureCompleted: !nextField,
+				},
+			);
 		session.messages.push({
 			role: "assistant",
 			content: response,
@@ -2128,19 +2405,22 @@ Question: ${query}${formatDirective}`;
 		timing.saveMs = Date.now() - saveStart;
 		timing.totalMs = Date.now() - startedAt;
 
-		logger.info("Appointment lead capture handled", {
-			userId,
-			sessionId: session.sessionId,
-			completed: !nextField,
-			nextField,
-			intentSource: existingState?.active
-				? "session_state"
-				: regexMatchedIntent
-					? "rule"
-					: "openai_classifier",
-			intentConfidence:
-				classifiedIntent.confidence,
-		});
+		logger.info(
+			"Appointment lead capture handled",
+			{
+				userId,
+				sessionId: session.sessionId,
+				completed: !nextField,
+				nextField,
+				intentSource: existingState?.active
+					? "session_state"
+					: regexMatchedIntent
+						? "rule"
+						: "openai_classifier",
+				intentConfidence:
+					classifiedIntent.confidence,
+			},
+		);
 
 		return {
 			sessionId: session.sessionId,
@@ -2181,19 +2461,25 @@ Question: ${query}${formatDirective}`;
 			};
 
 			const sessionStart = Date.now();
-			const session = await this.getOrCreateSession(userId, sessionId);
-			timing.sessionMs = Date.now() - sessionStart;
+			const session =
+				await this.getOrCreateSession(
+					userId,
+					sessionId,
+				);
+			timing.sessionMs =
+				Date.now() - sessionStart;
 
 			const saveStart = Date.now();
-			const userTimestamp = await this.persistMessage(
-				session.sessionId,
-				userId,
-				"user",
-				message,
-				{
-					language: resolvedLanguage,
-				},
-			);
+			const userTimestamp =
+				await this.persistMessage(
+					session.sessionId,
+					userId,
+					"user",
+					message,
+					{
+						language: resolvedLanguage,
+					},
+				);
 			const userMessage: ChatMessage = {
 				role: "user",
 				content: message,
@@ -2204,19 +2490,22 @@ Question: ${query}${formatDirective}`;
 				session.messages.slice(0, -1);
 
 			const retrievalStart = Date.now();
-			const shouldSkipRetrieval = this.isLikelySmallTalk(message);
-			const { matches, sources } = shouldSkipRetrieval
-				? {
-						matches: [],
-						sources: [],
-				  }
-				: await this.retrieveRelevantContext(
-						userId,
-						message,
-						session.sessionId,
-						historyMessages,
-				  );
-			timing.retrievalMs = Date.now() - retrievalStart;
+			const shouldSkipRetrieval =
+				this.isLikelySmallTalk(message);
+			const { matches, sources } =
+				shouldSkipRetrieval
+					? {
+							matches: [],
+							sources: [],
+						}
+					: await this.retrieveRelevantContext(
+							userId,
+							message,
+							session.sessionId,
+							historyMessages,
+						);
+			timing.retrievalMs =
+				Date.now() - retrievalStart;
 			const relevantMatches =
 				this.relevantRagMatches(
 					matches,
@@ -2233,8 +2522,7 @@ Question: ${query}${formatDirective}`;
 					? this.getLearningFallbackResponse()
 					: this.getFallbackResponse();
 			let assistantResponse = fallbackResponse;
-			let usedFallback =
-				!shouldCallLlm;
+			let usedFallback = !shouldCallLlm;
 			let usage: CompletionUsage | undefined;
 			const llmStart = Date.now();
 			if (shouldCallLlm) {
@@ -2254,16 +2542,18 @@ Question: ${query}${formatDirective}`;
 						);
 					assistantResponse =
 						completionResult.response;
-					usage =
-						completionResult.usage;
+					usage = completionResult.usage;
 					usedFallback =
 						assistantResponse ===
 						fallbackResponse;
 				} catch (error) {
-					logger.error("Chat generation failed, using fallback", {
-						error,
-						userId,
-					});
+					logger.error(
+						"Chat generation failed, using fallback",
+						{
+							error,
+							userId,
+						},
+					);
 					usedFallback = true;
 				}
 			}
@@ -2271,28 +2561,74 @@ Question: ${query}${formatDirective}`;
 				await websiteBrandingService.resolveUserWebsiteName(
 					userId,
 				);
-			assistantResponse = this.formatAssistantResponse(
-				assistantResponse,
-				message,
-				websiteName,
-			);
+			assistantResponse =
+				this.formatAssistantResponse(
+					assistantResponse,
+					message,
+					websiteName,
+				);
 			timing.llmMs = Date.now() - llmStart;
+
+			// ── Email lead capture ───────────────────────────────────────────
+			const emailLeadState = await this.getEmailLeadState(
+				session.sessionId,
+			);
+			if (!emailLeadState?.email) {
+				const extractedEmail = emailLeadState?.asked
+					? this.tryExtractEmail(message)
+					: null;
+				if (extractedEmail) {
+					await this.saveEmailLeadState(session.sessionId, {
+						asked: true,
+						email: extractedEmail,
+					});
+				} else {
+					const isNoData =
+						!shouldSkipRetrieval &&
+						(!shouldCallLlm ||
+							usedFallback ||
+							this.looksLikeNoDataResponse(
+								assistantResponse,
+							));
+					const userMsgCount = session.messages.filter(
+						(m) => m.role === "user",
+					).length;
+					if (isNoData) {
+						assistantResponse =
+							this.buildNoDataEmailAskResponse();
+						usedFallback = true;
+					} else if (userMsgCount >= 3) {
+						assistantResponse =
+							assistantResponse.trimEnd() +
+							"\n\n" +
+							this.buildEmailAskSuffix();
+					}
+					if (isNoData || userMsgCount >= 3) {
+						await this.saveEmailLeadState(
+							session.sessionId,
+							{ asked: true, email: null },
+						);
+					}
+				}
+			}
+			// ────────────────────────────────────────────────────────────────
 
 			const usageMeta =
 				this.buildUsageMetadata(usage);
-			const assistantTimestamp = await this.persistMessage(
-				session.sessionId,
-				userId,
-				"assistant",
-				assistantResponse,
-				{
-					sourcesCount: sources.length,
-					language: resolvedLanguage,
-					isFallback: usedFallback,
-					...usageMeta.metadata,
-				},
-				usageMeta.tokenCount,
-			);
+			const assistantTimestamp =
+				await this.persistMessage(
+					session.sessionId,
+					userId,
+					"assistant",
+					assistantResponse,
+					{
+						sourcesCount: sources.length,
+						language: resolvedLanguage,
+						isFallback: usedFallback,
+						...usageMeta.metadata,
+					},
+					usageMeta.tokenCount,
+				);
 			const assistantMessage: ChatMessage = {
 				role: "assistant",
 				content: assistantResponse,
@@ -2356,26 +2692,30 @@ Question: ${query}${formatDirective}`;
 			saveMs: 0,
 			totalMs: 0,
 		};
-		const timeoutMs = options?.timeoutMs ?? CHAT_DEFAULT_TIMEOUT_MS;
+		const timeoutMs =
+			options?.timeoutMs ??
+			CHAT_DEFAULT_TIMEOUT_MS;
 		const resolvedLanguage =
-			this.normalizeLanguagePreference(
-				language,
-			);
+			this.normalizeLanguagePreference(language);
 
 		const sessionStart = Date.now();
-		const session = await this.getOrCreateSession(userId, sessionId);
+		const session = await this.getOrCreateSession(
+			userId,
+			sessionId,
+		);
 		timing.sessionMs = Date.now() - sessionStart;
 
 		const saveStart = Date.now();
-		const userTimestamp = await this.persistMessage(
-			session.sessionId,
-			userId,
-			"user",
-			message,
-			{
-				language: resolvedLanguage,
-			},
-		);
+		const userTimestamp =
+			await this.persistMessage(
+				session.sessionId,
+				userId,
+				"user",
+				message,
+				{
+					language: resolvedLanguage,
+				},
+			);
 		session.messages.push({
 			role: "user",
 			content: message,
@@ -2385,16 +2725,19 @@ Question: ${query}${formatDirective}`;
 			session.messages.slice(0, -1);
 
 		const retrievalStart = Date.now();
-		const shouldSkipRetrieval = this.isLikelySmallTalk(message);
-		const { matches, sources } = shouldSkipRetrieval
-			? { matches: [], sources: [] }
-			: await this.retrieveRelevantContext(
-					userId,
-					message,
-					session.sessionId,
-					historyMessages,
-			  );
-		timing.retrievalMs = Date.now() - retrievalStart;
+		const shouldSkipRetrieval =
+			this.isLikelySmallTalk(message);
+		const { matches, sources } =
+			shouldSkipRetrieval
+				? { matches: [], sources: [] }
+				: await this.retrieveRelevantContext(
+						userId,
+						message,
+						session.sessionId,
+						historyMessages,
+					);
+		timing.retrievalMs =
+			Date.now() - retrievalStart;
 		const relevantMatches =
 			this.relevantRagMatches(
 				matches,
@@ -2404,7 +2747,8 @@ Question: ${query}${formatDirective}`;
 			shouldSkipRetrieval ||
 			relevantMatches.length > 0;
 
-		const fallbackResponse = this.getFallbackResponse();
+		const fallbackResponse =
+			this.getFallbackResponse();
 		let assistantResponse =
 			!shouldSkipRetrieval &&
 			relevantMatches.length === 0 &&
@@ -2415,9 +2759,12 @@ Question: ${query}${formatDirective}`;
 		let usage: CompletionUsage | undefined;
 		const llmStart = Date.now();
 		if (shouldCallLlm) {
-			const timeoutController = new AbortController();
+			const timeoutController =
+				new AbortController();
 			const timeout = setTimeout(() => {
-				timeoutController.abort("OpenAI stream timeout");
+				timeoutController.abort(
+					"OpenAI stream timeout",
+				);
 			}, timeoutMs);
 			assistantResponse = "";
 			try {
@@ -2430,28 +2777,39 @@ Question: ${query}${formatDirective}`;
 						resolvedLanguage,
 					);
 				const stream =
-					await openAICircuitBreaker.execute(async () => {
-						return await this.openai.chat.completions.create(
-							{
-								model: CHAT_COMPLETION_MODEL,
-								messages: conversationHistory,
-								temperature: CHAT_COMPLETION_TEMPERATURE,
-								max_tokens: CHAT_COMPLETION_MAX_TOKENS,
-								stream: true,
-								stream_options: { include_usage: true },
-							},
-							{
-								signal: timeoutController.signal,
-							},
-						);
-					});
+					await openAICircuitBreaker.execute(
+						async () => {
+							return await this.openai.chat.completions.create(
+								{
+									model: CHAT_COMPLETION_MODEL,
+									messages: conversationHistory,
+									temperature:
+										CHAT_COMPLETION_TEMPERATURE,
+									max_tokens:
+										CHAT_COMPLETION_MAX_TOKENS,
+									stream: true,
+									stream_options: {
+										include_usage: true,
+									},
+								},
+								{
+									signal:
+										timeoutController.signal,
+								},
+							);
+						},
+					);
 
 				for await (const chunk of stream) {
 					if (chunk.usage) {
 						usage = {
-							prompt_tokens: chunk.usage.prompt_tokens ?? 0,
-							completion_tokens: chunk.usage.completion_tokens ?? 0,
-							total_tokens: chunk.usage.total_tokens ?? 0,
+							prompt_tokens:
+								chunk.usage.prompt_tokens ?? 0,
+							completion_tokens:
+								chunk.usage.completion_tokens ??
+								0,
+							total_tokens:
+								chunk.usage.total_tokens ?? 0,
 						};
 					}
 					const token =
@@ -2462,10 +2820,13 @@ Question: ${query}${formatDirective}`;
 					options?.onToken?.(token);
 				}
 			} catch (error) {
-				logger.error("Streaming chat failed, falling back", {
-					error,
-					userId,
-				});
+				logger.error(
+					"Streaming chat failed, falling back",
+					{
+						error,
+						userId,
+					},
+				);
 				if (!assistantResponse) {
 					assistantResponse = fallbackResponse;
 					usedFallback = true;
@@ -2484,26 +2845,81 @@ Question: ${query}${formatDirective}`;
 			await websiteBrandingService.resolveUserWebsiteName(
 				userId,
 			);
-		assistantResponse = this.formatAssistantResponse(
-			assistantResponse,
-			message,
-			websiteName,
-		);
+		assistantResponse =
+			this.formatAssistantResponse(
+				assistantResponse,
+				message,
+				websiteName,
+			);
 
-		const usageMeta = this.buildUsageMetadata(usage);
-		const assistantTimestamp = await this.persistMessage(
+		// ── Email lead capture ─────────────────────────────────────────────
+		const emailLeadState = await this.getEmailLeadState(
 			session.sessionId,
-			userId,
-			"assistant",
-			assistantResponse,
-			{
-				sourcesCount: sources.length,
-				language: resolvedLanguage,
-				isFallback: usedFallback,
-				...usageMeta.metadata,
-			},
-			usageMeta.tokenCount,
 		);
+		if (!emailLeadState?.email) {
+			const extractedEmail = emailLeadState?.asked
+				? this.tryExtractEmail(message)
+				: null;
+			if (extractedEmail) {
+				await this.saveEmailLeadState(session.sessionId, {
+					asked: true,
+					email: extractedEmail,
+				});
+			} else {
+				const isHardNoData =
+					!shouldCallLlm && !shouldSkipRetrieval;
+				const isSoftNoData =
+					!shouldSkipRetrieval &&
+					!isHardNoData &&
+					(usedFallback ||
+						this.looksLikeNoDataResponse(
+							assistantResponse,
+						));
+				const userMsgCount = session.messages.filter(
+					(m) => m.role === "user",
+				).length;
+
+				if (isHardNoData) {
+					// Nothing was streamed yet — send the full email ask
+					const emailMsg =
+						this.buildNoDataEmailAskResponse();
+					assistantResponse = emailMsg;
+					usedFallback = true;
+					options?.onToken?.(emailMsg);
+				} else if (isSoftNoData || userMsgCount >= 3) {
+					// LLM already streamed — append email ask as extra token
+					const suffix =
+						"\n\n" + this.buildEmailAskSuffix();
+					assistantResponse =
+						assistantResponse.trimEnd() + suffix;
+					options?.onToken?.(suffix);
+				}
+				if (isHardNoData || isSoftNoData || userMsgCount >= 3) {
+					await this.saveEmailLeadState(
+						session.sessionId,
+						{ asked: true, email: null },
+					);
+				}
+			}
+		}
+		// ──────────────────────────────────────────────────────────────────
+
+		const usageMeta =
+			this.buildUsageMetadata(usage);
+		const assistantTimestamp =
+			await this.persistMessage(
+				session.sessionId,
+				userId,
+				"assistant",
+				assistantResponse,
+				{
+					sourcesCount: sources.length,
+					language: resolvedLanguage,
+					isFallback: usedFallback,
+					...usageMeta.metadata,
+				},
+				usageMeta.tokenCount,
+			);
 		session.messages.push({
 			role: "assistant",
 			content: assistantResponse,
@@ -2515,13 +2931,16 @@ Question: ${query}${formatDirective}`;
 		timing.saveMs = Date.now() - saveStart;
 		timing.totalMs = Date.now() - startedAt;
 
-		logger.info("Chat streaming response generated", {
-			userId,
-			sessionId: session.sessionId,
-			language: resolvedLanguage,
-			sourcesCount: sources.length,
-			timing,
-		});
+		logger.info(
+			"Chat streaming response generated",
+			{
+				userId,
+				sessionId: session.sessionId,
+				language: resolvedLanguage,
+				sourcesCount: sources.length,
+				timing,
+			},
+		);
 
 		return {
 			sessionId: session.sessionId,
@@ -2532,34 +2951,41 @@ Question: ${query}${formatDirective}`;
 		};
 	}
 
-	async getSession(sessionId: string): Promise<ChatSession | null> {
-		const normalized = this.normalizeSessionId(sessionId);
+	async getSession(
+		sessionId: string,
+	): Promise<ChatSession | null> {
+		const normalized =
+			this.normalizeSessionId(sessionId);
 		if (!normalized) return null;
 
-		const conversationResult = await pool.query<ConversationRow>(
-			`SELECT id, user_id, widget_key_id, visitor_id, created_at, updated_at
+		const conversationResult =
+			await pool.query<ConversationRow>(
+				`SELECT id, user_id, widget_key_id, visitor_id, created_at, updated_at
 			 FROM chat_conversations
 			 WHERE id = $1 AND is_deleted = FALSE
 			 LIMIT 1`,
-			[normalized],
-		);
-		const conversation = conversationResult.rows[0];
+				[normalized],
+			);
+		const conversation =
+			conversationResult.rows[0];
 		if (!conversation) return null;
 
-		const messageResult = await pool.query<MessageRow>(
-			`SELECT role, content, created_at
+		const messageResult =
+			await pool.query<MessageRow>(
+				`SELECT role, content, created_at
 			 FROM chat_messages
 			 WHERE conversation_id = $1
 			 ORDER BY created_at ASC, id ASC
 			 LIMIT 200`,
-			[normalized],
-		);
+				[normalized],
+			);
 
-		const messages: ChatMessage[] = messageResult.rows.map((row) => ({
-			role: row.role,
-			content: row.content,
-			timestamp: row.created_at,
-		}));
+		const messages: ChatMessage[] =
+			messageResult.rows.map((row) => ({
+				role: row.role,
+				content: row.content,
+				timestamp: row.created_at,
+			}));
 
 		const session: ChatSession = {
 			sessionId: conversation.id,
@@ -2568,7 +2994,8 @@ Question: ${query}${formatDirective}`;
 			createdAt: conversation.created_at,
 			updatedAt:
 				messages.length > 0
-					? messages[messages.length - 1].timestamp
+					? messages[messages.length - 1]
+							.timestamp
 					: conversation.updated_at,
 		};
 
@@ -2640,12 +3067,20 @@ Question: ${query}${formatDirective}`;
 			 WHERE id = $1
 			   AND user_id = $2
 			   AND is_deleted = FALSE`,
-			[normalized, userId, widgetKeyId, visitorId],
+			[
+				normalized,
+				userId,
+				widgetKeyId,
+				visitorId,
+			],
 		);
 	}
 
-	async clearSession(sessionId: string): Promise<boolean> {
-		const normalized = this.normalizeSessionId(sessionId);
+	async clearSession(
+		sessionId: string,
+	): Promise<boolean> {
+		const normalized =
+			this.normalizeSessionId(sessionId);
 		if (!normalized) return false;
 
 		const result = await pool.query(
@@ -2654,7 +3089,9 @@ Question: ${query}${formatDirective}`;
 		);
 
 		if ((result.rowCount ?? 0) > 0) {
-			await redisCache.del(this.getSessionKey(normalized));
+			await redisCache.del(
+				this.getSessionKey(normalized),
+			);
 			await this.clearAppointmentLeadState(
 				normalized,
 			);
@@ -2698,8 +3135,12 @@ Question: ${query}${formatDirective}`;
 		}));
 	}
 
-	async clearUserSessions(userId: string): Promise<number> {
-		const result = await pool.query<{ id: string }>(
+	async clearUserSessions(
+		userId: string,
+	): Promise<number> {
+		const result = await pool.query<{
+			id: string;
+		}>(
 			`DELETE FROM chat_conversations
 			 WHERE user_id = $1
 			 RETURNING id`,
@@ -2719,4 +3160,3 @@ Question: ${query}${formatDirective}`;
 }
 
 export const chatService = new ChatService();
-

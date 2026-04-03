@@ -44,6 +44,7 @@ import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 import { createScraperWorker } from "./workers/scraperWorker";
+import { createHypeWorker } from "./workers/hypeWorker";
 
 const isRateLimitExemptPath = (path: string): boolean => {
 	const normalized = path.toLowerCase();
@@ -57,8 +58,8 @@ const isRateLimitExemptPath = (path: string): boolean => {
 
 // Start background workers and keep references for graceful shutdown
 const scraperWorker = createScraperWorker();
-const maintenanceWorker =
-	createMaintenanceWorker();
+const maintenanceWorker = createMaintenanceWorker();
+const hypeWorker = createHypeWorker();
 
 const app: Application = express();
 // Trust the known proxy chain length; keeps IP-based rate limiting safe
@@ -75,14 +76,15 @@ app.use(
 		contentSecurityPolicy: {
 			directives: {
 				defaultSrc: ["'self'"],
-				scriptSrc: ["'self'", "'unsafe-inline'"],
+				scriptSrc: ["'self'", "'unsafe-inline'", "https://assets.calendly.com"],
 				styleSrc: [
 					"'self'",
 					"'unsafe-inline'",
 					"https://fonts.googleapis.com",
+					"https://assets.calendly.com",
 				],
 				imgSrc: ["'self'", "data:", "https:"],
-				connectSrc: ["'self'"],
+				connectSrc: ["'self'", "https://calendly.com", "https://assets.calendly.com"],
 				fontSrc: [
 					"'self'",
 					"data:",
@@ -90,7 +92,7 @@ app.use(
 				],
 				objectSrc: ["'none'"],
 				mediaSrc: ["'self'"],
-				frameSrc: ["'self'"],
+				frameSrc: ["'self'", "https://calendly.com", "https://*.calendly.com"],
 				frameAncestors: [
 					"'self'",
 					"http://localhost:*",
@@ -382,6 +384,7 @@ const gracefulShutdown = (server: Server) => {
 			await Promise.all([
 				scraperWorker.close(),
 				maintenanceWorker.close(),
+				hypeWorker.close(),
 			]);
 			logger.info("BullMQ workers closed");
 		} catch (err) {

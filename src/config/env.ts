@@ -382,6 +382,38 @@ export const config: EnvConfig = {
 		"SALESFORCE_AUTH_BASE_URL",
 		"https://login.salesforce.com",
 	),
+	CALENDLY_CLIENT_ID: getEnvString(
+		"CALENDLY_CLIENT_ID",
+		"",
+	),
+	CALENDLY_CLIENT_SECRET: getEnvString(
+		"CALENDLY_CLIENT_SECRET",
+		"",
+	),
+	CALENDLY_REDIRECT_URI: getEnvString(
+		"CALENDLY_REDIRECT_URI",
+		`${resolvedFrontendUrl}/api/auth/calendly/callback`,
+	),
+	CALENDLY_OAUTH_SCOPES: getEnvString(
+		"CALENDLY_OAUTH_SCOPES",
+		"default",
+	),
+	CALENDLY_AUTH_BASE_URL: getEnvString(
+		"CALENDLY_AUTH_BASE_URL",
+		"https://auth.calendly.com",
+	),
+	CALENDLY_API_BASE_URL: getEnvString(
+		"CALENDLY_API_BASE_URL",
+		"https://api.calendly.com",
+	),
+	CALENDLY_WEBHOOK_SIGNING_KEY: getEnvString(
+		"CALENDLY_WEBHOOK_SIGNING_KEY",
+		"",
+	),
+	WIDGET_API_URL: getEnvString(
+		"WIDGET_API_URL",
+		"http://localhost:3000",
+	),
 
 	// Pinecone
 	PINECONE_API_KEY: getEnvString(

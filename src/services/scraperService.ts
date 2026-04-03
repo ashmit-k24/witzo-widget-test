@@ -9,7 +9,7 @@ import {
 	firecrawlCrawlWebsite,
 	firecrawlEnabled,
 } from "./firecrawlService";
-import { upsertAsync as upsertHypeAsync } from "./hypeService";
+import { enqueueAsync as enqueueHypeAsync } from "./hypeService";
 import { extractAsync as extractPageMetadataAsync } from "./pageMetadataService";
 import { pineconeService } from "./pineconeService";
 
@@ -982,23 +982,10 @@ class ScraperService {
 			});
 			const enrichmentResults =
 				await Promise.allSettled([
-					upsertHypeAsync(
+					enqueueHypeAsync(
 						userId,
 						chunks,
-						async (ownerId, hypeChunks) =>
-							pineconeService.upsertChunks(
-								ownerId,
-								hypeChunks,
-								{
-									sourceRoot: sourceUrl,
-									sourceRootTitle:
-										sourceTitle ||
-										pages[0]?.title ||
-										sourceUrl,
-									scrapedAt:
-										new Date().toISOString(),
-								},
-							),
+						sourceTitle || pages[0]?.title,
 					),
 					extractPageMetadataAsync(
 						pages,
