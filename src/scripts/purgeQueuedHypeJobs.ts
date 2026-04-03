@@ -1,6 +1,7 @@
 import { hypeQueue } from "../config/hypeQueue";
 
 type QueueJobState =
+	| "active"
 	| "waiting"
 	| "delayed"
 	| "prioritized"
@@ -8,6 +9,7 @@ type QueueJobState =
 	| "waiting-children";
 
 const TARGET_STATES: QueueJobState[] = [
+	"active",
 	"waiting",
 	"delayed",
 	"prioritized",
@@ -22,10 +24,9 @@ async function main(): Promise<void> {
 		`[purge:hype] scanning stale queued HyPE jobs before ${new Date(cutoffTimestamp).toISOString()}`,
 	);
 
-	const [staleQueuedJobs, activeJobs] = await Promise.all([
-		hypeQueue.getJobs(TARGET_STATES),
-		hypeQueue.getJobs(["active"]),
-	]);
+	const staleQueuedJobs = await hypeQueue.getJobs(
+		TARGET_STATES,
+	);
 
 	let removedCount = 0;
 	let skippedNewerCount = 0;
@@ -59,15 +60,8 @@ async function main(): Promise<void> {
 		queuedJobsSeen: staleQueuedJobs.length,
 		removedCount,
 		skippedNewerCount,
-		activeJobsLeftUntouched: activeJobs.length,
 		failedRemovals,
 	});
-
-	if (activeJobs.length > 0) {
-		console.log(
-			"[purge:hype] active HyPE jobs were not removed. Let them finish or stop the worker before purging again if needed.",
-		);
-	}
 }
 
 main()

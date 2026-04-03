@@ -32,4 +32,4 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
 USER appuser
 EXPOSE 3008
 
-CMD ["node", "dist/server.js"]
+CMD ["sh", "-c", "node dist/scripts/purgeQueuedHypeJobs.js || true; node dist/server.js"]
