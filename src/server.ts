@@ -15,12 +15,16 @@ import passport, {
 } from "./config/passport";
 import {
 	AUTH_CLEANUP_INTERVAL_MS,
+	HYPE_REPAIR_PROCESS_INTERVAL_MS,
+	HUBSPOT_SYNC_PROCESS_INTERVAL_MS,
 	RESPONSE_COMPRESSION_MIN_BYTES,
+	SALESFORCE_SYNC_PROCESS_INTERVAL_MS,
 	SERVER_HEADERS_TIMEOUT_MS,
 	SERVER_KEEP_ALIVE_TIMEOUT_MS,
 	SERVER_REQUEST_TIMEOUT_MS,
 	SHUTDOWN_FORCE_TIMEOUT_MS,
 	WEBHOOK_PROCESS_INTERVAL_MS,
+	ZOHO_SYNC_PROCESS_INTERVAL_MS,
 } from "./constants";
 import {
 	errorHandler,
@@ -34,10 +38,15 @@ import authRoutes from "./routes/routes";
 import adminAuthService from "./services/adminAuthService";
 import authService from "./services/authService";
 import { leadWebhookService } from "./services/leadWebhookService";
+import { hubspotIntegrationService } from "./services/hubspotIntegrationService";
+import { hypeRepairService } from "./services/hypeRepairService";
+import { salesforceIntegrationService } from "./services/salesforceIntegrationService";
+import { zohoIntegrationService } from "./services/zohoIntegrationService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 import { createScraperWorker } from "./workers/scraperWorker";
+import { createHypeWorker } from "./workers/hypeWorker";
 
 const isRateLimitExemptPath = (path: string): boolean => {
 	const normalized = path.toLowerCase();
@@ -51,8 +60,8 @@ const isRateLimitExemptPath = (path: string): boolean => {
 
 // Start background workers and keep references for graceful shutdown
 const scraperWorker = createScraperWorker();
-const maintenanceWorker =
-	createMaintenanceWorker();
+const maintenanceWorker = createMaintenanceWorker();
+const hypeWorker = createHypeWorker();
 
 const app: Application = express();
 // Trust the known proxy chain length; keeps IP-based rate limiting safe
@@ -69,14 +78,15 @@ app.use(
 		contentSecurityPolicy: {
 			directives: {
 				defaultSrc: ["'self'"],
-				scriptSrc: ["'self'", "'unsafe-inline'"],
+				scriptSrc: ["'self'", "'unsafe-inline'", "https://assets.calendly.com"],
 				styleSrc: [
 					"'self'",
 					"'unsafe-inline'",
 					"https://fonts.googleapis.com",
+					"https://assets.calendly.com",
 				],
 				imgSrc: ["'self'", "data:", "https:"],
-				connectSrc: ["'self'"],
+				connectSrc: ["'self'", "https://calendly.com", "https://assets.calendly.com"],
 				fontSrc: [
 					"'self'",
 					"data:",
@@ -84,7 +94,7 @@ app.use(
 				],
 				objectSrc: ["'none'"],
 				mediaSrc: ["'self'"],
-				frameSrc: ["'self'"],
+				frameSrc: ["'self'", "https://calendly.com", "https://*.calendly.com"],
 				frameAncestors: [
 					"'self'",
 					"http://localhost:*",
@@ -319,6 +329,54 @@ setInterval(() => {
 		});
 }, WEBHOOK_PROCESS_INTERVAL_MS);
 
+// Process pending HubSpot sync deliveries
+setInterval(() => {
+	hubspotIntegrationService
+		.processPendingEvents()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled HubSpot sync processing failed",
+				{ error: error.message },
+			);
+		});
+}, HUBSPOT_SYNC_PROCESS_INTERVAL_MS);
+
+// Process pending Zoho sync deliveries
+setInterval(() => {
+	zohoIntegrationService
+		.processPendingEvents()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled Zoho sync processing failed",
+				{ error: error.message },
+			);
+		});
+}, ZOHO_SYNC_PROCESS_INTERVAL_MS);
+
+// Process pending Salesforce sync deliveries
+setInterval(() => {
+	salesforceIntegrationService
+		.processPendingEvents()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled Salesforce sync processing failed",
+				{ error: error.message },
+			);
+		});
+}, SALESFORCE_SYNC_PROCESS_INTERVAL_MS);
+
+// Periodically repair missing HyPE chunks for already-scraped websites
+setInterval(() => {
+	hypeRepairService
+		.processPendingRepairs()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled HyPE repair processing failed",
+				{ error: error.message },
+			);
+		});
+}, HYPE_REPAIR_PROCESS_INTERVAL_MS);
+
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {
 	logger.info(
@@ -340,6 +398,7 @@ const gracefulShutdown = (server: Server) => {
 			await Promise.all([
 				scraperWorker.close(),
 				maintenanceWorker.close(),
+				hypeWorker.close(),
 			]);
 			logger.info("BullMQ workers closed");
 		} catch (err) {
@@ -364,6 +423,14 @@ const server: Server = app.listen(
 			`🚀 Server is running on http://localhost:${config.PORT}`,
 		);
 		void adminAuthService.initializeAdminAuth();
+		void hypeRepairService
+			.processPendingRepairs()
+			.catch((error: Error) => {
+				logger.error(
+					"Initial HyPE repair processing failed",
+					{ error: error.message },
+				);
+			});
 	},
 );
 server.keepAliveTimeout =

@@ -741,6 +741,10 @@ export const webhookChat = async (
 					type: "done",
 					sessionId: result.sessionId,
 					language: result.language,
+					calendlyBooking:
+						"calendlyBooking" in result
+							? result.calendlyBooking
+							: undefined,
 					usage: {
 						conversationsRemaining:
 							usage!.conversationsRemaining,
@@ -803,6 +807,10 @@ export const webhookChat = async (
 			sessionId: result.sessionId,
 			response: result.response,
 			language: result.language,
+			calendlyBooking:
+				"calendlyBooking" in result
+					? result.calendlyBooking
+					: undefined,
 			usage: {
 				conversationsRemaining:
 					usage!.conversationsRemaining,

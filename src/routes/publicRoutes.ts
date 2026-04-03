@@ -4,6 +4,7 @@ import {
 	publicWidgetChatLimiter,
 } from "../config/rateLimiters";
 import * as subscriptionController from "../controllers/subscriptionController";
+import * as calendlyIntegrationController from "../controllers/calendlyIntegrationController";
 import * as widgetController from "../controllers/widgetController";
 import * as publicWidgetController from "../controllers/publicWidgetController";
 import {
@@ -64,6 +65,13 @@ console.warn('This endpoint is for serving your custom widget JavaScript. Please
  * @desc    Paddle billing webhook (no auth required — Paddle signs the payload)
  * @access  Public
  */
+router.post(
+	"/calendly/webhook/:integrationId",
+	validationRules.calendlyWebhookParam,
+	validate,
+	calendlyIntegrationController.handleCalendlyWebhook,
+);
+
 router.post(
 	"/paddle/webhook",
 	subscriptionController.handlePaddleWebhook,

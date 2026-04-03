@@ -235,6 +235,30 @@ const migrations: Migration[] = [
 			"Re-ensure default free, basic, standard, and enterprise plans exist for previously migrated databases",
 		file: "20260326_036_default_plans_repair.sql",
 	},
+	{
+		id: "20260330_037_hubspot_crm_integration",
+		description:
+			"Create HubSpot integration and sync event tables for native CRM connector",
+		file: "20260330_037_hubspot_crm_integration.sql",
+	},
+	{
+		id: "20260331_038_zoho_crm_integration",
+		description:
+			"Create Zoho CRM integration and sync event tables for native CRM connector",
+		file: "20260331_038_zoho_crm_integration.sql",
+	},
+	{
+		id: "20260331_039_salesforce_crm_integration",
+		description:
+			"Create Salesforce CRM integration and sync event tables for native CRM connector",
+		file: "20260331_039_salesforce_crm_integration.sql",
+	},
+	{
+		id: "20260401_040_calendly_integration",
+		description:
+			"Create Calendly integration and appointment tracking tables",
+		file: "20260401_040_calendly_integration.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

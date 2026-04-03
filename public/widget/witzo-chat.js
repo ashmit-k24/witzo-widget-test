@@ -99,6 +99,9 @@
 			this._introAnimResetTimer = null;
 			this.isEmbeddedPreview = false;
 			this.isAwaitingResponse = false;
+			this._calendlyAssetPromise = null;
+			this._calendlyMessageHandler = null;
+			this._calendlyBookingActive = false;
 
 			this.elements = {};
 			this.supportedLanguages = [
@@ -279,7 +282,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-					"string" &&
+				"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -340,6 +343,7 @@
 			this.render();
 			this.bindEvents();
 			this.updateSendButtonState();
+			this._bindCalendlyMessageListener();
 			if (this.config.showIntroScreen === false) {
 				this.hasStartedChat = true;
 			}
@@ -390,6 +394,16 @@
 				},
 				this.isEmbeddedPreview ? 0 : 2000,
 			);
+		}
+
+		disconnectedCallback() {
+			if (this._calendlyMessageHandler) {
+				window.removeEventListener(
+					"message",
+					this._calendlyMessageHandler,
+				);
+				this._calendlyMessageHandler = null;
+			}
 		}
 
 		initializeSession() {
@@ -1778,8 +1792,8 @@
             transform: rotateY(180deg);
           }
           .floating-orb-inner svg {
-            width: 28px;
-            height: 28px;
+            width: 20px;
+            height: 20px;
           }
           .floating-orb-inner img{
 			width: 100% !important;
@@ -1799,7 +1813,11 @@
             -webkit-backface-visibility: hidden;
           }
           .floating-icon-close {
-            transform: rotateY(180deg);
+            	transform: rotateY(180deg);
+			    background: #161616;
+    			border-radius: 50%;
+		  }
+
           }
           .floating-icon-close svg {
             width: 30% !important;
@@ -2296,11 +2314,10 @@
 
                     <div class="chat-header-identity">
                       <div class="chat-icon">
-                    ${
-											this.getDisplayIconUrl()
-												? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-												: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-										}
+                    ${this.getDisplayIconUrl()
+					? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
 
 					  <span class="header-online-dot"></span>
                       </div>
@@ -2426,6 +2443,8 @@
               <button class="contact-form-submit" id="cf-submit">Send Message</button>
             </div>
 
+            <div id="calendlySlot" class="contact-form hidden"></div>
+
             <!-- Conversation Rating Slot -->
             <div id="conversationRatingSlot" class="hidden"></div>
 
@@ -2443,15 +2462,15 @@
                       <!-- Shadcn Style Dropdown -->
                       <div class="lang-dropdown" id="langDropdown">
                         ${this.supportedLanguages
-													.map(
-														(language) => `
+					.map(
+						(language) => `
                           <div class="lang-dropdown-item ${language.code === this.selectedLanguage ? "active" : ""}" data-code="${language.code}">
                             <span>${language.label}</span>
                             <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </div>
                         `,
-													)
-													.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                     <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
@@ -2541,6 +2560,10 @@
 				contactFormSlot:
 					this.shadowRoot.getElementById(
 						"contactFormSlot",
+					),
+				calendlySlot:
+					this.shadowRoot.getElementById(
+						"calendlySlot",
 					),
 				cfName:
 					this.shadowRoot.getElementById(
@@ -3371,6 +3394,10 @@
 						}
 						if (Array.isArray(result.sources))
 							this._jsonSources = result.sources;
+						if (result.calendlyBooking) {
+							this._jsonCalendlyBooking =
+								result.calendlyBooking;
+						}
 					} catch (e) {
 						console.error("JSON Error", e);
 					}
@@ -3387,7 +3414,13 @@
 						typingWrapper,
 						this._jsonSources || [],
 					);
+					if (this._jsonCalendlyBooking) {
+						this.showCalendlyEmbed(
+							this._jsonCalendlyBooking,
+						);
+					}
 					this._jsonSources = null;
+					this._jsonCalendlyBooking = null;
 					return;
 				} else {
 					try {
@@ -3405,7 +3438,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) {}
+					} catch (e) { }
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -3524,11 +3557,10 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${
-													this.getDisplayIconUrl()
-														? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
-														: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-												}
+                        ${this.getDisplayIconUrl()
+					? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
                     </div>`;
 		}
 
@@ -3702,7 +3734,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) {}
+						} catch (_) { }
 					}
 				}
 			}
@@ -3714,7 +3746,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) {}
+					} catch (_) { }
 				}
 			}
 
@@ -3770,8 +3802,16 @@
 			appendSources(
 				typingWrapper,
 				(donePayload && donePayload.sources) ||
-					[],
+				[],
 			);
+			if (
+				donePayload &&
+				donePayload.calendlyBooking
+			) {
+				this.showCalendlyEmbed(
+					donePayload.calendlyBooking,
+				);
+			}
 			return { completed: true };
 		}
 
@@ -3935,7 +3975,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+					"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -3994,8 +4034,245 @@
 			}, 2400);
 		}
 
+		_bindCalendlyMessageListener() {
+			if (this._calendlyMessageHandler) return;
+			this._calendlyMessageHandler = (event) => {
+				const origin = String(
+					event.origin || "",
+				);
+				if (!origin.includes("calendly.com"))
+					return;
+				const eventName =
+					typeof event.data === "string"
+						? event.data
+						: event.data?.event;
+				if (
+					eventName !==
+						"calendly.event_scheduled" ||
+					!this._calendlyBookingActive
+				) {
+					return;
+				}
+
+				this.hideCalendlyEmbed();
+				const typingWrapper =
+					this.showTypingIndicator();
+				this.appendBotReply(
+					typingWrapper,
+					"Your appointment has been booked successfully. Please check your email for the confirmation details.",
+				);
+			};
+			window.addEventListener(
+				"message",
+				this._calendlyMessageHandler,
+			);
+		}
+
+		_buildCalendlyUtm(tracking = {}) {
+			return {
+				utmSource:
+					this.widgetKey || "witzo-widget",
+				utmMedium: "chat_widget",
+				utmCampaign: "witzo_calendly",
+				utmContent:
+					tracking.sessionId ||
+					this.sessionId ||
+					"",
+				...(tracking.leadId
+					? { utmTerm: tracking.leadId }
+					: {}),
+			};
+		}
+
+		async _ensureCalendlyAssets() {
+			if (
+				window.Calendly &&
+				window.Calendly.initInlineWidget
+			) {
+				return;
+			}
+			if (this._calendlyAssetPromise) {
+				await this._calendlyAssetPromise;
+				return;
+			}
+
+			this._calendlyAssetPromise = new Promise(
+				(resolve, reject) => {
+					if (
+						!document.getElementById(
+							"witzo-calendly-widget-css",
+						)
+					) {
+						const cssLink =
+							document.createElement("link");
+						cssLink.id =
+							"witzo-calendly-widget-css";
+						cssLink.rel = "stylesheet";
+						cssLink.href =
+							"https://assets.calendly.com/assets/external/widget.css";
+						document.head.appendChild(cssLink);
+					}
+
+					const existingScript =
+						document.getElementById(
+							"witzo-calendly-widget-script",
+						);
+					if (
+						existingScript &&
+						window.Calendly &&
+						window.Calendly.initInlineWidget
+					) {
+						resolve();
+						return;
+					}
+
+					const script =
+						existingScript ||
+						document.createElement("script");
+					if (!existingScript) {
+						script.id =
+							"witzo-calendly-widget-script";
+						script.src =
+							"https://assets.calendly.com/assets/external/widget.js";
+						script.async = true;
+						document.head.appendChild(script);
+					}
+					script.addEventListener(
+						"load",
+						() => resolve(),
+						{ once: true },
+					);
+					script.addEventListener(
+						"error",
+						() =>
+							reject(
+								new Error(
+									"Failed to load Calendly widget assets",
+								),
+							),
+						{ once: true },
+					);
+				},
+			);
+
+			try {
+				await this._calendlyAssetPromise;
+			} finally {
+				this._calendlyAssetPromise = null;
+			}
+		}
+
+		hideCalendlyEmbed() {
+			if (!this.elements.calendlySlot) return;
+			this._calendlyBookingActive = false;
+			this.elements.calendlySlot.classList.add(
+				"hidden",
+			);
+			this.elements.calendlySlot.innerHTML = "";
+			this.elements.messagesContainer?.classList.remove(
+				"hidden",
+			);
+			if (
+				this.elements.contactFormSlot &&
+				!this.elements.contactFormSlot.classList.contains(
+					"hidden",
+				)
+			) {
+				return;
+			}
+			if (this.elements.chatInput) {
+				this.elements.chatInput.classList.remove(
+					"hidden",
+				);
+			}
+		}
+
+		async showCalendlyEmbed(calendlyBooking) {
+			if (
+				!this.elements.calendlySlot ||
+				!calendlyBooking ||
+				!calendlyBooking.schedulingUrl
+			) {
+				return;
+			}
+
+			this._clearHopeBannerTimer();
+			this._hideHopeBanner();
+			this._calendlyBookingActive = true;
+			this.elements.contactFormSlot?.classList.add(
+				"hidden",
+			);
+			this.elements.conversationRatingSlot?.classList.add(
+				"hidden",
+			);
+			this.elements.messagesContainer?.classList.add(
+				"hidden",
+			);
+			this.elements.chatInput?.classList.add(
+				"hidden",
+			);
+			this.elements.calendlySlot.classList.remove(
+				"hidden",
+			);
+			this.elements.calendlySlot.innerHTML = `
+				<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;">
+					<div>
+						<h3 style="margin:0;">${this.escapeHtml(calendlyBooking.bookingLabel || "Book an appointment")}</h3>
+						<p style="margin:0.25rem 0 0;">Choose a date and time that works for you.</p>
+					</div>
+					<button id="calendlyBackBtn" type="button" style="border:none;background:transparent;color:#475569;font-size:0.85rem;font-weight:600;cursor:pointer;padding:0;">Back to chat</button>
+				</div>
+				<div id="calendlyEmbedContainer" style="min-height:620px;border:1px solid #e2e8f0;border-radius:0.75rem;overflow:hidden;background:#fff;"></div>
+			`;
+
+			const backButton =
+				this.elements.calendlySlot.querySelector(
+					"#calendlyBackBtn",
+				);
+			if (backButton) {
+				backButton.addEventListener(
+					"click",
+					() => this.hideCalendlyEmbed(),
+				);
+			}
+
+			const container =
+				this.elements.calendlySlot.querySelector(
+					"#calendlyEmbedContainer",
+				);
+			if (!container) return;
+
+			try {
+				await this._ensureCalendlyAssets();
+				if (
+					window.Calendly &&
+					window.Calendly.initInlineWidget
+				) {
+					container.innerHTML = "";
+					window.Calendly.initInlineWidget({
+						url: calendlyBooking.schedulingUrl,
+						parentElement: container,
+						prefill:
+							calendlyBooking.prefill || {},
+						utm: this._buildCalendlyUtm(
+							calendlyBooking.tracking || {},
+						),
+					});
+					return;
+				}
+			} catch (error) {
+				console.warn(
+					"Calendly asset load failed",
+					error,
+				);
+			}
+
+			container.innerHTML = `<iframe title="Calendly booking" src="${this.escapeHtml(calendlyBooking.schedulingUrl)}" style="width:100%;height:620px;border:0;" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+		}
+
 		showContactForm() {
 			if (!this.elements.contactFormSlot) return;
+			this.hideCalendlyEmbed();
 			this.elements.messagesContainer.classList.add(
 				"hidden",
 			);
@@ -4034,7 +4311,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+					"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -4045,12 +4322,12 @@
 							sessionId: this.sessionId,
 							name: this.elements.cfName
 								? this.elements.cfName.value.trim() ||
-									null
+								null
 								: null,
 							email,
 							message: this.elements.cfMessage
 								? this.elements.cfMessage.value.trim() ||
-									null
+								null
 								: null,
 						}),
 					},

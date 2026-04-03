@@ -9,6 +9,9 @@ import { ChatMessage } from "../types";
 import logger from "../utils/logger";
 import emailService from "./emailService";
 import { leadWebhookService } from "./leadWebhookService";
+import { hubspotIntegrationService } from "./hubspotIntegrationService";
+import { salesforceIntegrationService } from "./salesforceIntegrationService";
+import { zohoIntegrationService } from "./zohoIntegrationService";
 
 const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
@@ -258,6 +261,99 @@ ${fullConversation}`;
 							},
 						);
 					});
+				void hubspotIntegrationService
+					.queueLeadEvent(
+						userId,
+						"lead.upserted",
+						{
+							leadId,
+							sessionId,
+							widgetKeyId,
+							status:
+								leadResult.rows[0]?.status ?? "new",
+							contact: extracted,
+							metadata: {
+								ipAddress:
+									metadata?.ipAddress ?? null,
+								sourceUrl:
+									metadata?.sourceUrl ?? null,
+							},
+							messageCount: messages.length,
+						},
+						leadId,
+					)
+					.catch((error) => {
+						logger.error(
+							"Failed to queue HubSpot sync for upserted lead",
+							{
+								error,
+								userId,
+								sessionId,
+							},
+						);
+					});
+				void zohoIntegrationService
+					.queueLeadEvent(
+						userId,
+						"lead.upserted",
+						{
+							leadId,
+							sessionId,
+							widgetKeyId,
+							status:
+								leadResult.rows[0]?.status ?? "new",
+							contact: extracted,
+							metadata: {
+								ipAddress:
+									metadata?.ipAddress ?? null,
+								sourceUrl:
+									metadata?.sourceUrl ?? null,
+							},
+							messageCount: messages.length,
+						},
+						leadId,
+					)
+					.catch((error) => {
+						logger.error(
+							"Failed to queue Zoho sync for upserted lead",
+							{
+								error,
+								userId,
+								sessionId,
+							},
+						);
+					});
+				void salesforceIntegrationService
+					.queueLeadEvent(
+						userId,
+						"lead.upserted",
+						{
+							leadId,
+							sessionId,
+							widgetKeyId,
+							status:
+								leadResult.rows[0]?.status ?? "new",
+							contact: extracted,
+							metadata: {
+								ipAddress:
+									metadata?.ipAddress ?? null,
+								sourceUrl:
+									metadata?.sourceUrl ?? null,
+							},
+							messageCount: messages.length,
+						},
+						leadId,
+					)
+					.catch((error) => {
+						logger.error(
+							"Failed to queue Salesforce sync for upserted lead",
+							{
+								error,
+								userId,
+								sessionId,
+							},
+						);
+					});
 			}
 
 			// Auto follow-up email — basic plan only, once per lead
@@ -277,16 +373,18 @@ ${fullConversation}`;
 					const leadRow = checkResult.rows[0];
 					if (leadRow && leadRow.follow_up_sent_at === null) {
 						const ownerResult = await pool.query(
-							`SELECT email FROM users WHERE id = $1`,
+							`SELECT full_name, email FROM users WHERE id = $1`,
 							[userId],
 						);
-						const ownerEmail: string | null =
-							ownerResult.rows[0]?.email ?? null;
+						const ownerDisplayName: string | null =
+							ownerResult.rows[0]?.full_name?.trim() ||
+							ownerResult.rows[0]?.email?.trim() ||
+							null;
 
 						await emailService.sendFollowUpEmail(
 							extracted.email,
 							extracted.name ?? null,
-							ownerEmail,
+							ownerDisplayName,
 						);
 
 						await pool.query(
@@ -389,6 +487,108 @@ ${fullConversation}`;
 				.catch((error) => {
 					logger.error(
 						"Failed to queue webhook for contact-form lead",
+						{
+							error,
+							userId,
+							sessionId,
+						},
+					);
+				});
+			void hubspotIntegrationService
+				.queueLeadEvent(
+					userId,
+					"lead.contact_form",
+					{
+						leadId,
+						sessionId,
+						widgetKeyId,
+						status:
+							result.rows[0]?.status ?? "new",
+						contact: {
+							name: data.name ?? null,
+							email: data.email,
+							summary: data.summary ?? null,
+						},
+						metadata: {
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
+						},
+					},
+					leadId,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue HubSpot sync for contact-form lead",
+						{
+							error,
+							userId,
+							sessionId,
+						},
+					);
+				});
+			void zohoIntegrationService
+				.queueLeadEvent(
+					userId,
+					"lead.contact_form",
+					{
+						leadId,
+						sessionId,
+						widgetKeyId,
+						status:
+							result.rows[0]?.status ?? "new",
+						contact: {
+							name: data.name ?? null,
+							email: data.email,
+							summary: data.summary ?? null,
+						},
+						metadata: {
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
+						},
+					},
+					leadId,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue Zoho sync for contact-form lead",
+						{
+							error,
+							userId,
+							sessionId,
+						},
+					);
+				});
+			void salesforceIntegrationService
+				.queueLeadEvent(
+					userId,
+					"lead.contact_form",
+					{
+						leadId,
+						sessionId,
+						widgetKeyId,
+						status:
+							result.rows[0]?.status ?? "new",
+						contact: {
+							name: data.name ?? null,
+							email: data.email,
+							summary: data.summary ?? null,
+						},
+						metadata: {
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
+						},
+					},
+					leadId,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue Salesforce sync for contact-form lead",
 						{
 							error,
 							userId,
@@ -536,6 +736,66 @@ ${fullConversation}`;
 				.catch((error) => {
 					logger.error(
 						"Failed to queue webhook for lead status update",
+						{ error, userId, leadId },
+					);
+				});
+			void hubspotIntegrationService
+				.queueLeadEvent(
+					userId,
+					"lead.status_updated",
+					{
+						leadId: updatedLead.id,
+						status: updatedLead.status,
+						name: updatedLead.name,
+						email: updatedLead.email,
+						company: updatedLead.company,
+						updatedAt: new Date().toISOString(),
+					},
+					updatedLead.id,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue HubSpot sync for lead status update",
+						{ error, userId, leadId },
+					);
+				});
+			void zohoIntegrationService
+				.queueLeadEvent(
+					userId,
+					"lead.status_updated",
+					{
+						leadId: updatedLead.id,
+						status: updatedLead.status,
+						name: updatedLead.name,
+						email: updatedLead.email,
+						company: updatedLead.company,
+						updatedAt: new Date().toISOString(),
+					},
+					updatedLead.id,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue Zoho sync for lead status update",
+						{ error, userId, leadId },
+					);
+				});
+			void salesforceIntegrationService
+				.queueLeadEvent(
+					userId,
+					"lead.status_updated",
+					{
+						leadId: updatedLead.id,
+						status: updatedLead.status,
+						name: updatedLead.name,
+						email: updatedLead.email,
+						company: updatedLead.company,
+						updatedAt: new Date().toISOString(),
+					},
+					updatedLead.id,
+				)
+				.catch((error) => {
+					logger.error(
+						"Failed to queue Salesforce sync for lead status update",
 						{ error, userId, leadId },
 					);
 				});

@@ -16,6 +16,10 @@ import * as usageController from "../controllers/usageController";
 import * as widgetController from "../controllers/widgetController";
 import * as leadController from "../controllers/leadController";
 import * as leadWebhookController from "../controllers/leadWebhookController";
+import * as hubspotIntegrationController from "../controllers/hubspotIntegrationController";
+import * as calendlyIntegrationController from "../controllers/calendlyIntegrationController";
+import * as salesforceIntegrationController from "../controllers/salesforceIntegrationController";
+import * as zohoIntegrationController from "../controllers/zohoIntegrationController";
 import * as feedbackController from "../controllers/feedbackController";
 import * as promptBuilderController from "../controllers/promptBuilderController";
 import * as subscriptionController from "../controllers/subscriptionController";
@@ -39,29 +43,14 @@ import {
 	validate,
 	validationRules,
 } from "../middleware/validator";
-import { globalRateLimiter } from "../middleware/userRateLimiter";
 
 const router: Router = Router();
-
-const isScrapeProgressRoute = (path: string): boolean => {
-	const normalized = path.toLowerCase();
-	return (
-		normalized === "/scraper/progress" ||
-		/^\/scraper\/progress\/[^/]+$/.test(normalized)
-	);
-};
 
 // Apply CSRF token setter to all routes (will set cookie on first request)
 router.use(setCsrfToken);
 
-// User-based rate limiter — runs after auth so it can key by userId, not just IP
-router.use((req, res, next) => {
-	if (isScrapeProgressRoute(req.path)) {
-		next();
-		return;
-	}
-	void globalRateLimiter(req, res, next);
-});
+// Global rate limiting is temporarily disabled.
+// TODO: Re-introduce this with route-level exemptions or post-auth user-based keys.
 
 /**
  * @route   GET /api/auth/csrf-token
@@ -82,6 +71,11 @@ router.get(
 router.get(
 	"/subscription/paddle-runtime",
 	subscriptionController.getPaddleRuntimeConfig,
+);
+
+router.get(
+	"/subscription/pricing-preview",
+	subscriptionController.getLocalizedPricingPreview,
 );
 
 /**
@@ -608,6 +602,23 @@ router.get(
 	}),
 	authController.googleCallback,
 );
+router.get(
+	"/calendly/callback",
+	calendlyIntegrationController.handleCalendlyCallback,
+);
+
+router.get(
+	"/hubspot/callback",
+	hubspotIntegrationController.handleHubspotCallback,
+);
+router.get(
+	"/zoho/callback",
+	zohoIntegrationController.handleZohoCallback,
+);
+router.get(
+	"/salesforce/callback",
+	salesforceIntegrationController.handleSalesforceCallback,
+);
 
 router.post(
 	"/google/verify",
@@ -757,6 +768,209 @@ router.get(
 	"/leads/webhook",
 	authenticateToken,
 	leadWebhookController.getLeadWebhookConfig,
+);
+router.get(
+	"/calendly/config",
+	authenticateToken,
+	calendlyIntegrationController.getCalendlyConfig,
+);
+
+router.get(
+	"/hubspot/config",
+	authenticateToken,
+	hubspotIntegrationController.getHubspotConfig,
+);
+
+router.post(
+	"/calendly/connect",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.calendlyConnect,
+	validate,
+	calendlyIntegrationController.getCalendlyConnectUrl,
+);
+
+router.post(
+	"/hubspot/connect",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.hubspotConnect,
+	validate,
+	hubspotIntegrationController.getHubspotConnectUrl,
+);
+
+router.put(
+	"/calendly/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.calendlySettings,
+	validate,
+	calendlyIntegrationController.updateCalendlySettings,
+);
+
+router.put(
+	"/hubspot/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.hubspotSettings,
+	validate,
+	hubspotIntegrationController.updateHubspotSettings,
+);
+
+router.delete(
+	"/calendly/disconnect",
+	verifyCsrfToken,
+	authenticateToken,
+	calendlyIntegrationController.disconnectCalendly,
+);
+
+router.delete(
+	"/hubspot/disconnect",
+	verifyCsrfToken,
+	authenticateToken,
+	hubspotIntegrationController.disconnectHubspot,
+);
+
+router.post(
+	"/hubspot/test",
+	verifyCsrfToken,
+	authenticateToken,
+	hubspotIntegrationController.sendHubspotTest,
+);
+
+router.get(
+	"/hubspot/events",
+	authenticateToken,
+	validationRules.hubspotEventsQuery,
+	validate,
+	hubspotIntegrationController.listHubspotEvents,
+);
+
+router.post(
+	"/hubspot/events/:eventId/retry",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.hubspotEventParam,
+	validate,
+	hubspotIntegrationController.retryHubspotEvent,
+);
+
+router.get(
+	"/calendly/appointments",
+	authenticateToken,
+	validationRules.calendlyAppointmentsQuery,
+	validate,
+	calendlyIntegrationController.listCalendlyAppointments,
+);
+
+router.get(
+	"/zoho/config",
+	authenticateToken,
+	zohoIntegrationController.getZohoConfig,
+);
+
+router.get(
+	"/salesforce/config",
+	authenticateToken,
+	salesforceIntegrationController.getSalesforceConfig,
+);
+
+router.post(
+	"/zoho/connect",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.zohoConnect,
+	validate,
+	zohoIntegrationController.getZohoConnectUrl,
+);
+
+router.post(
+	"/salesforce/connect",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.salesforceConnect,
+	validate,
+	salesforceIntegrationController.getSalesforceConnectUrl,
+);
+
+router.put(
+	"/zoho/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.zohoSettings,
+	validate,
+	zohoIntegrationController.updateZohoSettings,
+);
+
+router.put(
+	"/salesforce/settings",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.salesforceSettings,
+	validate,
+	salesforceIntegrationController.updateSalesforceSettings,
+);
+
+router.delete(
+	"/zoho/disconnect",
+	verifyCsrfToken,
+	authenticateToken,
+	zohoIntegrationController.disconnectZoho,
+);
+
+router.delete(
+	"/salesforce/disconnect",
+	verifyCsrfToken,
+	authenticateToken,
+	salesforceIntegrationController.disconnectSalesforce,
+);
+
+router.post(
+	"/zoho/test",
+	verifyCsrfToken,
+	authenticateToken,
+	zohoIntegrationController.sendZohoTest,
+);
+
+router.post(
+	"/salesforce/test",
+	verifyCsrfToken,
+	authenticateToken,
+	salesforceIntegrationController.sendSalesforceTest,
+);
+
+router.get(
+	"/zoho/events",
+	authenticateToken,
+	validationRules.zohoEventsQuery,
+	validate,
+	zohoIntegrationController.listZohoEvents,
+);
+
+router.get(
+	"/salesforce/events",
+	authenticateToken,
+	validationRules.salesforceEventsQuery,
+	validate,
+	salesforceIntegrationController.listSalesforceEvents,
+);
+
+router.post(
+	"/zoho/events/:eventId/retry",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.zohoEventParam,
+	validate,
+	zohoIntegrationController.retryZohoEvent,
+);
+
+router.post(
+	"/salesforce/events/:eventId/retry",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.salesforceEventParam,
+	validate,
+	salesforceIntegrationController.retrySalesforceEvent,
 );
 
 router.put(

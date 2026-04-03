@@ -51,18 +51,14 @@ function escapeHtml(value: string): string {
 export function buildVerificationEmailTemplate(
 	params: VerificationEmailTemplateParams,
 ): VerificationEmailTemplateResult {
-	const {
-		code,
-		expiryMinutes,
-		recipientEmail,
-	} = params;
+	const { code, expiryMinutes, recipientEmail } =
+		params;
 
 	const subject = "Witzo Email Verification";
 	const displayName = escapeHtml(
 		getDisplayNameFromEmail(recipientEmail),
 	);
-	const supportUrl =
-		`${config.FRONTEND_URL?.trim().replace(/\/+$/, "") || "https://witzo.ai"}/contact-us`;
+	const supportUrl = `${config.FRONTEND_URL?.trim().replace(/\/+$/, "") || "https://witzo.ai"}/contact-us`;
 	const currentYear = new Date().getFullYear();
 
 	const html = `<!DOCTYPE html>
@@ -130,7 +126,7 @@ export function buildVerificationEmailTemplate(
                     <td
                       align="center"
                       style="
-                        background-color:#ffffff;
+                        background:#7a08fa; background:linear-gradient(102.39deg, #7a08fa -79.19%, #f4464b 130.72%);
                         color:#7916bb;
                         border:1px solid #8f22d74c;
                         font-size:24px;

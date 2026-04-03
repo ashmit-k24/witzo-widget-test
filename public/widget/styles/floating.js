@@ -49,8 +49,8 @@ export const floatingCSS = `
     transform: rotateY(180deg);
   }
   .floating-orb-inner svg {
-    width: 28px;
-    height: 28px;
+    width: 20px;
+    height: 20px;
   }
 
   /* Flip animation: chat icon (front face) ↔ close icon (back face) */
@@ -66,6 +66,9 @@ export const floatingCSS = `
   }
   .floating-icon-close {
     transform: rotateY(180deg);
+    background: #161616;
+    border-radius: 50%;
+  }
   }
   .floating-icon-close svg {
     width: 30% !important;

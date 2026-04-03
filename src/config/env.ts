@@ -1,8 +1,11 @@
 import crypto from "crypto";
 import dotenv from "dotenv";
+import path from "path";
 import { EnvConfig } from "../types";
 
-dotenv.config();
+dotenv.config({
+	path: path.resolve(__dirname, "../../.env"),
+});
 
 const normalizeEnvString = (
 	value: string | undefined,
@@ -152,6 +155,11 @@ const getRequiredSecret = (key: string): string => {
 	return generatedSecret;
 };
 
+const resolvedFrontendUrl = getEnvString(
+	"FRONTEND_URL",
+	"http://localhost:3001",
+);
+
 export const config: EnvConfig = {
 	PORT: getEnvNumber("PORT", 3000),
 	NODE_ENV: getEnvString(
@@ -274,9 +282,137 @@ export const config: EnvConfig = {
 		"GOOGLE_CALLBACK_URL",
 		"http://localhost:3000/api/auth/google/callback",
 	),
-	FRONTEND_URL: getEnvString(
-		"FRONTEND_URL",
-		"http://localhost:3001",
+	FRONTEND_URL: resolvedFrontendUrl,
+	HUBSPOT_CLIENT_ID: getEnvString(
+		"HUBSPOT_CLIENT_ID",
+		"",
+	),
+	HUBSPOT_CLIENT_SECRET: getEnvString(
+		"HUBSPOT_CLIENT_SECRET",
+		"",
+	),
+	HUBSPOT_REDIRECT_URI: getEnvString(
+		"HUBSPOT_REDIRECT_URI",
+		`${resolvedFrontendUrl}/api/auth/hubspot/callback`,
+	),
+	HUBSPOT_OAUTH_SCOPES: getEnvString(
+		"HUBSPOT_OAUTH_SCOPES",
+		[
+			"crm.objects.contacts.read",
+			"crm.objects.contacts.write",
+			"crm.objects.companies.read",
+			"crm.objects.companies.write",
+		].join(" "),
+	),
+	ZOHO_CLIENT_ID: getEnvString(
+		"ZOHO_CLIENT_ID",
+		"",
+	),
+	ZOHO_CLIENT_SECRET: getEnvString(
+		"ZOHO_CLIENT_SECRET",
+		"",
+	),
+	ZOHO_CLIENT_SECRET_US: getEnvString(
+		"ZOHO_CLIENT_SECRET_US",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_EU: getEnvString(
+		"ZOHO_CLIENT_SECRET_EU",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_IN: getEnvString(
+		"ZOHO_CLIENT_SECRET_IN",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_AU: getEnvString(
+		"ZOHO_CLIENT_SECRET_AU",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_JP: getEnvString(
+		"ZOHO_CLIENT_SECRET_JP",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_CA: getEnvString(
+		"ZOHO_CLIENT_SECRET_CA",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_CLIENT_SECRET_CN: getEnvString(
+		"ZOHO_CLIENT_SECRET_CN",
+		getEnvString("ZOHO_CLIENT_SECRET", ""),
+	),
+	ZOHO_REDIRECT_URI: getEnvString(
+		"ZOHO_REDIRECT_URI",
+		`${resolvedFrontendUrl}/api/auth/zoho/callback`,
+	),
+	ZOHO_OAUTH_SCOPES: getEnvString(
+		"ZOHO_OAUTH_SCOPES",
+		[
+			"ZohoCRM.modules.leads.CREATE",
+			"ZohoCRM.modules.leads.READ",
+			"ZohoCRM.modules.leads.UPDATE",
+			"ZohoCRM.modules.notes.CREATE",
+			"ZohoCRM.settings.fields.READ",
+		].join(","),
+	),
+	ZOHO_ACCOUNTS_SERVER: getEnvString(
+		"ZOHO_ACCOUNTS_SERVER",
+		"https://accounts.zoho.com",
+	),
+	ZOHO_API_DOMAIN: getEnvString(
+		"ZOHO_API_DOMAIN",
+		"https://www.zohoapis.com",
+	),
+	SALESFORCE_CLIENT_ID: getEnvString(
+		"SALESFORCE_CLIENT_ID",
+		"",
+	),
+	SALESFORCE_CLIENT_SECRET: getEnvString(
+		"SALESFORCE_CLIENT_SECRET",
+		"",
+	),
+	SALESFORCE_REDIRECT_URI: getEnvString(
+		"SALESFORCE_REDIRECT_URI",
+		`${resolvedFrontendUrl}/api/auth/salesforce/callback`,
+	),
+	SALESFORCE_OAUTH_SCOPES: getEnvString(
+		"SALESFORCE_OAUTH_SCOPES",
+		["api", "refresh_token", "offline_access"].join(" "),
+	),
+	SALESFORCE_AUTH_BASE_URL: getEnvString(
+		"SALESFORCE_AUTH_BASE_URL",
+		"https://login.salesforce.com",
+	),
+	CALENDLY_CLIENT_ID: getEnvString(
+		"CALENDLY_CLIENT_ID",
+		"",
+	),
+	CALENDLY_CLIENT_SECRET: getEnvString(
+		"CALENDLY_CLIENT_SECRET",
+		"",
+	),
+	CALENDLY_REDIRECT_URI: getEnvString(
+		"CALENDLY_REDIRECT_URI",
+		`${resolvedFrontendUrl}/api/auth/calendly/callback`,
+	),
+	CALENDLY_OAUTH_SCOPES: getEnvString(
+		"CALENDLY_OAUTH_SCOPES",
+		"default",
+	),
+	CALENDLY_AUTH_BASE_URL: getEnvString(
+		"CALENDLY_AUTH_BASE_URL",
+		"https://auth.calendly.com",
+	),
+	CALENDLY_API_BASE_URL: getEnvString(
+		"CALENDLY_API_BASE_URL",
+		"https://api.calendly.com",
+	),
+	CALENDLY_WEBHOOK_SIGNING_KEY: getEnvString(
+		"CALENDLY_WEBHOOK_SIGNING_KEY",
+		"",
+	),
+	WIDGET_API_URL: getEnvString(
+		"WIDGET_API_URL",
+		"http://localhost:3000",
 	),
 
 	// Pinecone

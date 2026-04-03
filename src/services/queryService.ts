@@ -225,7 +225,8 @@ export async function stepBackRewrite(
 	if (ok) return rewritten;
 
 	const normalized = normalizeWidgetQuery(q);
-	const needsContext = isFollowUpIntent(normalized) || isPaginationIntent(normalized);
+	const isShortFollowUp = q.split(/\s+/).length <= 4 && !!history?.length;
+	const needsContext = isFollowUpIntent(normalized) || isPaginationIntent(normalized) || isShortFollowUp;
 
 	if (!needsContext && q.split(/\s+/).length > 12) {
 		logger.info("[RAG 1/5] step-back rewrite: skipped (query > 12 words)", { query: q });
@@ -251,7 +252,7 @@ export async function stepBackRewrite(
 		if (isPaginationIntent(normalized)) {
 			prompt = `You are a search query optimizer for a customer support chatbot.\n\nConversation so far:\n${contextBlock}\nUser: ${q}\n\nThe user wants MORE results on the same topic. Rewrite the FINAL user message into a standalone search query that:\n1. Identifies the topic from the conversation history\n2. Requests additional or different items not already shown\nOutput ONLY the rewritten query, nothing else.`;
 		} else {
-			prompt = `You are a search query optimizer for a customer support chatbot.\n\nConversation so far:\n${contextBlock}\nUser: ${q}\n\nRewrite the FINAL user message into a standalone, specific search query that resolves all pronouns and references from the conversation history. Output ONLY the rewritten query, nothing else.`;
+			prompt = `You are a search query optimizer for a customer support chatbot.\n\nConversation so far:\n${contextBlock}\nUser: ${q}\n\nRewrite the FINAL user message into a standalone, specific search query that:\n1. Preserves the action or intent from the conversation (e.g., if the user was asking about "creating reports", keep that intent in the rewritten query)\n2. Resolves all pronouns and subject references using the conversation history\nOutput ONLY the rewritten query, nothing else.`;
 		}
 	} else {
 		prompt = `You are a search query optimizer. Rewrite the following short user query into a broader, more descriptive retrieval query that will help find relevant business information. Output ONLY the rewritten query, nothing else.\n\nOriginal: ${q}\nRewritten:`;
@@ -280,5 +281,38 @@ export async function stepBackRewrite(
 	} catch {
 		logger.info("[RAG 1/5] step-back rewrite: failed, using original", { query: q });
 		return q;
+	}
+}
+
+// generateQueryVariations generates N question variations of the user's query
+// to improve matching against HyPE vectors stored in Pinecone.
+export async function generateQueryVariations(query: string, n: number = 3): Promise<string[]> {
+	if (!query.trim() || n <= 0) return [];
+	const prompt = `Generate exactly ${n} different ways to ask the following question. Keep each variation short and direct. Output ONLY the questions, one per line, no numbering, no extra text.\n\nOriginal: ${query}\n\nVariations:`;
+	try {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 8000);
+		try {
+			const completion = await openai.chat.completions.create(
+				{
+					model: "gpt-4o-mini",
+					messages: [{ role: "user", content: prompt }],
+					temperature: 0.7,
+					max_tokens: 120,
+				},
+				{ signal: controller.signal as any },
+			);
+			const lines = (completion.choices[0]?.message?.content ?? "")
+				.trim()
+				.split("\n")
+				.map((l) => l.trim())
+				.filter(Boolean);
+			logger.info("[HyPE query-time] generated variations", { original: query, variations: lines });
+			return lines.slice(0, n);
+		} finally {
+			clearTimeout(timeout);
+		}
+	} catch {
+		return [];
 	}
 }

@@ -1,0 +1,2 @@
+export const HYPE_REPAIR_PROCESS_INTERVAL_MS = 15 * 60 * 1000;
+export const HYPE_REPAIR_LOCK_TTL_MS = 2 * 60 * 60 * 1000;

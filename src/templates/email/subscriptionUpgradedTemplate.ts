@@ -133,7 +133,7 @@ export function buildSubscriptionUpgradedEmailTemplate(
 
                 <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="margin:20px auto 0 auto;">
                   <tr>
-                    <td align="center" bgcolor="#7916bb" style="border-radius:12px;">
+                    <td align="center" style="border-radius:12px; background:#7a08fa; background:linear-gradient(102.39deg, #7a08fa -79.19%, #f4464b 130.72%);">
                       <a
                         href="${accountUrl}"
                         style="display:inline-block; padding:10px 24px; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none;"
