@@ -57,6 +57,10 @@ interface FetchPageResult {
 	contentType: string;
 }
 
+const SCRAPER_PAGE_FETCH_TIMEOUT_MS = 20000;
+const SCRAPER_PAGE_FETCH_MAX_ATTEMPTS = 2;
+const SCRAPER_PAGE_FETCH_RETRY_DELAY_MS = 1200;
+
 const TRACKING_QUERY_KEYS = new Set([
 	"gclid",
 	"fbclid",
@@ -69,6 +73,27 @@ const TRACKING_QUERY_KEYS = new Set([
 ]);
 
 class ScraperService {
+	private async wait(ms: number): Promise<void> {
+		await new Promise((resolve) =>
+			setTimeout(resolve, ms),
+		);
+	}
+
+	private isRetryableFetchError(error: unknown): boolean {
+		if (!axios.isAxiosError(error)) {
+			return false;
+		}
+
+		const status = error.response?.status;
+		return (
+			error.code === "ECONNABORTED" ||
+			error.code === "ECONNRESET" ||
+			error.code === "ETIMEDOUT" ||
+			error.code === "EAI_AGAIN" ||
+			(status !== undefined && status >= 500)
+		);
+	}
+
 	private normalizeUrl(url: string): string {
 		try {
 			const urlObj = new URL(url.trim());
@@ -287,24 +312,77 @@ class ScraperService {
 				);
 			}
 			visitedRedirectStates.add(requestStateKey);
-			const response = await axios.get(
-				safeUrl.toString(),
-				{
-					headers: {
-						"User-Agent":
-							"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-						...(cookieHeader
-							? {
-									Cookie: cookieHeader,
-								}
-							: {}),
-					},
-					timeout: 10000,
-					maxRedirects: 0,
-					validateStatus: (status) =>
-						status >= 200 && status < 600,
-				},
-			);
+			let response;
+			let lastError: unknown = null;
+			for (
+				let attempt = 1;
+				attempt <=
+				SCRAPER_PAGE_FETCH_MAX_ATTEMPTS;
+				attempt += 1
+			) {
+				try {
+					response = await axios.get(
+						safeUrl.toString(),
+						{
+							headers: {
+								"User-Agent":
+									"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+								...(cookieHeader
+									? {
+											Cookie: cookieHeader,
+									  }
+									: {}),
+							},
+							timeout:
+								SCRAPER_PAGE_FETCH_TIMEOUT_MS,
+							maxRedirects: 0,
+							validateStatus: (
+								status,
+							) =>
+								status >= 200 &&
+								status < 600,
+						},
+					);
+					lastError = null;
+					break;
+				} catch (error) {
+					lastError = error;
+					if (
+						attempt >=
+							SCRAPER_PAGE_FETCH_MAX_ATTEMPTS ||
+						!this.isRetryableFetchError(
+							error,
+						)
+					) {
+						break;
+					}
+
+					logger.warn(
+						"Retrying scraper page fetch after transient failure",
+						{
+							url: safeUrl.toString(),
+							attempt,
+							maxAttempts:
+								SCRAPER_PAGE_FETCH_MAX_ATTEMPTS,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+					await this.wait(
+						SCRAPER_PAGE_FETCH_RETRY_DELAY_MS,
+					);
+				}
+			}
+
+			if (!response) {
+				throw lastError instanceof Error
+					? lastError
+					: new Error(
+							"Failed to fetch page content",
+					  );
+			}
 			const setCookieHeaders =
 				response.headers["set-cookie"];
 			const cookies = Array.isArray(

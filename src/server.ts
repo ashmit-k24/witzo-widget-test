@@ -15,6 +15,7 @@ import passport, {
 } from "./config/passport";
 import {
 	AUTH_CLEANUP_INTERVAL_MS,
+	HYPE_REPAIR_PROCESS_INTERVAL_MS,
 	HUBSPOT_SYNC_PROCESS_INTERVAL_MS,
 	RESPONSE_COMPRESSION_MIN_BYTES,
 	SALESFORCE_SYNC_PROCESS_INTERVAL_MS,
@@ -38,6 +39,7 @@ import adminAuthService from "./services/adminAuthService";
 import authService from "./services/authService";
 import { leadWebhookService } from "./services/leadWebhookService";
 import { hubspotIntegrationService } from "./services/hubspotIntegrationService";
+import { hypeRepairService } from "./services/hypeRepairService";
 import { salesforceIntegrationService } from "./services/salesforceIntegrationService";
 import { zohoIntegrationService } from "./services/zohoIntegrationService";
 import widgetService from "./services/widgetService";
@@ -363,6 +365,18 @@ setInterval(() => {
 		});
 }, SALESFORCE_SYNC_PROCESS_INTERVAL_MS);
 
+// Periodically repair missing HyPE chunks for already-scraped websites
+setInterval(() => {
+	hypeRepairService
+		.processPendingRepairs()
+		.catch((error: Error) => {
+			logger.error(
+				"Scheduled HyPE repair processing failed",
+				{ error: error.message },
+			);
+		});
+}, HYPE_REPAIR_PROCESS_INTERVAL_MS);
+
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {
 	logger.info(
@@ -409,6 +423,14 @@ const server: Server = app.listen(
 			`🚀 Server is running on http://localhost:${config.PORT}`,
 		);
 		void adminAuthService.initializeAdminAuth();
+		void hypeRepairService
+			.processPendingRepairs()
+			.catch((error: Error) => {
+				logger.error(
+					"Initial HyPE repair processing failed",
+					{ error: error.message },
+				);
+			});
 	},
 );
 server.keepAliveTimeout =

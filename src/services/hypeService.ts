@@ -9,6 +9,7 @@ export interface HypeJobPayload {
 	userId: string;
 	rawChunks: RagChunk[];
 	websiteName?: string;
+	repairLockKey?: string;
 }
 
 const openai = new OpenAI({
@@ -74,7 +75,12 @@ async function generateHypeQuestions(
 				.split("\n")
 				.map((l) => l.trim())
 				.filter(Boolean);
-			return lines.slice(0, n);
+			const result = lines.slice(0, n);
+			console.log("[HyPE] Generated questions:", {
+				chunkPreview: truncated.slice(0, 120) + "...",
+				questions: result,
+			});
+			return result;
 		} finally {
 			clearTimeout(timeout);
 		}
@@ -83,7 +89,7 @@ async function generateHypeQuestions(
 	}
 }
 
-function stableVectorIdForChunk(
+export function stableVectorIdForChunk(
 	chunk: RagChunk,
 ): string {
 	const input = `${chunk.userId}|${chunk.sourceType}|${chunk.sourceKey}|${chunk.url}|${chunk.chunkIndex}`;
@@ -239,6 +245,32 @@ export async function enqueueAsync(
 	});
 	logger.info("hypeService: job enqueued", {
 		userId,
+		sourceChunks: rawChunks.length,
+	});
+}
+
+export async function enqueueRepairAsync(
+	userId: string,
+	rawChunks: RagChunk[],
+	websiteName?: string,
+	repairLockKey?: string,
+): Promise<void> {
+	const n = config.HYPE_QUESTIONS_PER_CHUNK ?? 0;
+	if (n <= 0 || rawChunks.length === 0) return;
+
+	const sourceKey = rawChunks[0]?.sourceKey || "unknown";
+	const payload: HypeJobPayload = {
+		userId,
+		rawChunks,
+		websiteName,
+		repairLockKey,
+	};
+	await hypeQueue.add("repair", payload, {
+		jobId: `hype-repair:${userId}:${crypto.createHash("sha1").update(sourceKey).digest("hex").slice(0, 16)}`,
+	});
+	logger.info("hypeService: repair job enqueued", {
+		userId,
+		sourceKey,
 		sourceChunks: rawChunks.length,
 	});
 }

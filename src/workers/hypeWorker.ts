@@ -3,18 +3,25 @@ import { config } from "../config/env";
 import { HYPE_QUEUE_NAME } from "../config/hypeQueue";
 import { HypeJobPayload, processHypeChunks } from "../services/hypeService";
 import { pineconeService } from "../services/pineconeService";
+import { redisCache } from "../config/redis";
 import logger from "../utils/logger";
 
 const processHypeJob = async (job: Job<HypeJobPayload>) => {
-	const { userId, rawChunks, websiteName } = job.data;
-	await processHypeChunks(
-		userId,
-		rawChunks,
-		async (ownerId, hypeChunks) =>
-			pineconeService.upsertChunks(ownerId, hypeChunks),
-		websiteName,
-	);
-	return { userId, chunksProcessed: rawChunks.length };
+	const { userId, rawChunks, websiteName, repairLockKey } = job.data;
+	try {
+		await processHypeChunks(
+			userId,
+			rawChunks,
+			async (ownerId, hypeChunks) =>
+				pineconeService.upsertChunks(ownerId, hypeChunks),
+			websiteName,
+		);
+		return { userId, chunksProcessed: rawChunks.length };
+	} finally {
+		if (repairLockKey) {
+			await redisCache.del(repairLockKey);
+		}
+	}
 };
 
 export const createHypeWorker = () => {

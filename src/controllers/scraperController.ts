@@ -7,7 +7,7 @@ import { chatService } from "../services/chatService";
 import { pineconeService } from "../services/pineconeService";
 import { scraperStatusService } from "../services/scraperStatusService";
 import { domainPolicyService } from "../services/domainPolicyService";
-import { runScrapeJob } from "../services/scrapeJobService";
+import { enqueueScrapeJob } from "../services/scrapeJobService";
 import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
@@ -146,9 +146,7 @@ const queueScrapeAfterDeleteAll = (
 				return;
 			}
 
-			await runScrapeJob(jobPayload, {
-				source: "direct",
-			});
+			await enqueueScrapeJob(jobPayload);
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : String(error);
@@ -368,6 +366,15 @@ export const scrapeWebsite = async (
 			mode: "scrape",
 		} as const;
 
+		if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
+			queueScrapeAfterDeleteAll(
+				blockingDeleteAllJob.jobId,
+				jobPayload,
+			);
+		} else {
+			await enqueueScrapeJob(jobPayload);
+		}
+
 		res.status(202).json({
 			success: true,
 			message:
@@ -376,29 +383,6 @@ export const scrapeWebsite = async (
 				job,
 			},
 		});
-
-		if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
-			queueScrapeAfterDeleteAll(
-				blockingDeleteAllJob.jobId,
-				jobPayload,
-			);
-		} else {
-			void runScrapeJob(jobPayload, {
-				source: "direct",
-			}).catch((error) => {
-				logger.error(
-					"Direct scrape execution failed after request acceptance",
-					{
-						jobId: jobPayload.jobId,
-						url: jobPayload.url,
-						error:
-							error instanceof Error
-								? error.message
-								: String(error),
-					},
-				);
-			});
-		}
 	} catch (error) {
 		if (jobId) {
 			const message =
@@ -1196,6 +1180,15 @@ export const retrainWebsite = async (
 				mode: "retrain",
 			} as const;
 
+			if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
+				queueScrapeAfterDeleteAll(
+					blockingDeleteAllJob.jobId,
+					jobPayload,
+				);
+			} else {
+				await enqueueScrapeJob(jobPayload);
+			}
+
 		res.status(202).json({
 			success: true,
 			message:
@@ -1204,29 +1197,6 @@ export const retrainWebsite = async (
 				job,
 			},
 		});
-
-			if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
-				queueScrapeAfterDeleteAll(
-					blockingDeleteAllJob.jobId,
-					jobPayload,
-				);
-			} else {
-				void runScrapeJob(jobPayload, {
-					source: "direct",
-				}).catch((error) => {
-					logger.error(
-						"Direct retrain execution failed after request acceptance",
-						{
-							jobId: jobPayload.jobId,
-							url: jobPayload.url,
-							error:
-								error instanceof Error
-									? error.message
-									: String(error),
-						},
-					);
-				});
-			}
 	} catch (error) {
 		if (jobId) {
 			const message =
