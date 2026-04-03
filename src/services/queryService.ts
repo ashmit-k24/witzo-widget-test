@@ -225,7 +225,8 @@ export async function stepBackRewrite(
 	if (ok) return rewritten;
 
 	const normalized = normalizeWidgetQuery(q);
-	const needsContext = isFollowUpIntent(normalized) || isPaginationIntent(normalized);
+	const isShortFollowUp = q.split(/\s+/).length <= 4 && !!history?.length;
+	const needsContext = isFollowUpIntent(normalized) || isPaginationIntent(normalized) || isShortFollowUp;
 
 	if (!needsContext && q.split(/\s+/).length > 12) {
 		logger.info("[RAG 1/5] step-back rewrite: skipped (query > 12 words)", { query: q });
@@ -251,7 +252,7 @@ export async function stepBackRewrite(
 		if (isPaginationIntent(normalized)) {
 			prompt = `You are a search query optimizer for a customer support chatbot.\n\nConversation so far:\n${contextBlock}\nUser: ${q}\n\nThe user wants MORE results on the same topic. Rewrite the FINAL user message into a standalone search query that:\n1. Identifies the topic from the conversation history\n2. Requests additional or different items not already shown\nOutput ONLY the rewritten query, nothing else.`;
 		} else {
-			prompt = `You are a search query optimizer for a customer support chatbot.\n\nConversation so far:\n${contextBlock}\nUser: ${q}\n\nRewrite the FINAL user message into a standalone, specific search query that resolves all pronouns and references from the conversation history. Output ONLY the rewritten query, nothing else.`;
+			prompt = `You are a search query optimizer for a customer support chatbot.\n\nConversation so far:\n${contextBlock}\nUser: ${q}\n\nRewrite the FINAL user message into a standalone, specific search query that:\n1. Preserves the action or intent from the conversation (e.g., if the user was asking about "creating reports", keep that intent in the rewritten query)\n2. Resolves all pronouns and subject references using the conversation history\nOutput ONLY the rewritten query, nothing else.`;
 		}
 	} else {
 		prompt = `You are a search query optimizer. Rewrite the following short user query into a broader, more descriptive retrieval query that will help find relevant business information. Output ONLY the rewritten query, nothing else.\n\nOriginal: ${q}\nRewritten:`;

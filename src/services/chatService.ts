@@ -819,6 +819,81 @@ ${message}`;
 		return "I'm still learning this site. Try again in a few minutes.";
 	}
 
+	// ── Email lead capture helpers ──────────────────────────────────────────
+
+	private getEmailLeadStateKey(sessionId: string): string {
+		return `chat:email-lead:${sessionId}`;
+	}
+
+	private async getEmailLeadState(
+		sessionId: string,
+	): Promise<{ asked: boolean; email: string | null } | null> {
+		const cached = await redisCache.get(
+			this.getEmailLeadStateKey(sessionId),
+		);
+		if (!cached) return null;
+		try {
+			return JSON.parse(cached) as {
+				asked: boolean;
+				email: string | null;
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	private async saveEmailLeadState(
+		sessionId: string,
+		state: { asked: boolean; email: string | null },
+	): Promise<void> {
+		await redisCache.setex(
+			this.getEmailLeadStateKey(sessionId),
+			60 * 60 * 24 * 7,
+			JSON.stringify(state),
+		);
+	}
+
+	private tryExtractEmail(message: string): string | null {
+		const match = message.match(
+			/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/,
+		);
+		return match ? match[0] : null;
+	}
+
+	private buildEmailAskSuffix(): string {
+		return "May I have your email address? It would help us follow up with you personally.";
+	}
+
+	private buildNoDataEmailAskResponse(): string {
+		return "I'd love to connect you with the right person from our team! May I have your email ID so we can reach out to you directly?";
+	}
+
+	private looksLikeNoDataResponse(response: string): boolean {
+		const lower = response.toLowerCase();
+		return (
+			lower.includes("doesn't seem to be a question") ||
+			lower.includes("does not seem to be a question") ||
+			lower.includes("don't have information about that") ||
+			lower.includes("do not have information about that") ||
+			lower.includes("no information available") ||
+			lower.includes("not able to find") ||
+			lower.includes("unable to find") ||
+			lower.includes("couldn't find information") ||
+			lower.includes("i don't have the right information") ||
+			lower.includes("i may not have the right information") ||
+			lower.includes("doesn't appear to be related") ||
+			lower.includes("does not appear to be related") ||
+			lower.includes("not find any information") ||
+			lower.includes("no relevant information") ||
+			lower.includes("doesn't seem related") ||
+			lower.includes("does not seem related") ||
+			lower.includes("i'm not sure what you're asking") ||
+			lower.includes("i'm not sure what you are asking") ||
+			lower.includes("could you clarify") ||
+			lower.includes("could you please clarify")
+		);
+	}
+
 	private async hasActiveScrapeJob(
 		userId: string,
 	): Promise<boolean> {
@@ -889,16 +964,6 @@ ${message}`;
 		matches: any[],
 		minScore: number,
 	): any[] {
-		console.log(
-			"[HyPE] All Pinecone matches before filter:",
-			matches.map((m) => ({
-				score: this.ragMatchScore(m),
-				// isHype: m?.metadata?.isHype,
-				// hypeQuestion: m?.metadata?.isHype ? m?.metadata?.content || m?.metadata?.text : undefined,
-				title: m?.metadata?.title,
-				url: m?.metadata?.url,
-			})),
-		);
 		return matches.filter((match) => {
 			const score = this.ragMatchScore(match);
 			return score >= minScore;
@@ -1085,9 +1150,9 @@ ${message}`;
 	private buildServiceOverviewPromptNote(): string {
 		return [
 			"For service-overview questions, preserve the website's own service structure whenever possible.",
-			"If the context contains a named section like 'Our website development services', use that exact category wording instead of replacing it with a generic umbrella label.",
+			"If the knowledge base contains a named section like 'Our website development services', use that exact category wording instead of replacing it with a generic umbrella label.",
 			"List explicitly mentioned sub-services beneath the relevant main service family.",
-			"After the strongest primary service section, add a short 'Other services we offer' section for additional categories if the context supports them.",
+			"After the strongest primary service section, add a short 'Other services we offer' section for additional categories if the knowledge base supports them.",
 			"Do not collapse distinct website-listed services into a vague digital-agency summary.",
 		].join("\n");
 	}
@@ -1109,8 +1174,8 @@ ${message}`;
 			"- Match response depth to the question — factual questions get concise answers, detail-seeking questions get thorough answers.\n" +
 			"- If the question is broad (e.g. 'what do you do'), give a structured overview covering all major areas.\n\n" +
 			"## Accuracy Rules\n" +
-			"- Use the provided context as your primary source. Extract all relevant details — names, stats, descriptions.\n" +
-			"- Never invent facts, prices, metrics, or claims not found in the context.\n" +
+			"- Use the provided knowledge base as your primary source. Extract all relevant details — names, stats, descriptions.\n" +
+			"- Never invent facts, prices, metrics, or claims not found in the knowledge base.\n" +
 			"- If specific information is missing, say so clearly and suggest where the visitor can learn more.\n\n" +
 			"## Tone Rules\n" +
 			"- Be friendly, confident, and professional.\n" +
@@ -1145,9 +1210,9 @@ ${message}`;
 		) {
 			lines.push(
 				"For service-overview questions, mirror the website's own service structure when possible.",
-				"If the context shows a named service family like 'Our website development services', use that exact wording as a heading.",
+				"If the knowledge base shows a named service family like 'Our website development services', use that exact wording as a heading.",
 				"List the explicitly mentioned sub-services underneath that heading instead of flattening everything into generic agency categories.",
-				"After the lead section, add 'Other services we offer' only when there are clearly separate additional categories in the context.",
+				"After the lead section, add 'Other services we offer' only when there are clearly separate additional categories in the knowledge base.",
 			);
 		}
 		if (
@@ -1155,7 +1220,7 @@ ${message}`;
 			isWidgetTopListQuery(normalized)
 		) {
 			lines.push(
-				"For top case studies or project questions, curate the strongest 3-6 examples from the context instead of dumping everything.",
+				"For top case studies or project questions, curate the strongest 3-6 examples from the knowledge base instead of dumping everything.",
 				"Prioritize named brands, flagship work, and concrete outcomes or metrics when available.",
 				"Format each example in one tight bullet: Brand - what was done and the strongest result.",
 			);
@@ -1165,14 +1230,14 @@ ${message}`;
 			isWidgetCaseStudyQuery(normalized)
 		) {
 			lines.push(
-				"For medical or healthcare case-study questions, include only the clearly relevant healthcare examples from the context.",
+				"For medical or healthcare case-study questions, include only the clearly relevant healthcare examples from the knowledge base.",
 				"For each example, give the brand or clinic name plus the key result, objective, or channel in one or two lines.",
 			);
 		}
 		if (isWidgetLocationQuery(normalized)) {
 			lines.push(
-				"For location questions, answer with exact office addresses first when they are present in the context.",
-				"If the context only confirms cities or countries, say that clearly instead of implying a full street address.",
+				"For location questions, answer with exact office addresses first when they are present in the knowledge base.",
+				"If the knowledge base only confirms cities or countries, say that clearly instead of implying a full street address.",
 			);
 		}
 		return lines.join("\n");
@@ -1200,9 +1265,9 @@ ${message}`;
 		) {
 			lines.push(
 				"- For service overviews, always group related services under clear headings instead of returning one flat list.",
-				"- For service overviews, preserve the website's own category labels and service-family headings when they are visible in the context.",
+				"- For service overviews, preserve the website's own category labels and service-family headings when they are visible in the knowledge base.",
 				"- If a source explicitly lists sub-services, show them as bullets under the main service family.",
-				"- Avoid generic umbrella wording when the context gives a more exact service name.",
+				"- Avoid generic umbrella wording when the knowledge base gives a more exact service name.",
 			);
 		}
 		if (
@@ -1777,28 +1842,29 @@ ${message}`;
 			if (
 				knowledgeBoundary === "workspace_only"
 			) {
-				userPrompt = `Answer using ONLY the information provided in the context below.
+				userPrompt = `Answer using ONLY the information provided in the knowledge base below or the conversation history above.
 Treat page titles, URLs, headings, and snippets as relevant evidence about the business.
-Synthesize across multiple context sections to form the most complete answer you can.
-For broad overview questions asking for services, products, features, or capabilities, compile a combined list from every relevant context section and infer the service or category name from the source title or URL when needed.
-If the context partially answers the question, provide the supported details you do have instead of refusing.
-If the user is asking for "more" or additional items and the context does not contain more items beyond what was already discussed, acknowledge that these are all the results available and suggest they visit the website or contact the team for a complete list.
-When the context includes a URL for a specific blog post, article, or resource the user is asking about, include it as a clickable markdown link — e.g. [Read more](https://...).
-Only say you don't have information when the context is genuinely not related to the question at all.
+Synthesize across multiple sections to form the most complete answer you can.
+For broad overview questions asking for services, products, features, or capabilities, compile a combined list from every relevant section and infer the service or category name from the source title or URL when needed.
+If the answer to this question was already stated in the conversation history above, use that — do not say the information is not in the knowledge base.
+If the knowledge base partially answers the question, provide the supported details you do have instead of refusing.
+If the user is asking for "more" or additional items and the knowledge base does not contain more items beyond what was already discussed, acknowledge that these are all the results available and suggest they visit the website or contact the team for a complete list.
+When the knowledge base includes a URL for a specific blog post, article, or resource the user is asking about, include it as a clickable markdown link — e.g. [Read more](https://...).
+Only say you don't have information when the knowledge base is genuinely not related to the question at all.
 ${serviceOverviewNote}
 
-Context:
+Knowledge Base:
 ${contextBlock}
 
 Question: ${query}${formatDirective}`;
 			} else {
-				userPrompt = `Answer the user's question using the context below as your primary source.
-If the context does not fully cover the question, use your general knowledge to fill in, but never fabricate specific facts, prices, features, or policies about this company that are not in the context.
-If the user is asking for "more" items and the context has no further results, acknowledge that and suggest they visit the website.
-When the context includes a URL for a blog post, article, or resource being asked about, include it as a clickable markdown link.
+				userPrompt = `Answer the user's question using the knowledge base below as your primary source.
+If the knowledge base does not fully cover the question, use your general knowledge to fill in, but never fabricate specific facts, prices, features, or policies about this company that are not in the knowledge base.
+If the user is asking for "more" items and the knowledge base has no further results, acknowledge that and suggest they visit the website.
+When the knowledge base includes a URL for a blog post, article, or resource being asked about, include it as a clickable markdown link.
 ${serviceOverviewNote}
 
-Context:
+Knowledge Base:
 ${contextBlock}
 
 Question: ${query}${formatDirective}`;
@@ -2503,6 +2569,50 @@ Question: ${query}${formatDirective}`;
 				);
 			timing.llmMs = Date.now() - llmStart;
 
+			// ── Email lead capture ───────────────────────────────────────────
+			const emailLeadState = await this.getEmailLeadState(
+				session.sessionId,
+			);
+			if (!emailLeadState?.email) {
+				const extractedEmail = emailLeadState?.asked
+					? this.tryExtractEmail(message)
+					: null;
+				if (extractedEmail) {
+					await this.saveEmailLeadState(session.sessionId, {
+						asked: true,
+						email: extractedEmail,
+					});
+				} else {
+					const isNoData =
+						!shouldSkipRetrieval &&
+						(!shouldCallLlm ||
+							usedFallback ||
+							this.looksLikeNoDataResponse(
+								assistantResponse,
+							));
+					const userMsgCount = session.messages.filter(
+						(m) => m.role === "user",
+					).length;
+					if (isNoData) {
+						assistantResponse =
+							this.buildNoDataEmailAskResponse();
+						usedFallback = true;
+					} else if (userMsgCount >= 3) {
+						assistantResponse =
+							assistantResponse.trimEnd() +
+							"\n\n" +
+							this.buildEmailAskSuffix();
+					}
+					if (isNoData || userMsgCount >= 3) {
+						await this.saveEmailLeadState(
+							session.sessionId,
+							{ asked: true, email: null },
+						);
+					}
+				}
+			}
+			// ────────────────────────────────────────────────────────────────
+
 			const usageMeta =
 				this.buildUsageMetadata(usage);
 			const assistantTimestamp =
@@ -2741,6 +2851,58 @@ Question: ${query}${formatDirective}`;
 				message,
 				websiteName,
 			);
+
+		// ── Email lead capture ─────────────────────────────────────────────
+		const emailLeadState = await this.getEmailLeadState(
+			session.sessionId,
+		);
+		if (!emailLeadState?.email) {
+			const extractedEmail = emailLeadState?.asked
+				? this.tryExtractEmail(message)
+				: null;
+			if (extractedEmail) {
+				await this.saveEmailLeadState(session.sessionId, {
+					asked: true,
+					email: extractedEmail,
+				});
+			} else {
+				const isHardNoData =
+					!shouldCallLlm && !shouldSkipRetrieval;
+				const isSoftNoData =
+					!shouldSkipRetrieval &&
+					!isHardNoData &&
+					(usedFallback ||
+						this.looksLikeNoDataResponse(
+							assistantResponse,
+						));
+				const userMsgCount = session.messages.filter(
+					(m) => m.role === "user",
+				).length;
+
+				if (isHardNoData) {
+					// Nothing was streamed yet — send the full email ask
+					const emailMsg =
+						this.buildNoDataEmailAskResponse();
+					assistantResponse = emailMsg;
+					usedFallback = true;
+					options?.onToken?.(emailMsg);
+				} else if (isSoftNoData || userMsgCount >= 3) {
+					// LLM already streamed — append email ask as extra token
+					const suffix =
+						"\n\n" + this.buildEmailAskSuffix();
+					assistantResponse =
+						assistantResponse.trimEnd() + suffix;
+					options?.onToken?.(suffix);
+				}
+				if (isHardNoData || isSoftNoData || userMsgCount >= 3) {
+					await this.saveEmailLeadState(
+						session.sessionId,
+						{ asked: true, email: null },
+					);
+				}
+			}
+		}
+		// ──────────────────────────────────────────────────────────────────
 
 		const usageMeta =
 			this.buildUsageMetadata(usage);
