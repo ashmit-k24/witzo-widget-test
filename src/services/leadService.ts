@@ -599,6 +599,147 @@ ${fullConversation}`;
 		}
 	}
 
+	async saveManualConversationLead(
+		userId: string,
+		sessionId: string,
+		widgetKeyId: number | null,
+		data: {
+			name: string;
+			email: string;
+			phone: string;
+			ipAddress?: string | null;
+			sourceUrl?: string | null;
+		},
+	): Promise<void> {
+		const result = await pool.query<{
+			id: string;
+			status: "new" | "contacted" | "qualified" | "converted";
+		}>(
+			`INSERT INTO leads
+				(user_id, widget_key_id, session_id, name, email, phone,
+				 raw_contact, ip_address, source_url, message_count, status)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 'new')
+			 ON CONFLICT (user_id, session_id) DO UPDATE SET
+				name         = COALESCE(EXCLUDED.name, leads.name),
+				email        = COALESCE(EXCLUDED.email, leads.email),
+				phone        = COALESCE(EXCLUDED.phone, leads.phone),
+				raw_contact  = EXCLUDED.raw_contact,
+				updated_at   = CURRENT_TIMESTAMP
+			 RETURNING id, status`,
+			[
+				userId,
+				widgetKeyId,
+				sessionId,
+				data.name,
+				data.email,
+				data.phone,
+				JSON.stringify({
+					name: data.name,
+					email: data.email,
+					phone: data.phone,
+				}),
+				data.ipAddress ?? null,
+				data.sourceUrl ?? null,
+			],
+		);
+
+		logger.info("Manual conversation lead saved", {
+			userId,
+			sessionId,
+		});
+
+		const leadId = result.rows[0]?.id;
+		if (!leadId) {
+			return;
+		}
+
+		const payload = {
+			leadId,
+			sessionId,
+			widgetKeyId,
+			status: result.rows[0]?.status ?? "new",
+			contact: {
+				name: data.name,
+				email: data.email,
+				phone: data.phone,
+			},
+			metadata: {
+				ipAddress: data.ipAddress ?? null,
+				sourceUrl: data.sourceUrl ?? null,
+			},
+			messageCount: 0,
+		};
+
+		void leadWebhookService
+			.queueLeadEvent(
+				userId,
+				"lead.upserted",
+				payload,
+				leadId,
+			)
+			.catch((error) => {
+				logger.error(
+					"Failed to queue webhook for manual conversation lead",
+					{
+						error,
+						userId,
+						sessionId,
+					},
+				);
+			});
+		void hubspotIntegrationService
+			.queueLeadEvent(
+				userId,
+				"lead.upserted",
+				payload,
+				leadId,
+			)
+			.catch((error) => {
+				logger.error(
+					"Failed to queue HubSpot sync for manual conversation lead",
+					{
+						error,
+						userId,
+						sessionId,
+					},
+				);
+			});
+		void zohoIntegrationService
+			.queueLeadEvent(
+				userId,
+				"lead.upserted",
+				payload,
+				leadId,
+			)
+			.catch((error) => {
+				logger.error(
+					"Failed to queue Zoho sync for manual conversation lead",
+					{
+						error,
+						userId,
+						sessionId,
+					},
+				);
+			});
+		void salesforceIntegrationService
+			.queueLeadEvent(
+				userId,
+				"lead.upserted",
+				payload,
+				leadId,
+			)
+			.catch((error) => {
+				logger.error(
+					"Failed to queue Salesforce sync for manual conversation lead",
+					{
+						error,
+						userId,
+						sessionId,
+					},
+				);
+			});
+	}
+
 	async getLeads(
 		userId: string,
 		options: LeadListOptions = {},

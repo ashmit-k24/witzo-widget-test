@@ -27,6 +27,7 @@ import {
 	calendlyIntegrationService,
 	CalendlyWidgetBookingAction,
 } from "./calendlyIntegrationService";
+import { leadService } from "./leadService";
 import { pineconeService } from "./pineconeService";
 import {
 	isAppointmentBookingIntent,
@@ -80,6 +81,14 @@ type ContextResult = {
 		title: string;
 		relevanceScore: number;
 	}>;
+};
+
+type ManualLeadField = "name" | "email" | "phone";
+
+type ManualLeadCaptureState = {
+	active: boolean;
+	fields: Partial<Record<ManualLeadField, string>>;
+	updatedAt: string;
 };
 
 type ChatTiming = {
@@ -822,43 +831,50 @@ ${message}`;
 
 	// ── Email lead capture helpers ──────────────────────────────────────────
 
-	private getEmailLeadStateKey(
+	private getManualLeadCaptureStateKey(
 		sessionId: string,
 	): string {
-		return `chat:email-lead:${sessionId}`;
+		return `chat:manual-lead:${sessionId}`;
 	}
 
-	private async getEmailLeadState(
+	private async getManualLeadCaptureState(
 		sessionId: string,
-	): Promise<{
-		asked: boolean;
-		email: string | null;
-	} | null> {
+	): Promise<ManualLeadCaptureState | null> {
 		const cached = await redisCache.get(
-			this.getEmailLeadStateKey(sessionId),
+			this.getManualLeadCaptureStateKey(
+				sessionId,
+			),
 		);
 		if (!cached) return null;
 		try {
-			return JSON.parse(cached) as {
-				asked: boolean;
-				email: string | null;
-			};
+			return JSON.parse(
+				cached,
+			) as ManualLeadCaptureState;
 		} catch {
 			return null;
 		}
 	}
 
-	private async saveEmailLeadState(
+	private async saveManualLeadCaptureState(
 		sessionId: string,
-		state: {
-			asked: boolean;
-			email: string | null;
-		},
+		state: ManualLeadCaptureState,
 	): Promise<void> {
 		await redisCache.setex(
-			this.getEmailLeadStateKey(sessionId),
+			this.getManualLeadCaptureStateKey(
+				sessionId,
+			),
 			60 * 60 * 24 * 7,
 			JSON.stringify(state),
+		);
+	}
+
+	private async clearManualLeadCaptureState(
+		sessionId: string,
+	): Promise<void> {
+		await redisCache.del(
+			this.getManualLeadCaptureStateKey(
+				sessionId,
+			),
 		);
 	}
 
@@ -871,66 +887,128 @@ ${message}`;
 		return match ? match[0] : null;
 	}
 
-	private buildEmailAskSuffix(): string {
-		return "To assist you better, could you please share your name, email address, and phone number?";
+	private createManualLeadCaptureState(): ManualLeadCaptureState {
+		return {
+			active: true,
+			fields: {},
+			updatedAt: new Date().toISOString(),
+		};
 	}
 
-	private buildNoDataEmailAskResponse(): string {
-		return "I'd love to connect you with the right person from our team! May I have your email ID so we can reach out to you directly?";
+	private getNextManualLeadField(
+		state: ManualLeadCaptureState,
+	): ManualLeadField | null {
+		const orderedFields: ManualLeadField[] = [
+			"name",
+			"email",
+			"phone",
+		];
+		for (const field of orderedFields) {
+			if (!state.fields[field]?.trim()) {
+				return field;
+			}
+		}
+		return null;
 	}
 
-	private looksLikeNoDataResponse(
-		response: string,
-	): boolean {
-		const lower = response.toLowerCase();
-		return (
-			lower.includes(
-				"doesn't seem to be a question",
-			) ||
-			lower.includes(
-				"does not seem to be a question",
-			) ||
-			lower.includes(
-				"don't have information about that",
-			) ||
-			lower.includes(
-				"do not have information about that",
-			) ||
-			lower.includes(
-				"no information available",
-			) ||
-			lower.includes("not able to find") ||
-			lower.includes("unable to find") ||
-			lower.includes(
-				"couldn't find information",
-			) ||
-			lower.includes(
-				"i don't have the right information",
-			) ||
-			lower.includes(
-				"i may not have the right information",
-			) ||
-			lower.includes(
-				"doesn't appear to be related",
-			) ||
-			lower.includes(
-				"does not appear to be related",
-			) ||
-			lower.includes(
-				"not find any information",
-			) ||
-			lower.includes("no relevant information") ||
-			lower.includes("doesn't seem related") ||
-			lower.includes("does not seem related") ||
-			lower.includes(
-				"i'm not sure what you're asking",
-			) ||
-			lower.includes(
-				"i'm not sure what you are asking",
-			) ||
-			lower.includes("could you clarify") ||
-			lower.includes("could you please clarify")
-		);
+	private buildManualLeadCapturePrompt(
+		field: ManualLeadField,
+		name?: string | null,
+	): string {
+		switch (field) {
+			case "name":
+				return "Before we wrap up, may I have your full name?";
+			case "email":
+				return name
+					? `Thanks, ${name}. What email address should we use to reach you?`
+					: "Thanks. What email address should we use to reach you?";
+			case "phone":
+				return "Perfect. May I have your phone number as well?";
+			default:
+				return "Please share your details so our team can reach you.";
+		}
+	}
+
+	private buildManualLeadCaptureInvalidPrompt(
+		field: ManualLeadField,
+	): string {
+		switch (field) {
+			case "name":
+				return "Please share your full name so our team knows who to contact.";
+			case "email":
+				return "Please share a valid email address so our team can reach you.";
+			case "phone":
+				return "Please share a valid phone number, including country code if possible.";
+			default:
+				return "Please share the requested contact detail.";
+		}
+	}
+
+	private captureManualLeadField(
+		state: ManualLeadCaptureState,
+		field: ManualLeadField,
+		message: string,
+	): {
+		state: ManualLeadCaptureState;
+		valid: boolean;
+	} {
+		const nextState: ManualLeadCaptureState = {
+			...state,
+			fields: {
+				...state.fields,
+			},
+			updatedAt: new Date().toISOString(),
+		};
+		const trimmed = message.trim();
+
+		switch (field) {
+			case "name": {
+				const extractedName =
+					this.extractNameCandidate(trimmed) ||
+					(this.isBasicAppointmentTextFieldValue(
+						trimmed,
+					)
+						? trimmed
+						: null);
+				if (!extractedName) {
+					return {
+						state: nextState,
+						valid: false,
+					};
+				}
+				nextState.fields.name =
+					extractedName;
+				return { state: nextState, valid: true };
+			}
+			case "email": {
+				const email =
+					this.tryExtractEmail(trimmed);
+				if (!email) {
+					return {
+						state: nextState,
+						valid: false,
+					};
+				}
+				nextState.fields.email = email;
+				return { state: nextState, valid: true };
+			}
+			case "phone": {
+				const phone =
+					this.extractPhoneCandidate(
+						trimmed,
+					);
+				if (!phone) {
+					return {
+						state: nextState,
+						valid: false,
+					};
+				}
+				nextState.fields.phone = phone;
+				return { state: nextState, valid: true };
+			}
+			default:
+				return { state: nextState, valid: false };
+		}
 	}
 
 	private async hasActiveScrapeJob(
@@ -944,6 +1022,260 @@ ${message}`;
 			latest?.status === "pending" ||
 			latest?.status === "in_progress"
 		);
+	}
+
+	private async handleManualLeadCaptureTurn(
+		userId: string,
+		session: ChatSession,
+		message: string,
+		language: string | undefined,
+		timing: ChatTiming,
+		onToken?: (token: string) => void,
+	): Promise<{
+		sessionId: string;
+		response: string;
+		language?: string;
+		manualLeadCapture?: boolean;
+		sources: Array<{
+			url: string;
+			title: string;
+			relevanceScore: number;
+		}>;
+		timing: ChatTiming;
+	} | null> {
+		const currentState =
+			await this.getManualLeadCaptureState(
+				session.sessionId,
+			);
+		if (!currentState?.active) {
+			return null;
+		}
+
+		let state = currentState;
+		let response = "";
+		const expectedField =
+			this.getNextManualLeadField(state);
+
+		if (!expectedField) {
+			await this.clearManualLeadCaptureState(
+				session.sessionId,
+			);
+			return null;
+		}
+
+		const captured =
+			this.captureManualLeadField(
+				state,
+				expectedField,
+				message,
+			);
+		state = captured.state;
+		if (!captured.valid) {
+			response =
+				this.buildManualLeadCaptureInvalidPrompt(
+					expectedField,
+				);
+		}
+
+		const nextField =
+			this.getNextManualLeadField(state);
+		if (!response) {
+			if (nextField) {
+				response =
+					this.buildManualLeadCapturePrompt(
+						nextField,
+						state.fields.name,
+					);
+			} else {
+				const context =
+					await this.getConversationContext(
+						session.sessionId,
+						userId,
+					);
+				await leadService.saveManualConversationLead(
+					userId,
+					session.sessionId,
+					context?.widgetKeyId ?? null,
+					{
+						name:
+							state.fields.name?.trim() ||
+							"",
+						email:
+							state.fields.email?.trim() ||
+							"",
+						phone:
+							state.fields.phone?.trim() ||
+							"",
+					},
+				);
+				response =
+					"Thank you. Our team will reach out to you soon.";
+			}
+		}
+
+		if (nextField) {
+			await this.saveManualLeadCaptureState(
+				session.sessionId,
+				state,
+			);
+		} else {
+			await this.clearManualLeadCaptureState(
+				session.sessionId,
+			);
+		}
+
+		const assistantTimestamp =
+			await this.persistMessage(
+				session.sessionId,
+				userId,
+				"assistant",
+				response,
+				{
+					language,
+					manualLeadCapture: true,
+					leadCaptureCompleted: !nextField,
+				},
+			);
+		session.messages.push({
+			role: "assistant",
+			content: response,
+			timestamp: assistantTimestamp,
+		});
+		session.updatedAt = assistantTimestamp;
+		await this.saveCachedSession(session);
+		onToken?.(response);
+
+		return {
+			sessionId: session.sessionId,
+			response,
+			language,
+			manualLeadCapture: true,
+			sources: [],
+			timing,
+		};
+	}
+
+	private async beginManualLeadCapture(
+		userId: string,
+		session: ChatSession,
+		language: string | undefined,
+		timing: ChatTiming,
+		onToken?: (token: string) => void,
+	): Promise<{
+		sessionId: string;
+		response: string;
+		language?: string;
+		manualLeadCapture?: boolean;
+		sources: Array<{
+			url: string;
+			title: string;
+			relevanceScore: number;
+		}>;
+		timing: ChatTiming;
+	}> {
+		const state =
+			this.createManualLeadCaptureState();
+		await this.saveManualLeadCaptureState(
+			session.sessionId,
+			state,
+		);
+
+		const response =
+			this.buildManualLeadCapturePrompt("name");
+		const assistantTimestamp =
+			await this.persistMessage(
+				session.sessionId,
+				userId,
+				"assistant",
+				response,
+				{
+					language,
+					manualLeadCapture: true,
+					leadCaptureCompleted: false,
+				},
+			);
+		session.messages.push({
+			role: "assistant",
+			content: response,
+			timestamp: assistantTimestamp,
+		});
+		session.updatedAt = assistantTimestamp;
+		await this.saveCachedSession(session);
+		onToken?.(response);
+
+		return {
+			sessionId: session.sessionId,
+			response,
+			language,
+			manualLeadCapture: true,
+			sources: [],
+			timing,
+		};
+	}
+
+	async hasManualLeadCaptureActive(
+		sessionId?: string,
+	): Promise<boolean> {
+		const normalized =
+			this.normalizeSessionId(sessionId);
+		if (!normalized) return false;
+		const state =
+			await this.getManualLeadCaptureState(
+				normalized,
+			);
+		return Boolean(state?.active);
+	}
+
+	async startManualLeadCapture(
+		userId: string,
+		input: {
+			sessionId?: string;
+			language?: string;
+			onToken?: (token: string) => void;
+		},
+	): Promise<{
+		sessionId: string;
+		response: string;
+		language?: string;
+		manualLeadCapture?: boolean;
+		sources: Array<{
+			url: string;
+			title: string;
+			relevanceScore: number;
+		}>;
+		timing: ChatTiming;
+	}> {
+		const startedAt = Date.now();
+		const timing: ChatTiming = {
+			sessionMs: 0,
+			retrievalMs: 0,
+			llmMs: 0,
+			saveMs: 0,
+			totalMs: 0,
+		};
+		const resolvedLanguage =
+			this.normalizeLanguagePreference(
+				input.language,
+			);
+
+		const sessionStart = Date.now();
+		const session = await this.getOrCreateSession(
+			userId,
+			input.sessionId,
+		);
+		timing.sessionMs = Date.now() - sessionStart;
+
+		const result =
+			await this.beginManualLeadCapture(
+				userId,
+				session,
+				resolvedLanguage,
+				timing,
+				input.onToken,
+			);
+		timing.totalMs = Date.now() - startedAt;
+		result.timing = timing;
+		return result;
 	}
 
 	private truncateAtSentence(
@@ -2202,6 +2534,7 @@ Question: ${query}${formatDirective}`;
 		sessionId: string;
 		response: string;
 		language?: string;
+		manualLeadCapture?: boolean;
 		sources: Array<{
 			url: string;
 			title: string;
@@ -2520,6 +2853,7 @@ Question: ${query}${formatDirective}`;
 		sessionId: string;
 		response: string;
 		language?: string;
+		manualLeadCapture?: boolean;
 		sources: Array<{
 			url: string;
 			title: string;
@@ -2568,6 +2902,21 @@ Question: ${query}${formatDirective}`;
 			session.messages.push(userMessage);
 			const historyMessages =
 				session.messages.slice(0, -1);
+			const manualLeadCaptureResult =
+				await this.handleManualLeadCaptureTurn(
+					userId,
+					session,
+					message,
+					resolvedLanguage,
+					timing,
+				);
+			if (manualLeadCaptureResult) {
+				timing.saveMs = Date.now() - saveStart;
+				timing.totalMs = Date.now() - startedAt;
+				manualLeadCaptureResult.timing =
+					timing;
+				return manualLeadCaptureResult;
+			}
 
 			const retrievalStart = Date.now();
 			const shouldSkipRetrieval =
@@ -2603,6 +2952,8 @@ Question: ${query}${formatDirective}`;
 					: this.getFallbackResponse();
 			let assistantResponse = fallbackResponse;
 			let usedFallback = !shouldCallLlm;
+			let shouldStartManualLeadCapture =
+				false;
 			let usage: CompletionUsage | undefined;
 			const llmStart = Date.now();
 			if (shouldCallLlm) {
@@ -2628,14 +2979,29 @@ Question: ${query}${formatDirective}`;
 						fallbackResponse;
 				} catch (error) {
 					logger.error(
-						"Chat generation failed, using fallback",
+						"Chat generation failed, starting manual lead capture",
 						{
 							error,
 							userId,
 						},
 					);
-					usedFallback = true;
+					shouldStartManualLeadCapture =
+						true;
 				}
+			}
+			if (shouldStartManualLeadCapture) {
+				const manualStartResult =
+					await this.beginManualLeadCapture(
+						userId,
+						session,
+						resolvedLanguage,
+						timing,
+					);
+				timing.saveMs = Date.now() - saveStart;
+				timing.totalMs = Date.now() - startedAt;
+				manualStartResult.timing =
+					timing;
+				return manualStartResult;
 			}
 			const websiteName =
 				await websiteBrandingService.resolveUserWebsiteName(
@@ -2649,55 +3015,6 @@ Question: ${query}${formatDirective}`;
 				);
 			timing.llmMs = Date.now() - llmStart;
 
-			// ── Email lead capture ───────────────────────────────────────────
-			const emailLeadState =
-				await this.getEmailLeadState(
-					session.sessionId,
-				);
-			if (!emailLeadState?.email) {
-				const extractedEmail =
-					emailLeadState?.asked
-						? this.tryExtractEmail(message)
-						: null;
-				if (extractedEmail) {
-					await this.saveEmailLeadState(
-						session.sessionId,
-						{
-							asked: true,
-							email: extractedEmail,
-						},
-					);
-				} else {
-					const isNoData =
-						!shouldSkipRetrieval &&
-						(!shouldCallLlm ||
-							usedFallback ||
-							this.looksLikeNoDataResponse(
-								assistantResponse,
-							));
-					const userMsgCount =
-						session.messages.filter(
-							(m) => m.role === "user",
-						).length;
-					if (isNoData) {
-						assistantResponse =
-							this.buildNoDataEmailAskResponse();
-						usedFallback = true;
-					} else if (userMsgCount >= 3) {
-						assistantResponse =
-							assistantResponse.trimEnd() +
-							"\n\n" +
-							this.buildEmailAskSuffix();
-					}
-					if (isNoData || userMsgCount >= 3) {
-						await this.saveEmailLeadState(
-							session.sessionId,
-							{ asked: true, email: null },
-						);
-					}
-				}
-			}
-			// ────────────────────────────────────────────────────────────────
 
 			const usageMeta =
 				this.buildUsageMetadata(usage);
@@ -2809,6 +3126,21 @@ Question: ${query}${formatDirective}`;
 		});
 		const historyMessages =
 			session.messages.slice(0, -1);
+		const manualLeadCaptureResult =
+			await this.handleManualLeadCaptureTurn(
+				userId,
+				session,
+				message,
+				resolvedLanguage,
+				timing,
+				options?.onToken,
+			);
+		if (manualLeadCaptureResult) {
+			timing.saveMs = Date.now() - saveStart;
+			timing.totalMs = Date.now() - startedAt;
+			manualLeadCaptureResult.timing = timing;
+			return manualLeadCaptureResult;
+		}
 
 		const retrievalStart = Date.now();
 		const shouldSkipRetrieval =
@@ -2842,6 +3174,8 @@ Question: ${query}${formatDirective}`;
 				? this.getLearningFallbackResponse()
 				: fallbackResponse;
 		let usedFallback = !shouldCallLlm;
+		let shouldStartManualLeadCapture =
+			false;
 		let usage: CompletionUsage | undefined;
 		const llmStart = Date.now();
 		if (shouldCallLlm) {
@@ -2907,14 +3241,16 @@ Question: ${query}${formatDirective}`;
 				}
 			} catch (error) {
 				logger.error(
-					"Streaming chat failed, falling back",
+					"Streaming chat failed, starting manual lead capture",
 					{
 						error,
 						userId,
 					},
 				);
-				if (!assistantResponse) {
-					assistantResponse = fallbackResponse;
+				if (!assistantResponse.trim()) {
+					shouldStartManualLeadCapture =
+						true;
+				} else {
 					usedFallback = true;
 				}
 			} finally {
@@ -2922,6 +3258,21 @@ Question: ${query}${formatDirective}`;
 			}
 		}
 		timing.llmMs = Date.now() - llmStart;
+
+		if (shouldStartManualLeadCapture) {
+			const manualStartResult =
+				await this.beginManualLeadCapture(
+					userId,
+					session,
+					resolvedLanguage,
+					timing,
+					options?.onToken,
+				);
+			timing.saveMs = Date.now() - saveStart;
+			timing.totalMs = Date.now() - startedAt;
+			manualStartResult.timing = timing;
+			return manualStartResult;
+		}
 
 		if (!assistantResponse.trim()) {
 			assistantResponse = fallbackResponse;
@@ -2937,70 +3288,6 @@ Question: ${query}${formatDirective}`;
 				message,
 				websiteName,
 			);
-
-		// ── Email lead capture ─────────────────────────────────────────────
-		const emailLeadState =
-			await this.getEmailLeadState(
-				session.sessionId,
-			);
-		if (!emailLeadState?.email) {
-			const extractedEmail = emailLeadState?.asked
-				? this.tryExtractEmail(message)
-				: null;
-			if (extractedEmail) {
-				await this.saveEmailLeadState(
-					session.sessionId,
-					{
-						asked: true,
-						email: extractedEmail,
-					},
-				);
-			} else {
-				const isHardNoData =
-					!shouldCallLlm && !shouldSkipRetrieval;
-				const isSoftNoData =
-					!shouldSkipRetrieval &&
-					!isHardNoData &&
-					(usedFallback ||
-						this.looksLikeNoDataResponse(
-							assistantResponse,
-						));
-				const userMsgCount =
-					session.messages.filter(
-						(m) => m.role === "user",
-					).length;
-
-				if (isHardNoData) {
-					// Nothing was streamed yet — send the full email ask
-					const emailMsg =
-						this.buildNoDataEmailAskResponse();
-					assistantResponse = emailMsg;
-					usedFallback = true;
-					options?.onToken?.(emailMsg);
-				} else if (
-					isSoftNoData ||
-					userMsgCount >= 3
-				) {
-					// LLM already streamed — append email ask as extra token
-					const suffix =
-						"\n\n" + this.buildEmailAskSuffix();
-					assistantResponse =
-						assistantResponse.trimEnd() + suffix;
-					options?.onToken?.(suffix);
-				}
-				if (
-					isHardNoData ||
-					isSoftNoData ||
-					userMsgCount >= 3
-				) {
-					await this.saveEmailLeadState(
-						session.sessionId,
-						{ asked: true, email: null },
-					);
-				}
-			}
-		}
-		// ──────────────────────────────────────────────────────────────────
 
 		const usageMeta =
 			this.buildUsageMetadata(usage);
@@ -3193,6 +3480,9 @@ Question: ${query}${formatDirective}`;
 			await this.clearAppointmentLeadState(
 				normalized,
 			);
+			await this.clearManualLeadCaptureState(
+				normalized,
+			);
 			return true;
 		}
 		return false;
@@ -3258,3 +3548,5 @@ Question: ${query}${formatDirective}`;
 }
 
 export const chatService = new ChatService();
+
+
