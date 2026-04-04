@@ -576,11 +576,20 @@ export const webhookChat = async (
 			await chatService.hasManualLeadCaptureActive(
 				visitorId,
 			);
+		const manualLeadCaptureThresholdReached =
+			manualLeadCaptureActive
+				? false
+				: await chatService.hasReachedManualLeadCaptureThreshold(
+						visitorId,
+					);
+		const shouldForceManualLeadCapture =
+			manualLeadCaptureActive ||
+			manualLeadCaptureThresholdReached;
 
 		// Atomically check AND increment the conversation counter in one query,
 		// eliminating the TOCTOU race that existed with the old canUserChat() +
 		// trackConversation() two-step pattern.
-		const usageCheck = manualLeadCaptureActive
+		const usageCheck = shouldForceManualLeadCapture
 			? {
 					allowed: true,
 					usage: await usageTrackingService.getUserUsage(
@@ -733,6 +742,35 @@ export const webhookChat = async (
 			return;
 		}
 
+		if (manualLeadCaptureThresholdReached) {
+			logger.info(
+				"Widget session reached manual lead capture threshold",
+				{
+					userId,
+					widgetKey,
+					sessionId: visitorId,
+				},
+			);
+
+			const activationResult =
+				await chatService.activateManualLeadCapture(
+					userId,
+					{
+						sessionId,
+					},
+				);
+			await chatService.attachConversationContext(
+				activationResult.sessionId,
+				userId,
+				{
+					widgetKeyId: widget.id,
+					visitorId:
+						visitorId ||
+						activationResult.sessionId,
+				},
+			);
+		}
+
 		// Non-critical analytics write is intentionally decoupled from request latency.
 		void widgetService
 			.trackWidgetEvent(
@@ -807,7 +845,7 @@ export const webhookChat = async (
 				| undefined;
 			try {
 				const appointmentResult =
-					manualLeadCaptureActive
+					shouldForceManualLeadCapture
 						? null
 						: await chatService.handleAppointmentLeadCapture(
 								userId,
@@ -900,7 +938,7 @@ export const webhookChat = async (
 		}
 
 		const appointmentResult =
-			manualLeadCaptureActive
+			shouldForceManualLeadCapture
 				? null
 				: await chatService.handleAppointmentLeadCapture(
 						userId,

@@ -91,6 +91,8 @@ type ManualLeadCaptureState = {
 	updatedAt: string;
 };
 
+const MANUAL_LEAD_CAPTURE_TRIGGER_CHAT_COUNT = 3;
+
 type ChatTiming = {
 	sessionMs: number;
 	retrievalMs: number;
@@ -837,6 +839,12 @@ ${message}`;
 		return `chat:manual-lead:${sessionId}`;
 	}
 
+	private getManualLeadCaptureCompletedKey(
+		sessionId: string,
+	): string {
+		return `chat:manual-lead:completed:${sessionId}`;
+	}
+
 	private async getManualLeadCaptureState(
 		sessionId: string,
 	): Promise<ManualLeadCaptureState | null> {
@@ -878,6 +886,39 @@ ${message}`;
 		);
 	}
 
+	private async hasCompletedManualLeadCapture(
+		sessionId: string,
+	): Promise<boolean> {
+		const completed = await redisCache.get(
+			this.getManualLeadCaptureCompletedKey(
+				sessionId,
+			),
+		);
+		return completed === "1";
+	}
+
+	private async markManualLeadCaptureCompleted(
+		sessionId: string,
+	): Promise<void> {
+		await redisCache.setex(
+			this.getManualLeadCaptureCompletedKey(
+				sessionId,
+			),
+			60 * 60 * 24 * 30,
+			"1",
+		);
+	}
+
+	private async clearManualLeadCaptureCompleted(
+		sessionId: string,
+	): Promise<void> {
+		await redisCache.del(
+			this.getManualLeadCaptureCompletedKey(
+				sessionId,
+			),
+		);
+	}
+
 	private tryExtractEmail(
 		message: string,
 	): string | null {
@@ -899,8 +940,8 @@ ${message}`;
 		state: ManualLeadCaptureState,
 	): ManualLeadField | null {
 		const orderedFields: ManualLeadField[] = [
-			"name",
 			"email",
+			"name",
 			"phone",
 		];
 		for (const field of orderedFields) {
@@ -916,16 +957,34 @@ ${message}`;
 		name?: string | null,
 	): string {
 		switch (field) {
-			case "name":
-				return "Before we wrap up, may I have your full name?";
 			case "email":
 				return name
 					? `Thanks, ${name}. What email address should we use to reach you?`
-					: "Thanks. What email address should we use to reach you?";
+					: "Before we wrap up, may I have your email address?";
+			case "name":
+				return "Thanks. May I have your full name as well?";
 			case "phone":
 				return "Perfect. May I have your phone number as well?";
 			default:
 				return "Please share your details so our team can reach you.";
+		}
+	}
+
+	private buildManualLeadCaptureSuffix(
+		field: ManualLeadField,
+		name?: string | null,
+	): string {
+		switch (field) {
+			case "email":
+				return name
+					? ` May I also have your email address, ${name}?`
+					: " May I also have your email address?";
+			case "name":
+				return " May I also have your full name?";
+			case "phone":
+				return " May I also have your phone number?";
+			default:
+				return "";
 		}
 	}
 
@@ -1069,6 +1128,12 @@ ${message}`;
 				expectedField,
 				message,
 			);
+		if (
+			expectedField === "email" &&
+			!captured.valid
+		) {
+			return null;
+		}
 		state = captured.state;
 		if (!captured.valid) {
 			response =
@@ -1107,6 +1172,9 @@ ${message}`;
 							state.fields.phone?.trim() ||
 							"",
 					},
+				);
+				await this.markManualLeadCaptureCompleted(
+					session.sessionId,
 				);
 				response =
 					"Thank you. Our team will reach out to you soon.";
@@ -1226,6 +1294,32 @@ ${message}`;
 		return Boolean(state?.active);
 	}
 
+	async hasReachedManualLeadCaptureThreshold(
+		sessionId?: string,
+	): Promise<boolean> {
+		const normalized =
+			this.normalizeSessionId(sessionId);
+		if (!normalized) return false;
+		if (
+			await this.hasCompletedManualLeadCapture(
+				normalized,
+			)
+		) {
+			return false;
+		}
+		const session =
+			await this.getSession(normalized);
+		if (!session) return false;
+		const assistantMessageCount =
+			session.messages.filter(
+				(msg) => msg.role === "assistant",
+			).length;
+		return (
+			assistantMessageCount >=
+			MANUAL_LEAD_CAPTURE_TRIGGER_CHAT_COUNT
+		);
+	}
+
 	async startManualLeadCapture(
 		userId: string,
 		input: {
@@ -1276,6 +1370,37 @@ ${message}`;
 		timing.totalMs = Date.now() - startedAt;
 		result.timing = timing;
 		return result;
+	}
+
+	async activateManualLeadCapture(
+		userId: string,
+		input: {
+			sessionId?: string;
+		},
+	): Promise<{
+		sessionId: string;
+	}> {
+		const session = await this.getOrCreateSession(
+			userId,
+			input.sessionId,
+		);
+		const existingState =
+			await this.getManualLeadCaptureState(
+				session.sessionId,
+			);
+		const alreadyCompleted =
+			await this.hasCompletedManualLeadCapture(
+				session.sessionId,
+			);
+		if (!existingState && !alreadyCompleted) {
+			await this.saveManualLeadCaptureState(
+				session.sessionId,
+				this.createManualLeadCaptureState(),
+			);
+		}
+		return {
+			sessionId: session.sessionId,
+		};
 	}
 
 	private truncateAtSentence(
@@ -3014,6 +3139,22 @@ Question: ${query}${formatDirective}`;
 					websiteName,
 				);
 			timing.llmMs = Date.now() - llmStart;
+			const manualLeadState =
+				await this.getManualLeadCaptureState(
+					session.sessionId,
+				);
+			const pendingManualField =
+				manualLeadState?.active
+					? this.getNextManualLeadField(
+							manualLeadState,
+						)
+					: null;
+			if (pendingManualField === "email") {
+				assistantResponse = `${assistantResponse}${this.buildManualLeadCaptureSuffix(
+					"email",
+					manualLeadState?.fields.name,
+				)}`;
+			}
 
 
 			const usageMeta =
@@ -3288,6 +3429,22 @@ Question: ${query}${formatDirective}`;
 				message,
 				websiteName,
 			);
+		const manualLeadState =
+			await this.getManualLeadCaptureState(
+				session.sessionId,
+			);
+		const pendingManualField =
+			manualLeadState?.active
+				? this.getNextManualLeadField(
+						manualLeadState,
+					)
+				: null;
+		if (pendingManualField === "email") {
+			assistantResponse = `${assistantResponse}${this.buildManualLeadCaptureSuffix(
+				"email",
+				manualLeadState?.fields.name,
+			)}`;
+		}
 
 		const usageMeta =
 			this.buildUsageMetadata(usage);
@@ -3481,6 +3638,9 @@ Question: ${query}${formatDirective}`;
 				normalized,
 			);
 			await this.clearManualLeadCaptureState(
+				normalized,
+			);
+			await this.clearManualLeadCaptureCompleted(
 				normalized,
 			);
 			return true;
