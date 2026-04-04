@@ -62,6 +62,10 @@ export function isWidgetServiceOverviewQuery(q: string): boolean {
 	return /\b(service|what do you (do|offer|provide)|what (can|does) .* (do|offer|provide)|offering|solution|capability|capabilities|speciali)\b/.test(q);
 }
 
+export function isWidgetCompanyIdentityQuery(q: string): boolean {
+	return /\b(founder|co[- ]?founder|owner|ceo|chief executive|managing director|director|leadership|leadership team|team|about (the )?company|about us|who started|who founded|who owns|who is behind|company history)\b/.test(q);
+}
+
 function detectServiceFocusTerms(q: string): string[] {
 	const focusTerms: string[] = [];
 	const candidates = [
@@ -141,6 +145,10 @@ export function buildPineconeFilter(query: string): Record<string, unknown> | nu
 		return { pageType: { $in: ["contact", "about", "home"] } };
 	}
 
+	if (isWidgetCompanyIdentityQuery(normalized)) {
+		return { pageType: { $in: ["about", "home", "contact"] } };
+	}
+
 	if (isWidgetTechProjectQuery(normalized)) {
 		return {
 			pageType: { $in: ["case_study", "portfolio", "service", "home"] },
@@ -203,6 +211,11 @@ function rewriteWidgetRetrievalQuery(q: string): [string, boolean] {
 				focusTerms.length > 0
 					? `exact service offerings ${focusTerms.join(" ")} service pages solutions capabilities packages sub-services website headings page titles`
 					: "exact services offered by the business from service pages, home page, about page, and solution pages including website development, custom web development, full-stack development, ecommerce development, cloud-based web development, UI UX development, CMS development, SEO, digital marketing, hosting, content writing, brochure designing, and business solutions",
+				true,
+			];
+		case isWidgetCompanyIdentityQuery(normalized):
+			return [
+				"company founder owner ceo leadership team about us company history business profile about page home page contact page who founded the company who runs the business",
 				true,
 			];
 		default:

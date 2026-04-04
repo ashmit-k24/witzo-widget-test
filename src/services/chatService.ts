@@ -32,6 +32,7 @@ import {
 	isAppointmentBookingIntent,
 	isContactIntent,
 	isLinkIntent,
+	isWidgetCompanyIdentityQuery,
 	isWidgetCaseStudyQuery,
 	isWidgetLocationQuery,
 	isWidgetMedicalQuery,
@@ -1013,6 +1014,7 @@ ${message}`;
 	): number {
 		const n = normalizeWidgetQuery(query);
 		if (isContactIntent(n)) return 0.25;
+		if (isWidgetCompanyIdentityQuery(n)) return 0.25;
 		if (isWidgetTechProjectQuery(n)) return 0.25;
 		if (isWidgetCaseStudyQuery(n)) return 0.28;
 		return 0.3;
@@ -1125,6 +1127,30 @@ ${message}`;
 		);
 	}
 
+	private isCompanyIdentityHeavyMatch(
+		match: any,
+	): boolean {
+		const pageType =
+			this.extractMatchPageType(
+				match,
+			).toLowerCase();
+		if (
+			pageType === "about" ||
+			pageType === "home" ||
+			pageType === "contact"
+		) {
+			return true;
+		}
+
+		const title =
+			this.extractMatchTitle(match).toLowerCase();
+		const url =
+			this.extractMatchUrl(match).toLowerCase();
+		return /\b(about|team|leadership|company|founder|owner|ceo|director)\b/.test(
+			`${title} ${url}`,
+		);
+	}
+
 	private selectMatchesForPrompt(
 		query: string,
 		matches: any[],
@@ -1133,6 +1159,20 @@ ${message}`;
 			normalizeWidgetQuery(query);
 		if (isLinkIntent(normalized)) {
 			return matches.slice(0, 8);
+		}
+
+		if (isWidgetCompanyIdentityQuery(normalized)) {
+			const preferredMatches = matches.filter(
+				(match) =>
+					this.isCompanyIdentityHeavyMatch(
+						match,
+					),
+			);
+			const pool =
+				preferredMatches.length > 0
+					? preferredMatches
+					: matches;
+			return this.mmrRerank(pool, 8);
 		}
 
 		if (
@@ -1897,7 +1937,9 @@ ${contextBlock}
 Question: ${query}${formatDirective}`;
 			} else {
 				userPrompt = `Answer the user's question using the knowledge base below as your primary source.
-If the knowledge base does not fully cover the question, use your general knowledge to fill in, but never fabricate specific facts, prices, features, or policies about this company that are not in the knowledge base.
+Use only the supported details found in the knowledge base or the conversation history above.
+Do not answer company-specific questions from general knowledge.
+If the knowledge base only partially covers the question, give the supported details you do have and clearly say what you could not verify.
 If the user is asking for "more" items and the knowledge base has no further results, acknowledge that and suggest they visit the website.
 When the knowledge base includes a URL for a blog post, article, or resource being asked about, include it as a clickable markdown link.
 ${serviceOverviewNote}
