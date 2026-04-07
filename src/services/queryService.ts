@@ -8,6 +8,13 @@ export function normalizeWidgetQuery(q: string): string {
 	return q.toLowerCase().trim().replace(/\s+/g, " ");
 }
 
+function isLikelyContactDetail(q: string): boolean {
+	return (
+		/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(q) ||
+		/(?:(?:\+?\d[\d\s().-]{6,}\d))/.test(q)
+	);
+}
+
 export function isFollowUpIntent(q: string): boolean {
 	return /\b(that|this|those|these|it|them|what about|tell me more|what else|the one|which one|more about|go on|continue|expand|elaborate)\b/.test(q);
 }
@@ -233,6 +240,10 @@ export async function stepBackRewrite(
 	if (!q || !config.OPENAI_API_KEY?.trim()) {
 		return q;
 	}
+	if (isLikelyContactDetail(q)) {
+		logger.info("[RAG 1/5] step-back rewrite: skipped (contact detail)");
+		return q;
+	}
 
 	const [rewritten, ok] = rewriteWidgetRetrievalQuery(q);
 	if (ok) return rewritten;
@@ -301,6 +312,7 @@ export async function stepBackRewrite(
 // to improve matching against HyPE vectors stored in Pinecone.
 export async function generateQueryVariations(query: string, n: number = 3): Promise<string[]> {
 	if (!query.trim() || n <= 0) return [];
+	if (isLikelyContactDetail(query)) return [];
 	const prompt = `Generate exactly ${n} different ways to ask the following question. Keep each variation short and direct. Output ONLY the questions, one per line, no numbering, no extra text.\n\nOriginal: ${query}\n\nVariations:`;
 	try {
 		const controller = new AbortController();

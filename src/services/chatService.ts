@@ -928,6 +928,66 @@ ${message}`;
 		return match ? match[0] : null;
 	}
 
+	private latestAssistantMessage(
+		messages: ChatMessage[],
+	): string {
+		for (let i = messages.length - 1; i >= 0; i -= 1) {
+			const message = messages[i];
+			if (message.role === "assistant") {
+				return message.content;
+			}
+		}
+		return "";
+	}
+
+	private isLikelyLeadCaptureReply(
+		message: string,
+		history: ChatMessage[],
+	): boolean {
+		const trimmed = message.trim();
+		if (!trimmed) {
+			return false;
+		}
+
+		if (
+			this.extractEmailCandidate(trimmed) ||
+			this.extractPhoneCandidate(trimmed)
+		) {
+			return true;
+		}
+
+		const latestAssistant =
+			this.latestAssistantMessage(history).toLowerCase();
+		if (!latestAssistant) {
+			return false;
+		}
+
+		const askedForName =
+			/\b(full\s+name|your\s+name|may i have.*name|share.*name)\b/.test(
+				latestAssistant,
+			);
+		if (!askedForName) {
+			return false;
+		}
+
+		return this.isBasicAppointmentTextFieldValue(
+			trimmed,
+		);
+	}
+
+	private shouldBypassRetrieval(
+		message: string,
+		history: ChatMessage[],
+	): boolean {
+		return (
+			this.isLikelySmallTalk(message) ||
+			this.isLikelyLeadCaptureReply(
+				message,
+				history,
+			)
+		);
+	}
+
 	private createManualLeadCaptureState(): ManualLeadCaptureState {
 		return {
 			active: true,
@@ -2370,7 +2430,19 @@ ${message}`;
 				? `\n${this.buildServiceOverviewPromptNote()}\n`
 				: "";
 
-		if (contextParts.length > 0) {
+		if (
+			this.isLikelyLeadCaptureReply(
+				query,
+				messages,
+			)
+		) {
+			userPrompt = `The visitor just provided contact details: "${query}"
+
+Use the conversation history and the system instructions to decide what detail is still missing.
+If a requested detail was provided, acknowledge it briefly and ask only for the next missing detail.
+Do not answer the previous business question again.
+Do not ask again for a detail that the visitor has already provided in this message or earlier in the conversation.${formatDirective}`;
+		} else if (contextParts.length > 0) {
 			const contextBlock = contextParts.join(
 				"\n\n---\n\n",
 			);
@@ -3045,7 +3117,10 @@ Question: ${query}${formatDirective}`;
 
 			const retrievalStart = Date.now();
 			const shouldSkipRetrieval =
-				this.isLikelySmallTalk(message);
+				this.shouldBypassRetrieval(
+					message,
+					historyMessages,
+				);
 			const { matches, sources } =
 				shouldSkipRetrieval
 					? {
@@ -3285,7 +3360,10 @@ Question: ${query}${formatDirective}`;
 
 		const retrievalStart = Date.now();
 		const shouldSkipRetrieval =
-			this.isLikelySmallTalk(message);
+			this.shouldBypassRetrieval(
+				message,
+				historyMessages,
+			);
 		const { matches, sources } =
 			shouldSkipRetrieval
 				? { matches: [], sources: [] }
