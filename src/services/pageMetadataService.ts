@@ -97,7 +97,6 @@ export async function extractAsync(
 	// Build map: pageUrl -> chunks[]
 	const pageChunks = new Map<string, RagChunk[]>();
 	for (const chunk of chunks) {
-		if (chunk.isHype) continue;
 		const list = pageChunks.get(chunk.url) ?? [];
 		list.push(chunk);
 		pageChunks.set(chunk.url, list);

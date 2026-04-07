@@ -648,7 +648,6 @@ export const config: EnvConfig = {
 
 	// RAG pipeline settings
 	PINECONE_HYBRID: getEnvBoolean("PINECONE_HYBRID", false),
-	HYPE_QUESTIONS_PER_CHUNK: getEnvNumber("HYPE_QUESTIONS_PER_CHUNK", 0),
 	KNOWLEDGE_BOUNDARY: getEnvString("KNOWLEDGE_BOUNDARY", "workspace_only"),
 };
 

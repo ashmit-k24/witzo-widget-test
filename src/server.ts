@@ -15,7 +15,6 @@ import passport, {
 } from "./config/passport";
 import {
 	AUTH_CLEANUP_INTERVAL_MS,
-	HYPE_REPAIR_PROCESS_INTERVAL_MS,
 	HUBSPOT_SYNC_PROCESS_INTERVAL_MS,
 	RESPONSE_COMPRESSION_MIN_BYTES,
 	SALESFORCE_SYNC_PROCESS_INTERVAL_MS,
@@ -39,14 +38,12 @@ import adminAuthService from "./services/adminAuthService";
 import authService from "./services/authService";
 import { leadWebhookService } from "./services/leadWebhookService";
 import { hubspotIntegrationService } from "./services/hubspotIntegrationService";
-import { hypeRepairService } from "./services/hypeRepairService";
 import { salesforceIntegrationService } from "./services/salesforceIntegrationService";
 import { zohoIntegrationService } from "./services/zohoIntegrationService";
 import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 import { createScraperWorker } from "./workers/scraperWorker";
-import { createHypeWorker } from "./workers/hypeWorker";
 
 const isRateLimitExemptPath = (path: string): boolean => {
 	const normalized = path.toLowerCase();

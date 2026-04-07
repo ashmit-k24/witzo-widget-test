@@ -5,11 +5,11 @@ import { RagChunk, ScrapedPage } from "../types";
 import logger from "../utils/logger";
 import { assertSafeOutgoingUrl } from "../utils/networkSafety";
 import { chunkMarkdown } from "./chunkingService";
+import { enrichChunksWithContext } from "./contextualRetrievalService";
 import {
 	firecrawlCrawlWebsite,
 	firecrawlEnabled,
 } from "./firecrawlService";
-import { enqueueAsync as enqueueHypeAsync } from "./hypeService";
 import { extractAsync as extractPageMetadataAsync } from "./pageMetadataService";
 import { pineconeService } from "./pineconeService";
 
@@ -27,8 +27,7 @@ interface CrawlOptions {
 			| "pinecone_embeddings_prepared"
 			| "pinecone_stale_chunk_cleanup_completed"
 			| "pinecone_upsert_completed"
-			| "scraper_primary_pinecone_upsert_completed"
-			| "hype_generation_started";
+			| "scraper_primary_pinecone_upsert_completed";
 		percent?: number;
 		stageLabel?: string;
 	}) => Promise<void> | void;
@@ -911,14 +910,14 @@ class ScraperService {
 		};
 	}
 
-	private buildRagChunks(
+	private async buildRagChunks(
 		userId: string,
 		sourceUrl: string,
 		pages: ScrapedPage[],
-	): RagChunk[] {
+	): Promise<RagChunk[]> {
 		const chunks: RagChunk[] = [];
 		for (const page of pages) {
-			const pairs = chunkMarkdown(
+			const pairs = await chunkMarkdown(
 				page.content,
 				page.title,
 			);
@@ -936,8 +935,6 @@ class ScraperService {
 					chunkIndex: index,
 					sourceType: "website",
 					sourceKey: sourceUrl,
-					isHype: false,
-					hypeParent: "",
 				});
 			}
 		}
@@ -960,14 +957,13 @@ class ScraperService {
 				| "pinecone_embeddings_prepared"
 				| "pinecone_stale_chunk_cleanup_completed"
 				| "pinecone_upsert_completed"
-				| "scraper_primary_pinecone_upsert_completed"
-				| "hype_generation_started";
+				| "scraper_primary_pinecone_upsert_completed";
 			percent?: number;
 			stageLabel?: string;
 		}) => Promise<void> | void,
 	): Promise<void> {
 		const startedAt = Date.now();
-		const chunks = this.buildRagChunks(
+		const chunks = await this.buildRagChunks(
 			userId,
 			sourceUrl,
 			pages,
@@ -977,6 +973,18 @@ class ScraperService {
 				"No chunks generated from scraped pages",
 			);
 		}
+
+		// Enrich chunks with contextual summaries (Anthropic's Contextual Retrieval)
+		const pageContentByUrl = new Map(
+			pages.map((p) => [
+				p.url,
+				{ content: p.content, title: p.title },
+			]),
+		);
+		await enrichChunksWithContext(
+			chunks,
+			pageContentByUrl,
+		);
 
 		logger.info(
 			"scraper: persistence pipeline starting",
@@ -1045,7 +1053,7 @@ class ScraperService {
 		);
 
 		// Let the primary scrape job finish as soon as pages are stored.
-		// Enrichment can continue independently without keeping the UI in an in-progress state.
+		// Background enrichment: page metadata extraction continues independently.
 		void (async () => {
 			const enrichmentStartedAt = Date.now();
 			await reportProgress?.({
@@ -1053,50 +1061,35 @@ class ScraperService {
 				scrapedPages: pages.length,
 				storedPages: pages.length,
 				currentUrl: sourceUrl,
-				stage: "hype_generation_started",
+				stage: "scraper_primary_pinecone_upsert_completed",
 				percent: 100,
 				stageLabel:
-					"Background hype generation started",
+					"Background metadata enrichment started",
 			});
-			const enrichmentResults =
-				await Promise.allSettled([
-					enqueueHypeAsync(
+			try {
+				await extractPageMetadataAsync(
+					pages,
+					chunks,
+					async (ownerId, vectorId, metadata) =>
+						pineconeService.updateVectorMetadata(
+							ownerId,
+							vectorId,
+							metadata,
+						),
+				);
+			} catch (error) {
+				logger.warn(
+					"scraper: background enrichment task failed",
+					{
 						userId,
-						chunks,
-						sourceTitle || pages[0]?.title,
-					),
-					extractPageMetadataAsync(
-						pages,
-						chunks,
-						async (ownerId, vectorId, metadata) =>
-							pineconeService.updateVectorMetadata(
-								ownerId,
-								vectorId,
-								metadata,
-							),
-					),
-				]);
-			for (const [
-				index,
-				result,
-			] of enrichmentResults.entries()) {
-				if (result.status === "rejected") {
-					logger.warn(
-						"scraper: background enrichment task failed",
-						{
-							userId,
-							sourceUrl,
-							task:
-								index === 0
-									? "hype"
-									: "page_metadata",
-							error:
-								result.reason instanceof Error
-									? result.reason.message
-									: String(result.reason),
-						},
-					);
-				}
+						sourceUrl,
+						task: "page_metadata",
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
 			}
 			logger.info(
 				"scraper: background enrichment completed",

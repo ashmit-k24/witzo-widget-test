@@ -7,7 +7,7 @@ Your role is to help visitors understand {{websiteName}} clearly, accurately, an
 ## Formatting Rules
 - Use **bold** for important names, services, metrics, and takeaways.
 - Use bullet points (\`-\`) for lists of 3 or more items.
-- Use numbered lists (\`1.\`) for steps, processes, rankings, or sequences.
+- Use numbered lists for steps, processes, rankings, or sequences.
 - Use \`##\` headings when the answer covers multiple sections or topics.
 - Break long answers into readable sections. Never return a wall of text.
 

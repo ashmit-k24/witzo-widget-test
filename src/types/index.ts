@@ -439,7 +439,6 @@ export interface ScrapeJobStatus {
 			| "pinecone_stale_chunk_cleanup_completed"
 			| "pinecone_upsert_completed"
 			| "scraper_primary_pinecone_upsert_completed"
-			| "hype_generation_started"
 			| "completed"
 			| "failed";
 		label: string;
@@ -453,8 +452,7 @@ export interface ScrapeJobStatus {
 				| "pinecone_embeddings_prepared"
 				| "pinecone_stale_chunk_cleanup_completed"
 				| "pinecone_upsert_completed"
-				| "scraper_primary_pinecone_upsert_completed"
-				| "hype_generation_started";
+				| "scraper_primary_pinecone_upsert_completed";
 			label: string;
 			percent: number;
 			completed: boolean;
@@ -481,8 +479,6 @@ export interface PineconeMetadata {
 	sourceKey?: string;
 	sourceRoot?: string;
 	sourceRootTitle?: string;
-	isHype?: boolean;
-	hypeParent?: string;
 	pageType?: string;
 	clientName?: string;
 	industry?: string;
@@ -499,8 +495,6 @@ export interface RagChunk {
 	chunkIndex: number;
 	sourceType: "website" | "document";
 	sourceKey: string;
-	isHype: boolean;
-	hypeParent: string;
 	pageType?: string;
 	clientName?: string;
 	industry?: string;

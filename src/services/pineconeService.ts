@@ -28,21 +28,9 @@ import {
 	retryWithBackoff,
 } from "../utils/retry";
 import { chunkMarkdown, bm25SparseVector } from "./chunkingService";
-import { buildPineconeFilter, stepBackRewrite, generateQueryVariations } from "./queryService";
+import { buildPineconeFilter, stepBackRewrite } from "./queryService";
 import { cohereRerank } from "./rerankService";
 import { subscriptionService } from "./subscriptionService";
-import { stableVectorIdForChunk } from "./hypeService";
-
-export type WebsiteHypeCoverage = {
-	sourceRoot: string;
-	sourceRootTitle: string;
-	primaryChunkCount: number;
-	repairablePrimaryChunkCount: number;
-	hypeChunkCount: number;
-	expectedHypeCount: number;
-	missingPrimaryChunks: RagChunk[];
-	staleHypeVectorIds: string[];
-};
 
 class PineconeService {
 	private static readonly EMBEDDING_CONCURRENCY = 8;
@@ -612,160 +600,6 @@ class PineconeService {
 		});
 	}
 
-	async getWebsiteHypeCoverage(
-		userId: string,
-		expectedQuestionsPerChunk: number,
-	): Promise<WebsiteHypeCoverage[]> {
-		type PrimaryEntry = {
-			parentId: string;
-			chunk: RagChunk;
-		};
-		type HypeVectorEntry = {
-			id: string;
-			chunkIndex: number;
-		};
-		type SourceCoverage = {
-			sourceRoot: string;
-			sourceRootTitle: string;
-			primaryEntries: Map<string, PrimaryEntry>;
-			hypeByParent: Map<string, HypeVectorEntry[]>;
-			orphanedHypeVectorIds: string[];
-		};
-
-		const coverageMap = new Map<string, SourceCoverage>();
-
-		await this.forEachUserRecord(userId, async (records) => {
-			for (const [recordId, record] of Object.entries(records)) {
-				const metadata = record.metadata as (PineconeMetadata & Record<string, unknown>) | undefined;
-				if (!metadata || metadata.sourceType !== "website") {
-					continue;
-				}
-
-				const sourceRoot = typeof metadata.sourceRoot === "string" && metadata.sourceRoot.trim()
-					? metadata.sourceRoot.trim()
-					: typeof metadata.url === "string"
-						? metadata.url.trim()
-						: "";
-				if (!sourceRoot) {
-					continue;
-				}
-
-				const sourceRootTitle = typeof metadata.sourceRootTitle === "string" && metadata.sourceRootTitle.trim()
-					? metadata.sourceRootTitle.trim()
-					: typeof metadata.title === "string" && metadata.title.trim()
-						? metadata.title.trim()
-						: sourceRoot;
-
-				if (!coverageMap.has(sourceRoot)) {
-					coverageMap.set(sourceRoot, {
-						sourceRoot,
-						sourceRootTitle,
-						primaryEntries: new Map(),
-						hypeByParent: new Map(),
-						orphanedHypeVectorIds: [],
-					});
-				}
-
-				const coverage = coverageMap.get(sourceRoot)!;
-				const isHype = Boolean(metadata.isHype);
-				if (isHype) {
-					const hypeParent = typeof metadata.hypeParent === "string" ? metadata.hypeParent.trim() : "";
-					const chunkIndex = Number(metadata.chunkIndex);
-					if (!hypeParent) {
-						coverage.orphanedHypeVectorIds.push(recordId);
-						continue;
-					}
-					if (!coverage.hypeByParent.has(hypeParent)) {
-						coverage.hypeByParent.set(hypeParent, []);
-					}
-					coverage.hypeByParent.get(hypeParent)!.push({
-						id: recordId,
-						chunkIndex: Number.isFinite(chunkIndex) ? chunkIndex : -1,
-					});
-					continue;
-				}
-
-				const url = typeof metadata.url === "string" && metadata.url.trim() ? metadata.url.trim() : sourceRoot;
-				const pageTitle = typeof metadata.title === "string" && metadata.title.trim() ? metadata.title.trim() : sourceRootTitle;
-				const childText = typeof metadata.text === "string" ? metadata.text.trim() : "";
-				const parentText = typeof metadata.parentText === "string" && metadata.parentText.trim() ? metadata.parentText.trim() : childText;
-				const chunkIndex = Number(metadata.chunkIndex);
-
-				const chunk: RagChunk = {
-					userId,
-					url,
-					pageTitle,
-					childText,
-					parentText,
-					chunkIndex: Number.isFinite(chunkIndex) ? chunkIndex : 0,
-					sourceType: "website",
-					sourceKey: typeof metadata.sourceKey === "string" && metadata.sourceKey.trim() ? metadata.sourceKey.trim() : sourceRoot,
-					isHype: false,
-					hypeParent: "",
-					pageType: typeof metadata.pageType === "string" ? metadata.pageType : undefined,
-					clientName: typeof metadata.clientName === "string" ? metadata.clientName : undefined,
-					industry: typeof metadata.industry === "string" ? metadata.industry : undefined,
-					services: typeof metadata.services === "string" ? metadata.services : undefined,
-				};
-
-				const parentId = stableVectorIdForChunk(chunk);
-				coverage.primaryEntries.set(parentId, {
-					parentId,
-					chunk,
-				});
-			}
-		});
-
-		return Array.from(coverageMap.values()).map((coverage) => {
-			const staleHypeVectorIds = [...coverage.orphanedHypeVectorIds];
-			const missingPrimaryChunks: RagChunk[] = [];
-			let repairablePrimaryChunkCount = 0;
-			let validHypeChunkCount = 0;
-
-			for (const [parentId, primary] of coverage.primaryEntries.entries()) {
-				if (!primary.chunk.childText.trim()) {
-					continue;
-				}
-				repairablePrimaryChunkCount += 1;
-				const baseChunkIndex = primary.chunk.chunkIndex * 100;
-				const entries = coverage.hypeByParent.get(parentId) ?? [];
-				let matchedForParent = 0;
-				for (const entry of entries) {
-					if (
-						entry.chunkIndex > baseChunkIndex &&
-						entry.chunkIndex <= baseChunkIndex + expectedQuestionsPerChunk
-					) {
-						matchedForParent += 1;
-						validHypeChunkCount += 1;
-					} else {
-						staleHypeVectorIds.push(entry.id);
-					}
-				}
-
-				if (matchedForParent < expectedQuestionsPerChunk) {
-					missingPrimaryChunks.push(primary.chunk);
-				}
-			}
-
-			for (const [parentId, entries] of coverage.hypeByParent.entries()) {
-				if (!coverage.primaryEntries.has(parentId)) {
-					staleHypeVectorIds.push(...entries.map((entry) => entry.id));
-				}
-			}
-
-			return {
-				sourceRoot: coverage.sourceRoot,
-				sourceRootTitle: coverage.sourceRootTitle,
-				primaryChunkCount: coverage.primaryEntries.size,
-				repairablePrimaryChunkCount,
-				hypeChunkCount: validHypeChunkCount,
-				expectedHypeCount: repairablePrimaryChunkCount * expectedQuestionsPerChunk,
-				missingPrimaryChunks,
-				staleHypeVectorIds: Array.from(new Set(staleHypeVectorIds)),
-			};
-		});
-	}
-
 	async upsertDocument(
 		userId: string,
 		url: string,
@@ -774,7 +608,7 @@ class PineconeService {
 		metadata?: Record<string, any>,
 	): Promise<void> {
 		try {
-			const pairs = chunkMarkdown(content, title);
+			const pairs = await chunkMarkdown(content, title);
 			if (pairs.length === 0) {
 				throw new Error(
 					"No usable text content found for this page",
@@ -798,8 +632,6 @@ class PineconeService {
 					chunkIndex: index,
 					sourceType,
 					sourceKey,
-					isHype: false,
-					hypeParent: "",
 				}),
 			);
 
@@ -859,9 +691,6 @@ class PineconeService {
 
 		const startedAt = Date.now();
 		const index = this.getNamespaceIndex(userId);
-		const allHype = chunks.every(
-			(chunk) => chunk.isHype,
-		);
 		const uniquePages = new Set(
 			chunks.map((chunk) => chunk.url),
 		).size;
@@ -869,7 +698,6 @@ class PineconeService {
 			userId,
 			chunks: chunks.length,
 			uniquePages,
-			allHype,
 		});
 		await onStageProgress?.({
 			stage: "pinecone_upsert_started",
@@ -946,8 +774,6 @@ class PineconeService {
 									chunk.pageTitle,
 								PineconeService.METADATA_TITLE_MAX_CHARS,
 							),
-						isHype: chunk.isHype,
-						hypeParent: chunk.hypeParent,
 						pageType:
 							this.truncateMetadataString(
 								chunk.pageType ||
@@ -1076,7 +902,7 @@ class PineconeService {
 				count;
 		}
 
-		if (!allHype) {
+		{
 			const staleCleanupStartedAt = Date.now();
 			await this.deleteStaleChunksForUrls(
 				userId,
@@ -1121,7 +947,7 @@ class PineconeService {
 			durationMs: Date.now() - upsertStartedAt,
 		});
 
-		if (!allHype) {
+		{
 			const sourcePageStartedAt = Date.now();
 			await this.mapWithConcurrency(
 				Array.from(pageCounts.entries()),
@@ -1146,7 +972,6 @@ class PineconeService {
 			chunks: chunks.length,
 			vectors: vectors.length,
 			uniquePages,
-			allHype,
 			durationMs: Date.now() - startedAt,
 		});
 		await onStageProgress?.({
@@ -1196,14 +1021,7 @@ class PineconeService {
 			const index = this.getNamespaceIndex(userId);
 			const effectiveTopK =
 				topK > 0 ? topK : 10;
-			const fetchTopK =
-				config.HYPE_QUESTIONS_PER_CHUNK > 0
-					? Math.min(
-							effectiveTopK *
-								(config.HYPE_QUESTIONS_PER_CHUNK + 1),
-							50,
-					  )
-					: effectiveTopK;
+			const fetchTopK = effectiveTopK;
 			const rewrittenQuery =
 				await stepBackRewrite(
 					query,
@@ -1302,27 +1120,6 @@ class PineconeService {
 					matches = mergeMatches(matches, originalResponse.matches || []);
 				} catch {
 					// original query search failed, proceed with rewritten only
-				}
-			}
-
-			if (config.HYPE_QUESTIONS_PER_CHUNK > 0) {
-				try {
-					const variations = await generateQueryVariations(query, 3);
-					const variationEmbeddings = await Promise.all(
-						variations.map((v) => this.generateEmbedding(v)),
-					);
-					const variationResults = await Promise.allSettled(
-						variationEmbeddings.map((emb, i) =>
-							runQuery(emb, variations[i], true, false),
-						),
-					);
-					for (const result of variationResults) {
-						if (result.status === "fulfilled") {
-							matches = mergeMatches(matches, result.value.matches || []);
-						}
-					}
-				} catch {
-					// variation search failed, proceed with existing matches
 				}
 			}
 
