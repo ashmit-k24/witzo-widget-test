@@ -21,10 +21,19 @@ export async function submitRating({ apiBaseUrl, widgetKey, sessionId, rating })
 }
 
 /** Submit the contact form (basic plan fallback) */
-export async function submitContact({ apiBaseUrl, widgetKey, sessionId, name, email, message }) {
+export async function submitContact({ apiBaseUrl, widgetKey, sessionId, name, email, phone, country, message }) {
   return fetch(`${apiBaseUrl}/api/v1/widget/contact`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ widgetKey, sessionId, name, email, message }),
+    body: JSON.stringify({ widgetKey, sessionId, name, email, phone, country, message }),
+  });
+}
+
+/** Check whether the configured lead form fields are already captured for the session */
+export async function getLeadStatus({ apiBaseUrl, widgetKey, sessionId }) {
+  return fetch(`${apiBaseUrl}/api/v1/widget/lead-status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ widgetKey, sessionId }),
   });
 }

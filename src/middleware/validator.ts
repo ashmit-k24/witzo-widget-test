@@ -990,6 +990,7 @@ export const validationRules: Record<
 			.isUUID()
 			.withMessage("sessionId must be a valid UUID"),
 		body("email")
+			.optional({ values: "falsy" })
 			.isEmail()
 			.withMessage("email must be valid")
 			.normalizeEmail()
@@ -1004,6 +1005,25 @@ export const validationRules: Record<
 			.isString()
 			.isLength({ max: 3000 })
 			.withMessage("message must be <= 3000 characters"),
+		body("phone")
+			.optional({ values: "falsy" })
+			.isString()
+			.isLength({ max: 50 })
+			.withMessage("phone must be <= 50 characters"),
+		body("country")
+			.optional({ values: "falsy" })
+			.isString()
+			.isLength({ max: 100 })
+			.withMessage("country must be <= 100 characters"),
+	],
+
+	publicWidgetLeadStatus: [
+		body("widgetKey")
+			.matches(WIDGET_KEY_REGEX)
+			.withMessage("widgetKey is invalid"),
+		body("sessionId")
+			.isUUID()
+			.withMessage("sessionId must be a valid UUID"),
 	],
 
 	publicWidgetRating: [
