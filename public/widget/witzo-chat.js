@@ -138,21 +138,7 @@
 				closeButtonColor: "",
 				logoIcon: null,
 				bubbleIcon: null,
-				introHelpOptionOneText: "How Witzo works",
-				introHelpOptionOneUrl: "",
-				introHelpOptionTwoText:
-					"Explore AI features",
-				introHelpOptionTwoUrl: "",
-				introTitle: "ðŸ‘‹Good to see you!",
-				introMessage:
-					"We're ready to help. Ask anything, from quick questions to complex topics.",
-				introPrimaryButtonText: "Let's Chat!",
-				introPrimaryButtonColor: "#111827",
-				introSecondaryButtonColor: "#f3f4f6",
-				introPrimaryButtonBackgroundColor:
-					"#121212",
-				introSecondaryButtonBackgroundColor:
-					"#f3f4f6",
+				showIntroScreen: false,
 				planType: "free",
 				defaultLanguage: "en",
 				placeholderText: null,
@@ -293,17 +279,19 @@
 				this.normalizeFloatingType(
 					this.config.floatingType,
 				);
+			// Intro screen is intentionally disabled so the widget opens directly to chat.
+			this.config.showIntroScreen = false;
 
 			this.initializeLanguagePreference();
 			if (
 				!document.getElementById(
-					"witzo-font-inter-preconnect",
+					"witzo-fonts-preconnect",
 				)
 			) {
 				const preconnect =
 					document.createElement("link");
 				preconnect.id =
-					"witzo-font-inter-preconnect";
+					"witzo-fonts-preconnect";
 				preconnect.rel = "preconnect";
 				preconnect.href =
 					"https://fonts.googleapis.com";
@@ -311,13 +299,13 @@
 			}
 			if (
 				!document.getElementById(
-					"witzo-font-inter-preconnect-crossorigin",
+					"witzo-fonts-preconnect-crossorigin",
 				)
 			) {
 				const preconnectCrossorigin =
 					document.createElement("link");
 				preconnectCrossorigin.id =
-					"witzo-font-inter-preconnect-crossorigin";
+					"witzo-fonts-preconnect-crossorigin";
 				preconnectCrossorigin.rel = "preconnect";
 				preconnectCrossorigin.href =
 					"https://fonts.gstatic.com";
@@ -329,25 +317,23 @@
 			}
 			if (
 				!document.getElementById(
-					"witzo-font-inter",
+					"witzo-fonts",
 				)
 			) {
 				const link =
 					document.createElement("link");
-				link.id = "witzo-font-inter";
+				link.id = "witzo-fonts";
 				link.rel = "stylesheet";
 				link.href =
-					"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
+					"https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap";
 				document.head.appendChild(link);
 			}
 			this.render();
 			this.bindEvents();
 			this.updateSendButtonState();
 			this._bindCalendlyMessageListener();
-			if (this.config.showIntroScreen === false) {
-				this.hasStartedChat = true;
-			}
-			this.showIntroScreen(!this.hasStartedChat);
+			this.hasStartedChat = true;
+			this.showIntroScreen(false);
 
 			// Process default message
 			if (this.config.primaryText) {
@@ -737,8 +723,8 @@
 			// Use the CSS and HTML from template.ts
 			this.shadowRoot.innerHTML = `
       <link rel="preconnect" href="https://fonts.googleapis.com">
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+	  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap" rel="stylesheet">
       <style>
           *,
           ::after,
@@ -751,18 +737,17 @@
             --color-user-bubble:  ${this.config.userChatColor || "#ffdde4"};
             --color-floating-btn: ${this.config.floatingBtn || this.config.floatingBtnColor || "#fc0e3f"};
             --color-bot-icon:     ${this.config.botColor || "#f1f5f9"};
-            --color-close-btn:    ${this.config.closeButtonColor || "white"};
+            --color-close-btn:    ${this.config.closeButtonColor || "black"};
             --color-intro-primary-btn: ${this.config.introPrimaryButtonBackgroundColor || this.config.introPrimaryButtonColor || "#111827"};
             --color-intro-secondary-btn: ${this.config.introSecondaryButtonBackgroundColor || this.config.introSecondaryButtonColor || "#F5F5F7"};
-            font-family: Inter, "Inter Fallback", system-ui, sans-serif;
+			font-family: "Manrope", sans-serif;
             font-weight: 400;
             display: block;
             position: relative;
             z-index: 2147483647;
-            /* width: 100%; height: 100%;  - Removed to avoid blocking clicks on the page */
           }
           :host, :host * {
-            font-family: Inter, "Inter Fallback", system-ui, sans-serif;
+             font-family: "Manrope", sans-serif;
           }
           :host([preview-mode="embedded"]) {
             position: relative;
@@ -779,7 +764,7 @@
     		height: 584px;
             max-width: 90vw;
             max-height: 80vh;
-            min-height: 460px;
+            min-height: 80vh;
             display: flex;
             flex-direction: column;
             border-radius: 15px;
@@ -1032,8 +1017,19 @@
           .online-ready-text {
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            gap: 4px;
+			items-align: center;
           }
+
+		  .sub-title{
+			font-weight: 600;
+			font-style: SemiBold;
+			font-size: 11px;
+			line-height: 100%;
+			letter-spacing: 0%;
+			vertical-align: middle;
+
+		  }
           .header-online-status {
             display: flex;
             align-items: center;
@@ -1046,17 +1042,7 @@
 		  .intro-mode .header-online-dot {
 			display: none !important;
 		  }
-          .header-online-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #10b981;
-            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
-            animation: onlineDotGlow 1.8s ease-out infinite;
-			position: absolute;
-    		right: 4px;
-    		top: 4px;
-          }
+          
           @keyframes onlineDotGlow {
             0% {
               box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
@@ -1096,11 +1082,14 @@
 
 
             }
-          .chat-title {
-            color: #fff;
-            font-size: 14px;
-            font-weight: 500;
-            margin: 0;
+          .chat-title,
+          #banner-text {
+			font-weight: 700;
+			font-size: 15px;
+			letter-spacing: 0;
+			vertical-align: middle;
+			font-family: "Plus Jakarta Sans", sans-serif !important;
+			margin: 0 !important;
           }
           .chat-header-right {
             display: flex;
@@ -1113,6 +1102,7 @@
 		  	display: flex;
             align-items: center;
             position: relative;
+			gap:14px;
 		  }
           .chat-action-btn {
             border: none;
@@ -1125,7 +1115,7 @@
             margin-left: 0.7rem;
             padding: 0;
 			transition: all 0.4s ease-in;
-			color:white;
+			color:black;
           }
           .chat-action-btn.back-btn {
             margin-left: 0;
@@ -1139,10 +1129,10 @@
 				transform: scale(1.08);
 			}
 
-          .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, white); }
+          .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, black); }
           .chat-action-btn.icon-stroke svg path {
             fill: none;
-            stroke: var(--color-close-btn, white);
+            stroke: var(--color-close-btn, black);
           }
           .chat-header-menu {
             position: absolute;
@@ -2289,11 +2279,45 @@
                 
                 <div class="chat-header-left" data-intro-anim="fade" style="--fade-order:0">
                    <div class="chat-action-row">
+
+				   <div class="chat-icon">
+                    ${this.getDisplayIconUrl()
+					? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
+
+					  
+                      </div>
+                      <div class="online-ready">
+                        <div class="online-ready-text">
+                        <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || "black"}">${this.config.bannerText}</h3>
+
+						<span class="sub-title">
+						<svg xmlns="http://www.w3.org/2000/svg" width="7" height="11" viewBox="0 0 7 11" fill="none">
+							<path d="M6.91865 3.48495H4.67424L6.69247 0.172064C6.73424 0.101915 6.69655 0 6.62829 0H2.72122C2.69269 0 2.66518 0.0198535 2.65092 0.0529427L0.0112289 5.97591C-0.0203537 6.04606 0.0183604 6.13474 0.0815256 6.13474H1.8583L0.9475 10.8678C0.928143 10.9711 1.02391 11.0439 1.083 10.9697L6.97468 3.66628C7.02766 3.60143 6.992 3.48495 6.91865 3.48495Z" fill="url(#paint0_linear_2074_8426)"/>
+							<defs>
+							<linearGradient id="paint0_linear_2074_8426" x1="3.5" y1="0" x2="3.5" y2="11" gradientUnits="userSpaceOnUse">
+							<stop stop-color="#AD22B1"/>
+							<stop offset="1" stop-color="#DE3B6C"/>
+							</linearGradient>
+							</defs>
+						</svg>
+
+						Instant Responds
+						</span>
+                        </div>
+                      </div>
+                    </div>
  						<button id="backToIntroBtn" class="chat-action-btn back-btn hidden icon-stroke" aria-label="Back to intro">
                         	<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-left h-5 w-5" aria-hidden="true"><path d="m15 18-6-6 6-6"></path>
 							</svg>
                     	</button>
-						<button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
+						
+				   </div>
+
+
+                <div class="chat-header-right">
+                    <button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
                         	<!-- Expand Icon -->
                        		 <svg class="expand-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             	<path d="M15 3h6v6"></path>
@@ -2308,28 +2332,7 @@
                             	<path d="m3 21 7-7"></path>
                             	<path d="M4 14h6v6"></path>
                         	</svg>
-                   		 </button>
-				   </div>
-
-
-                    <div class="chat-header-identity">
-                      <div class="chat-icon">
-                    ${this.getDisplayIconUrl()
-					? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
-
-					  <span class="header-online-dot"></span>
-                      </div>
-                      <div class="online-ready">
-                        <div class="online-ready-text">
-                        <h3 id="banner-text" class="chat-title" style="color: ${this.config.bannerTextColor || "#fff"}">${this.config.bannerText}</h3>
-                        </div>
-                      </div>
-                    </div>
-                </div>
-                <div class="chat-header-right">
-                    
+                   	</button>
                     <button id="headerMenuBtn" class="chat-action-btn icon-stroke" aria-label="Header options">
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis h-5 w-5" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
                     </button>
@@ -4048,7 +4051,7 @@
 						: event.data?.event;
 				if (
 					eventName !==
-						"calendly.event_scheduled" ||
+					"calendly.event_scheduled" ||
 					!this._calendlyBookingActive
 				) {
 					return;

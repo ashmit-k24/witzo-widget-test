@@ -26,7 +26,16 @@ export const headerCSS = `
     box-shadow: 0px 2.4px 4.8px 0px #00000033;
   }
   #logoIcon { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
-  .chat-title { color: #fff; font-size: 14px; font-weight: 500; margin: 0; }
+  .chat-title { 
+    font-weight: 700;
+	  font-style: Bold;
+	  font-size: 15px;
+	  letter-spacing: 0%;
+	  vertical-align: middle;
+    font-family: "Plus Jakarta Sans", sans-serif;
+		margin: 0 !important;
+
+  }
   .chat-header-right { display: flex; align-items: center; }
   .chat-action-btn {
     border: none; background: transparent; border-radius: 0.5rem;
