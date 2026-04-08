@@ -28,9 +28,14 @@ import {
 	retryWithBackoff,
 } from "../utils/retry";
 import { chunkMarkdown, bm25SparseVector } from "./chunkingService";
-import { buildPineconeFilter, stepBackRewrite } from "./queryService";
 import { cohereRerank } from "./rerankService";
+import { scraperSourceService } from "./scraperSourceService";
 import { subscriptionService } from "./subscriptionService";
+import {
+	buildPageTypeFilters,
+	generateQueryVariations,
+	stepBackRewrite,
+} from "./queryService";
 
 class PineconeService {
 	private static readonly EMBEDDING_CONCURRENCY = 8;
@@ -514,6 +519,38 @@ class PineconeService {
 		await this.deleteVectorIds(index, ids);
 	}
 
+	async deleteHypeVectorsForSource(
+		userId: string,
+		sourceKey: string,
+	): Promise<void> {
+		const index = this.getNamespaceIndex(userId);
+		const matchingIds: string[] = [];
+		await this.forEachUserRecord(
+			userId,
+			async (records) => {
+				for (const [id, record] of Object.entries(records)) {
+					const metadata = record.metadata as
+						| Record<string, unknown>
+						| undefined;
+					if (
+						metadata?.isHype === true &&
+						metadata?.sourceKey === sourceKey
+					) {
+						matchingIds.push(id);
+					}
+				}
+			},
+		);
+		await this.deleteVectorIds(index, matchingIds);
+		if (matchingIds.length > 0) {
+			logger.info("Deleted old HyPE vectors", {
+				userId,
+				sourceKey,
+				vectors: matchingIds.length,
+			});
+		}
+	}
+
 	private isIgnorableDeleteError(error: unknown): boolean {
 		if (!error || typeof error !== "object") {
 			return false;
@@ -795,6 +832,12 @@ class PineconeService {
 								chunk.services,
 								500,
 							),
+						isHype: chunk.isHype || undefined,
+						hypeParent:
+							this.truncateMetadataString(
+								chunk.hypeParent,
+								PineconeService.METADATA_PARENT_TEXT_MAX_CHARS,
+							),
 						fileType:
 							this.truncateMetadataString(
 								extraMetadata.fileType,
@@ -902,7 +945,7 @@ class PineconeService {
 				count;
 		}
 
-		{
+		if (!extraMetadata.skipStaleCleanup) {
 			const staleCleanupStartedAt = Date.now();
 			await this.deleteStaleChunksForUrls(
 				userId,
@@ -947,7 +990,7 @@ class PineconeService {
 			durationMs: Date.now() - upsertStartedAt,
 		});
 
-		{
+		if (!extraMetadata.skipSourcePageSync) {
 			const sourcePageStartedAt = Date.now();
 			await this.mapWithConcurrency(
 				Array.from(pageCounts.entries()),
@@ -1019,115 +1062,113 @@ class PineconeService {
 	): Promise<any[]> {
 		try {
 			const index = this.getNamespaceIndex(userId);
-			const effectiveTopK =
-				topK > 0 ? topK : 10;
-			const fetchTopK = effectiveTopK;
-			const rewrittenQuery =
-				await stepBackRewrite(
-					query,
-					options?.history,
+			const effectiveTopK = topK > 0 ? topK : 10;
+			const rewrittenQuery = await stepBackRewrite(
+				query,
+				options?.history,
+			);
+			const pageTypes =
+				(await scraperSourceService.isMetadataReady(
+					userId,
+				))
+					? buildPageTypeFilters(query)
+					: [];
+			const inputs = [
+				rewrittenQuery,
+				...(rewrittenQuery !== query ? [query] : []),
+				...generateQueryVariations(query),
+			];
+			const embeddings =
+				await this.mapWithConcurrency(
+					inputs,
+					PineconeService.EMBEDDING_CONCURRENCY,
+					async (input) =>
+						this.generateEmbedding(input),
 				);
-			const [rewrittenEmbedding, originalEmbedding] =
-				await Promise.all([
-					this.generateEmbedding(rewrittenQuery),
-					rewrittenQuery !== query
-						? this.generateEmbedding(query)
-						: Promise.resolve(null),
-				]);
-			const filter =
-				buildPineconeFilter(query);
 
-			const runQuery = async (
-				embedding: number[],
+			const queryOnce = async (
 				queryText: string,
+				embedding: number[],
 				withFilter: boolean,
 				withSparse: boolean,
-			) => {
-				const payload: Record<
-					string,
-					unknown
-				> = {
+			): Promise<any[]> => {
+				const payload: Record<string, unknown> = {
 					vector: embedding,
-					topK: fetchTopK,
+					topK: Math.max(effectiveTopK * 3, effectiveTopK),
 					includeMetadata: true,
 				};
-				if (withFilter && filter) {
-					payload.filter = filter;
+				if (withFilter && pageTypes.length > 0) {
+					payload.filter = {
+						pageType: { $in: pageTypes },
+					};
 				}
 				if (withSparse && config.PINECONE_HYBRID) {
-					const sparse =
-						bm25SparseVector(queryText);
+					const sparse = bm25SparseVector(queryText);
 					if (sparse.indices.length > 0) {
 						(payload as any).sparseVector =
 							sparse;
 					}
 				}
-
-				return await pineconeCircuitBreaker.execute(
-					async () => {
-						return await (index as any).query(
-							payload,
+				try {
+					const response =
+						await pineconeCircuitBreaker.execute(
+							async () =>
+								await (index as any).query(
+									payload,
+								),
 						);
-					},
-				);
-			};
-
-			const mergeMatches = (a: any[], b: any[]): any[] => {
-				const seen = new Map<string, any>();
-				for (const m of [...a, ...b]) {
-					const id = m.id;
-					if (!seen.has(id) || m.score > seen.get(id).score) {
-						seen.set(id, m);
+					return response.matches || [];
+				} catch (error) {
+					if (!(payload as any).sparseVector) {
+						throw error;
 					}
+					logger.warn(
+						"Pinecone hybrid query failed, retrying dense-only",
+						{ error, userId },
+					);
+					delete (payload as any).sparseVector;
+					const response =
+						await pineconeCircuitBreaker.execute(
+							async () =>
+								await (index as any).query(
+									payload,
+								),
+						);
+					return response.matches || [];
 				}
-				return Array.from(seen.values());
 			};
 
-			let queryResponse: any;
-			try {
-				queryResponse = await runQuery(
-					rewrittenEmbedding,
-					rewrittenQuery,
+			const resultLists: any[][] = [];
+			for (let inputIndex = 0; inputIndex < inputs.length; inputIndex += 1) {
+				const matches = await queryOnce(
+					inputs[inputIndex],
+					embeddings[inputIndex],
 					true,
-					true,
+					inputIndex === 0,
 				);
-			} catch (error) {
-				logger.warn(
-					"Pinecone hybrid query failed, retrying dense-only",
-					{
-						error,
-						userId,
-					},
-				);
-				queryResponse = await runQuery(
-					rewrittenEmbedding,
+				if (matches.length > 0) {
+					resultLists.push(matches);
+				}
+			}
+
+			let matches = this.rrfMerge(resultLists);
+			if (matches.length === 0 && pageTypes.length > 0) {
+				matches = await queryOnce(
 					rewrittenQuery,
-					true,
+					embeddings[0],
+					false,
 					false,
 				);
 			}
 
-			let matches = queryResponse.matches || [];
-
-			if (originalEmbedding) {
-				try {
-					const originalResponse = await runQuery(
-						originalEmbedding,
-						query,
-						true,
-						false,
-					);
-					matches = mergeMatches(matches, originalResponse.matches || []);
-				} catch {
-					// original query search failed, proceed with rewritten only
-				}
-			}
-
-			if (matches.length === 0 && filter) {
-				const retryResponse =
-					await runQuery(rewrittenEmbedding, rewrittenQuery, false, false);
-				matches = retryResponse.matches || [];
-			}
+			logger.info("pinecone: retrieval query completed", {
+				userId,
+				query,
+				rewrittenQuery,
+				pageTypes,
+				lists: resultLists.length,
+				matches: matches.length,
+			});
 
 			return await cohereRerank(
 				query,
@@ -1141,6 +1182,46 @@ class PineconeService {
 			});
 			throw error;
 		}
+	}
+
+	private rrfMerge(resultLists: any[][]): any[] {
+		const rankConstant = 60;
+		const merged = new Map<
+			string,
+			{ match: any; score: number }
+		>();
+
+		for (const list of resultLists) {
+			for (let rank = 0; rank < list.length; rank += 1) {
+				const match = list[rank];
+				const id =
+					String(match?.id || "") ||
+					`${match?.metadata?.url || ""}:${match?.metadata?.chunkIndex ?? rank}`;
+				if (!id) continue;
+				const current =
+					merged.get(id) ?? {
+						match,
+						score: 0,
+					};
+				current.score +=
+					1 / (rankConstant + rank + 1);
+				if (
+					typeof match.score === "number" &&
+					match.score >
+						(Number(current.match?.score) || 0)
+				) {
+					current.match = match;
+				}
+				merged.set(id, current);
+			}
+		}
+
+		return Array.from(merged.values())
+			.sort((a, b) => b.score - a.score)
+			.map(({ match, score }) => ({
+				...match,
+				rrfScore: score,
+			}));
 	}
 
 	async deleteDocumentsByUrl(
@@ -1193,6 +1274,10 @@ class PineconeService {
 					   AND source_type = 'website'
 					   AND (source_root = $2 OR source_url LIKE $3)`,
 					[userId, baseUrl, `${baseUrl}%`],
+				);
+				await scraperSourceService.deleteSource(
+					userId,
+					baseUrl,
 				);
 			}
 
@@ -1262,6 +1347,10 @@ class PineconeService {
 				`DELETE FROM rag_source_pages
 				 WHERE user_id = $1 AND source_url = $2`,
 				[userId, exactUrl],
+			);
+			await scraperSourceService.deletePage(
+				userId,
+				exactUrl,
 			);
 
 			const matchingIds: string[] = [];
@@ -1343,6 +1432,7 @@ class PineconeService {
 				`DELETE FROM rag_source_pages WHERE user_id = $1`,
 				[userId],
 			);
+			await scraperSourceService.deleteAll(userId);
 
 			logger.info(
 				`Deleted all documents for user: ${userId}`,
@@ -1494,11 +1584,14 @@ class PineconeService {
 			title: string;
 			totalChunks: number;
 			scrapedAt: string;
+			scrapedPages?: number;
+			indexedPages?: number;
 			pages: Array<{
 				url: string;
 				title: string;
 				chunks: number;
 				scrapedAt: string;
+				indexed?: boolean;
 			}>;
 		}>;
 		totalChunks: number;
@@ -1843,8 +1936,6 @@ class PineconeService {
 				}
 			}
 
-			let totalChunks = 0;
-
 			const documents = Array.from(
 				documentMap.values(),
 			).sort(
@@ -1852,9 +1943,6 @@ class PineconeService {
 					new Date(b.uploadedAt).getTime() -
 					new Date(a.uploadedAt).getTime(),
 			);
-			for (const doc of documents) {
-				totalChunks += doc.chunks;
-			}
 
 			const websites = Array.from(
 				websiteMap.values(),
@@ -1871,12 +1959,13 @@ class PineconeService {
 						(sum, p) => sum + p.chunks,
 						0,
 					);
-					totalChunks += websiteChunks;
 					return {
 						rootUrl: website.rootUrl,
 						title: website.title,
 						totalChunks: websiteChunks,
 						scrapedAt: website.scrapedAt,
+						scrapedPages: pages.length,
+						indexedPages: pages.length,
 						pages,
 					};
 				})
@@ -1886,7 +1975,43 @@ class PineconeService {
 						new Date(a.scrapedAt).getTime(),
 				);
 
-			return { documents, websites, totalChunks };
+			const trackedWebsites =
+				await scraperSourceService.getWebsiteSources(
+					userId,
+				);
+			const trackedRoots = new Set(
+				trackedWebsites.map(
+					(website) => website.rootUrl,
+				),
+			);
+			const mergedWebsites = [
+				...trackedWebsites,
+				...websites.filter(
+					(website) =>
+						!trackedRoots.has(website.rootUrl),
+				),
+			].sort(
+				(a, b) =>
+					new Date(b.scrapedAt).getTime() -
+					new Date(a.scrapedAt).getTime(),
+			);
+
+			const mergedWebsiteChunks =
+				mergedWebsites.reduce(
+					(sum, website) =>
+						sum + website.totalChunks,
+					0,
+				);
+
+			return {
+				documents,
+				websites: mergedWebsites,
+				totalChunks:
+					documents.reduce(
+						(sum, doc) => sum + doc.chunks,
+						0,
+					) + mergedWebsiteChunks,
+			};
 		} catch (error) {
 			logger.error(
 				"Error fetching user sources from DB",
@@ -1900,11 +2025,18 @@ class PineconeService {
 		userId: string,
 	): Promise<number> {
 		try {
+			const trackedPages =
+				await scraperSourceService.getScrapedPageCount(
+					userId,
+				);
+			if (trackedPages > 0) {
+				return trackedPages;
+			}
 			const sources =
 				await this.getAllUserSourcesFromDB(userId);
-			// Count total individual pages across all websites
 			return sources.websites.reduce(
-				(sum, w) => sum + w.pages.length,
+				(sum, website) =>
+					sum + website.pages.length,
 				0,
 			);
 		} catch (error) {

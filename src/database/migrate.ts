@@ -259,6 +259,12 @@ const migrations: Migration[] = [
 			"Create Calendly integration and appointment tracking tables",
 		file: "20260401_040_calendly_integration.sql",
 	},
+	{
+		id: "20260408_041_scraper_sources",
+		description:
+			"Create scraper source and scraped page tracking tables",
+		file: "20260408_041_scraper_sources.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

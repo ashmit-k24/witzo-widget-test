@@ -78,11 +78,13 @@ export async function extractAsync(
 	pages: ScrapedPage[],
 	chunks: RagChunk[],
 	updateVectorMetadataFn: (userId: string, vectorId: string, metadata: Record<string, unknown>) => Promise<void>,
-): Promise<void> {
-	if (pages.length === 0 || chunks.length === 0) return;
+): Promise<{ completed: boolean; updatedVectors: number }> {
+	if (pages.length === 0 || chunks.length === 0) {
+		return { completed: true, updatedVectors: 0 };
+	}
 	if (isPineconeCircuitOpen()) {
 		logger.warn("pageMetadataService: skipping metadata extraction because Pinecone circuit is open");
-		return;
+		return { completed: false, updatedVectors: 0 };
 	}
 
 	const startedAt = Date.now();
@@ -165,4 +167,8 @@ export async function extractAsync(
 		abortedDueToPinecone,
 		durationMs: Date.now() - startedAt,
 	});
+	return {
+		completed: !abortedDueToPinecone,
+		updatedVectors,
+	};
 }

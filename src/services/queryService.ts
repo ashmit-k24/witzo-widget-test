@@ -4,21 +4,16 @@ import logger from "../utils/logger";
 
 const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
+export type QueryClass =
+	| "pricing"
+	| "contact"
+	| "case_study"
+	| "service"
+	| "blog"
+	| "general";
+
 export function normalizeWidgetQuery(q: string): string {
 	return q.toLowerCase().trim().replace(/\s+/g, " ");
-}
-
-export function isFollowUpIntent(q: string): boolean {
-	return /\b(that|this|those|these|it|them|what about|tell me more|what else|the one|which one|more about|go on|continue|expand|elaborate)\b/.test(q);
-}
-
-export function isPaginationIntent(q: string): boolean {
-	return /\b(more|next|show more|another|others|different|additional|other examples|more examples|any others|what else)\b/.test(q) &&
-		!/\b(tell me more about|more information about|more details about)\b/.test(q);
-}
-
-export function isContactIntent(q: string): boolean {
-	return /\b(contact|address|phone|email|location|office|reach|get in touch|find you|where are you|support email|contact us|reach out)\b/.test(q);
 }
 
 export function isAppointmentBookingIntent(
@@ -31,256 +26,134 @@ export function isAppointmentBookingIntent(
 	);
 }
 
-export function isWidgetLocationQuery(q: string): boolean {
-	return /\b(location|address|office|where are you located|where are you based|where are you|contact us)\b/.test(q);
-}
-
-export function isWidgetCaseStudyQuery(q: string): boolean {
-	return /\b(case stud|portfolio|work|project|client|success stor|example|showcase|past work|previous work|your work|done for|built for|made for)\b/.test(q);
-}
-
-export function isWidgetTopListQuery(q: string): boolean {
-	return /\b(top|best|featured|highlight|list)\b/.test(q);
-}
-
-export function isWidgetMedicalQuery(q: string): boolean {
-	return /\b(medical|healthcare|clinic|doctor|hospital|dermatology|skin|hair)\b/.test(q);
-}
-
-export function isWidgetTechProjectQuery(q: string): boolean {
-	return (
-		/\b(project|work|built|made|developed|using|with)\b/.test(q) &&
-		/\b(next\.?js|nextjs|react|vue|angular|shopify|wordpress|magento|woocommerce|laravel|node|python|flutter|kotlin|swift|aws|azure|tailwind|webflow|typescript)\b/.test(q)
-	);
-}
-
-export function isLinkIntent(q: string): boolean {
-	return /\b(link|url|website link|where can i find|give me the link|show me the link|link to the|link of the|case study link|case study url)\b/.test(q);
-}
-
-export function isWidgetServiceOverviewQuery(q: string): boolean {
-	return /\b(service|what do you (do|offer|provide)|what (can|does) .* (do|offer|provide)|offering|solution|capability|capabilities|speciali)\b/.test(q);
-}
-
-function detectServiceFocusTerms(q: string): string[] {
-	const focusTerms: string[] = [];
-	const candidates = [
-		"website development",
-		"web development",
-		"custom web development",
-		"full-stack development",
-		"e-commerce development",
-		"ecommerce development",
-		"cloud-based web development",
-		"ui ux development",
-		"ui/ux development",
-		"cms development",
-		"seo",
-		"local seo",
-		"digital marketing",
-		"social media marketing",
-		"ppc",
-		"content writing",
-		"web hosting",
-		"brochure designing",
-		"microsoft dynamics",
-		"business central",
-	];
-
-	for (const candidate of candidates) {
-		if (q.includes(candidate)) {
-			focusTerms.push(candidate);
-		}
+export function classifyQuery(query: string): QueryClass {
+	const q = normalizeWidgetQuery(query);
+	if (/\b(price|pricing|cost|plan|package|subscription|charge|fee|fees)\b/.test(q)) {
+		return "pricing";
 	}
-
-	return focusTerms;
+	if (/\b(contact|email|phone|call|address|location|reach|support)\b/.test(q)) {
+		return "contact";
+	}
+	if (/\b(case study|portfolio|client|project|work|success story|testimonial)\b/.test(q)) {
+		return "case_study";
+	}
+	if (/\b(service|services|offer|provide|solution|solutions|development|design|marketing|seo)\b/.test(q)) {
+		return "service";
+	}
+	if (/\b(blog|article|news|insight|guide)\b/.test(q)) {
+		return "blog";
+	}
+	return "general";
 }
 
-export function detectIndustryFromQuery(q: string): string {
-	const industries: Record<string, string> = {
-		healthcare: "healthcare",
-		health: "healthcare",
-		medical: "healthcare",
-		clinic: "healthcare",
-		hospital: "healthcare",
-		retail: "retail",
-		ecommerce: "retail",
-		fashion: "retail",
-		education: "education",
-		school: "education",
-		college: "education",
-		fintech: "fintech",
-		finance: "fintech",
-		payment: "fintech",
-		"real estate": "real-estate",
-		property: "real-estate",
-		restaurant: "hospitality",
-		hotel: "hospitality",
-		software: "technology",
-		tech: "technology",
-		saas: "technology",
-		insurance: "insurance",
-		insurtech: "insurance",
-	};
-	for (const [keyword, industry] of Object.entries(industries)) {
-		if (q.includes(keyword)) return industry;
+export function getTopKForQuery(query: string): number {
+	switch (classifyQuery(query)) {
+		case "pricing":
+		case "contact":
+			return 8;
+		case "case_study":
+		case "service":
+			return 18;
+		case "blog":
+			return 12;
+		case "general":
+			return 15;
 	}
-	return "";
 }
 
-// buildPineconeFilter returns a Pinecone metadata filter based on detected query intent.
-// Returns null for general queries (no filter = search all chunks).
-export function buildPineconeFilter(query: string): Record<string, unknown> | null {
-	const normalized = normalizeWidgetQuery(query);
-
-	if (isContactIntent(normalized)) {
-		return { pageType: { $in: ["contact", "about", "home"] } };
+export function buildPageTypeFilters(query: string): string[] {
+	switch (classifyQuery(query)) {
+		case "pricing":
+			return ["pricing"];
+		case "contact":
+			return ["contact"];
+		case "case_study":
+			return ["case_study", "portfolio"];
+		case "service":
+			return ["service", "services", "home"];
+		case "blog":
+			return ["blog"];
+		case "general":
+			return [];
 	}
-
-	if (isWidgetLocationQuery(normalized)) {
-		return { pageType: { $in: ["contact", "about", "home"] } };
-	}
-
-	if (isWidgetTechProjectQuery(normalized)) {
-		return {
-			pageType: { $in: ["case_study", "portfolio", "service", "home"] },
-		};
-	}
-
-	if (isWidgetCaseStudyQuery(normalized)) {
-		const industry = detectIndustryFromQuery(normalized);
-		if (industry) {
-			return {
-				$and: [
-					{ pageType: { $eq: "case_study" } },
-					{ industry: { $eq: industry } },
-				],
-			};
-		}
-		return { pageType: { $eq: "case_study" } };
-	}
-
-	if (isWidgetServiceOverviewQuery(normalized)) {
-		return {
-			pageType: {
-				$in: ["service", "home", "about", "pricing", "portfolio"],
-			},
-		};
-	}
-
-	return null;
 }
 
-// Deterministic rewrites for common business intent patterns
-function rewriteWidgetRetrievalQuery(q: string): [string, boolean] {
+export function generateQueryVariations(query: string): string[] {
+	const q = query.trim();
+	if (!q) return [];
 	const normalized = normalizeWidgetQuery(q);
-	switch (true) {
-		case isContactIntent(normalized):
-			return [
-				"contact details phone number email address office location reach us get in touch headquarters branch city how to contact",
-				true,
-			];
-		case isWidgetLocationQuery(normalized):
-			return [
-				"company office locations contact us page business address Bangalore Dubai branch office address",
-				true,
-			];
-		case isWidgetMedicalQuery(normalized) &&
-			isWidgetCaseStudyQuery(normalized):
-			return [
-				"medical healthcare clinic case studies project results SEO Google Ads web development healthcare brand outcomes",
-				true,
-			];
-		case isWidgetCaseStudyQuery(normalized) &&
-			isWidgetTopListQuery(normalized):
-			return [
-				"top case studies portfolio projects client success stories brand names results outcomes metrics flagship work",
-				true,
-			];
-		case isWidgetServiceOverviewQuery(normalized):
-			const focusTerms = detectServiceFocusTerms(normalized);
-			return [
-				focusTerms.length > 0
-					? `exact service offerings ${focusTerms.join(" ")} service pages solutions capabilities packages sub-services website headings page titles`
-					: "exact services offered by the business from service pages, home page, about page, and solution pages including website development, custom web development, full-stack development, ecommerce development, cloud-based web development, UI UX development, CMS development, SEO, digital marketing, hosting, content writing, brochure designing, and business solutions",
-				true,
-			];
-		default:
-			return [q, false];
+	const variations = new Set<string>();
+
+	if (/\b(price|pricing|cost)\b/.test(normalized)) {
+		variations.add(`${q} pricing plans cost`);
 	}
+	if (/\b(service|services|offer|provide)\b/.test(normalized)) {
+		variations.add(`${q} services solutions`);
+	}
+	if (/\b(project|portfolio|case study|client)\b/.test(normalized)) {
+		variations.add(`${q} portfolio case studies clients`);
+	}
+	if (/\b(contact|email|phone|address)\b/.test(normalized)) {
+		variations.add(`${q} contact details`);
+	}
+
+	return Array.from(variations)
+		.filter((item) => normalizeWidgetQuery(item) !== normalized)
+		.slice(0, 3);
 }
 
-// stepBackRewrite uses a cheap LLM call to rewrite a short user query into a broader,
-// more descriptive retrieval query. Returns original on failure or if already long enough.
 export async function stepBackRewrite(
 	query: string,
 	history?: Array<{ role: string; content: string }>,
 ): Promise<string> {
-	const q = query.trim();
-	if (!q || !config.OPENAI_API_KEY?.trim()) {
-		return q;
+	const trimmed = query.trim();
+	if (!trimmed) return trimmed;
+
+	const words = trimmed.split(/\s+/);
+	const contextDependent =
+		/\b(it|this|that|they|them|those|there|same|above|previous)\b/i.test(trimmed);
+	if (words.length > 12 && !contextDependent) {
+		return trimmed;
 	}
-
-	const [rewritten, ok] = rewriteWidgetRetrievalQuery(q);
-	if (ok) return rewritten;
-
-	const normalized = normalizeWidgetQuery(q);
-	const isShortFollowUp = q.split(/\s+/).length <= 4 && !!history?.length;
-	const needsContext = isFollowUpIntent(normalized) || isPaginationIntent(normalized) || isShortFollowUp;
-
-	if (!needsContext && q.split(/\s+/).length > 12) {
-		logger.info("[RAG 1/5] step-back rewrite: skipped (query > 12 words)", { query: q });
-		return q;
-	}
-
-	logger.info("[RAG 1/5] step-back rewrite: rewriting...", { original: q, needsContext });
-
-	let contextBlock = "";
-	if (needsContext && history && history.length > 0) {
-		const last = history.slice(-6);
-		const lines: string[] = [];
-		for (const msg of last) {
-			const content = msg.content.length > 300 ? msg.content.slice(0, 300) + "..." : msg.content;
-			if (msg.role === "user") lines.push(`User: ${content}`);
-			else if (msg.role === "assistant") lines.push(`Assistant: ${content}`);
-		}
-		contextBlock = lines.join("\n");
-	}
-
-	let prompt: string;
-	if (contextBlock) {
-		if (isPaginationIntent(normalized)) {
-			prompt = `You are a search query optimizer for a customer support chatbot.\n\nConversation so far:\n${contextBlock}\nUser: ${q}\n\nThe user wants MORE results on the same topic. Rewrite the FINAL user message into a standalone search query that:\n1. Identifies the topic from the conversation history\n2. Requests additional or different items not already shown\nOutput ONLY the rewritten query, nothing else.`;
-		} else {
-			prompt = `You are a search query optimizer for a customer support chatbot.\n\nConversation so far:\n${contextBlock}\nUser: ${q}\n\nRewrite the FINAL user message into a standalone, specific search query that:\n1. Preserves the action or intent from the conversation (e.g., if the user was asking about "creating reports", keep that intent in the rewritten query)\n2. Resolves all pronouns and subject references using the conversation history\nOutput ONLY the rewritten query, nothing else.`;
-		}
-	} else {
-		prompt = `You are a search query optimizer. Rewrite the following short user query into a broader, more descriptive retrieval query that will help find relevant business information. Output ONLY the rewritten query, nothing else.\n\nOriginal: ${q}\nRewritten:`;
+	if (!config.OPENAI_API_KEY?.trim()) {
+		return trimmed;
 	}
 
 	try {
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), 8000);
-		try {
-			const completion = await openai.chat.completions.create(
+		const recentHistory = (history ?? [])
+			.slice(-6)
+			.map((message) => `${message.role}: ${message.content}`)
+			.join("\n");
+		const completion = await openai.chat.completions.create({
+			model: "gpt-4o-mini",
+			messages: [
 				{
-					model: "gpt-4o-mini",
-					messages: [{ role: "user", content: prompt }],
-					temperature: 0.0,
-					max_tokens: 60,
+					role: "system",
+					content:
+						"Rewrite the user query into one standalone website knowledge-base search query. Return only the rewritten query.",
 				},
-				{ signal: controller.signal as any },
-			);
-			const result = (completion.choices[0]?.message?.content ?? "").trim();
-			if (!result) return q;
-			logger.info("[RAG 1/5] step-back rewrite: done", { original: q, rewritten: result });
-			return result;
-		} finally {
-			clearTimeout(timeout);
-		}
-	} catch {
-		logger.info("[RAG 1/5] step-back rewrite: failed, using original", { query: q });
-		return q;
+				{
+					role: "user",
+					content: recentHistory
+						? `Conversation:\n${recentHistory}\n\nQuery: ${trimmed}`
+						: `Query: ${trimmed}`,
+				},
+			],
+			temperature: 0,
+			max_tokens: 80,
+		});
+		const rewritten =
+			completion.choices[0]?.message?.content?.trim() || trimmed;
+		return rewritten.length > 0 && rewritten.length < 300
+			? rewritten.replace(/^["']|["']$/g, "")
+			: trimmed;
+	} catch (error) {
+		logger.warn("RAG step-back rewrite failed; using original query", {
+			error:
+				error instanceof Error
+					? error.message
+					: String(error),
+		});
+		return trimmed;
 	}
 }
-

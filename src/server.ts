@@ -58,7 +58,6 @@ const isRateLimitExemptPath = (path: string): boolean => {
 // Start background workers and keep references for graceful shutdown
 const scraperWorker = createScraperWorker();
 const maintenanceWorker = createMaintenanceWorker();
-const hypeWorker = createHypeWorker();
 
 const app: Application = express();
 // Trust the known proxy chain length; keeps IP-based rate limiting safe
@@ -362,18 +361,6 @@ setInterval(() => {
 		});
 }, SALESFORCE_SYNC_PROCESS_INTERVAL_MS);
 
-// Periodically repair missing HyPE chunks for already-scraped websites
-setInterval(() => {
-	hypeRepairService
-		.processPendingRepairs()
-		.catch((error: Error) => {
-			logger.error(
-				"Scheduled HyPE repair processing failed",
-				{ error: error.message },
-			);
-		});
-}, HYPE_REPAIR_PROCESS_INTERVAL_MS);
-
 // Graceful shutdown
 const gracefulShutdown = (server: Server) => {
 	logger.info(
@@ -395,7 +382,6 @@ const gracefulShutdown = (server: Server) => {
 			await Promise.all([
 				scraperWorker.close(),
 				maintenanceWorker.close(),
-				hypeWorker.close(),
 			]);
 			logger.info("BullMQ workers closed");
 		} catch (err) {
@@ -420,14 +406,6 @@ const server: Server = app.listen(
 			`🚀 Server is running on http://localhost:${config.PORT}`,
 		);
 		void adminAuthService.initializeAdminAuth();
-		void hypeRepairService
-			.processPendingRepairs()
-			.catch((error: Error) => {
-				logger.error(
-					"Initial HyPE repair processing failed",
-					{ error: error.message },
-				);
-			});
 	},
 );
 server.keepAliveTimeout =

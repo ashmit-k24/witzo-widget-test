@@ -1,6 +1,7 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { config } from "../config/env";
+import { redisCache } from "../config/redis";
 import { RagChunk, ScrapedPage } from "../types";
 import logger from "../utils/logger";
 import { assertSafeOutgoingUrl } from "../utils/networkSafety";
@@ -10,8 +11,10 @@ import {
 	firecrawlCrawlWebsite,
 	firecrawlEnabled,
 } from "./firecrawlService";
+import { upsertHypeAsync } from "./hypeService";
 import { extractAsync as extractPageMetadataAsync } from "./pageMetadataService";
 import { pineconeService } from "./pineconeService";
+import { scraperSourceService } from "./scraperSourceService";
 
 interface CrawlOptions {
 	maxDepth?: number;
@@ -41,6 +44,12 @@ interface ScrapeResult {
 	storedPages: number;
 	pages: ScrapedPage[];
 	failureReason?: string;
+}
+
+interface PersistScrapedPagesResult {
+	chunks: number;
+	indexedPages: number;
+	skippedEmbedding: boolean;
 }
 
 interface RobotsPolicy {
@@ -961,8 +970,59 @@ class ScraperService {
 			percent?: number;
 			stageLabel?: string;
 		}) => Promise<void> | void,
-	): Promise<void> {
+	): Promise<PersistScrapedPagesResult> {
 		const startedAt = Date.now();
+		const rawContent =
+			scraperSourceService.buildRawContent(pages);
+		const contentHash =
+			scraperSourceService.computeContentHash(
+				rawContent,
+			);
+		const existingHash =
+			await scraperSourceService.getContentHash(
+				userId,
+				sourceUrl,
+			);
+
+		if (existingHash && existingHash === contentHash) {
+			const sourceExists =
+				await pineconeService.checkSourceExists(
+					userId,
+					sourceUrl,
+				);
+			if (sourceExists.exists) {
+				logger.info(
+					"scrape dedup: content unchanged, skipping re-index",
+					{
+						userId,
+						sourceUrl,
+						pages: pages.length,
+						chunks: sourceExists.chunks,
+					},
+				);
+				await reportProgress?.({
+					totalPages: pages.length,
+					scrapedPages: pages.length,
+					storedPages: pages.length,
+					currentUrl: sourceUrl,
+					stage:
+						"scraper_primary_pinecone_upsert_completed",
+					percent: 100,
+					stageLabel:
+						"Content unchanged; existing vectors reused",
+				});
+				return {
+					chunks: sourceExists.chunks,
+					indexedPages: pages.length,
+					skippedEmbedding: true,
+				};
+			}
+			logger.info(
+				"scrape dedup: content unchanged but no vectors found; forcing re-index",
+				{ userId, sourceUrl },
+			);
+		}
+
 		const chunks = await this.buildRagChunks(
 			userId,
 			sourceUrl,
@@ -993,7 +1053,11 @@ class ScraperService {
 				sourceUrl,
 				pages: pages.length,
 				chunks: chunks.length,
+				contentHash,
 			},
+		);
+		await redisCache.del(
+			`chat:semantic-answer:${userId}`,
 		);
 
 		const pineconeStartedAt = Date.now();
@@ -1031,10 +1095,26 @@ class ScraperService {
 					Date.now() - pineconeStartedAt,
 			},
 		);
+		const indexedPages = new Set(
+			chunks.map((chunk) => chunk.url),
+		).size;
+		await scraperSourceService.persistSource(
+			userId,
+			sourceUrl,
+			sourceTitle,
+			pages,
+			rawContent,
+			contentHash,
+		);
+		await scraperSourceService.setMetadataReady(
+			userId,
+			sourceUrl,
+			false,
+		);
 		await reportProgress?.({
 			totalPages: pages.length,
 			scrapedPages: pages.length,
-			storedPages: pages.length,
+			storedPages: indexedPages,
 			currentUrl: sourceUrl,
 			stage:
 				"scraper_primary_pinecone_upsert_completed",
@@ -1049,6 +1129,7 @@ class ScraperService {
 				sourceUrl,
 				pages: pages.length,
 				chunks: chunks.length,
+				indexedPages,
 			},
 		);
 
@@ -1059,7 +1140,7 @@ class ScraperService {
 			await reportProgress?.({
 				totalPages: pages.length,
 				scrapedPages: pages.length,
-				storedPages: pages.length,
+				storedPages: indexedPages,
 				currentUrl: sourceUrl,
 				stage: "scraper_primary_pinecone_upsert_completed",
 				percent: 100,
@@ -1067,7 +1148,7 @@ class ScraperService {
 					"Background metadata enrichment started",
 			});
 			try {
-				await extractPageMetadataAsync(
+				const metadataResult = await extractPageMetadataAsync(
 					pages,
 					chunks,
 					async (ownerId, vectorId, metadata) =>
@@ -1077,6 +1158,13 @@ class ScraperService {
 							metadata,
 						),
 				);
+				if (metadataResult.completed) {
+					await scraperSourceService.setMetadataReady(
+						userId,
+						sourceUrl,
+						true,
+					);
+				}
 			} catch (error) {
 				logger.warn(
 					"scraper: background enrichment task failed",
@@ -1091,6 +1179,11 @@ class ScraperService {
 					},
 				);
 			}
+			await upsertHypeAsync(
+				userId,
+				sourceUrl,
+				chunks,
+			);
 			logger.info(
 				"scraper: background enrichment completed",
 				{
@@ -1098,6 +1191,7 @@ class ScraperService {
 					sourceUrl,
 					pages: pages.length,
 					chunks: chunks.length,
+					indexedPages,
 					durationMs:
 						Date.now() - enrichmentStartedAt,
 				},
@@ -1123,9 +1217,15 @@ class ScraperService {
 				sourceUrl,
 				pages: pages.length,
 				chunks: chunks.length,
+				indexedPages,
 				durationMs: Date.now() - startedAt,
 			},
 		);
+		return {
+			chunks: chunks.length,
+			indexedPages,
+			skippedEmbedding: false,
+		};
 	}
 
 	async scrapeWebsite(
@@ -1232,17 +1332,19 @@ class ScraperService {
 				if (firecrawlPages.length > 0) {
 					rootTitle =
 						firecrawlPages[0]?.title || "";
-					await this.persistScrapedPages(
-						userId,
-						rootUrl,
-						rootTitle,
-						firecrawlPages,
-						reportProgress,
-					);
+					const persisted =
+						await this.persistScrapedPages(
+							userId,
+							rootUrl,
+							rootTitle,
+							firecrawlPages,
+							reportProgress,
+						);
 					await reportProgress?.({
 						totalPages: firecrawlPages.length,
 						scrapedPages: firecrawlPages.length,
-						storedPages: firecrawlPages.length,
+						storedPages:
+							persisted.indexedPages,
 						currentUrl: rootUrl,
 					});
 					return {
@@ -1250,7 +1352,8 @@ class ScraperService {
 						message: `Successfully scraped ${firecrawlPages.length} page(s) via Firecrawl`,
 						pagesScraped: firecrawlPages.length,
 						visitedPages: firecrawlPages.length,
-						storedPages: firecrawlPages.length,
+						storedPages:
+							persisted.indexedPages,
 						pages: firecrawlPages,
 					};
 				}
@@ -1381,12 +1484,12 @@ class ScraperService {
 					}
 				}
 
-				if (!pageData.content.trim()) {
-					continue;
-				}
-
 				if (depth === 0 && pageData.title) {
 					rootTitle = pageData.title;
+				}
+
+				if (!pageData.content.trim()) {
+					continue;
 				}
 
 				const canonical = String(
@@ -1488,21 +1591,23 @@ class ScraperService {
 			}
 		}
 
+		let indexedPages = 0;
 		if (scrapedPages.length > 0) {
-			await this.persistScrapedPages(
+			const persisted = await this.persistScrapedPages(
 				userId,
 				rootUrl,
 				rootTitle,
 				scrapedPages,
 				reportProgress,
 			);
+			indexedPages = persisted.indexedPages;
 			await reportProgress?.({
 				totalPages: Math.max(
 					scrapedPages.length,
 					visitedUrls.size,
 				),
 				scrapedPages: scrapedPages.length,
-				storedPages: scrapedPages.length,
+				storedPages: indexedPages,
 				currentUrl: rootUrl,
 			});
 		}
@@ -1527,7 +1632,7 @@ class ScraperService {
 					: "Failed to scrape any pages from the provided website",
 			pagesScraped: scrapedPages.length,
 			visitedPages: visitedUrls.size,
-			storedPages: scrapedPages.length,
+			storedPages: indexedPages,
 			pages: scrapedPages,
 			failureReason: wasSuccessful
 				? undefined

@@ -340,6 +340,10 @@ export interface EnvConfig {
 	// RAG pipeline
 	PINECONE_HYBRID: boolean;
 	HYPE_QUESTIONS_PER_CHUNK: number;
+	HYPE_SOURCE_LIMIT: number;
+	SEMANTIC_ANSWER_CACHE_ENABLED: boolean;
+	SEMANTIC_ANSWER_CACHE_THRESHOLD: number;
+	SEMANTIC_ANSWER_CACHE_MAX_ENTRIES: number;
 	KNOWLEDGE_BOUNDARY: string;
 }
 
@@ -499,6 +503,8 @@ export interface RagChunk {
 	clientName?: string;
 	industry?: string;
 	services?: string;
+	isHype?: boolean;
+	hypeParent?: string;
 	vectorId?: string; // populated after upsert for metadata updates
 }
 

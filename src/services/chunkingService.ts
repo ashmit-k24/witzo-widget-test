@@ -15,23 +15,28 @@ export interface SparseVector {
 
 // ── LangChain splitter instances (created once, reused) ────────────
 
-// Markdown-aware parent splitter: large chunks for LLM context (~600 words ≈ ~3000 chars)
-// Uses markdown separators: splits at headings, code blocks, paragraphs first
+// Markdown-aware parent splitter: large chunks for LLM context (~1200 words ≈ ~6000 chars)
+// Uses markdown separators: splits at headings, code blocks, paragraphs first.
+// Bumped from 3000 -> 6000 so a single chunk can cover a full section of a
+// page (e.g., a pricing table + its surrounding copy) instead of carving the
+// section into narrow slices that lose cross-reference context.
 const parentSplitter = new MarkdownTextSplitter({
-	chunkSize: 3000,
-	chunkOverlap: 200,
+	chunkSize: 6000,
+	chunkOverlap: 400,
 });
 
-// Child splitter: small chunks for embedding (~200 words ≈ ~1000 chars)
+// Child splitter: small chunks for embedding (~300 words ≈ ~1500 chars).
+// Bumped from 1000 -> 1500 for richer embedding input without blowing past
+// the 4000-char metadata text cap even after contextual enrichment.
 const childSplitter = new RecursiveCharacterTextSplitter({
-	chunkSize: 1000,
-	chunkOverlap: 200,
+	chunkSize: 1500,
+	chunkOverlap: 250,
 });
 
-// Plain text fallback splitter (~800 words ≈ ~4000 chars, overlap ~120 words ≈ ~600 chars)
+// Plain text fallback splitter (~1000 words ≈ ~5000 chars, overlap ~150 words ≈ ~750 chars)
 const plainTextSplitter = new RecursiveCharacterTextSplitter({
-	chunkSize: 4000,
-	chunkOverlap: 600,
+	chunkSize: 5000,
+	chunkOverlap: 750,
 });
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -49,13 +54,24 @@ export async function chunkMarkdown(
 ): Promise<ChunkResult[]> {
 	if (!text || !text.trim()) return [];
 
-	const isMarkdown =
-		text.includes("\n## ") ||
-		text.startsWith("## ") ||
-		text.includes("\n### ") ||
-		text.startsWith("### ");
+	// Detect any level of ATX heading (# through ######). The previous
+	// detection only recognised `## ` / `### `, so pages with only an H1
+	// (or H4+) fell through to the plain-text splitter and lost their
+	// heading-aware structure.
+	const hasAtxHeading = /(^|\n)#{1,6}\s+\S/.test(text);
+	// Also treat common markdown structural markers as "markdown enough"
+	// to use the markdown splitter (lists, fenced code, horizontal rules,
+	// blockquotes, tables).
+	const hasMarkdownStructure =
+		hasAtxHeading ||
+		/\n\s*[-*+]\s+\S/.test(text) ||
+		/\n\s*\d+\.\s+\S/.test(text) ||
+		/\n```/.test(text) ||
+		/\n\s*>\s+\S/.test(text) ||
+		/\n\s*\|.+\|/.test(text) ||
+		/\n\s*(?:---|\*\*\*|___)\s*\n/.test(text);
 
-	if (!isMarkdown) {
+	if (!hasMarkdownStructure) {
 		return chunkPlainText(text);
 	}
 
