@@ -33,6 +33,9 @@ import {
 	isAppointmentBookingIntent,
 	normalizeWidgetQuery,
 } from "./queryService";
+import personaService, {
+	WidgetPersonaKey,
+} from "./personaService";
 import { scraperStatusService } from "./scraperStatusService";
 import systemMessageService from "./systemMessageService";
 import websiteBrandingService from "./websiteBrandingService";
@@ -119,7 +122,15 @@ type SemanticAnswerCacheEntry = {
 	response: string;
 	sources: ContextResult["sources"];
 	language?: string;
+	personaKey?: WidgetPersonaKey;
+	personaPromptHash?: string;
 	createdAt: string;
+};
+
+type PersonaContext = {
+	key: WidgetPersonaKey;
+	prompt: string;
+	promptHash: string;
 };
 
 class ChatService {
@@ -165,6 +176,62 @@ class ChatService {
 		return `chat:semantic-answer:${userId}`;
 	}
 
+	private hashPersonaPrompt(prompt: string): string {
+		return crypto
+			.createHash("sha1")
+			.update(prompt.trim())
+			.digest("hex");
+	}
+
+	private buildPersonaOverrideInstruction(
+		personaContext?: PersonaContext,
+	): string {
+		if (!personaContext?.prompt.trim()) {
+			return "";
+		}
+		return [
+			"Mandatory selected widget persona instructions:",
+			personaContext.prompt.trim(),
+			"These persona instructions are binding for every reply. If they conflict with the default website assistant instructions, follow the persona instructions.",
+		].join("\n");
+	}
+
+	private async resolvePersonaContext(
+		userId: string,
+	): Promise<PersonaContext> {
+		try {
+			const key =
+				await personaService.getUserPersonaKey(
+					userId,
+				);
+			const prompt =
+				await personaService.getPersonaPrompt(key);
+			return {
+				key,
+				prompt,
+				promptHash:
+					this.hashPersonaPrompt(prompt),
+			};
+		} catch (error) {
+			logger.warn(
+				"Chat persona context unavailable; using general persona fallback",
+				{
+					userId,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+			return {
+				key: "general_information",
+				prompt: "",
+				promptHash:
+					this.hashPersonaPrompt(""),
+			};
+		}
+	}
+
 	private cosineSimilarity(
 		a: number[],
 		b: number[],
@@ -189,6 +256,8 @@ class ChatService {
 		userId: string,
 		query: string,
 		language?: string,
+		personaKey?: WidgetPersonaKey,
+		personaPromptHash?: string,
 	): Promise<{
 		response: string;
 		sources: ContextResult["sources"];
@@ -213,8 +282,24 @@ class ChatService {
 						entry: SemanticAnswerCacheEntry;
 				  }
 				| undefined;
+			const normalizedPersonaKey =
+				personaKey || "general_information";
+			const normalizedPersonaPromptHash =
+				personaPromptHash || "";
 			for (const entry of entries) {
 				if ((entry.language || "") !== (language || "")) {
+					continue;
+				}
+				if (
+					(entry.personaKey || "general_information") !==
+					normalizedPersonaKey
+				) {
+					continue;
+				}
+				if (
+					(entry.personaPromptHash || "") !==
+					normalizedPersonaPromptHash
+				) {
 					continue;
 				}
 				const score = this.cosineSimilarity(
@@ -234,6 +319,9 @@ class ChatService {
 			logger.info("Chat semantic answer cache hit", {
 				userId,
 				score: best.score,
+				personaKey: normalizedPersonaKey,
+				personaPromptHash:
+					normalizedPersonaPromptHash,
 			});
 			return {
 				response: best.entry.response,
@@ -257,6 +345,8 @@ class ChatService {
 		response: string,
 		sources: ContextResult["sources"],
 		language?: string,
+		personaKey?: WidgetPersonaKey,
+		personaPromptHash?: string,
 	): Promise<void> {
 		if (!config.SEMANTIC_ANSWER_CACHE_ENABLED) {
 			return;
@@ -276,6 +366,10 @@ class ChatService {
 				response,
 				sources,
 				language,
+				personaKey:
+					personaKey || "general_information",
+				personaPromptHash:
+					personaPromptHash || "",
 				createdAt: new Date().toISOString(),
 			});
 			await redisCache.setex(
@@ -1630,6 +1724,7 @@ ${message}`;
 		matches: any[],
 		messages: ChatMessage[],
 		_languageCode?: string,
+		personaContext?: PersonaContext,
 	): Promise<Array<any>> {
 		const effectiveSystemMessage =
 			await systemMessageService.resolveEffectiveSystemMessage(
@@ -1676,6 +1771,16 @@ ${message}`;
 			conversationHistory.push({
 				role: "system",
 				content: languageInstruction,
+			});
+		}
+		const personaOverride =
+			this.buildPersonaOverrideInstruction(
+				personaContext,
+			);
+		if (personaOverride) {
+			conversationHistory.push({
+				role: "system",
+				content: personaOverride,
 			});
 		}
 
@@ -1764,11 +1869,96 @@ ${message}`;
 		}
 	}
 
+	private async generatePersonaAwareFallbackResponse(
+		userId: string,
+		query: string,
+		fallbackResponse: string,
+		history: ChatMessage[],
+		languageCode: string | undefined,
+		personaContext: PersonaContext,
+	): Promise<{
+		response: string;
+		usage?: CompletionUsage;
+	} | null> {
+		if (
+			!config.OPENAI_API_KEY?.trim() ||
+			!personaContext.prompt.trim()
+		) {
+			return null;
+		}
+
+		try {
+			const systemPrompt =
+				await systemMessageService.resolveEffectiveSystemMessage(
+					userId,
+				);
+			const languageInstruction =
+				this.buildLanguageInstruction(languageCode);
+			const conversationHistory: Array<any> = [
+				{
+					role: "system",
+					content: systemPrompt,
+				},
+			];
+			if (languageInstruction) {
+				conversationHistory.push({
+					role: "system",
+					content: languageInstruction,
+				});
+			}
+			const personaOverride =
+				this.buildPersonaOverrideInstruction(
+					personaContext,
+				);
+			if (personaOverride) {
+				conversationHistory.push({
+					role: "system",
+					content: personaOverride,
+				});
+			}
+			for (const msg of history.slice(
+				-CHAT_HISTORY_WINDOW_MESSAGES,
+			)) {
+				conversationHistory.push({
+					role: msg.role,
+					content: msg.content,
+				});
+			}
+			conversationHistory.push({
+				role: "user",
+				content: [
+					`Visitor message: ${query}`,
+					`The normal fallback response would be: ${fallbackResponse}`,
+					"Reply to the visitor while strictly following the selected persona instructions. Do not ignore the persona just because knowledge-base retrieval had no matching result.",
+				].join("\n\n"),
+			});
+
+			return await this.generateNonStreamingResponse(
+				conversationHistory,
+				CHAT_DEFAULT_TIMEOUT_MS,
+			);
+		} catch (error) {
+			logger.warn(
+				"Persona-aware fallback generation failed; using default fallback",
+				{
+					userId,
+					personaKey: personaContext.key,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+			return null;
+		}
+	}
+
 	private async resolveAgenticDecision(
 		userId: string,
 		query: string,
 		history: ChatMessage[],
 		languageCode?: string,
+		personaContext?: PersonaContext,
 	): Promise<AgenticDecision> {
 		if (!config.OPENAI_API_KEY?.trim()) {
 			return { mode: "search", query };
@@ -1837,8 +2027,22 @@ ${message}`;
 								messages: [
 									{
 										role: "system",
-										content: `You are deciding whether to search ${websiteName}'s website knowledge base. Choose exactly one tool.`,
+										content: [
+											`You are deciding whether to search ${websiteName}'s website knowledge base. Choose exactly one tool.`,
+											"If you respond directly, the direct response must strictly follow the selected widget persona instructions.",
+										].join(" "),
 									},
+									...(personaContext?.prompt.trim()
+										? [
+												{
+													role: "system" as const,
+													content:
+														this.buildPersonaOverrideInstruction(
+															personaContext,
+														),
+												},
+											]
+										: []),
 									...(languageInstruction
 										? [
 												{
@@ -1962,6 +2166,8 @@ ${message}`;
 	}> {
 		const resolvedLanguage =
 			this.normalizeLanguagePreference(language);
+		const personaContext =
+			await this.resolvePersonaContext(userId);
 		const syntheticSessionId = `adhoc:${crypto
 			.createHash("sha1")
 			.update(`${userId}:${message}`)
@@ -1971,6 +2177,8 @@ ${message}`;
 				userId,
 				message,
 				resolvedLanguage,
+				personaContext.key,
+				personaContext.promptHash,
 			);
 		if (cachedAnswer) {
 			return {
@@ -1986,6 +2194,7 @@ ${message}`;
 				message,
 				[],
 				resolvedLanguage,
+				personaContext,
 			);
 		const { matches, sources } =
 			decision.mode === "respond"
@@ -2026,11 +2235,26 @@ ${message}`;
 						relevantMatches,
 						[],
 						resolvedLanguage,
+						personaContext,
 					),
 					CHAT_DEFAULT_TIMEOUT_MS,
 				);
 			answer =
 				completion.response || fallbackResponse;
+		}
+		if (!shouldCallLlm) {
+			const personaFallback =
+				await this.generatePersonaAwareFallbackResponse(
+					userId,
+					message,
+					fallbackResponse,
+					[],
+					resolvedLanguage,
+					personaContext,
+				);
+			if (personaFallback?.response?.trim()) {
+				answer = personaFallback.response;
+			}
 		}
 
 		const websiteName =
@@ -2050,6 +2274,8 @@ ${message}`;
 				answer,
 				sources,
 				resolvedLanguage,
+				personaContext.key,
+				personaContext.promptHash,
 			);
 		}
 
@@ -2403,6 +2629,8 @@ ${message}`;
 				this.normalizeLanguagePreference(
 					language,
 				);
+			const personaContext =
+				await this.resolvePersonaContext(userId);
 			const timing: ChatTiming = {
 				sessionMs: 0,
 				retrievalMs: 0,
@@ -2446,6 +2674,8 @@ ${message}`;
 						userId,
 						message,
 						resolvedLanguage,
+						personaContext.key,
+						personaContext.promptHash,
 					);
 				if (cachedAnswer) {
 					const assistantTimestamp =
@@ -2485,6 +2715,7 @@ ${message}`;
 					message,
 					historyMessages,
 					resolvedLanguage,
+					personaContext,
 				);
 			const { matches, sources } =
 				decision.mode === "respond"
@@ -2535,6 +2766,7 @@ ${message}`;
 							relevantMatches,
 							historyMessages,
 							resolvedLanguage,
+							personaContext,
 						);
 					const completionResult =
 						await this.generateNonStreamingResponse(
@@ -2558,6 +2790,23 @@ ${message}`;
 					usedFallback = true;
 				}
 			}
+			if (usedFallback) {
+				const personaFallback =
+					await this.generatePersonaAwareFallbackResponse(
+						userId,
+						message,
+						assistantResponse || fallbackResponse,
+						historyMessages,
+						resolvedLanguage,
+						personaContext,
+					);
+				if (personaFallback?.response?.trim()) {
+					assistantResponse =
+						personaFallback.response;
+					usage = personaFallback.usage;
+					usedFallback = false;
+				}
+			}
 			const websiteName =
 				await websiteBrandingService.resolveUserWebsiteName(
 					userId,
@@ -2576,6 +2825,8 @@ ${message}`;
 					assistantResponse,
 					sources,
 					resolvedLanguage,
+					personaContext.key,
+					personaContext.promptHash,
 				);
 			}
 			timing.llmMs = Date.now() - llmStart;
@@ -2664,6 +2915,8 @@ ${message}`;
 			CHAT_DEFAULT_TIMEOUT_MS;
 		const resolvedLanguage =
 			this.normalizeLanguagePreference(language);
+		const personaContext =
+			await this.resolvePersonaContext(userId);
 
 		const sessionStart = Date.now();
 		const session = await this.getOrCreateSession(
@@ -2697,6 +2950,8 @@ ${message}`;
 					userId,
 					message,
 					resolvedLanguage,
+					personaContext.key,
+					personaContext.promptHash,
 				);
 			if (cachedAnswer) {
 				options?.onToken?.(cachedAnswer.response);
@@ -2739,6 +2994,7 @@ ${message}`;
 				message,
 				historyMessages,
 				resolvedLanguage,
+				personaContext,
 			);
 		const { matches, sources } =
 			decision.mode === "respond"
@@ -2794,6 +3050,7 @@ ${message}`;
 						relevantMatches,
 						historyMessages,
 						resolvedLanguage,
+						personaContext,
 					);
 				const stream =
 					await openAICircuitBreaker.execute(
@@ -2856,6 +3113,24 @@ ${message}`;
 		} else if (decision.mode === "respond") {
 			options?.onToken?.(assistantResponse);
 		}
+		if (usedFallback) {
+			const personaFallback =
+				await this.generatePersonaAwareFallbackResponse(
+					userId,
+					message,
+					assistantResponse || fallbackResponse,
+					historyMessages,
+					resolvedLanguage,
+					personaContext,
+				);
+			if (personaFallback?.response?.trim()) {
+				assistantResponse =
+					personaFallback.response;
+				usage = personaFallback.usage;
+				usedFallback = false;
+				options?.onToken?.(assistantResponse);
+			}
+		}
 		timing.llmMs = Date.now() - llmStart;
 
 		if (!assistantResponse.trim()) {
@@ -2880,6 +3155,8 @@ ${message}`;
 				assistantResponse,
 				sources,
 				resolvedLanguage,
+				personaContext.key,
+				personaContext.promptHash,
 			);
 		}
 

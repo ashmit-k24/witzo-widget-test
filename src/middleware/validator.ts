@@ -18,6 +18,13 @@ import { SCRAPER_PAGE_LIMIT } from "../config/planConfig";
 import logger from "../utils/logger";
 
 const WIDGET_KEY_REGEX = /^wk_[a-f0-9]{32}$/i;
+const WIDGET_PERSONA_KEYS = [
+	"sales",
+	"customer_support",
+	"ecommerce",
+	"website_information",
+	"general_information",
+] as const;
 const SESSION_STATUS_VALUES = [
 	"new",
 	"contacted",
@@ -250,6 +257,12 @@ export const validationRules: Record<
 			.withMessage(
 				"knowledgeBoundary must be one of workspace_only, workspace_prefer, or general_allowed",
 			),
+	],
+
+	widgetPersonaSelect: [
+		body("personaKey")
+			.isIn([...WIDGET_PERSONA_KEYS])
+			.withMessage("personaKey is invalid"),
 	],
 
 	revokeSession: [
@@ -956,6 +969,35 @@ export const validationRules: Record<
 			.isString()
 			.isLength({ min: 1, max: 255 })
 			.withMessage("each domain must be 1-255 characters"),
+	],
+
+	adminPersonaParam: [
+		param("personaKey")
+			.isIn([...WIDGET_PERSONA_KEYS])
+			.withMessage("personaKey is invalid"),
+	],
+
+	adminPersonaUpdate: [
+		body("label")
+			.optional()
+			.isString()
+			.isLength({ min: 1, max: 120 })
+			.withMessage("label must be 1-120 characters"),
+		body("description")
+			.optional()
+			.isString()
+			.isLength({ max: 1000 })
+			.withMessage("description must be <= 1000 characters"),
+		body("systemPrompt")
+			.isString()
+			.isLength({ min: 1, max: SYSTEM_MESSAGE_MAX_LENGTH })
+			.withMessage(
+				`systemPrompt must be 1-${SYSTEM_MESSAGE_MAX_LENGTH} characters`,
+			),
+		body("isActive")
+			.optional()
+			.isBoolean()
+			.withMessage("isActive must be boolean"),
 	],
 
 	publicWebhook: [

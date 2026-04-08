@@ -265,6 +265,12 @@ const migrations: Migration[] = [
 			"Create scraper source and scraped page tracking tables",
 		file: "20260408_041_scraper_sources.sql",
 	},
+	{
+		id: "20260408_042_widget_personas",
+		description:
+			"Create admin-managed widget persona prompt table",
+		file: "20260408_042_widget_personas.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

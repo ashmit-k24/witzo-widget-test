@@ -15,6 +15,7 @@ import { upsertHypeAsync } from "./hypeService";
 import { extractAsync as extractPageMetadataAsync } from "./pageMetadataService";
 import { pineconeService } from "./pineconeService";
 import { scraperSourceService } from "./scraperSourceService";
+import personaService from "./personaService";
 
 interface CrawlOptions {
 	maxDepth?: number;
@@ -1011,6 +1012,24 @@ class ScraperService {
 					stageLabel:
 						"Content unchanged; existing vectors reused",
 				});
+				try {
+					await personaService.autoDetectAndApplyPersona(
+						userId,
+						pages,
+					);
+				} catch (error) {
+					logger.warn(
+						"scraper: persona auto-detection failed",
+						{
+							userId,
+							sourceUrl,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				}
 				return {
 					chunks: sourceExists.chunks,
 					indexedPages: pages.length,
@@ -1106,6 +1125,24 @@ class ScraperService {
 			rawContent,
 			contentHash,
 		);
+		try {
+			await personaService.autoDetectAndApplyPersona(
+				userId,
+				pages,
+			);
+		} catch (error) {
+			logger.warn(
+				"scraper: persona auto-detection failed",
+				{
+					userId,
+					sourceUrl,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+		}
 		await scraperSourceService.setMetadataReady(
 			userId,
 			sourceUrl,
