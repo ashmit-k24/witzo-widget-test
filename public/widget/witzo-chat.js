@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -769,12 +769,9 @@
             border-radius: 15px;
             overflow: hidden;
             transition:
-              width 0.62s cubic-bezier(0.22, 1, 0.36, 1),
-              height 0.62s cubic-bezier(0.22, 1, 0.36, 1),
-              max-height 0.62s cubic-bezier(0.22, 1, 0.36, 1),
-              min-height 0.62s cubic-bezier(0.22, 1, 0.36, 1),
-              max-width 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+              right 0.6s cubic-bezier(0.22, 1, 0.36, 1);
             background: #fff; /* Ensure background is white */
+            will-change: width, height;
           }
           :host([preview-mode="embedded"]) #textChatWidget {
             position: absolute;
@@ -792,8 +789,8 @@
           }
           #textChatWidget.intro-mode {
             background:#FBFBFB;
-            height: auto;
-            min-height: 0;
+            height: 570px;
+            min-height: 570px;
           }
           :host([preview-mode="embedded"]) #textChatWidget.intro-mode {
             width: min(30em, calc(100% - 32px));
@@ -1185,8 +1182,9 @@
           .chat-widget.expanded {
             width: min(96vw, 555px) !important;
             max-width: min(96vw, 555px) !important;
+			height: 80vh !important;
 			min-height: 80vh !important;
-          
+			max-height: 80vh !important;
           }
 
 		  .chat-widget.expanded .chat-bubble-ai,
@@ -1926,10 +1924,11 @@
               width: 230px;
             }
             .chat-widget.expanded {
-              width: 96vw !important;
-              max-width: 96vw !important;
-              height: 85vh !important;
-              max-height: 85vh !important;
+              width: min(96vw, 555px) !important;
+              max-width: min(96vw, 555px) !important;
+              height: 80vh !important;
+              min-height: 80vh !important;
+              max-height: 80vh !important;
               right: 2vw !important;
             }
 			  .chat-widget.expanded.intro-mode {
@@ -3099,13 +3098,74 @@
 		}
 
 		toggleExpandedView() {
-			this.isExpanded = !this.isExpanded;
-			if (this.elements.widget) {
-				this.elements.widget.classList.toggle(
-					"expanded",
-					this.isExpanded,
-				);
+			const widget = this.elements.widget;
+			if (!widget) {
+				this.isExpanded = !this.isExpanded;
+				return;
 			}
+
+			// Cancel any in-progress animation
+			if (this._expandRaf) {
+				cancelAnimationFrame(this._expandRaf);
+				this._expandRaf = null;
+			}
+
+			// Measure current rendered size (start)
+			const startW = widget.getBoundingClientRect().width;
+			const startH = widget.getBoundingClientRect().height;
+
+			// Determine target (end) — toggle class off-screen, measure, restore
+			this.isExpanded = !this.isExpanded;
+			widget.style.setProperty("width",  `${startW}px`, "important");
+			widget.style.setProperty("height", `${startH}px`, "important");
+			widget.style.setProperty("min-height", `${startH}px`, "important");
+			widget.style.setProperty("max-height", `${startH}px`, "important");
+			widget.classList.toggle("expanded", this.isExpanded);
+			// getBCR after class set but inline pins size, so read computed target
+			const cs = window.getComputedStyle(widget);
+			const endW = parseFloat(cs.getPropertyValue("--_ew") || 0) ||
+				(this.isExpanded
+					? Math.min(window.innerWidth * 0.96, 555)
+					: 400);
+			const endH = this.isExpanded
+				? window.innerHeight * 0.80
+				: 570;
+
+			const DURATION = 620; // ms
+			const ease = (t) => {
+				// easeInOutQuart
+				return t < 0.5
+					? 8 * t * t * t * t
+					: 1 - Math.pow(-2 * t + 2, 4) / 2;
+			};
+
+			const startTime = performance.now();
+			const animate = (now) => {
+				const elapsed = now - startTime;
+				const progress = Math.min(elapsed / DURATION, 1);
+				const t = ease(progress);
+
+				const w = startW + (endW - startW) * t;
+				const h = startH + (endH - startH) * t;
+
+				widget.style.setProperty("width",      `${w}px`, "important");
+				widget.style.setProperty("height",     `${h}px`, "important");
+				widget.style.setProperty("min-height", `${h}px`, "important");
+				widget.style.setProperty("max-height", `${h}px`, "important");
+
+				if (progress < 1) {
+					this._expandRaf = requestAnimationFrame(animate);
+				} else {
+					// Done — clear inline overrides, let CSS hold final state
+					widget.style.width      = "";
+					widget.style.height     = "";
+					widget.style.minHeight  = "";
+					widget.style.maxHeight  = "";
+					this._expandRaf = null;
+				}
+			};
+			this._expandRaf = requestAnimationFrame(animate);
+
 			if (this.elements.expandChatBtn) {
 				this.elements.expandChatBtn.setAttribute(
 					"aria-label",
