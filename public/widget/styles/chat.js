@@ -1,7 +1,7 @@
 /* Uses CSS vars: --color-user-bubble */
 export const chatCSS = `
   .chat-messages {
-    padding: 1.25rem; background: #fff; flex: 1;
+    padding: 16px; background: #fff; flex: 1;
     overflow-y: auto; display: flex; flex-direction: column; gap: 1rem;
     scrollbar-width: thin; scrollbar-color: #888 #f5f5f5;
     transition: all 0.6s ease-in-out;

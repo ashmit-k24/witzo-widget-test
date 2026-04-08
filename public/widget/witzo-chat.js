@@ -760,11 +760,10 @@
             bottom: 6em;
             right: 2em;
             z-index: 2147483647;
-            width: 30em;
-    		height: 584px;
+            width: 400px;
+    		height: 570px;
             max-width: 90vw;
             max-height: 80vh;
-            min-height: 80vh;
             display: flex;
             flex-direction: column;
             border-radius: 15px;
@@ -1099,7 +1098,7 @@
             display: flex;
             align-items: center;
             position: relative;
-			gap:2px
+			gap:16px
           }
 
 		  .chat-action-row{
@@ -1110,16 +1109,17 @@
 		  }
           .chat-action-btn {
             border: none;
-            background: transparent;
-            border-radius: 0.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            margin-left: 0.7rem;
-            padding: 0;
-			transition: all 0.4s ease-in;
-			color:black;
+   			background: #F1F1F1;
+   			border-radius: 50%;
+   			display: flex;
+   			align-items: center;
+   			justify-content: center;
+   			cursor: pointer;
+   			padding: 0;
+   			transition: all 0.4s ease-in;
+   			color: black;
+   			width: 30px;
+   			height: 30px;
           }
           .chat-action-btn.back-btn {
             margin-left: 0;
@@ -1130,7 +1130,7 @@
 			height: 24px;
           }
 			.chat-action-btn:hover svg{
-				transform: scale(1.08);
+			opacity: 0.9
 			}
 
           .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, black); }
@@ -1183,8 +1183,9 @@
           }
           
           .chat-widget.expanded {
-            width: min(96vw, 37rem) !important;
-            max-width: min(96vw, 44rem) !important;
+            width: min(96vw, 555px) !important;
+            max-width: min(96vw, 555px) !important;
+			min-height: 80vh !important;
           
           }
 
@@ -1201,7 +1202,7 @@
           
           /* Messages Area */
           .chat-messages {
-            padding: 1.25rem;
+            padding: 16px;
             background: #fff;
             flex: 1;
             overflow-y: auto;
@@ -2328,26 +2329,24 @@
                 <div class="chat-header-right">
                     <button id="expandChatBtn" class="chat-action-btn icon-stroke" aria-label="Expand chat">
                         	<!-- Expand Icon -->
-                       		 <svg class="expand-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            	<path d="M15 3h6v6"></path>
-                            	<path d="m21 3-7 7"></path>
-                            	<path d="m3 21 7-7"></path>
-                            	<path d="M9 21H3v-6"></path>
-                        	</svg>
-                        	<!-- Collapse Icon -->
-                        	<svg class="collapse-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
-                            	<path d="m14 10 7-7"></path>
-                            	<path d="M20 10h-6V4"></path>
-                            	<path d="m3 21 7-7"></path>
-                            	<path d="M4 14h6v6"></path>
-                        	</svg>
+                       		 
+							<svg class="expand-icon"  xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" >
+								<path d="M10.7004 5.87891V10.7004H5.87891" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+								<path d="M0.699219 5.52168V0.700195H5.52071" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+                        	
+							<svg  class="collapse-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="15" viewBox="0 0 14 15" fill="none"  style="display: none;">
+								<path d="M7.88554 13.7007V8.8792H12.707" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+								<path d="M5.52344 0.699998V5.52148H0.701951" stroke="black" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+							
                    	</button>
                     <button id="headerMenuBtn" class="chat-action-btn icon-stroke" aria-label="Header options">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis h-5 w-5" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
-                    </button>
-                    <button id="closeTextChat" class="chat-action-btn">
-                         
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x h-5 w-5" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                       <svg xmlns="http://www.w3.org/2000/svg" width="17" height="4" viewBox="0 0 17 4" fill="none">
+							<ellipse cx="1.60714" cy="1.60722" rx="1.60714" ry="1.60714" transform="rotate(-90 1.60714 1.60722)" fill="black"/>
+							<circle cx="8.4375" cy="1.6875" r="1.6875" transform="rotate(-90 8.4375 1.6875)" fill="black"/>
+							<circle cx="15.1914" cy="1.6875" r="1.6875" transform="rotate(-90 15.1914 1.6875)" fill="black"/>
+						</svg>
                     </button>
                     <div id="headerMenuDropdown" class="chat-header-menu hidden">
                       <button id="downloadTranscriptBtn" class="chat-menu-item" type="button">
@@ -2528,9 +2527,6 @@
 					this.shadowRoot.getElementById(
 						"floating-btn",
 					),
-				closeBtn: this.shadowRoot.getElementById(
-					"closeTextChat",
-				),
 				backBtn: this.shadowRoot.getElementById(
 					"backToIntroBtn",
 				),
@@ -2657,10 +2653,6 @@
 
 		bindEvents() {
 			this.elements.floatingBtn.addEventListener(
-				"click",
-				() => this.toggleChat(),
-			);
-			this.elements.closeBtn.addEventListener(
 				"click",
 				() => this.toggleChat(),
 			);
