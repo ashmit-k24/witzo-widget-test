@@ -1039,6 +1039,7 @@ ${message}`;
 		response: string,
 		_userMessage: string,
 		websiteName: string = "this website",
+		allowedSourceUrls: Array<string> = [],
 	): string {
 		let output = response.trim();
 		output =
@@ -1047,7 +1048,105 @@ ${message}`;
 			output,
 			websiteName,
 		);
+		output = this.sanitizeLinks(
+			output,
+			this.buildAllowedUrlSet(allowedSourceUrls),
+		);
 		return this.finalizeResponseEnding(output);
+	}
+
+	// URL normalization for comparing a URL the model wrote against the
+	// URLs in our retrieved sources. We match on protocol + host + path,
+	// stripping trailing slash and fragment so tiny formatting differences
+	// don't cause a valid link to get stripped.
+	private normalizeUrlForComparison(raw: string): string {
+		try {
+			const u = new URL(raw.trim());
+			let pathname = u.pathname;
+			if (pathname.length > 1 && pathname.endsWith("/")) {
+				pathname = pathname.slice(0, -1);
+			}
+			return `${u.protocol}//${u.host.toLowerCase()}${pathname}${u.search}`;
+		} catch {
+			return raw.trim().toLowerCase();
+		}
+	}
+
+	private buildAllowedUrlSet(
+		sourceUrls: Array<string>,
+	): Set<string> {
+		const set = new Set<string>();
+		for (const url of sourceUrls) {
+			const trimmed = (url || "").trim();
+			if (!trimmed) continue;
+			set.add(
+				this.normalizeUrlForComparison(trimmed),
+			);
+		}
+		return set;
+	}
+
+	// Post-process the LLM response to remove any URL it invented. We keep
+	// markdown link text but drop the URL when the href isn't in the
+	// retrieved-sources allow-list. Bare URLs in running text are stripped
+	// entirely if not allowed. This is the safety net behind the prompt
+	// instructions in PLATFORM_DEFAULT_SYSTEM_MESSAGE_TEMPLATE.
+	private sanitizeLinks(
+		text: string,
+		allowedUrls: Set<string>,
+	): string {
+		if (!text) return text;
+		let output = text;
+
+		// Step 1: handle markdown links of the form [label](url) or
+		// [label](url "title"). If the URL is allowed, keep the link as-is.
+		// Otherwise collapse to just the visible label so we don't lose copy.
+		output = output.replace(
+			/\[([^\]]+)\]\((https?:\/\/[^\s)]+?)(?:\s+"[^"]*")?\)/g,
+			(_match, linkText: string, url: string) => {
+				const normalized =
+					this.normalizeUrlForComparison(url);
+				if (allowedUrls.has(normalized)) {
+					return `[${linkText}](${url})`;
+				}
+				logger.warn(
+					"chat: stripped hallucinated markdown link",
+					{ url },
+				);
+				return linkText;
+			},
+		);
+
+		// Step 2: handle bare URLs in running text. The negative lookbehind
+		// `(?<!\()` skips URLs that are inside surviving markdown link
+		// parentheses, so we don't double-process allowed links.
+		output = output.replace(
+			/(?<!\()https?:\/\/[^\s<>"'()\]]+/g,
+			(match) => {
+				const normalized =
+					this.normalizeUrlForComparison(match);
+				if (allowedUrls.has(normalized)) {
+					return match;
+				}
+				logger.warn(
+					"chat: stripped hallucinated bare url",
+					{ url: match },
+				);
+				return "";
+			},
+		);
+
+		// Clean up leftover "Learn more:" lines that lost their URL during
+		// sanitization, plus dangling whitespace.
+		output = output
+			.replace(
+				/^[ \t]*(?:👉\s*)?Learn more:[ \t]*\[?[ \t]*\]?[ \t]*\(?[ \t]*\)?[ \t]*$/gim,
+				"",
+			)
+			.replace(/[ \t]+$/gm, "")
+			.replace(/\n{3,}/g, "\n\n");
+
+		return output;
 	}
 
 	private normalizeOrderedMarkdownLists(
@@ -1942,6 +2041,7 @@ ${message}`;
 			answer,
 			message,
 			websiteName,
+			sources.map((s) => s.url),
 		);
 		if (shouldCallLlm) {
 			await this.setSemanticCachedAnswer(
@@ -2467,6 +2567,7 @@ ${message}`;
 					assistantResponse,
 					message,
 					websiteName,
+					sources.map((s) => s.url),
 				);
 			if (!usedFallback) {
 				await this.setSemanticCachedAnswer(
@@ -2770,6 +2871,7 @@ ${message}`;
 				assistantResponse,
 				message,
 				websiteName,
+				sources.map((s) => s.url),
 			);
 		if (!usedFallback) {
 			await this.setSemanticCachedAnswer(
