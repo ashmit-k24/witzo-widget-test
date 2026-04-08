@@ -145,7 +145,20 @@ export function parseMarkdown(text) {
 /** Returns bot avatar HTML (logo image or default SVG) */
 export function getBotIconHtml(logoIcon) {
   return `<div class="bot-msg-chat-icon">
-    ${logoIcon ? `<img src="${logoIcon}" alt="Logo" />` : LOGO_DEFAULT_SVG}
+   <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 19 19" fill="none">
+      <circle cx="9.5" cy="9.5" r="9" fill="white" stroke="url(#paint0_linear_2082_9533)"/>
+      <path d="M9.34952 4.92014C9.37338 4.80273 9.62662 4.80273 9.65048 4.92014C9.84029 5.85394 10.2365 7.26553 10.9855 8.0145C11.7345 8.76347 13.1461 9.15971 14.0799 9.34952C14.1973 9.37338 14.1973 9.62662 14.0799 9.65048C13.1461 9.84029 11.7345 10.2365 10.9855 10.9855C10.2365 11.7345 9.84029 13.1461 9.65048 14.0799C9.62662 14.1973 9.37338 14.1973 9.34952 14.0799C9.15971 13.1461 8.76347 11.7345 8.0145 10.9855C7.26553 10.2365 5.85394 9.84029 4.92014 9.65048C4.80273 9.62662 4.80273 9.37338 4.92014 9.34952C5.85394 9.15971 7.26553 8.76347 8.0145 8.0145C8.76347 7.26553 9.15971 5.85394 9.34952 4.92014Z" fill="url(#paint1_linear_2082_9533)"/>
+      <defs>
+      <linearGradient id="paint0_linear_2082_9533" x1="9.5" y1="0" x2="9.5" y2="19" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7E0AF4"/>
+      <stop offset="1" stop-color="#F54749"/>
+      </linearGradient>
+      <linearGradient id="paint1_linear_2082_9533" x1="9.5" y1="4" x2="9.5" y2="15" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7B09F8"/>
+      <stop offset="1" stop-color="#F4464B"/>
+      </linearGradient>
+      </defs>
+    </svg>
   </div>`;
 }
 

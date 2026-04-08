@@ -1023,12 +1023,17 @@
 
 		  .sub-title{
 			font-weight: 600;
-			font-style: SemiBold;
 			font-size: 11px;
-			line-height: 100%;
+			line-height: 1;
 			letter-spacing: 0%;
 			vertical-align: middle;
+			color: #AD22B1;
+		  }
 
+		  .sub-title-text{
+		  	position: relative;
+		  	top: -2px;
+		  	left:5px
 		  }
           .header-online-status {
             display: flex;
@@ -1065,13 +1070,12 @@
 			position: relative;
           }
           .bot-msg-chat-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            margin-right:6px;
+            margin-right: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
+			padding-top:9px;
+
           }
             .bot-msg-chat-icon img{
               width: 100%;
@@ -1220,9 +1224,11 @@
           .chat-bubble-ai { 
             padding: 0; 
             max-width: 340px; 
-            color: #0f172a; 
-            font-size: 0.875rem; 
-            line-height: 1.3; 
+			font-weight: 500;
+			font-size: 13px;
+			line-height: 20px;
+			letter-spacing: 0%;
+
           }
           .chat-bubble-user {
             background: var(--color-user-bubble, #ffdde4); /* Default or Config */
@@ -1998,15 +2004,18 @@
               display: flex;
               flex-direction: row;
               align-items: flex-start;
-              gap: 0.3rem;
             }
             .bot-message-row .bot-msg-chat-icon {
               flex-shrink: 0;
             }
 			  .bot-message-row .md-content{
-				background-color: rgb(245, 245, 247);
-				padding:10px 16px;
-				border-radius: 16px 16px 8px 8px;
+				background-color: #F1F1F1;
+				padding: 8px 14px;
+				border-top-left-radius: 2px;
+				border-top-right-radius: 20px;
+				border-bottom-right-radius: 20px;
+				border-bottom-left-radius: 16px;
+
 			  }
             
             /* Markdown Styles inside bubbles */
@@ -2029,7 +2038,7 @@
             .md-content h2 { font-size: 1rem; }
             .md-content h3 { font-size: 0.94rem; }
             .md-content h4 { font-size: 0.9rem; }
-            .md-content p { margin: 0; }
+            .md-content p { margin: 0; font-weight:500; line-height: 20px }
             .md-content p + p,
             .md-content p + ul,
             .md-content p + ol,
@@ -2297,13 +2306,13 @@
 							<path d="M6.91865 3.48495H4.67424L6.69247 0.172064C6.73424 0.101915 6.69655 0 6.62829 0H2.72122C2.69269 0 2.66518 0.0198535 2.65092 0.0529427L0.0112289 5.97591C-0.0203537 6.04606 0.0183604 6.13474 0.0815256 6.13474H1.8583L0.9475 10.8678C0.928143 10.9711 1.02391 11.0439 1.083 10.9697L6.97468 3.66628C7.02766 3.60143 6.992 3.48495 6.91865 3.48495Z" fill="url(#paint0_linear_2074_8426)"/>
 							<defs>
 							<linearGradient id="paint0_linear_2074_8426" x1="3.5" y1="0" x2="3.5" y2="11" gradientUnits="userSpaceOnUse">
-							<stop stop-color="#AD22B1"/>
-							<stop offset="1" stop-color="#DE3B6C"/>
+							<stop stop-color="currentColor"/>
+							<stop offset="1" stop-color="currentColor"/>
 							</linearGradient>
 							</defs>
 						</svg>
 
-						Instant Responds
+						<span class="sub-title-text">Instant Responds</span>
 						</span>
                         </div>
                       </div>
@@ -3560,10 +3569,20 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                        ${this.getDisplayIconUrl()
-					? `<img src="${this.getDisplayIconUrl()}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
+                       <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 19 19" fill="none">
+<circle cx="9.5" cy="9.5" r="9" fill="white" stroke="url(#paint0_linear_2082_9533)"/>
+<path d="M9.34952 4.92014C9.37338 4.80273 9.62662 4.80273 9.65048 4.92014C9.84029 5.85394 10.2365 7.26553 10.9855 8.0145C11.7345 8.76347 13.1461 9.15971 14.0799 9.34952C14.1973 9.37338 14.1973 9.62662 14.0799 9.65048C13.1461 9.84029 11.7345 10.2365 10.9855 10.9855C10.2365 11.7345 9.84029 13.1461 9.65048 14.0799C9.62662 14.1973 9.37338 14.1973 9.34952 14.0799C9.15971 13.1461 8.76347 11.7345 8.0145 10.9855C7.26553 10.2365 5.85394 9.84029 4.92014 9.65048C4.80273 9.62662 4.80273 9.37338 4.92014 9.34952C5.85394 9.15971 7.26553 8.76347 8.0145 8.0145C8.76347 7.26553 9.15971 5.85394 9.34952 4.92014Z" fill="url(#paint1_linear_2082_9533)"/>
+<defs>
+<linearGradient id="paint0_linear_2082_9533" x1="9.5" y1="0" x2="9.5" y2="19" gradientUnits="userSpaceOnUse">
+<stop stop-color="#7E0AF4"/>
+<stop offset="1" stop-color="#F54749"/>
+</linearGradient>
+<linearGradient id="paint1_linear_2082_9533" x1="9.5" y1="4" x2="9.5" y2="15" gradientUnits="userSpaceOnUse">
+<stop stop-color="#7B09F8"/>
+<stop offset="1" stop-color="#F4464B"/>
+</linearGradient>
+</defs>
+</svg>
                     </div>`;
 		}
 
