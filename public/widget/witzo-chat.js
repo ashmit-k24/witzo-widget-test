@@ -1352,8 +1352,32 @@
             border: 1px solid #D3D3D3;
             border-radius: 24px;
             position: relative;
-            transition: border-color 0.2s ease;
+            transition: border-color 0.3s ease;
+            z-index: 1;
           }
+          
+          /* Beam Implementaton */
+          .chat-input-beam {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: var(--color-banner-bg, #120b14);
+            filter: blur(12px);
+            border-radius: 50%;
+            z-index: -1;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            animation: orbitBeam 6s linear infinite;
+          }
+
+          @keyframes orbitBeam {
+            0%   { top: 0; left: 0; }
+            25%  { top: 0; left: 100%; }
+            50%  { top: 100%; left: 100%; }
+            75%  { top: 100%; left: 0; }
+            100% { top: 0; left: 0; }
+          }
+          
           .chat-input-container:focus-within {
             border-color: var(--color-primary, #fc0e3f);
           }
@@ -1362,6 +1386,8 @@
             display: flex;
             width: 100%;
             padding: 12px 6px 0 16px;
+			border-radius:24px 24px  0 0 ;
+			background: white
           }
 
           .chat-text-input {
@@ -1413,6 +1439,8 @@
             align-items: end;
             justify-content: space-between;
             padding: 0 16px 12px;
+			background:white;
+			border-radius:0 0 24px 24px;
           }
 
           .chat-input-left-actions {
@@ -2565,6 +2593,7 @@
             <!-- Input Area -->
             <div class="chat-input" id="chatInputArea">
                 <div class="chat-input-container">
+                    <div class="chat-input-beam"></div>
                     <div class="chat-input-row">
                         <textarea id="textMessageInput" rows="1" placeholder="${this.config.placeholderText || "Type your message..."}" class="chat-text-input"></textarea>
                     </div>
