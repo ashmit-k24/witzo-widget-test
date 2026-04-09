@@ -1,7 +1,6 @@
 export * from "./auth.constants";
 export * from "./calendly.constants";
 export * from "./chat.constants";
-export * from "./hype.constants";
 export * from "./hubspot.constants";
 export * from "./maintenance.constants";
 export * from "./migration.constants";

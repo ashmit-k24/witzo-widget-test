@@ -52,6 +52,13 @@ export interface LeadListOptions {
 	search?: string;
 }
 
+export interface LeadRequiredFields {
+	name?: boolean;
+	email?: boolean;
+	phone?: boolean;
+	country?: boolean;
+}
+
 class LeadService {
 	private normalizeOptionalValue(
 		value: string | null | undefined,
@@ -420,7 +427,9 @@ ${fullConversation}`;
 		widgetKeyId: number,
 		data: {
 			name?: string | null;
-			email: string;
+			email?: string | null;
+			phone?: string | null;
+			country?: string | null;
 			summary?: string | null;
 			ipAddress?: string;
 			sourceUrl?: string;
@@ -431,12 +440,14 @@ ${fullConversation}`;
 			status: "new" | "contacted" | "qualified" | "converted";
 		}>(
 			`INSERT INTO leads
-				(user_id, widget_key_id, session_id, name, email, chat_summary,
+				(user_id, widget_key_id, session_id, name, email, phone, country, chat_summary,
 				 raw_contact, ip_address, source_url, message_count, status)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 'new')
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 'new')
 			 ON CONFLICT (user_id, session_id) DO UPDATE SET
 				name         = COALESCE(EXCLUDED.name, leads.name),
 				email        = COALESCE(EXCLUDED.email, leads.email),
+				phone        = COALESCE(EXCLUDED.phone, leads.phone),
+				country      = COALESCE(EXCLUDED.country, leads.country),
 				chat_summary = COALESCE(EXCLUDED.chat_summary, leads.chat_summary),
 				raw_contact  = EXCLUDED.raw_contact,
 				updated_at   = CURRENT_TIMESTAMP
@@ -446,11 +457,15 @@ ${fullConversation}`;
 				widgetKeyId,
 				sessionId,
 				data.name ?? null,
-				data.email,
+				data.email ?? null,
+				data.phone ?? null,
+				data.country ?? null,
 				data.summary ?? null,
 				JSON.stringify({
 					name: data.name,
 					email: data.email,
+					phone: data.phone,
+					country: data.country,
 					message: data.summary,
 				}),
 				data.ipAddress ?? null,
@@ -472,7 +487,9 @@ ${fullConversation}`;
 							result.rows[0]?.status ?? "new",
 						contact: {
 							name: data.name ?? null,
-							email: data.email,
+							email: data.email ?? null,
+							phone: data.phone ?? null,
+							country: data.country ?? null,
 							summary: data.summary ?? null,
 						},
 						metadata: {
@@ -506,7 +523,9 @@ ${fullConversation}`;
 							result.rows[0]?.status ?? "new",
 						contact: {
 							name: data.name ?? null,
-							email: data.email,
+							email: data.email ?? null,
+							phone: data.phone ?? null,
+							country: data.country ?? null,
 							summary: data.summary ?? null,
 						},
 						metadata: {
@@ -540,7 +559,9 @@ ${fullConversation}`;
 							result.rows[0]?.status ?? "new",
 						contact: {
 							name: data.name ?? null,
-							email: data.email,
+							email: data.email ?? null,
+							phone: data.phone ?? null,
+							country: data.country ?? null,
 							summary: data.summary ?? null,
 						},
 						metadata: {
@@ -574,7 +595,9 @@ ${fullConversation}`;
 							result.rows[0]?.status ?? "new",
 						contact: {
 							name: data.name ?? null,
-							email: data.email,
+							email: data.email ?? null,
+							phone: data.phone ?? null,
+							country: data.country ?? null,
 							summary: data.summary ?? null,
 						},
 						metadata: {
@@ -597,6 +620,94 @@ ${fullConversation}`;
 					);
 				});
 		}
+	}
+
+	async extractAndUpsertLeadFormFields(
+		userId: string,
+		sessionId: string,
+		widgetKeyId: number,
+		messages: ChatMessage[],
+		requiredFields: LeadRequiredFields,
+		metadata?: {
+			ipAddress?: string;
+			sourceUrl?: string;
+		},
+	): Promise<void> {
+		const userMessages = messages.filter(
+			(m) => m.role === "user",
+		);
+		if (userMessages.length < 1) return;
+
+		const extracted =
+			await this.extractContactFromMessages(messages);
+		const hasConfiguredField = (
+			["name", "email", "phone", "country"] as Array<
+				keyof LeadRequiredFields
+			>
+		).some((field) => {
+			if (!requiredFields[field]) return false;
+			const value = extracted[field];
+			return (
+				typeof value === "string" &&
+				value.trim().length > 0
+			);
+		});
+
+		if (!hasConfiguredField) return;
+
+		await this.saveContactFormLead(
+			userId,
+			sessionId,
+			widgetKeyId,
+			{
+				name: extracted.name,
+				email: extracted.email,
+				phone: extracted.phone,
+				country: extracted.country,
+				summary: extracted.summary,
+				ipAddress: metadata?.ipAddress,
+				sourceUrl: metadata?.sourceUrl,
+			},
+		);
+	}
+
+	async getLeadFormStatus(
+		userId: string,
+		sessionId: string,
+		requiredFields: LeadRequiredFields,
+	): Promise<{
+		completed: boolean;
+		missingFields: Array<keyof LeadRequiredFields>;
+		lead: Pick<Lead, "name" | "email" | "phone" | "country"> | null;
+	}> {
+		const result = await pool.query<
+			Pick<Lead, "name" | "email" | "phone" | "country">
+		>(
+			`SELECT name, email, phone, country
+			 FROM leads
+			 WHERE user_id = $1 AND session_id = $2
+			 LIMIT 1`,
+			[userId, sessionId],
+		);
+		const lead = result.rows[0] || null;
+		const missingFields = (
+			["name", "email", "phone", "country"] as Array<
+				keyof LeadRequiredFields
+			>
+		).filter((field) => {
+			if (!requiredFields[field]) return false;
+			const value = lead?.[field];
+			return !(
+				typeof value === "string" &&
+				value.trim().length > 0
+			);
+		});
+
+		return {
+			completed: missingFields.length === 0,
+			missingFields,
+			lead,
+		};
 	}
 
 	async getLeads(

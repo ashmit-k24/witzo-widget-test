@@ -758,6 +758,16 @@ export const getAllSources = async (
 			(sum, w) => sum + w.pages.length,
 			0,
 		);
+		const indexedPages = sources.websites.reduce(
+			(sum, w) =>
+				sum +
+				("indexedPages" in w &&
+				typeof w.indexedPages === "number"
+					? w.indexedPages
+					: w.pages.filter((page) => page.chunks > 0)
+							.length),
+			0,
+		);
 
 		res.status(200).json({
 			success: true,
@@ -769,6 +779,7 @@ export const getAllSources = async (
 						sources.documents.length,
 					totalWebsites: sources.websites.length,
 					totalPages: pagesUsed,
+					totalIndexedPages: indexedPages,
 					totalChunks: sources.totalChunks,
 				},
 				scraperUsage: {

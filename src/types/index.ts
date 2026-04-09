@@ -340,6 +340,10 @@ export interface EnvConfig {
 	// RAG pipeline
 	PINECONE_HYBRID: boolean;
 	HYPE_QUESTIONS_PER_CHUNK: number;
+	HYPE_SOURCE_LIMIT: number;
+	SEMANTIC_ANSWER_CACHE_ENABLED: boolean;
+	SEMANTIC_ANSWER_CACHE_THRESHOLD: number;
+	SEMANTIC_ANSWER_CACHE_MAX_ENTRIES: number;
 	KNOWLEDGE_BOUNDARY: string;
 }
 
@@ -439,7 +443,6 @@ export interface ScrapeJobStatus {
 			| "pinecone_stale_chunk_cleanup_completed"
 			| "pinecone_upsert_completed"
 			| "scraper_primary_pinecone_upsert_completed"
-			| "hype_generation_started"
 			| "completed"
 			| "failed";
 		label: string;
@@ -453,8 +456,7 @@ export interface ScrapeJobStatus {
 				| "pinecone_embeddings_prepared"
 				| "pinecone_stale_chunk_cleanup_completed"
 				| "pinecone_upsert_completed"
-				| "scraper_primary_pinecone_upsert_completed"
-				| "hype_generation_started";
+				| "scraper_primary_pinecone_upsert_completed";
 			label: string;
 			percent: number;
 			completed: boolean;
@@ -481,8 +483,6 @@ export interface PineconeMetadata {
 	sourceKey?: string;
 	sourceRoot?: string;
 	sourceRootTitle?: string;
-	isHype?: boolean;
-	hypeParent?: string;
 	pageType?: string;
 	clientName?: string;
 	industry?: string;
@@ -499,12 +499,12 @@ export interface RagChunk {
 	chunkIndex: number;
 	sourceType: "website" | "document";
 	sourceKey: string;
-	isHype: boolean;
-	hypeParent: string;
 	pageType?: string;
 	clientName?: string;
 	industry?: string;
 	services?: string;
+	isHype?: boolean;
+	hypeParent?: string;
 	vectorId?: string; // populated after upsert for metadata updates
 }
 

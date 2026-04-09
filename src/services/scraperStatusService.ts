@@ -51,8 +51,7 @@ type PipelineMilestoneKey =
 	| "pinecone_embeddings_prepared"
 	| "pinecone_stale_chunk_cleanup_completed"
 	| "pinecone_upsert_completed"
-	| "scraper_primary_pinecone_upsert_completed"
-	| "hype_generation_started";
+	| "scraper_primary_pinecone_upsert_completed";
 
 export type PipelineStage =
 	| PipelineMilestoneKey
@@ -108,11 +107,6 @@ const SCRAPE_PIPELINE_MILESTONES: Array<{
 	{
 		key: "scraper_primary_pinecone_upsert_completed",
 		label: "Primary Pinecone upsert completed",
-		percent: 95,
-	},
-	{
-		key: "hype_generation_started",
-		label: "Background hype generation started",
 		percent: 100,
 	},
 ];
@@ -128,9 +122,8 @@ const PIPELINE_STAGE_RANK: Record<
 	pinecone_stale_chunk_cleanup_completed: 4,
 	pinecone_upsert_completed: 5,
 	scraper_primary_pinecone_upsert_completed: 6,
-	hype_generation_started: 7,
-	completed: 8,
-	failed: 8,
+	completed: 7,
+	failed: 7,
 };
 
 class ScraperStatusService {
