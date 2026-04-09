@@ -618,7 +618,7 @@
 			return `
         <div class="floating-launcher floating-launcher-prompt hidden" id="floating-btn">
           <button type="button" id="floatingHelpBtn" class="floating-help-pill" aria-label="Open chat">
-            <span class="floating-help-pill-text">Need help?</span>
+            <span class="floating-help-pill-text">👋 Need help?</span>
           </button>
           <div class="floating-input-shell">
             <input id="floatingPromptInput" type="text" class="floating-prompt-input" placeholder="${placeholder}" />
@@ -1912,7 +1912,6 @@
             position: fixed;
             right: 24px;
             z-index: 2147483647;
-            animation: float 3s ease-in-out infinite;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
@@ -2075,12 +2074,18 @@
           }
 
           .floating-launcher-prompt {
+            --floating-help-pill-right-rest: 70px;
+            --floating-help-pill-right-typing: 0px;
+            --floating-help-pill-top-space: 54px;
             position: relative;
             width: min(690px, calc(100vw - 48px));
+            min-height: calc(56px + var(--floating-help-pill-top-space));
             display: flex;
             flex-direction: column;
             align-items: flex-end;
-            gap: 12px;
+            gap: 0;
+            padding-top: var(--floating-help-pill-top-space);
+            padding-right: 0;
             cursor: default;
             transition: width 0.35s ease, opacity 0.35s ease;
           }
@@ -2092,6 +2097,8 @@
           }
           .floating-launcher-prompt.is-collapsed {
             width: auto;
+            min-height: 58px;
+            padding-top: 0;
           }
           .floating-launcher-prompt.is-collapsed .floating-help-pill {
             display: none;
@@ -2115,6 +2122,9 @@
             margin: 0;
           }
           .floating-help-pill {
+            position: absolute;
+            top: 0;
+            right: var(--floating-help-pill-right-rest);
             border: none;
             background: #ffffff;
             border-radius: 999px 999px 0 999px;
@@ -2125,6 +2135,9 @@
             line-height: 1;
             box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
             cursor: pointer;
+            white-space: nowrap;
+            z-index: 2;
+            transition: top 0.6s cubic-bezier(0.22, 1, 0.36, 1), right 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
           }
           .floating-help-pill-text {
             display: inline-flex;
@@ -2153,8 +2166,6 @@
             background: #ffffff;
             transform-origin: left center;
             transform: scaleX(0.7);
-			top:2px;
-			height: 54px;
             transition: transform 1s cubic-bezier(0.22, 1, 0.36, 1);
             will-change: transform;
             pointer-events: none;
@@ -2237,6 +2248,16 @@
             padding: 0 0 0 12px;
             background: transparent;
           }
+          .floating-launcher-prompt.is-typing {
+            min-height: calc(56px + var(--floating-help-pill-top-space));
+            padding-top: var(--floating-help-pill-top-space);
+            padding-right: 0;
+          }
+          .floating-launcher-prompt.is-typing .floating-help-pill {
+            top: 0;
+            right: var(--floating-help-pill-right-typing);
+            transform: none;
+          }
           .floating-launcher-prompt.is-typing .floating-input-shell::before {
             transform: scaleX(1);
           }
@@ -2311,7 +2332,9 @@
             }
             .floating-launcher-prompt {
               width: min(92vw, 460px);
-              gap: 10px;
+              --floating-help-pill-right-rest: 52px;
+              --floating-help-pill-right-typing: 0px;
+              --floating-help-pill-top-space: 50px;
             }
             .floating-launcher-prompt.is-collapsed .floating-input-shell {
               width: 58px;

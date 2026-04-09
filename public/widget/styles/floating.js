@@ -5,7 +5,6 @@ export const floatingCSS = `
     bottom: 20px;
     right: 24px;
     z-index: 2147483647;
-    animation: float 3s ease-in-out infinite;
   }
 
   .floating-launcher {
@@ -20,11 +19,17 @@ export const floatingCSS = `
   }
 
   .floating-launcher-prompt {
+    --floating-help-pill-right-rest: 70px;
+    --floating-help-pill-right-typing: 0px;
+    --floating-help-pill-top-space: 54px;
     position: relative;
     width: min(690px, calc(100vw - 48px));
+    min-height: calc(56px + var(--floating-help-pill-top-space));
     flex-direction: column;
     align-items: flex-end;
-    gap: 12px;
+    gap: 0;
+    padding-top: var(--floating-help-pill-top-space);
+    padding-right: 0;
     transition: width 0.35s ease, opacity 0.35s ease;
   }
   .floating-launcher-prompt.widget-open {
@@ -35,6 +40,8 @@ export const floatingCSS = `
   }
   .floating-launcher-prompt.is-collapsed {
     width: auto;
+    min-height: 58px;
+    padding-top: 0;
   }
   .floating-launcher-prompt.is-collapsed .floating-help-pill {
     display: none;
@@ -63,6 +70,9 @@ export const floatingCSS = `
   }
 
   .floating-help-pill {
+    position: absolute;
+    top: 0;
+    right: var(--floating-help-pill-right-rest);
     border: none;
     background: #fff;
     border-radius: 999px 999px 0 999px;
@@ -73,6 +83,9 @@ export const floatingCSS = `
     line-height: 1;
     box-shadow: 0 10px 26px rgba(0,0,0,0.14);
     cursor: pointer;
+    white-space: nowrap;
+    z-index: 2;
+    transition: top 0.6s cubic-bezier(0.22, 1, 0.36, 1), right 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
   }
   .floating-help-pill-text {
     display: inline-flex;
@@ -180,6 +193,16 @@ export const floatingCSS = `
     padding: 0 0 0 12px;
     background: transparent;
   }
+  .floating-launcher-prompt.is-typing {
+    min-height: calc(56px + var(--floating-help-pill-top-space));
+    padding-top: var(--floating-help-pill-top-space);
+    padding-right: 0;
+  }
+  .floating-launcher-prompt.is-typing .floating-help-pill {
+    top: 0;
+    right: var(--floating-help-pill-right-typing);
+    transform: none;
+  }
   .floating-launcher-prompt.is-typing .floating-input-shell::before {
     transform: scaleX(1);
   }
@@ -240,7 +263,9 @@ export const floatingCSS = `
     }
     .floating-launcher-prompt {
       width: min(92vw, 460px);
-      gap: 10px;
+      --floating-help-pill-right-rest: 52px;
+      --floating-help-pill-right-typing: 0px;
+      --floating-help-pill-top-space: 50px;
     }
     .floating-help-pill {
       padding: 10px 18px;
