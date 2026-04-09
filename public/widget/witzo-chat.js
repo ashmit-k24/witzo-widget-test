@@ -1076,7 +1076,7 @@
 			line-height: 1;
 			letter-spacing: 0%;
 			vertical-align: middle;
-			color: #AD22B1;
+			color: white;
 		  }
 
 		  .sub-title-text{
@@ -1138,7 +1138,7 @@
           .chat-title,
           #banner-text {
 			font-weight: 700;
-			font-size: 15px;
+			font-size: 16px;
 			letter-spacing: 0;
 			vertical-align: middle;
 			font-family: "Plus Jakarta Sans", sans-serif !important;
@@ -1159,7 +1159,7 @@
 		  }
           .chat-action-btn {
             border: none;
-   			background: #F1F1F1;
+   			background: #0000001e;
    			border-radius: 50%;
    			display: flex;
    			align-items: center;
@@ -1167,7 +1167,7 @@
    			cursor: pointer;
    			padding: 0;
    			transition: all 0.4s ease-in;
-   			color: black;
+   			color: white;
    			width: 30px;
    			height: 30px;
           }
@@ -1183,10 +1183,10 @@
 			opacity: 0.9
 			}
 
-          .chat-action-btn svg, .chat-action-btn path { fill: var(--color-close-btn, black); }
+          .chat-action-btn svg, .chat-action-btn path { fill: white; }
           .chat-action-btn.icon-stroke svg path {
             fill: none;
-            stroke: var(--color-close-btn, black);
+            stroke: white;
           }
           .chat-header-menu {
             position: absolute;
@@ -1263,6 +1263,21 @@
             scrollbar-width: thin;
             scrollbar-color: #888 #f5f5f5;
             transition: all 0.6s ease-in-out;
+			border-radius:20px 20px 0 0;
+          }
+          .chat-messages::-webkit-scrollbar {
+            width: 8px;
+          }
+          .chat-messages::-webkit-scrollbar-track {
+            background: #f5f5f5;
+            border-radius: 999px;
+          }
+          .chat-messages::-webkit-scrollbar-thumb {
+            background: #9ca3af;
+            border-radius: 999px;
+          }
+          .chat-messages::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
           }
           .chat-message { display: flex; align-items: flex-start; gap: 0.75rem; }
           .chat-message.mt-space {
@@ -1346,7 +1361,7 @@
           .chat-input-row {
             display: flex;
             width: 100%;
-            padding: 12px 16px 0;
+            padding: 12px 6px 0 16px;
           }
 
           .chat-text-input {
@@ -1356,9 +1371,38 @@
             font-size: 13px;
             outline: none;
             width: 100%;
-            padding: 4px 0;
+            min-height: 28px;
+            max-height: 80px;
+            line-height: 20px;
+            padding: 4px 2px 4px 0;
             color: #000000;
             font-family: inherit;
+            resize: none;
+            overflow-y: hidden;
+            scrollbar-width: none;
+          }
+          .chat-text-input.is-scrollable {
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color:#D3D3D3 transparent;
+          }
+          .chat-text-input::-webkit-scrollbar {
+            width: 3px;
+          }
+          .chat-text-input::-webkit-scrollbar-track {
+            background: transparent;
+          }
+          .chat-text-input::-webkit-scrollbar-button {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+          }
+          .chat-text-input::-webkit-scrollbar-thumb {
+            background: #D3D3D3;
+            border-radius: 200px;
+          }
+          .chat-text-input::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
           }
           .chat-text-input::placeholder {
             color: #9ca3af;
@@ -1512,6 +1556,7 @@
             opacity: 1;
             transform: none;
             transition: opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1);
+			background: var(--color-banner-bg, #120b14);
           }
 
           .intro-screen {
@@ -2402,10 +2447,10 @@
 							
                    	</button>
                     <button id="headerMenuBtn" class="chat-action-btn icon-stroke" aria-label="Header options">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="17" height="4" viewBox="0 0 17 4" fill="none">
-							<ellipse cx="1.60714" cy="1.60722" rx="1.60714" ry="1.60714" transform="rotate(-90 1.60714 1.60722)" fill="black"/>
-							<circle cx="8.4375" cy="1.6875" r="1.6875" transform="rotate(-90 8.4375 1.6875)" fill="black"/>
-							<circle cx="15.1914" cy="1.6875" r="1.6875" transform="rotate(-90 15.1914 1.6875)" fill="black"/>
+                       <svg xmlns="http://www.w3.org/2000/svg" width="17" height="4" viewBox="0 0 17 4" fill="currentColor">
+							<ellipse cx="1.60714" cy="1.60722" rx="1.60714" ry="1.60714" transform="rotate(-90 1.60714 1.60722)" fill="currentColor"/>
+							<circle cx="8.4375" cy="1.6875" r="1.6875" transform="rotate(-90 8.4375 1.6875)" fill="currentColor"/>
+							<circle cx="15.1914" cy="1.6875" r="1.6875" transform="rotate(-90 15.1914 1.6875)" fill="currentColor"/>
 						</svg>
                     </button>
                     <div id="headerMenuDropdown" class="chat-header-menu hidden">
@@ -2448,7 +2493,7 @@
 							<span class="online-status-dot"></span>
 						</div>
 						<div class="intro-message-card">
-              		  		<strong id="introTitle">${sanitizeHTML(this.config.introTitle || "ðŸ‘‹Good to see you!")}</strong><br/>
+              		  		<strong id="introTitle">${sanitizeHTML(this.config.introTitle || "👋Good to see you!")}</strong><br/>
               		  		<span id="introMessage">${sanitizeHTML(this.config.introMessage || "We're ready to help. Ask anything, from quick questions to complex topics.")}</span>
 							
               			</div>
@@ -2504,7 +2549,7 @@
                 <!-- Messages will be appended here -->
             </div>
 
-            <!-- Contact Form (basic plan â€” shown when conversation limit hit) -->
+            <!-- Contact Form (basic plan — shown when conversation limit hit) -->
             <div id="contactFormSlot" class="contact-form hidden">
               <h3>Get in Touch</h3>
               <p>Our team will respond as soon as possible.</p>
@@ -2521,7 +2566,7 @@
             <div class="chat-input" id="chatInputArea">
                 <div class="chat-input-container">
                     <div class="chat-input-row">
-                        <input id="textMessageInput" type="text" placeholder="${this.config.placeholderText || "Type your message..."}" class="chat-text-input" />
+                        <textarea id="textMessageInput" rows="1" placeholder="${this.config.placeholderText || "Type your message..."}" class="chat-text-input"></textarea>
                     </div>
                     <div class="chat-input-actions">
                         <div class="chat-input-left-actions">
@@ -2764,7 +2809,10 @@
 			);
 			this.elements.input.addEventListener(
 				"input",
-				() => this.updateSendButtonState(),
+				() => {
+					this.resizeChatInput();
+					this.updateSendButtonState();
+				},
 			);
 			this.elements.input.addEventListener(
 				"keydown",
@@ -2775,6 +2823,7 @@
 					}
 				},
 			);
+			this.resizeChatInput(true);
 
 			// Custom Language Dropdown Logic
 			if (this.elements.langPillBtn) {
@@ -3437,6 +3486,7 @@
 				!this.ratingShown &&
 				!this.ratingSubmitted;
 			this.elements.input.value = "";
+			this.resizeChatInput(true);
 			this.setAwaitingResponse(true);
 
 			// Show Typing Indicator
@@ -3618,6 +3668,35 @@
 			this.elements.sendBtn.classList.toggle(
 				"is-active",
 				!disabled,
+			);
+		}
+
+		resizeChatInput(reset = false) {
+			if (!this.elements?.input) {
+				return;
+			}
+
+			const input = this.elements.input;
+			input.style.height = "24px";
+			if (reset) {
+				input.style.height = "24px";
+				input.classList.remove("is-scrollable");
+				return;
+			}
+
+			const maxHeight = 80;
+			const scrollHeight = input.scrollHeight;
+			const nextHeight = Math.min(
+				scrollHeight,
+				maxHeight,
+			);
+			input.style.height = `${Math.max(
+				nextHeight,
+				24,
+			)}px`;
+			input.classList.toggle(
+				"is-scrollable",
+				scrollHeight > maxHeight,
 			);
 		}
 
