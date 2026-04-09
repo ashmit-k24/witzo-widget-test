@@ -120,10 +120,13 @@ export const floatingCSS = `
     transform-origin: left center;
     transform: scaleX(0.7);
     border: 1px solid transparent;
-    transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease;
+    transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease, opacity 0.3s ease;
     will-change: transform;
     pointer-events: none;
     top: 2px;
+  }
+  .floating-launcher-prompt:not(.is-typing) .floating-input-shell:focus-within::before {
+    opacity: 0;
   }
   .floating-input-shell > * {
     position: relative;
@@ -229,6 +232,7 @@ export const floatingCSS = `
   .floating-launcher-prompt.is-typing .floating-input-shell::before {
     transform: scaleX(1);
     border-color: var(--color-primary, #fc0e3f);
+    opacity: 1;
   }
   .floating-launcher-prompt.is-typing .floating-prompt-input-wrapper {
     background: transparent;
