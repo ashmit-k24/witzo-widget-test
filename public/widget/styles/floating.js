@@ -114,15 +114,12 @@ export const floatingCSS = `
   .floating-input-shell::before {
     content: "";
     position: absolute;
-    inset: 0;
+    top: 0; bottom: 0; left: 0; right: 70px;
     border-radius: inherit;
     background: #fff;
-    transform-origin: left center;
-    transform: scaleX(0.7);
-    transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: transform;
+    transition: right 1.3s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: right;
     pointer-events: none;
-    top: 2px;
   }
   .floating-input-shell::after {
     content: "";
@@ -240,7 +237,7 @@ export const floatingCSS = `
     transform: none;
   }
   .floating-launcher-prompt.is-typing .floating-input-shell::before {
-    transform: scaleX(1);
+    right: 0;
   }
   .floating-launcher-prompt.is-typing .floating-input-shell::after {
     right: 0;
