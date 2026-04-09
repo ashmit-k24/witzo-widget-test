@@ -132,7 +132,7 @@
 				floatingBtnColor: "#fc0e3f",
 				floatingBtn: "#fc0e3f",
 				floatingType: "small",
-				autoOpen: true,
+				autoOpen: false,
 				bannerText: "Text Chat",
 				bannerTextColor: "",
 				bannerColor: "#120b14",
@@ -610,6 +610,33 @@
       `;
 		}
 
+		getFloatingTriggerMarkup() {
+			const placeholder =
+				this.config.placeholderText ||
+				"Type your message...";
+			const chatIcon = this.getFloatingIconSvg();
+			return `
+        <div class="floating-launcher floating-launcher-prompt hidden" id="floating-btn">
+          <button type="button" id="floatingHelpBtn" class="floating-help-pill" aria-label="Open chat">
+            <span class="floating-help-pill-text">Need help?</span>
+          </button>
+          <div class="floating-input-shell">
+            <input id="floatingPromptInput" type="text" class="floating-prompt-input" placeholder="${placeholder}" />
+            <button type="button" id="floatingPromptSend" class="floating-prompt-send" aria-label="Send message">
+              <span class="floating-prompt-send-icon floating-prompt-send-icon-chat">
+                ${chatIcon}
+              </span>
+              <span class="floating-prompt-send-icon floating-prompt-send-icon-arrow">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
+                  <path d="M1 1L8.64758 8.64758L16.2952 1" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </span>
+            </button>
+          </div>
+        </div>
+      `;
+		}
+
 		updateFloatingType(newType) {
 			var normalizedType =
 				this.normalizeFloatingType(newType);
@@ -627,13 +654,21 @@
 				this.shadowRoot.getElementById(
 					"floating-btn",
 				);
+			this.elements.floatingPromptInput =
+				this.shadowRoot.getElementById(
+					"floatingPromptInput",
+				);
+			this.elements.floatingPromptSend =
+				this.shadowRoot.getElementById(
+					"floatingPromptSend",
+				);
+			this.elements.floatingHelpBtn =
+				this.shadowRoot.getElementById(
+					"floatingHelpBtn",
+				);
 			if (!this.elements.floatingBtn) return;
 			this.elements.floatingBtn.classList.remove(
 				"hidden",
-			);
-			this.elements.floatingBtn.addEventListener(
-				"click",
-				() => this.toggleChat(),
 			);
 		}
 
@@ -1893,6 +1928,7 @@
             transition: transform 0.25s ease, box-shadow 0.25s ease;
           }
           .floating-launcher.widget-open {
+            opacity: 1;
             pointer-events: auto;
           }
           .floating-launcher:hover {
@@ -2038,6 +2074,183 @@
             flex-shrink: 0;
           }
 
+          .floating-launcher-prompt {
+            position: relative;
+            width: min(690px, calc(100vw - 48px));
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 12px;
+            cursor: default;
+            transition: width 0.35s ease, opacity 0.35s ease;
+          }
+          .floating-launcher-prompt.widget-open {
+            width: auto;
+          }
+          .floating-launcher-prompt.widget-open .floating-help-pill {
+            display: none;
+          }
+          .floating-launcher-prompt.is-collapsed {
+            width: auto;
+          }
+          .floating-launcher-prompt.is-collapsed .floating-help-pill {
+            display: none;
+          }
+          .floating-launcher-prompt.is-collapsed .floating-input-shell {
+            width: 92px;
+            min-height: 92px;
+            padding: 0;
+            border: none;
+            background: transparent;
+            background-image: none;
+            box-shadow: none;
+          }
+          .floating-launcher-prompt.is-collapsed .floating-prompt-input {
+            display: none;
+          }
+          .floating-launcher-prompt.is-collapsed .floating-prompt-send {
+            margin: 0;
+          }
+          .floating-help-pill {
+            border: none;
+            background: #ffffff;
+            border-radius: 999px 999px 0 999px;
+            padding: 12px 22px;
+            color: #111111;
+            font-size: 16px;
+            font-weight: 600;
+            line-height: 1;
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
+            cursor: pointer;
+          }
+          .floating-help-pill-text {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+          }
+          .floating-input-shell {
+            width: 100%;
+			max-width: 326px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0;
+            border-radius: 999px;
+            background: transparent;
+            box-shadow: 0 0 28px rgba(139, 39, 251, 0.18);
+			height: 56px;
+            overflow: hidden;
+            transition: max-width 0.35s ease, padding 0.3s ease, gap 0.3s ease, background-color 0.3s ease;
+          }
+          .floating-prompt-input {
+            flex: 1;
+            border: none;
+            background: #ffffff;
+            border-radius: 999px;
+            color: #000000;
+            line-height: 1.35;
+            padding: 18px 19px;
+            min-width: 0;
+			font-weight: 500;
+			font-size: 14px;
+			line-height: 100%;
+			letter-spacing: 0%;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+            transition: opacity 0.28s ease, transform 0.28s ease, width 0.35s ease, padding 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+          }
+          .floating-prompt-input::placeholder {
+            color: #b7b7b7;
+          }
+          .floating-prompt-send {
+            width: 58px;
+            height: 58px;
+            margin: 0;
+            border: none;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            color: #ffffff;
+            cursor: pointer;
+            box-shadow: none;
+            position: relative;
+            overflow: hidden;
+            flex-shrink: 0;
+            transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease;
+          }
+          .floating-prompt-send-icon {
+            position: absolute;
+            inset: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+          }
+          .floating-prompt-send-icon svg {
+            width: 100%;
+            height: 100%;
+          }
+          .floating-prompt-send-icon-chat img {
+            width: 100% !important;
+            height: 100% !important;
+            border-radius: inherit;
+            object-fit: cover;
+          }
+          .floating-prompt-send-icon-chat svg {
+            width: 100%;
+            height: 100%;
+          }
+          .floating-launcher-prompt.is-typing .floating-prompt-send-icon-chat {
+            opacity: 1;
+            transform: scale(1);
+          }
+          .floating-launcher-prompt.is-typing .floating-input-shell {
+            gap: 0;
+            padding: 0 0 0 12px;
+            background: #ffffff;
+          }
+          .floating-launcher-prompt.is-typing .floating-prompt-input {
+            background: transparent;
+            box-shadow: none;
+            padding-left: 8px;
+          }
+          .floating-launcher-prompt .floating-prompt-send-icon-arrow {
+            opacity: 0;
+            transform: scale(0.82);
+          }
+          .floating-launcher-prompt .floating-prompt-send-icon-arrow svg {
+            width: 46%;
+            height: 28%;
+          }
+          .floating-launcher-prompt.widget-open .floating-prompt-send {
+            background: var(--color-send, #fc0e3f);
+            box-shadow: 0 14px 30px rgba(244, 69, 105, 0.3);
+          }
+          .floating-launcher-prompt.widget-open .floating-prompt-send-icon-chat {
+            opacity: 0;
+            transform: scale(0.82);
+          }
+          .floating-launcher-prompt.widget-open .floating-prompt-send-icon-arrow {
+            opacity: 1;
+            transform: scale(1);
+          }
+          .floating-launcher-prompt.widget-open .floating-input-shell {
+            max-width: 58px;
+            gap: 0;
+            padding: 0;
+            background: transparent;
+            box-shadow: none;
+          }
+          .floating-launcher-prompt.widget-open .floating-prompt-input {
+            width: 0;
+            opacity: 0;
+            transform: translateX(18px);
+            padding-left: 0;
+            padding-right: 0;
+            box-shadow: none;
+          }
+
           .floating-launcher.entering {
             animation: floatingBtnIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
           }
@@ -2062,6 +2275,29 @@
             }
             .floating-launcher-full {
               width: 230px;
+            }
+            .floating-launcher-prompt {
+              width: min(92vw, 460px);
+              gap: 10px;
+            }
+            .floating-launcher-prompt.is-collapsed .floating-input-shell {
+              width: 58px;
+              min-height: 58px;
+            }
+            .floating-help-pill {
+              padding: 10px 18px;
+              font-size: 15px;
+            }
+            .floating-input-shell {
+              min-height: 56px;
+            }
+            .floating-prompt-input {
+              font-size: 15px;
+              padding: 0 16px 0 20px;
+            }
+            .floating-prompt-send {
+              width: 58px;
+              height: 58px;
             }
             .chat-widget.expanded {
               width: min(96vw, 555px) !important;
@@ -2677,6 +2913,18 @@
 					this.shadowRoot.getElementById(
 						"floating-btn",
 					),
+				floatingPromptInput:
+					this.shadowRoot.getElementById(
+						"floatingPromptInput",
+					),
+				floatingPromptSend:
+					this.shadowRoot.getElementById(
+						"floatingPromptSend",
+					),
+				floatingHelpBtn:
+					this.shadowRoot.getElementById(
+						"floatingHelpBtn",
+					),
 				backBtn: this.shadowRoot.getElementById(
 					"backToIntroBtn",
 				),
@@ -2827,10 +3075,40 @@
 		}
 
 		bindEvents() {
-			this.elements.floatingBtn.addEventListener(
-				"click",
-				() => this.toggleChat(),
-			);
+			if (this.elements.floatingHelpBtn) {
+				this.elements.floatingHelpBtn.addEventListener(
+					"click",
+					() => this.openFromFloatingLauncher(),
+				);
+			}
+			if (this.elements.floatingPromptSend) {
+				this.elements.floatingPromptSend.addEventListener(
+					"click",
+					() => {
+						if (this.isOpen) {
+							this.toggleChat();
+							return;
+						}
+						this.handleFloatingLauncherSend();
+					},
+				);
+			}
+			if (this.elements.floatingPromptInput) {
+				this.elements.floatingPromptInput.addEventListener(
+					"input",
+					() =>
+						this.updateFloatingLauncherState(),
+				);
+				this.elements.floatingPromptInput.addEventListener(
+					"keydown",
+					(e) => {
+						if (e.key === "Enter") {
+							e.preventDefault();
+							this.handleFloatingLauncherSend();
+						}
+					},
+				);
+			}
 			if (this.elements.backBtn) {
 				this.elements.backBtn.addEventListener(
 					"click",
@@ -2904,6 +3182,7 @@
 				}
 			});
 			this.resizeChatInput(true);
+			this.updateFloatingLauncherState();
 
 			// Custom Language Dropdown Logic
 			if (this.elements.langPillBtn) {
@@ -3299,6 +3578,75 @@
 					this.elements.input.focus();
 				}
 			}, 120);
+		}
+
+		openFromFloatingLauncher() {
+			this.elements.floatingBtn?.classList.remove(
+				"is-collapsed",
+			);
+			this.hasStartedChat = true;
+			if (!this.isOpen) {
+				this.toggleChat();
+				return;
+			}
+			this.showIntroScreen(false);
+			if (
+				this.elements.input &&
+				!this.isEmbeddedPreview
+			) {
+				this.elements.input.focus();
+			}
+		}
+
+		handleFloatingLauncherSend() {
+			if (this.isAwaitingResponse) {
+				return;
+			}
+			const prompt =
+				this.elements.floatingPromptInput?.value.trim() ||
+				"";
+			if (!prompt) {
+				this.openFromFloatingLauncher();
+				return;
+			}
+			this.openFromFloatingLauncher();
+			if (this.elements.input) {
+				this.elements.input.value = prompt;
+			}
+			if (this.elements.floatingPromptInput) {
+				this.elements.floatingPromptInput.value = "";
+			}
+			this.updateFloatingLauncherState();
+			this.resizeChatInput();
+			this.updateSendButtonState();
+			this.handleSend();
+		}
+
+		updateFloatingLauncherState() {
+			if (!this.elements.floatingBtn) {
+				return;
+			}
+			const hasValue = Boolean(
+				this.elements.floatingPromptInput?.value.trim(),
+			);
+			this.elements.floatingBtn.classList.toggle(
+				"is-typing",
+				hasValue,
+			);
+		}
+
+		dismissFloatingLauncher() {
+			if (this.isOpen) {
+				this.toggleChat();
+				return;
+			}
+			if (this.elements.floatingPromptInput) {
+				this.elements.floatingPromptInput.value = "";
+			}
+			this.updateFloatingLauncherState();
+			this.elements.floatingBtn?.classList.add(
+				"is-collapsed",
+			);
 		}
 
 		toggleExpandedView() {

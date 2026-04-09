@@ -9,150 +9,193 @@ export const floatingCSS = `
   }
 
   .floating-launcher {
-    border: 0;
-    cursor: pointer;
     display: flex;
+    border: 0;
     font-family: inherit;
-    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease;
   }
   .floating-launcher.widget-open {
+    opacity: 1;
     pointer-events: auto;
   }
-  .floating-launcher:hover { transform: translateY(-2px); }
-  .floating-launcher:focus-visible {
-    outline: 2px solid var(--color-primary, #fc0e3f);
-    outline-offset: 2px;
+
+  .floating-launcher-prompt {
+    position: relative;
+    width: min(690px, calc(100vw - 48px));
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+    transition: width 0.35s ease, opacity 0.35s ease;
+  }
+  .floating-launcher-prompt.widget-open {
+    width: auto;
+  }
+  .floating-launcher-prompt.widget-open .floating-help-pill {
+    display: none;
+  }
+  .floating-launcher-prompt.is-collapsed {
+    width: auto;
+  }
+  .floating-launcher-prompt.is-collapsed .floating-help-pill {
+    display: none;
+  }
+  .floating-launcher-prompt.is-collapsed .floating-input-shell {
+    max-width: 58px;
+    min-height: 58px;
+    gap: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .floating-launcher-prompt.is-collapsed .floating-prompt-input {
+    width: 0;
+    opacity: 0;
+    transform: translateX(18px);
+    padding-left: 0;
+    padding-right: 0;
+    box-shadow: none;
+  }
+  .floating-launcher-prompt.is-collapsed .floating-prompt-send {
+    margin: 0;
   }
 
-  .floating-orb {
+  .floating-help-pill {
+    border: none;
+    background: #fff;
+    border-radius: 999px 999px 0 999px;
+    padding: 12px 22px;
+    color: #111111;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.14);
+    cursor: pointer;
+  }
+  .floating-help-pill-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .floating-input-shell {
+    width: 100%;
+    max-width: 326px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0;
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: 0 0 28px rgba(139,39,251,0.18);
+    height: 56px;
+    overflow: hidden;
+    transition: max-width 0.35s ease, padding 0.3s ease, gap 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .floating-prompt-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: #fff;
+    border-radius: 999px;
+    color: #000000;
+    line-height: 1.35;
+    padding: 18px 19px;
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: 0%;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.12);
+    transition: opacity 0.28s ease, transform 0.28s ease, width 0.35s ease, padding 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .floating-prompt-input::placeholder {
+    color: #b7b7b7;
+  }
+  .floating-prompt-send {
     width: 58px;
     height: 58px;
-    border-radius: 9999px;
-    padding: 3px;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.22);
-    flex-shrink: 0;
-    display: flex;
-    perspective: 600px;
-  }
-  .floating-orb-inner {
-    width: 100%;
-    height: 100%;
-    border-radius: inherit;
-    display: flex;
+    margin: -1px 0 0 0;
+    border: none;
+    border-radius: 50%;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
+    background: transparent;
+    color: #ffffff;
+    cursor: pointer;
+    box-shadow: none;
     position: relative;
-    transform-style: preserve-3d;
-    transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease;
   }
-  .floating-launcher.widget-open .floating-orb-inner {
-    transform: rotateY(180deg);
-  }
-  .floating-orb-inner svg {
-    width: 20px;
-    height: 20px;
-  }
-
-  /* Flip animation: chat icon (front face) ↔ close icon (back face) */
-  .floating-icon-chat,
-  .floating-icon-close {
+  .floating-prompt-send-icon {
     position: absolute;
     inset: 0;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
+    transition: opacity 0.2s ease, transform 0.2s ease;
   }
-  .floating-icon-close {
-    transform: rotateY(180deg);
-    background: #161616;
-    border-radius: 50%;
+  .floating-prompt-send-icon svg {
+    width: 100%;
+    height: 100%;
   }
+  .floating-prompt-send-icon-chat img {
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: inherit;
+    object-fit: cover;
   }
-  .floating-icon-close svg {
-    width: 30% !important;
-    height: 30% !important;
+  .floating-prompt-send-icon-chat svg {
+    width: 100%;
+    height: 100%;
   }
 
-  /* Collapse text labels when widget is open */
-  .floating-launcher.widget-open .floating-compact-label { display: none; }
-  .floating-launcher-compact.widget-open { background: transparent; box-shadow: none; padding: 0; }
-  .floating-launcher.widget-open .floating-full-message,
-  .floating-launcher.widget-open .floating-full-cta { display: none; }
-  .floating-launcher-full.widget-open { width: auto; border-radius: 9999px; background: transparent; box-shadow: none; padding: 0; }
-
-  .floating-launcher-small {
+  .floating-launcher-prompt.is-typing .floating-input-shell {
+    gap: 0;
+    padding: 0 0 0 12px;
+    background: #fff;
+  }
+  .floating-launcher-prompt.is-typing .floating-prompt-input {
     background: transparent;
+    box-shadow: none;
+    padding-left: 8px;
+  }
+
+  .floating-launcher-prompt .floating-prompt-send-icon-arrow {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  .floating-launcher-prompt .floating-prompt-send-icon-arrow svg {
+    width: 46%;
+    height: 28%;
+  }
+
+  .floating-launcher-prompt.widget-open .floating-prompt-send {
+    background: var(--color-send, #fc0e3f);
+    box-shadow: 0 14px 30px rgba(244,69,105,0.3);
+  }
+  .floating-launcher-prompt.widget-open .floating-prompt-send-icon-chat {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  .floating-launcher-prompt.widget-open .floating-prompt-send-icon-arrow {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .floating-launcher-prompt.widget-open .floating-input-shell {
+    max-width: 58px;
+    gap: 0;
     padding: 0;
+    background: transparent;
+    box-shadow: none;
   }
-
-  .floating-launcher-compact {
-    align-items: center;
-    gap: 16px;
-    border-radius: 9999px;
-    background: #fff;
-    color: #111827;
-    box-shadow: 0 14px 34px rgba(0,0,0,0.2);
-    padding: 4px 20px 4px 4px;
-  }
-  .floating-compact-label {
-    font-size: 14px;
-    line-height: 1.1;
-    font-weight: 600;
-    white-space: nowrap;
-    text-align: left;
-  }
-
-  .floating-launcher-full {
-    width: 214px;
-    border-radius: 17px;
-    background: #fff;
-    box-shadow: 0 18px 40px rgba(0,0,0,0.24);
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    text-align: left;
-  }
-  .floating-full-message {
-    color: #0f172a;
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 141%;
-  }
-  .floating-full-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .floating-full-row .floating-orb {
-    width: 34px;
-    height: 34px;
-  }
-  .floating-full-row .floating-orb-inner svg {
-    width: 24px;
-    height: 24px;
-  }
-  .floating-full-cta {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border-radius: 7px;
-    padding: 10px 26px;
-    background: linear-gradient(135deg, var(--color-send, #fc0e3f) 0%, var(--color-banner, #120b14) 100%);
-    color: #fff;
-    font-size: 14px;
-    font-weight: 500;
-    letter-spacing: 0.2px;
-    text-wrap: nowrap;
-  }
-  .floating-full-cta svg {
-    width: 18px;
-    height: 17px;
-    flex-shrink: 0;
+  .floating-launcher-prompt.widget-open .floating-prompt-input {
+    width: 0;
+    opacity: 0;
+    transform: translateX(18px);
+    padding-left: 0;
+    padding-right: 0;
+    box-shadow: none;
   }
 
   .floating-launcher.entering {
@@ -164,14 +207,21 @@ export const floatingCSS = `
       right: 14px;
       bottom: 14px;
     }
-    .floating-launcher-full {
-      width: 230px;
+    .floating-launcher-prompt {
+      width: min(92vw, 460px);
+      gap: 10px;
     }
-    .floating-full-message {
-      font-size: 16px;
+    .floating-help-pill {
+      padding: 10px 18px;
+      font-size: 15px;
     }
-    .floating-compact-label {
-      font-size: 14px;
+    .floating-prompt-input {
+      font-size: 15px;
+      padding: 0 16px 0 20px;
+    }
+    .floating-prompt-send {
+      width: 58px;
+      height: 58px;
     }
   }
 `;
