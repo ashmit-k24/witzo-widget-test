@@ -1354,30 +1354,40 @@
             border: 1px solid #D3D3D3;
             border-radius: 24px;
             position: relative;
-            transition: border-color 0.3s ease;
+            transition: all 0.3s ease;
             z-index: 1;
+          }
+          
+          .chat-input-container.is-glowing {
+            box-shadow: 1px 0px 18px -11px #800CF4;
           }
           
           /* Beam Implementaton */
           .chat-input-beam {
             position: absolute;
-            width: 40px;
-            height: 40px;
+            width: 80px;
+            height: 6px;
             background: var(--color-banner-bg, #120b14);
-            filter: blur(12px);
+            filter: blur(18px);
             border-radius: 50%;
             z-index: -1;
             pointer-events: none;
             transform: translate(-50%, -50%);
-            animation: orbitBeam 6s linear infinite;
+            animation: orbitBeam 4s linear infinite;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+          }
+
+          .chat-input-container.is-glowing .chat-input-beam {
+            opacity: 1;
           }
 
           @keyframes orbitBeam {
-            0%   { top: 0; left: 0; }
-            25%  { top: 0; left: 100%; }
-            50%  { top: 100%; left: 100%; }
-            75%  { top: 100%; left: 0; }
-            100% { top: 0; left: 0; }
+            0%   { top: 10px; left: 0; }
+            25%  { top: 10px; left: 100%; }
+            50%  { top: 90%; left: 100%; }
+            75%  { top: 90%; left: 0; }
+            100% { top: 10px; left: 0; }
           }
           
           .chat-input-container:focus-within {
@@ -2731,6 +2741,9 @@
 				chatInput: this.shadowRoot.querySelector(
 					".chat-input",
 				),
+				chatInputContainer: this.shadowRoot.querySelector(
+					".chat-input-container",
+				),
 				conversationRatingSlot:
 					this.shadowRoot.getElementById(
 						"conversationRatingSlot",
@@ -2797,7 +2810,7 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ widgetKey: this.widgetKey, sessionId: this.sessionId, url }),
-			}).catch(() => {});
+			}).catch(() => { });
 		}
 
 		bindEvents() {
@@ -2864,6 +2877,19 @@
 					}
 				},
 			);
+			this.elements.input.addEventListener("focus", () => {
+				if (this.elements.chatInputContainer) {
+					if (this.glowTimeout) clearTimeout(this.glowTimeout);
+					this.elements.chatInputContainer.classList.add(
+						"is-glowing",
+					);
+					this.glowTimeout = setTimeout(() => {
+						this.elements.chatInputContainer.classList.remove(
+							"is-glowing",
+						);
+					}, 5000);
+				}
+			});
 			this.resizeChatInput(true);
 
 			// Custom Language Dropdown Logic
