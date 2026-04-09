@@ -2137,7 +2137,6 @@
             padding: 0;
             border-radius: 999px;
             background: transparent;
-            box-shadow: 0 0 28px rgba(139, 39, 251, 0.18);
 			height: 56px;
             overflow: hidden;
             transition: max-width 0.35s ease, padding 0.3s ease, gap 0.3s ease, background-color 0.3s ease;
@@ -2215,6 +2214,11 @@
             box-shadow: none;
             padding-left: 8px;
           }
+			.floating-launcher-prompt.is-typing .floating-prompt-input:focus {
+  			outline: none;
+  			box-shadow: none;
+  			border: none;
+			}
           .floating-launcher-prompt .floating-prompt-send-icon-arrow {
             opacity: 0;
             transform: scale(0.82);

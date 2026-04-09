@@ -86,7 +86,6 @@ export const floatingCSS = `
     padding: 0;
     border-radius: 999px;
     background: transparent;
-    box-shadow: 0 0 28px rgba(139,39,251,0.18);
     height: 56px;
     overflow: hidden;
     transition: max-width 0.35s ease, padding 0.3s ease, gap 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
