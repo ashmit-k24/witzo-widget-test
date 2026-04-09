@@ -118,6 +118,7 @@ export const floatingCSS = `
     transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
     will-change: transform;
     pointer-events: none;
+    top:2px;
   }
   .floating-input-shell > * {
     position: relative;
