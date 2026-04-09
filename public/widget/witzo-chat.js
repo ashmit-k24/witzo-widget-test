@@ -104,6 +104,14 @@
 			this._calendlyBookingActive = false;
 			this._leadFormCompleted = false;
 			this._leadFormStatusChecking = false;
+			this._messageFeedbackReasons = [
+				"Incorrect",
+				"Not helpful",
+				"Too long",
+				"Incomplete",
+				"Slow",
+				"Tell us more",
+			];
 
 			this.elements = {};
 			this.supportedLanguages = [
@@ -1323,6 +1331,9 @@
             margin-top: 46px;
             transition: all 0.7s ease-in 0.3s;
           }
+          .chat-message.has-feedback {
+            position: relative;
+          }
 
 		  
           
@@ -2437,6 +2448,13 @@
               flex-direction: row;
               align-items: flex-start;
             }
+            .bot-response-block {
+              display: flex;
+              flex-direction: column;
+              align-items: flex-start;
+              gap: 6px;
+              position: relative;
+            }
             .bot-message-row .bot-msg-chat-icon {
               flex-shrink: 0;
             }
@@ -2449,6 +2467,149 @@
 				border-bottom-left-radius: 16px;
 
 			  }
+            .message-feedback-row {
+              display: flex;
+              align-items: center;
+              gap: 11px;
+              margin-left: 56px;
+              position: relative;
+              opacity: 0;
+              visibility: hidden;
+              pointer-events: none;
+              transition: opacity 0.2s ease, transform 0.2s ease,
+                visibility 0.2s ease;
+				margin-top: 3px;
+            }
+            .bot-response-block:hover .message-feedback-row,
+            .message-feedback:hover .message-feedback-row,
+            .message-feedback:focus-within .message-feedback-row {
+              opacity: 1;
+              visibility: visible;
+              pointer-events: auto;
+              transform: translateY(0);
+            }
+            .message-feedback-btn {
+              position: relative;
+              width: 15px;
+              height: 15px;
+              border: none;
+              background: transparent;
+              color: #8f8f95;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              padding: 0;
+              cursor: pointer;
+              transition: color 0.2s ease, transform 0.2s ease;
+            }
+            .message-feedback-btn:hover {
+              color: #111111;
+              transform: translateY(-1px);
+            }
+            .message-feedback-btn.active {
+              color: #111111;
+            }
+            .message-feedback-btn svg {
+              width: 19px;
+              height: 19px;
+              stroke: currentColor;
+              fill: none;
+              stroke-width: 1.9;
+              stroke-linecap: round;
+              stroke-linejoin: round;
+            }
+            .message-feedback-btn.active svg path {
+              fill: currentColor;
+            }
+            .message-feedback-tooltip {
+              position: absolute;
+              left: 50%;
+              top: calc(100% + 8px);
+              transform: translateX(-50%) translateY(-4px);
+              background: #1f1f22;
+              color: #ffffff;
+              border-radius: 999px;
+              padding: 8px 12px;
+              font-size: 12px;
+              line-height: 1;
+              white-space: nowrap;
+              opacity: 0;
+              pointer-events: none;
+              transition: opacity 0.18s ease, transform 0.18s ease;
+              box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+              z-index: 3;
+            }
+            .message-feedback-btn:hover .message-feedback-tooltip,
+            .message-feedback-btn:focus-visible .message-feedback-tooltip {
+              opacity: 1;
+              transform: translateX(-50%) translateY(0);
+            }
+            .message-feedback.menu-open .message-feedback-btn:hover .message-feedback-tooltip,
+            .message-feedback.menu-open .message-feedback-btn:focus-visible .message-feedback-tooltip {
+              opacity: 0;
+              transform: translateX(-50%) translateY(-4px);
+            }
+            .message-feedback-menu {
+              position: absolute;
+              top: calc(100% + 10px);
+              left: 16px;
+              min-width: 188px;
+              background: #ffffff;
+              border-radius: 16px;
+              box-shadow: 0 18px 40px rgba(17, 17, 17, 0.18);
+              padding: 6px;
+              opacity: 0;
+              transform: translateY(8px) scale(0.96);
+              transform-origin: top left;
+              pointer-events: none;
+              transition: opacity 0.22s ease, transform 0.22s ease;
+              z-index: 4;
+            }
+            .message-feedback-menu.show {
+              opacity: 1;
+              transform: translateY(0) scale(1);
+              pointer-events: auto;
+            }
+            .message-feedback-item {
+              width: 100%;
+              border: none;
+              background: transparent;
+              border-radius: 6px;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 14px;
+              padding: 6px 10px;
+              color: #111111;
+              cursor: pointer;
+              text-align: left;
+              font-size: 14px;
+              line-height: 1.2;
+            }
+            .message-feedback-item:hover {
+              background: #f4f4f5;
+            }
+            .message-feedback-item.active {
+              background: #f1f1f3;
+            }
+            .message-feedback-item-icon {
+              width: 18px;
+              height: 18px;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              color: #111111;
+              flex-shrink: 0;
+            }
+            .message-feedback-item-icon svg {
+              width: 18px;
+              height: 18px;
+              stroke: currentColor;
+              fill: none;
+              stroke-width: 1.8;
+              stroke-linecap: round;
+              stroke-linejoin: round;
+            }
             
             /* Markdown Styles inside bubbles */
 
@@ -3324,7 +3485,14 @@
 			// Close dropdown when clicking outside
 			this.shadowRoot.addEventListener(
 				"click",
-				() => {
+				(e) => {
+					if (
+						!e.target.closest(
+							".message-feedback",
+						)
+					) {
+						this.closeAllMessageFeedbackMenus();
+					}
 					if (this.elements.langDropdown) {
 						this.elements.langDropdown.classList.remove(
 							"show",
@@ -3336,6 +3504,11 @@
 						);
 					}
 				},
+			);
+			this.elements.messagesContainer?.addEventListener(
+				"click",
+				(e) =>
+					this.handleMessageFeedbackClick(e),
 			);
 
 			// Hope Banner Buttons
@@ -4273,6 +4446,168 @@
                     </div>`;
 		}
 
+		getMessageFeedbackIcon(type) {
+			if (type === "up") {
+				return `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="14" viewBox="0 0 15 14" fill="none">
+				<path d="M3.75804 5.94837V11.9466C3.75804 12.1454 3.67748 12.3361 3.53407 12.4767C3.39065 12.6173 3.19615 12.6963 2.99334 12.6963H1.46392C1.26111 12.6963 1.06661 12.6173 0.923196 12.4767C0.779786 12.3361 0.699219 12.1454 0.699219 11.9466V6.69815C0.699219 6.49929 0.779786 6.30859 0.923196 6.16798C1.06661 6.02737 1.26111 5.94837 1.46392 5.94837H3.75804ZM3.75804 5.94837C4.56929 5.94837 5.34732 5.6324 5.92096 5.06996C6.4946 4.50752 6.81687 3.74468 6.81687 2.94927V2.1995C6.81687 1.80179 6.978 1.42038 7.26482 1.13916C7.55164 0.857939 7.94065 0.699951 8.34628 0.699951C8.7519 0.699951 9.14091 0.857939 9.42773 1.13916C9.71456 1.42038 9.87569 1.80179 9.87569 2.1995V5.94837H12.1698C12.5754 5.94837 12.9644 6.10636 13.2513 6.38758C13.5381 6.6688 13.6992 7.05022 13.6992 7.44792L12.9345 11.1968C12.8245 11.6568 12.6159 12.0517 12.3401 12.3222C12.0642 12.5926 11.7361 12.7239 11.4051 12.6963H6.05216C5.44372 12.6963 4.8602 12.4594 4.42997 12.0375C3.99974 11.6157 3.75804 11.0436 3.75804 10.447" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>`;
+			}
+			if (type === "down") {
+				return `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="14" viewBox="0 0 15 14" fill="none">
+				<path d="M10.6404 7.45165V1.45346C10.6404 1.25461 10.721 1.0639 10.8644 0.923287C11.0078 0.782677 11.2023 0.703684 11.4051 0.703684H12.9345C13.1373 0.703684 13.3318 0.782677 13.4752 0.923287C13.6187 1.0639 13.6992 1.25461 13.6992 1.45346V6.70188C13.6992 6.90073 13.6187 7.09144 13.4752 7.23205C13.3318 7.37266 13.1373 7.45165 12.9345 7.45165H10.6404ZM10.6404 7.45165C9.82914 7.45165 9.05112 7.76763 8.47748 8.33007C7.90384 8.89251 7.58157 9.65534 7.58157 10.4508V11.2005C7.58157 11.5982 7.42044 11.9796 7.13362 12.2609C6.8468 12.5421 6.45779 12.7001 6.05216 12.7001C5.64653 12.7001 5.25752 12.5421 4.9707 12.2609C4.68388 11.9796 4.52275 11.5982 4.52275 11.2005V7.45165H2.22863C1.82301 7.45165 1.43399 7.29366 1.14717 7.01244C0.860353 6.73123 0.699219 6.34981 0.699219 5.9521L1.46392 2.20323C1.5739 1.74326 1.78252 1.34831 2.05837 1.07785C2.33421 0.807388 2.66234 0.676075 2.99334 0.703684H8.34628C8.95472 0.703684 9.53823 0.940665 9.96846 1.3625C10.3987 1.78432 10.6404 2.35645 10.6404 2.95301" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>`;
+			}
+			const icons = {
+				Incorrect: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>`,
+				"Not helpful": `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="14" viewBox="0 0 15 14" fill="none">
+				<path d="M10.5427 7.35168V1.35348C10.5427 1.15463 10.6233 0.963921 10.7667 0.823312C10.9101 0.682702 11.1046 0.603708 11.3074 0.603708H12.8369C13.0397 0.603708 13.2342 0.682702 13.3776 0.823312C13.521 0.963921 13.6016 1.15463 13.6016 1.35348V6.6019C13.6016 6.80076 13.521 6.99146 13.3776 7.13207C13.2342 7.27268 13.0397 7.35168 12.8369 7.35168H10.5427ZM10.5427 7.35168C9.73149 7.35168 8.95346 7.66765 8.37982 8.23009C7.80618 8.79253 7.48392 9.55536 7.48392 10.3508V11.1005C7.48392 11.4983 7.32278 11.8797 7.03596 12.1609C6.74914 12.4421 6.36013 12.6001 5.9545 12.6001C5.54888 12.6001 5.15987 12.4421 4.87305 12.1609C4.58623 11.8797 4.42509 11.4983 4.42509 11.1005V7.35168H2.13097C1.72535 7.35168 1.33634 7.19369 1.04952 6.91247C0.762697 6.63125 0.601562 6.24983 0.601562 5.85213L1.36627 2.10326C1.47624 1.64329 1.68487 1.24833 1.96071 0.977872C2.23656 0.707413 2.56469 0.576099 2.89568 0.603708H8.24862C8.85706 0.603708 9.44058 0.84069 9.87081 1.26252C10.301 1.68435 10.5427 2.25647 10.5427 2.85303" stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>`,
+				"Too long": `<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="12"
+  height="14"
+  viewBox="0 0 12 14"
+  fill="none"
+>
+  <path
+    d="M7.333 10H0.667M11.333 7.333H0.667M7.333 4.667H0.667M11.333 1.333H0.667"
+    stroke="currentColor"
+    stroke-width="1.333"
+    stroke-linecap="round"
+  />
+</svg>`,
+				Incomplete: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>`,
+				Slow: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+				"Tell us more": `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="14" viewBox="0 0 16 14" fill="none">
+				<path d="M12.2682 0.600098C12.8871 0.600098 13.4806 0.823206 13.9181 1.22034C14.3557 1.61748 14.6016 2.15611 14.6016 2.71774V8.3648C14.6016 8.92644 14.3557 9.46507 13.9181 9.86221C13.4806 10.2593 12.8871 10.4825 12.2682 10.4825H8.37934L4.49045 12.6001V10.4825H2.9349C2.31606 10.4825 1.72256 10.2593 1.28498 9.86221C0.847395 9.46507 0.601563 8.92644 0.601562 8.3648V2.71774C0.601563 2.15611 0.847395 1.61748 1.28498 1.22034C1.72256 0.823206 2.31606 0.600098 2.9349 0.600098H12.2682Z" stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>`,
+			};
+			return icons[type] || "";
+		}
+
+		getMessageFeedbackMarkup() {
+			const items = this._messageFeedbackReasons
+				.map(
+					(reason) => `
+              <button type="button" class="message-feedback-item" data-feedback-reason="${this.escapeHtml(reason)}">
+                <span>${this.escapeHtml(reason)}</span>
+                <span class="message-feedback-item-icon">${this.getMessageFeedbackIcon(reason)}</span>
+              </button>`,
+				)
+				.join("");
+			return `
+            <div class="message-feedback">
+              <div class="message-feedback-row">
+                <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
+                  ${this.getMessageFeedbackIcon("up")}
+                  <span class="message-feedback-tooltip">Helpful</span>
+                </button>
+                <button type="button" class="message-feedback-btn" data-feedback="down" aria-label="Not helpful">
+                  ${this.getMessageFeedbackIcon("down")}
+                  <span class="message-feedback-tooltip">Not helpful</span>
+                </button>
+              </div>
+              <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?">
+                ${items}
+              </div>
+            </div>`;
+		}
+
+		getBotMessageMarkup(text) {
+			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${this.getMessageFeedbackMarkup()}</div>`;
+		}
+
+		closeAllMessageFeedbackMenus() {
+			this.shadowRoot
+				.querySelectorAll(".message-feedback-menu.show")
+				.forEach((menu) => {
+					menu.classList.remove("show");
+					menu
+						.closest(".message-feedback")
+						?.classList.remove("menu-open");
+				});
+		}
+
+		handleMessageFeedbackClick(e) {
+			const feedbackButton = e.target.closest(
+				".message-feedback-btn",
+			);
+			if (feedbackButton) {
+				e.stopPropagation();
+				const feedbackRoot =
+					feedbackButton.closest(
+						".message-feedback",
+					);
+				if (!feedbackRoot) return;
+				const allButtons =
+					feedbackRoot.querySelectorAll(
+						".message-feedback-btn",
+					);
+				allButtons.forEach((button) =>
+					button.classList.remove("active"),
+				);
+				feedbackButton.classList.add("active");
+				const menu =
+					feedbackRoot.querySelector(
+						".message-feedback-menu",
+					);
+				if (
+					feedbackButton.dataset.feedback ===
+					"down"
+				) {
+					const willOpen =
+						!menu?.classList.contains("show");
+					this.closeAllMessageFeedbackMenus();
+					if (willOpen) {
+						menu?.classList.add("show");
+						feedbackRoot.classList.add(
+							"menu-open",
+						);
+					}
+					return;
+				}
+				menu?.classList.remove("show");
+				feedbackRoot.classList.remove(
+					"menu-open",
+				);
+				feedbackRoot
+					.querySelectorAll(
+						".message-feedback-item.active",
+					)
+					.forEach((item) =>
+						item.classList.remove("active"),
+					);
+				return;
+			}
+
+			const feedbackItem = e.target.closest(
+				".message-feedback-item",
+			);
+			if (!feedbackItem) return;
+			e.stopPropagation();
+			const feedbackRoot = feedbackItem.closest(
+				".message-feedback",
+			);
+			if (!feedbackRoot) return;
+			feedbackRoot
+				.querySelectorAll(
+					".message-feedback-item",
+				)
+				.forEach((item) =>
+					item.classList.remove("active"),
+				);
+			feedbackItem.classList.add("active");
+			feedbackRoot
+				.querySelector(
+					'.message-feedback-btn[data-feedback="down"]',
+				)
+				?.classList.add("active");
+			feedbackRoot
+				.querySelector(".message-feedback-menu")
+				?.classList.remove("show");
+			feedbackRoot.classList.remove("menu-open");
+		}
+
 		queueScrollToBottom() {
 			if (this._scrollFrameQueued) return;
 			this._scrollFrameQueued = true;
@@ -4340,17 +4675,20 @@
 			const bubble = wrapper.querySelector(
 				".typing-indicator",
 			);
+			wrapper.classList.add("has-feedback");
 			if (bubble) {
 				bubble.classList.remove(
 					"typing-indicator",
 				);
-				bubble.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>`;
+				bubble.innerHTML =
+					this.getBotMessageMarkup(text);
 			} else {
 				const bubbleNode = wrapper.querySelector(
 					".chat-bubble-ai",
 				);
 				if (bubbleNode) {
-					bubbleNode.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>`;
+					bubbleNode.innerHTML =
+						this.getBotMessageMarkup(text);
 				}
 			}
 			this.queueScrollToBottom();
@@ -5210,11 +5548,14 @@
 		displayDefaultMessage() {
 			const wrapper =
 				document.createElement("div");
-			wrapper.className = "chat-message";
+			wrapper.className =
+				"chat-message has-feedback";
 			const bubble =
 				document.createElement("div");
 			bubble.className = "chat-bubble-ai";
-			bubble.innerHTML = `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(this.config.primaryText)}</div></div>`;
+			bubble.innerHTML = this.getBotMessageMarkup(
+				this.config.primaryText,
+			);
 			wrapper.appendChild(bubble);
 			this.elements.messagesContainer.appendChild(
 				wrapper,

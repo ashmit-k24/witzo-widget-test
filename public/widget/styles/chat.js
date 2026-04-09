@@ -24,6 +24,27 @@ export const chatCSS = `
   }
 
   .bot-message-row { display: flex; flex-direction: row; align-items: flex-start; gap: 0.5rem; }
+  .bot-response-block { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; position: relative; }
+  .message-feedback-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin-left: 56px;
+    position: relative;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+    margin-top: 3px;
+  }
+  .bot-response-block:hover .message-feedback-row,
+  .message-feedback:hover .message-feedback-row,
+  .message-feedback:focus-within .message-feedback-row {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
 
   .md-content { line-height: 1.65; word-break: break-word; }
   .md-content strong { font-weight: 600; }
