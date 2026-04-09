@@ -47,6 +47,9 @@ export const floatingCSS = `
     background: transparent;
     box-shadow: none;
   }
+  .floating-launcher-prompt.is-collapsed .floating-input-shell::before {
+    transform: scaleX(0);
+  }
   .floating-launcher-prompt.is-collapsed .floating-prompt-input {
     width: 0;
     opacity: 0;
@@ -80,6 +83,7 @@ export const floatingCSS = `
   .floating-input-shell {
     width: 100%;
     max-width: 326px;
+    position: relative;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -88,7 +92,23 @@ export const floatingCSS = `
     background: transparent;
     height: 56px;
     overflow: hidden;
-    transition: max-width 0.35s ease, padding 0.3s ease, gap 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+    transition: max-width 0.6s cubic-bezier(0.22, 1, 0.36, 1), padding 0.6s cubic-bezier(0.22, 1, 0.36, 1), gap 0.6s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .floating-input-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: #fff;
+    transform-origin: left center;
+    transform: scaleX(0.7);
+    transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+    pointer-events: none;
+  }
+  .floating-input-shell > * {
+    position: relative;
+    z-index: 1;
   }
   .floating-prompt-input {
     flex: 1;
@@ -103,7 +123,13 @@ export const floatingCSS = `
     font-size: 14px;
     letter-spacing: 0%;
     box-shadow: 0 12px 28px rgba(0,0,0,0.12);
-    transition: opacity 0.28s ease, transform 0.28s ease, width 0.35s ease, padding 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+    transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1), width 0.75s cubic-bezier(0.22, 1, 0.36, 1), padding 0.75s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.75s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .floating-prompt-input:focus,
+  .floating-prompt-input:focus-visible {
+    outline: none;
+    box-shadow: none;
+    border: none;
   }
   .floating-prompt-input::placeholder {
     color: #b7b7b7;
@@ -124,7 +150,7 @@ export const floatingCSS = `
     position: relative;
     overflow: hidden;
     flex-shrink: 0;
-    transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease;
+    transition: background-color 0.75s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.75s cubic-bezier(0.22, 1, 0.36, 1), transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
   }
   .floating-prompt-send-icon {
     position: absolute;
@@ -132,7 +158,7 @@ export const floatingCSS = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
   }
   .floating-prompt-send-icon svg {
     width: 100%;
@@ -152,7 +178,10 @@ export const floatingCSS = `
   .floating-launcher-prompt.is-typing .floating-input-shell {
     gap: 0;
     padding: 0 0 0 12px;
-    background: #fff;
+    background: transparent;
+  }
+  .floating-launcher-prompt.is-typing .floating-input-shell::before {
+    transform: scaleX(1);
   }
   .floating-launcher-prompt.is-typing .floating-prompt-input {
     background: transparent;
@@ -187,6 +216,9 @@ export const floatingCSS = `
     padding: 0;
     background: transparent;
     box-shadow: none;
+  }
+  .floating-launcher-prompt.widget-open .floating-input-shell::before {
+    transform: scaleX(0);
   }
   .floating-launcher-prompt.widget-open .floating-prompt-input {
     width: 0;
