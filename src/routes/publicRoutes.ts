@@ -102,6 +102,19 @@ router.post(
 );
 
 /**
+ * @route   POST /api/v1/widget/lead-status
+ * @desc    Check whether the configured lead fields are already captured
+ * @access  Public (requires valid widget key and session)
+ */
+router.post(
+	"/widget/lead-status",
+	publicWidgetActionLimiter,
+	validationRules.publicWidgetLeadStatus,
+	validate,
+	publicWidgetController.getLeadFormStatus,
+);
+
+/**
  * @route   POST /api/v1/widget/rating
  * @desc    Submit a chat rating (👍/👎) for a session (basic plan only)
  * @access  Public (requires valid widget key in body)

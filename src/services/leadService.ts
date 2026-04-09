@@ -1,19 +1,21 @@
 import OpenAI from "openai";
+import pool from "../config/database";
+import { config } from "../config/env";
 import {
 	getPlanCapabilities,
 	PlanType,
 } from "../config/planConfig";
-import pool from "../config/database";
-import { config } from "../config/env";
 import { ChatMessage } from "../types";
 import logger from "../utils/logger";
 import emailService from "./emailService";
-import { leadWebhookService } from "./leadWebhookService";
 import { hubspotIntegrationService } from "./hubspotIntegrationService";
+import { leadWebhookService } from "./leadWebhookService";
 import { salesforceIntegrationService } from "./salesforceIntegrationService";
 import { zohoIntegrationService } from "./zohoIntegrationService";
 
-const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+const openai = new OpenAI({
+	apiKey: config.OPENAI_API_KEY,
+});
 
 export interface Lead {
 	id: string;
@@ -27,7 +29,11 @@ export interface Lead {
 	company: string | null;
 	chat_summary: string | null;
 	raw_contact: Record<string, any>;
-	status: "new" | "contacted" | "qualified" | "converted";
+	status:
+		| "new"
+		| "contacted"
+		| "qualified"
+		| "converted";
 	source_url: string | null;
 	ip_address: string | null;
 	message_count: number;
@@ -52,6 +58,13 @@ export interface LeadListOptions {
 	search?: string;
 }
 
+export interface LeadRequiredFields {
+	name?: boolean;
+	email?: boolean;
+	phone?: boolean;
+	country?: boolean;
+}
+
 class LeadService {
 	private normalizeOptionalValue(
 		value: string | null | undefined,
@@ -60,7 +73,9 @@ class LeadService {
 			return null;
 		}
 		const normalized = value.trim();
-		return normalized.length > 0 ? normalized : null;
+		return normalized.length > 0
+			? normalized
+			: null;
 	}
 
 	private hasConnectableChannel(
@@ -121,7 +136,9 @@ ${fullConversation}`;
 					],
 					temperature: 0,
 					max_tokens: 300,
-					response_format: { type: "json_object" },
+					response_format: {
+						type: "json_object",
+					},
 				});
 
 			const raw =
@@ -177,7 +194,9 @@ ${fullConversation}`;
 
 			// Only persist leads when there is a direct contact method.
 			// Name, company, or summary alone should not create a lead.
-			if (!this.hasConnectableChannel(extracted)) {
+			if (
+				!this.hasConnectableChannel(extracted)
+			) {
 				logger.info(
 					"Skipping lead upsert: no email or phone found",
 					{
@@ -190,7 +209,11 @@ ${fullConversation}`;
 
 			const leadResult = await pool.query<{
 				id: string;
-				status: "new" | "contacted" | "qualified" | "converted";
+				status:
+					| "new"
+					| "contacted"
+					| "qualified"
+					| "converted";
 			}>(
 				`INSERT INTO leads
 					(user_id, widget_key_id, session_id, name, email, phone, country, company,
@@ -239,7 +262,8 @@ ${fullConversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ?? "new",
+								leadResult.rows[0]?.status ??
+								"new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -270,7 +294,8 @@ ${fullConversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ?? "new",
+								leadResult.rows[0]?.status ??
+								"new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -301,7 +326,8 @@ ${fullConversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ?? "new",
+								leadResult.rows[0]?.status ??
+								"new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -332,7 +358,8 @@ ${fullConversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ?? "new",
+								leadResult.rows[0]?.status ??
+								"new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -371,12 +398,17 @@ ${fullConversation}`;
 						[userId, sessionId],
 					);
 					const leadRow = checkResult.rows[0];
-					if (leadRow && leadRow.follow_up_sent_at === null) {
+					if (
+						leadRow &&
+						leadRow.follow_up_sent_at === null
+					) {
 						const ownerResult = await pool.query(
 							`SELECT full_name, email FROM users WHERE id = $1`,
 							[userId],
 						);
-						const ownerDisplayName: string | null =
+						const ownerDisplayName:
+							| string
+							| null =
 							ownerResult.rows[0]?.full_name?.trim() ||
 							ownerResult.rows[0]?.email?.trim() ||
 							null;
@@ -393,15 +425,22 @@ ${fullConversation}`;
 							[userId, sessionId],
 						);
 
-						logger.info("Follow-up email sent for lead", {
-							userId,
-							sessionId,
-						});
+						logger.info(
+							"Follow-up email sent for lead",
+							{
+								userId,
+								sessionId,
+							},
+						);
 					}
 				} catch (emailErr) {
 					logger.error(
 						"Failed to send follow-up email for lead",
-						{ userId, sessionId, error: emailErr },
+						{
+							userId,
+							sessionId,
+							error: emailErr,
+						},
 					);
 				}
 			}
@@ -420,7 +459,9 @@ ${fullConversation}`;
 		widgetKeyId: number,
 		data: {
 			name?: string | null;
-			email: string;
+			email?: string | null;
+			phone?: string | null;
+			country?: string | null;
 			summary?: string | null;
 			ipAddress?: string;
 			sourceUrl?: string;
@@ -428,15 +469,21 @@ ${fullConversation}`;
 	): Promise<void> {
 		const result = await pool.query<{
 			id: string;
-			status: "new" | "contacted" | "qualified" | "converted";
+			status:
+				| "new"
+				| "contacted"
+				| "qualified"
+				| "converted";
 		}>(
 			`INSERT INTO leads
-				(user_id, widget_key_id, session_id, name, email, chat_summary,
+				(user_id, widget_key_id, session_id, name, email, phone, country, chat_summary,
 				 raw_contact, ip_address, source_url, message_count, status)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 'new')
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 'new')
 			 ON CONFLICT (user_id, session_id) DO UPDATE SET
 				name         = COALESCE(EXCLUDED.name, leads.name),
 				email        = COALESCE(EXCLUDED.email, leads.email),
+				phone        = COALESCE(EXCLUDED.phone, leads.phone),
+				country      = COALESCE(EXCLUDED.country, leads.country),
 				chat_summary = COALESCE(EXCLUDED.chat_summary, leads.chat_summary),
 				raw_contact  = EXCLUDED.raw_contact,
 				updated_at   = CURRENT_TIMESTAMP
@@ -446,18 +493,25 @@ ${fullConversation}`;
 				widgetKeyId,
 				sessionId,
 				data.name ?? null,
-				data.email,
+				data.email ?? null,
+				data.phone ?? null,
+				data.country ?? null,
 				data.summary ?? null,
 				JSON.stringify({
 					name: data.name,
 					email: data.email,
+					phone: data.phone,
+					country: data.country,
 					message: data.summary,
 				}),
 				data.ipAddress ?? null,
 				data.sourceUrl ?? null,
 			],
 		);
-		logger.info("Contact form lead saved", { userId, sessionId });
+		logger.info("Contact form lead saved", {
+			userId,
+			sessionId,
+		});
 		const leadId = result.rows[0]?.id;
 		if (leadId) {
 			void leadWebhookService
@@ -472,14 +526,14 @@ ${fullConversation}`;
 							result.rows[0]?.status ?? "new",
 						contact: {
 							name: data.name ?? null,
-							email: data.email,
+							email: data.email ?? null,
+							phone: data.phone ?? null,
+							country: data.country ?? null,
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress:
-								data.ipAddress ?? null,
-							sourceUrl:
-								data.sourceUrl ?? null,
+							ipAddress: data.ipAddress ?? null,
+							sourceUrl: data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -506,14 +560,14 @@ ${fullConversation}`;
 							result.rows[0]?.status ?? "new",
 						contact: {
 							name: data.name ?? null,
-							email: data.email,
+							email: data.email ?? null,
+							phone: data.phone ?? null,
+							country: data.country ?? null,
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress:
-								data.ipAddress ?? null,
-							sourceUrl:
-								data.sourceUrl ?? null,
+							ipAddress: data.ipAddress ?? null,
+							sourceUrl: data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -540,14 +594,14 @@ ${fullConversation}`;
 							result.rows[0]?.status ?? "new",
 						contact: {
 							name: data.name ?? null,
-							email: data.email,
+							email: data.email ?? null,
+							phone: data.phone ?? null,
+							country: data.country ?? null,
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress:
-								data.ipAddress ?? null,
-							sourceUrl:
-								data.sourceUrl ?? null,
+							ipAddress: data.ipAddress ?? null,
+							sourceUrl: data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -574,14 +628,14 @@ ${fullConversation}`;
 							result.rows[0]?.status ?? "new",
 						contact: {
 							name: data.name ?? null,
-							email: data.email,
+							email: data.email ?? null,
+							phone: data.phone ?? null,
+							country: data.country ?? null,
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress:
-								data.ipAddress ?? null,
-							sourceUrl:
-								data.sourceUrl ?? null,
+							ipAddress: data.ipAddress ?? null,
+							sourceUrl: data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -599,145 +653,108 @@ ${fullConversation}`;
 		}
 	}
 
-	async saveManualConversationLead(
+	async extractAndUpsertLeadFormFields(
 		userId: string,
 		sessionId: string,
-		widgetKeyId: number | null,
-		data: {
-			name: string;
-			email: string;
-			phone: string;
-			ipAddress?: string | null;
-			sourceUrl?: string | null;
+		widgetKeyId: number,
+		messages: ChatMessage[],
+		requiredFields: LeadRequiredFields,
+		metadata?: {
+			ipAddress?: string;
+			sourceUrl?: string;
 		},
 	): Promise<void> {
-		const result = await pool.query<{
-			id: string;
-			status: "new" | "contacted" | "qualified" | "converted";
-		}>(
-			`INSERT INTO leads
-				(user_id, widget_key_id, session_id, name, email, phone,
-				 raw_contact, ip_address, source_url, message_count, status)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 'new')
-			 ON CONFLICT (user_id, session_id) DO UPDATE SET
-				name         = COALESCE(EXCLUDED.name, leads.name),
-				email        = COALESCE(EXCLUDED.email, leads.email),
-				phone        = COALESCE(EXCLUDED.phone, leads.phone),
-				raw_contact  = EXCLUDED.raw_contact,
-				updated_at   = CURRENT_TIMESTAMP
-			 RETURNING id, status`,
-			[
-				userId,
-				widgetKeyId,
-				sessionId,
-				data.name,
-				data.email,
-				data.phone,
-				JSON.stringify({
-					name: data.name,
-					email: data.email,
-					phone: data.phone,
-				}),
-				data.ipAddress ?? null,
-				data.sourceUrl ?? null,
-			],
+		const userMessages = messages.filter(
+			(m) => m.role === "user",
 		);
+		if (userMessages.length < 1) return;
 
-		logger.info("Manual conversation lead saved", {
-			userId,
-			sessionId,
+		const extracted =
+			await this.extractContactFromMessages(
+				messages,
+			);
+		const hasConfiguredField = (
+			[
+				"name",
+				"email",
+				"phone",
+				"country",
+			] as Array<keyof LeadRequiredFields>
+		).some((field) => {
+			if (!requiredFields[field]) return false;
+			const value = extracted[field];
+			return (
+				typeof value === "string" &&
+				value.trim().length > 0
+			);
 		});
 
-		const leadId = result.rows[0]?.id;
-		if (!leadId) {
-			return;
-		}
+		if (!hasConfiguredField) return;
 
-		const payload = {
-			leadId,
+		await this.saveContactFormLead(
+			userId,
 			sessionId,
 			widgetKeyId,
-			status: result.rows[0]?.status ?? "new",
-			contact: {
-				name: data.name,
-				email: data.email,
-				phone: data.phone,
+			{
+				name: extracted.name,
+				email: extracted.email,
+				phone: extracted.phone,
+				country: extracted.country,
+				summary: extracted.summary,
+				ipAddress: metadata?.ipAddress,
+				sourceUrl: metadata?.sourceUrl,
 			},
-			metadata: {
-				ipAddress: data.ipAddress ?? null,
-				sourceUrl: data.sourceUrl ?? null,
-			},
-			messageCount: 0,
-		};
+		);
+	}
 
-		void leadWebhookService
-			.queueLeadEvent(
-				userId,
-				"lead.upserted",
-				payload,
-				leadId,
-			)
-			.catch((error) => {
-				logger.error(
-					"Failed to queue webhook for manual conversation lead",
-					{
-						error,
-						userId,
-						sessionId,
-					},
-				);
-			});
-		void hubspotIntegrationService
-			.queueLeadEvent(
-				userId,
-				"lead.upserted",
-				payload,
-				leadId,
-			)
-			.catch((error) => {
-				logger.error(
-					"Failed to queue HubSpot sync for manual conversation lead",
-					{
-						error,
-						userId,
-						sessionId,
-					},
-				);
-			});
-		void zohoIntegrationService
-			.queueLeadEvent(
-				userId,
-				"lead.upserted",
-				payload,
-				leadId,
-			)
-			.catch((error) => {
-				logger.error(
-					"Failed to queue Zoho sync for manual conversation lead",
-					{
-						error,
-						userId,
-						sessionId,
-					},
-				);
-			});
-		void salesforceIntegrationService
-			.queueLeadEvent(
-				userId,
-				"lead.upserted",
-				payload,
-				leadId,
-			)
-			.catch((error) => {
-				logger.error(
-					"Failed to queue Salesforce sync for manual conversation lead",
-					{
-						error,
-						userId,
-						sessionId,
-					},
-				);
-			});
+	async getLeadFormStatus(
+		userId: string,
+		sessionId: string,
+		requiredFields: LeadRequiredFields,
+	): Promise<{
+		completed: boolean;
+		missingFields: Array<
+			keyof LeadRequiredFields
+		>;
+		lead: Pick<
+			Lead,
+			"name" | "email" | "phone" | "country"
+		> | null;
+	}> {
+		const result = await pool.query<
+			Pick<
+				Lead,
+				"name" | "email" | "phone" | "country"
+			>
+		>(
+			`SELECT name, email, phone, country
+			 FROM leads
+			 WHERE user_id = $1 AND session_id = $2
+			 LIMIT 1`,
+			[userId, sessionId],
+		);
+		const lead = result.rows[0] || null;
+		const missingFields = (
+			[
+				"name",
+				"email",
+				"phone",
+				"country",
+			] as Array<keyof LeadRequiredFields>
+		).filter((field) => {
+			if (!requiredFields[field]) return false;
+			const value = lead?.[field];
+			return !(
+				typeof value === "string" &&
+				value.trim().length > 0
+			);
+		});
+
+		return {
+			completed: missingFields.length === 0,
+			missingFields,
+			lead,
+		};
 	}
 
 	async getLeads(
@@ -752,9 +769,7 @@ ${fullConversation}`;
 		} = options;
 		const offset = (page - 1) * limit;
 
-		const conditions: string[] = [
-			"user_id = $1",
-		];
+		const conditions: string[] = ["user_id = $1"];
 		const values: any[] = [userId];
 		let idx = 2;
 

@@ -28,8 +28,7 @@ interface RunScrapeJobOptions {
 				| "pinecone_embeddings_prepared"
 				| "pinecone_stale_chunk_cleanup_completed"
 				| "pinecone_upsert_completed"
-				| "scraper_primary_pinecone_upsert_completed"
-				| "hype_generation_started";
+				| "scraper_primary_pinecone_upsert_completed";
 			percent?: number;
 			stageLabel?: string;
 		},

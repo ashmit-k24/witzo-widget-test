@@ -22,6 +22,7 @@ import * as salesforceIntegrationController from "../controllers/salesforceInteg
 import * as zohoIntegrationController from "../controllers/zohoIntegrationController";
 import * as feedbackController from "../controllers/feedbackController";
 import * as promptBuilderController from "../controllers/promptBuilderController";
+import * as personaController from "../controllers/personaController";
 import * as subscriptionController from "../controllers/subscriptionController";
 import { authenticateToken } from "../middleware/auth";
 import {
@@ -277,6 +278,21 @@ router.post(
 	verifyCsrfToken,
 	authenticateToken,
 	systemMessageController.completeSystemMessageSetup,
+);
+
+router.get(
+	"/personas",
+	authenticateToken,
+	personaController.listPersonas,
+);
+
+router.put(
+	"/personas/select",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.widgetPersonaSelect,
+	validate,
+	personaController.selectPersona,
 );
 
 // ============================================

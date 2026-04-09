@@ -50,13 +50,22 @@ async function resolveWidget(
 	return { userId: verification.userId!, referer };
 }
 
+function getRequiredLeadFields(widgetConfig: Record<string, any> | null | undefined) {
+	return {
+		name: widgetConfig?.leadFormNameEnabled !== false,
+		email: widgetConfig?.leadFormEmailEnabled !== false,
+		phone: widgetConfig?.leadFormPhoneEnabled !== false,
+		country: widgetConfig?.leadFormCountryEnabled !== false,
+	};
+}
+
 /**
  * POST /api/v1/widget/contact
- * Fallback contact form submission when the conversation limit is hit (basic plan only).
+ * Contact form submission for the configured pre-chat lead gate or the paid fallback form.
  */
 export async function submitContactForm(req: Request, res: Response): Promise<void> {
 	try {
-		const { widgetKey, sessionId, name, email, message } = req.body;
+		const { widgetKey, sessionId, name, email, phone, country, message } = req.body;
 
 		const resolved = await resolveWidget(req, res, widgetKey);
 		if (!resolved) return;
@@ -69,16 +78,90 @@ export async function submitContactForm(req: Request, res: Response): Promise<vo
 		);
 		const planType = coercePlanType(rows[0]?.plan_type);
 
-		if (!getPlanCapabilities(planType).fallbackLeadForm) {
-			res.status(403).json({ success: false, message: "Feature not available on your plan" });
-			return;
-		}
-
 		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
 		if (!widget) {
 			res.status(404).json({ success: false, message: "Widget not found" });
 			return;
 		}
+		const leadFormEnabled = Boolean(widget.widget_config?.leadFormEnabled);
+		if (!leadFormEnabled) {
+			if (!email) {
+				res.status(400).json({ success: false, message: "Email is required" });
+				return;
+			}
+
+			if (!getPlanCapabilities(planType).fallbackLeadForm) {
+				res.status(403).json({ success: false, message: "Feature not available on your plan" });
+				return;
+			}
+
+			const sessionContext =
+				await chatService.getConversationContext(
+					sessionId,
+					userId,
+				);
+			if (
+				!sessionContext ||
+				sessionContext.widgetKeyId !== widget.id
+			) {
+				res.status(403).json({
+					success: false,
+					message: "Invalid widget session",
+				});
+				return;
+			}
+		}
+
+		if (!name && !email && !phone && !country && !message) {
+			res.status(400).json({ success: false, message: "At least one lead field is required" });
+			return;
+		}
+
+		await leadService.saveContactFormLead(userId, sessionId, widget.id, {
+			name: name || null,
+			email: email || null,
+			phone: phone || null,
+			country: country || null,
+			summary: message || null,
+			ipAddress: req.ip,
+			sourceUrl: referer,
+		});
+
+		res.status(200).json({ success: true, message: "Message received. We will be in touch!" });
+	} catch (err) {
+		logger.error("Error saving contact form lead", { err });
+		res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
+	}
+}
+
+/**
+ * POST /api/v1/widget/lead-status
+ * Checks whether the configured lead-form fields are already captured for this session.
+ */
+export async function getLeadFormStatus(req: Request, res: Response): Promise<void> {
+	try {
+		const { widgetKey, sessionId } = req.body;
+		const resolved = await resolveWidget(req, res, widgetKey);
+		if (!resolved) return;
+
+		const { userId, referer } = resolved;
+		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
+		if (!widget) {
+			res.status(404).json({ success: false, message: "Widget not found" });
+			return;
+		}
+
+		if (!widget.widget_config?.leadFormEnabled) {
+			res.status(200).json({
+				success: true,
+				data: {
+					completed: true,
+					missingFields: [],
+				},
+			});
+			return;
+		}
+
 		const sessionContext =
 			await chatService.getConversationContext(
 				sessionId,
@@ -95,18 +178,42 @@ export async function submitContactForm(req: Request, res: Response): Promise<vo
 			return;
 		}
 
-		await leadService.saveContactFormLead(userId, sessionId, widget.id, {
-			name: name || null,
-			email,
-			summary: message || null,
-			ipAddress: req.ip,
-			sourceUrl: referer,
-		});
+		const requiredFields = getRequiredLeadFields(widget.widget_config);
+		let status = await leadService.getLeadFormStatus(
+			userId,
+			sessionId,
+			requiredFields,
+		);
 
-		res.status(200).json({ success: true, message: "Message received. We will be in touch!" });
+		if (!status.completed) {
+			const session = await chatService.getSession(sessionId);
+			if (session?.messages?.length) {
+				await leadService.extractAndUpsertLeadFormFields(
+					userId,
+					sessionId,
+					widget.id,
+					session.messages,
+					requiredFields,
+					{
+						ipAddress: req.ip,
+						sourceUrl: referer,
+					},
+				);
+				status = await leadService.getLeadFormStatus(
+					userId,
+					sessionId,
+					requiredFields,
+				);
+			}
+		}
+
+		res.status(200).json({
+			success: true,
+			data: status,
+		});
 	} catch (err) {
-		logger.error("Error saving contact form lead", { err });
-		res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
+		logger.error("Error checking lead form status", { err });
+		res.status(500).json({ success: false, message: "Failed to check lead status" });
 	}
 }
 

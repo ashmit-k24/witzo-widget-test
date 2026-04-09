@@ -16,6 +16,15 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
         <polyline points="20 6 9 17 4 12"></polyline>
       </svg>
     </div>`).join('');
+  const leadFields = (config.leadFormEnabled ? [
+    config.leadFormNameEnabled !== false ? `<input id="cf-name" type="text" placeholder="Your name" />` : '',
+    config.leadFormEmailEnabled !== false ? `<input id="cf-email" type="email" placeholder="Your email" />` : '',
+    config.leadFormPhoneEnabled !== false ? `<input id="cf-phone" type="tel" placeholder="Phone number" />` : '',
+    config.leadFormCountryEnabled !== false ? `<input id="cf-country" type="text" placeholder="Country" />` : '',
+  ] : [
+    `<input id="cf-name" type="text" placeholder="Your name" />`,
+    `<input id="cf-email" type="email" placeholder="Your email *" />`,
+  ]).filter(Boolean).join('');
 
   const floatingType = config.floatingType || 'small';
   const chatIconHtml = config.logoIcon
@@ -80,10 +89,9 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
       <div id="contactFormSlot" class="contact-form hidden">
         <h3>Get in Touch</h3>
         <p>Our team will respond as soon as possible.</p>
-        <input  id="cf-name"    type="text"  placeholder="Your name" />
-        <input  id="cf-email"   type="email" placeholder="Your email *" />
-        <textarea id="cf-message" placeholder="Your message"></textarea>
-        <button id="cf-submit" class="contact-form-submit">Send Message</button>
+        ${leadFields}
+        ${config.leadFormEnabled ? '' : '<textarea id="cf-message" placeholder="Your message"></textarea>'}
+        <button id="cf-submit" class="contact-form-submit">${config.leadFormEnabled ? config.leadFormButtonText || 'Fill the form to continue chat' : 'Send Message'}</button>
       </div>
 
       <!-- Calendly booking slot -->

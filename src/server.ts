@@ -44,7 +44,6 @@ import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 import { createScraperWorker } from "./workers/scraperWorker";
-import { createHypeWorker } from "./workers/hypeWorker";
 
 const isRateLimitExemptPath = (path: string): boolean => {
 	const normalized = path.toLowerCase();
@@ -59,7 +58,6 @@ const isRateLimitExemptPath = (path: string): boolean => {
 // Start background workers and keep references for graceful shutdown
 const scraperWorker = createScraperWorker();
 const maintenanceWorker = createMaintenanceWorker();
-const hypeWorker = createHypeWorker();
 
 const app: Application = express();
 // Trust the known proxy chain length; keeps IP-based rate limiting safe
@@ -384,7 +382,6 @@ const gracefulShutdown = (server: Server) => {
 			await Promise.all([
 				scraperWorker.close(),
 				maintenanceWorker.close(),
-				hypeWorker.close(),
 			]);
 			logger.info("BullMQ workers closed");
 		} catch (err) {

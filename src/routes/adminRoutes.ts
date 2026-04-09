@@ -4,6 +4,7 @@ import * as adminController from "../controllers/adminController";
 import * as adminPlanController from "../controllers/adminPlanController";
 import * as adminSettingsController from "../controllers/adminSettingsController";
 import * as adminUserController from "../controllers/adminUserController";
+import * as personaController from "../controllers/personaController";
 import {
 	adminAuth,
 	requireAdminPermission,
@@ -83,6 +84,19 @@ router.put(
 	validationRules.adminDisallowedDomainsUpdate,
 	validate,
 	adminSettingsController.updateDisallowedDomains,
+);
+router.get(
+	"/settings/personas",
+	requireAdminPermission("settings.view"),
+	personaController.adminListPersonas,
+);
+router.put(
+	"/settings/personas/:personaKey",
+	requireAdminPermission("settings.manage"),
+	validationRules.adminPersonaParam,
+	validationRules.adminPersonaUpdate,
+	validate,
+	personaController.adminUpdatePersona,
 );
 router.get(
 	"/permissions",

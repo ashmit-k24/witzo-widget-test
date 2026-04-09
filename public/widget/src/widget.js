@@ -47,6 +47,8 @@ export class WitzoChatWidget extends HTMLElement {
     this._calendlyAssetPromise = null;
     this._calendlyMessageHandler = null;
     this._calendlyBookingActive = false;
+    this._leadFormCompleted = false;
+    this._leadFormStatusChecking = false;
 
     // Auto-open timer (cleared on first manual interaction)
     this._autoOpenTimer = null;
@@ -149,6 +151,8 @@ export class WitzoChatWidget extends HTMLElement {
       calendlySlot:            this.shadowRoot.getElementById('calendlySlot'),
       cfName:                  this.shadowRoot.getElementById('cf-name'),
       cfEmail:                 this.shadowRoot.getElementById('cf-email'),
+      cfPhone:                 this.shadowRoot.getElementById('cf-phone'),
+      cfCountry:               this.shadowRoot.getElementById('cf-country'),
       cfMessage:               this.shadowRoot.getElementById('cf-message'),
       cfSubmit:                this.shadowRoot.getElementById('cf-submit'),
       chatInput:               this.shadowRoot.querySelector('.chat-input'),
@@ -336,6 +340,7 @@ export class WitzoChatWidget extends HTMLElement {
   appendBotReply(typingEl, text) {
     msg.updateBubble(typingEl, text, this.config.logoIcon);
     this.botMessageCount++;
+    this.maybeShowLeadForm();
 
     // Increment daily message count and lock session if limit reached
     const dailyCount = session.incrementDailyCount(this.widgetKey);
@@ -423,7 +428,11 @@ export class WitzoChatWidget extends HTMLElement {
   showContactForm() {
     if (!this.elements.contactFormSlot) return;
     this.hideCalendlyEmbed();
-    this.elements.messagesContainer.classList.add('hidden');
+    this.elements.contactFormSlot.classList.toggle('lead-form-gate', Boolean(this.config.leadFormEnabled));
+    this.elements.messagesContainer.classList.toggle('lead-form-open', Boolean(this.config.leadFormEnabled));
+    if (!this.config.leadFormEnabled) {
+      this.elements.messagesContainer.classList.add('hidden');
+    }
     this.elements.chatInput?.classList.add('hidden');
     this.elements.contactFormSlot.classList.remove('hidden');
     if (!this._cfBound) {
@@ -433,19 +442,45 @@ export class WitzoChatWidget extends HTMLElement {
   }
 
   async submitContactForm() {
-    const email = this.elements.cfEmail?.value.trim();
-    if (!email) { if (this.elements.cfEmail) this.elements.cfEmail.style.borderColor = '#ef4444'; return; }
+    const values = {
+      name: this.elements.cfName?.value.trim() || null,
+      email: this.elements.cfEmail?.value.trim() || null,
+      phone: this.elements.cfPhone?.value.trim() || null,
+      country: this.elements.cfCountry?.value.trim() || null,
+      message: this.elements.cfMessage?.value.trim() || null,
+    };
+    const requiredFields = this.config.leadFormEnabled
+      ? [
+          this.config.leadFormNameEnabled !== false ? this.elements.cfName : null,
+          this.config.leadFormEmailEnabled !== false ? this.elements.cfEmail : null,
+          this.config.leadFormPhoneEnabled !== false ? this.elements.cfPhone : null,
+          this.config.leadFormCountryEnabled !== false ? this.elements.cfCountry : null,
+        ].filter(Boolean)
+      : [this.elements.cfEmail].filter(Boolean);
+    const missing = requiredFields.filter((field) => !field.value.trim());
+    if (missing.length > 0) {
+      missing.forEach((field) => { field.style.borderColor = '#ef4444'; });
+      return;
+    }
 
     if (this.elements.cfSubmit) { this.elements.cfSubmit.disabled = true; this.elements.cfSubmit.textContent = 'Sending…'; }
 
     try {
       const resp = await api.submitContact({
         apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId,
-        name:    this.elements.cfName?.value.trim()    || null,
-        email,
-        message: this.elements.cfMessage?.value.trim() || null,
+        ...values,
       });
       if (resp.ok) {
+        if (this.config.leadFormEnabled) {
+          this._leadFormCompleted = true;
+          this.elements.contactFormSlot.classList.add('hidden');
+          this.elements.contactFormSlot.classList.remove('lead-form-gate');
+          this.elements.messagesContainer?.classList.remove('lead-form-open');
+          this.elements.messagesContainer?.classList.remove('hidden');
+          this.elements.chatInput?.classList.remove('hidden');
+          this.elements.input?.focus();
+          return;
+        }
         this.elements.contactFormSlot.innerHTML = '<div class="contact-form-success">✓ Message sent! We\'ll be in touch soon.</div>';
       } else {
         this._resetCfBtn();
@@ -488,7 +523,48 @@ export class WitzoChatWidget extends HTMLElement {
   }
 
   _resetCfBtn() {
-    if (this.elements.cfSubmit) { this.elements.cfSubmit.disabled = false; this.elements.cfSubmit.textContent = 'Send Message'; }
+    if (this.elements.cfSubmit) {
+      this.elements.cfSubmit.disabled = false;
+      this.elements.cfSubmit.textContent = this.config.leadFormEnabled
+        ? this.config.leadFormButtonText || 'Fill the form to continue chat'
+        : 'Send Message';
+    }
+  }
+
+  getLeadFormTriggerMessageCount() {
+    const parsed = Number.parseInt(this.config.leadFormTriggerMessageCount, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+  }
+
+  async maybeShowLeadForm() {
+    if (!this.config.leadFormEnabled || this._leadFormCompleted) return;
+    if (this.elements?.contactFormSlot && !this.elements.contactFormSlot.classList.contains('hidden')) return;
+    if (this.userMessageCount < this.getLeadFormTriggerMessageCount()) return;
+    if (this._leadFormStatusChecking) return;
+
+    this._leadFormStatusChecking = true;
+    try {
+      const resp = await api.getLeadStatus({
+        apiBaseUrl: this.apiBaseUrl,
+        widgetKey: this.widgetKey,
+        sessionId: this.sessionId,
+      });
+      if (resp.ok) {
+        const payload = await resp.json().catch(() => null);
+        if (payload?.data?.completed) {
+          this._leadFormCompleted = true;
+          return;
+        }
+      }
+    } catch (e) {
+      // Non-fatal: if the status check is unavailable, keep the configured lead gate behavior.
+    } finally {
+      this._leadFormStatusChecking = false;
+    }
+
+    if (this._leadFormCompleted) return;
+    if (this.elements?.contactFormSlot && !this.elements.contactFormSlot.classList.contains('hidden')) return;
+    window.setTimeout(() => this.showContactForm(), 250);
   }
 
   _clearHopeBannerTimer() {

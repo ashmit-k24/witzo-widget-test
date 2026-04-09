@@ -1274,6 +1274,14 @@ export const generateEmbedScript = async (
 			autoOpen:                  "auto-open",
 			showQuickOptions:          "show-quick-options",
 			showIntroScreen:           "show-intro-screen",
+			leadFormEnabled:           "lead-form-enabled",
+			leadFormButtonText:        "lead-form-button-text",
+			leadFormNameEnabled:       "lead-form-name-enabled",
+			leadFormEmailEnabled:      "lead-form-email-enabled",
+			leadFormPhoneEnabled:      "lead-form-phone-enabled",
+			leadFormCountryEnabled:    "lead-form-country-enabled",
+			leadFormTriggerMessageCount:
+				"lead-form-trigger-message-count",
 			// Language
 			defaultLanguage:           "default-language",
 		};
@@ -1468,6 +1476,14 @@ function generateEmbedCode(
 		autoOpen:                  "auto-open",
 		showQuickOptions:          "show-quick-options",
 		showIntroScreen:           "show-intro-screen",
+		leadFormEnabled:           "lead-form-enabled",
+		leadFormButtonText:        "lead-form-button-text",
+		leadFormNameEnabled:       "lead-form-name-enabled",
+		leadFormEmailEnabled:      "lead-form-email-enabled",
+		leadFormPhoneEnabled:      "lead-form-phone-enabled",
+		leadFormCountryEnabled:    "lead-form-country-enabled",
+		leadFormTriggerMessageCount:
+			"lead-form-trigger-message-count",
 		defaultLanguage:           "default-language",
 	};
 

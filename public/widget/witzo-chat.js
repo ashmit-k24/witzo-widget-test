@@ -102,6 +102,8 @@
 			this._calendlyAssetPromise = null;
 			this._calendlyMessageHandler = null;
 			this._calendlyBookingActive = false;
+			this._leadFormCompleted = false;
+			this._leadFormStatusChecking = false;
 
 			this.elements = {};
 			this.supportedLanguages = [
@@ -156,6 +158,13 @@
 				planType: "free",
 				defaultLanguage: "en",
 				placeholderText: null,
+				leadFormEnabled: false,
+				leadFormButtonText: "Fill the form to continue chat",
+				leadFormNameEnabled: true,
+				leadFormEmailEnabled: true,
+				leadFormPhoneEnabled: true,
+				leadFormCountryEnabled: true,
+				leadFormTriggerMessageCount: 5,
 			};
 		}
 
@@ -174,6 +183,10 @@
 				);
 			this.widgetKey =
 				this.getAttribute("widget-key") || "";
+			this._leadFormCompleted =
+				sessionStorage.getItem(
+					this.getLeadFormCompletedKey(),
+				) === "1";
 			this.originToken =
 				this.getAttribute("origin-token") || "";
 			this.isEmbeddedPreview =
@@ -266,6 +279,13 @@
 					"showQuickOptions",
 				],
 				["show-intro-screen", "showIntroScreen"],
+				["lead-form-enabled", "leadFormEnabled"],
+				["lead-form-button-text", "leadFormButtonText"],
+				["lead-form-name-enabled", "leadFormNameEnabled"],
+				["lead-form-email-enabled", "leadFormEmailEnabled"],
+				["lead-form-phone-enabled", "leadFormPhoneEnabled"],
+				["lead-form-country-enabled", "leadFormCountryEnabled"],
+				["lead-form-trigger-message-count", "leadFormTriggerMessageCount"],
 			];
 
 			ATTR_TO_CONFIG_KEY.forEach(
@@ -348,7 +368,6 @@
 				this.hasStartedChat = true;
 			}
 			this.showIntroScreen(!this.hasStartedChat);
-
 			// Process default message
 			if (this.config.primaryText) {
 				setTimeout(() => {
@@ -458,6 +477,22 @@
 				this.getRatingShownState();
 			this.ratingSubmitted =
 				this.getRatingSubmittedState();
+			this._leadFormCompleted =
+				sessionStorage.getItem(
+					this.getLeadFormCompletedKey(),
+				) === "1";
+		}
+
+		getLeadFormCompletedKey() {
+			return `witzo_chat_lead_form_completed_${this.widgetKey || "default"}_${this.sessionId}`;
+		}
+
+		setLeadFormCompletedState(value) {
+			this._leadFormCompleted = Boolean(value);
+			sessionStorage.setItem(
+				this.getLeadFormCompletedKey(),
+				value ? "1" : "0",
+			);
 		}
 
 		getRatingShownKey() {
@@ -735,6 +770,17 @@
 
 		render() {
 			// Use the CSS and HTML from template.ts
+			const leadFields = (this.config.leadFormEnabled
+				? [
+						this.config.leadFormNameEnabled !== false ? '<input id="cf-name" type="text" placeholder="Your name" />' : '',
+						this.config.leadFormEmailEnabled !== false ? '<input id="cf-email" type="email" placeholder="Your email" />' : '',
+						this.config.leadFormPhoneEnabled !== false ? '<input id="cf-phone" type="tel" placeholder="Phone number" />' : '',
+						this.config.leadFormCountryEnabled !== false ? '<input id="cf-country" type="text" placeholder="Country" />' : '',
+				  ]
+				: [
+						'<input id="cf-name" type="text" placeholder="Your name" />',
+						'<input id="cf-email" type="email" placeholder="Your email *" />',
+				  ]).filter(Boolean).join("");
 			this.shadowRoot.innerHTML = `
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2099,6 +2145,16 @@
             }
             .contact-form-submit:disabled { opacity: 0.6; cursor: not-allowed; }
             .contact-form-success { text-align: center; font-size: 0.9rem; color: #16a34a; padding: 2rem 0; }
+            .contact-form.lead-form-gate {
+              flex: 0 0 auto;
+              max-height: 48%;
+              border-top: 1px solid #e2e8f0;
+              box-shadow: 0 -18px 36px rgba(15, 23, 42, 0.08);
+            }
+            .chat-messages.lead-form-open {
+              flex: 1 1 52%;
+              min-height: 42%;
+            }
 
             /* --- Rating Buttons (basic plan) --- */
             .rating-row {
@@ -2437,10 +2493,9 @@
             <div id="contactFormSlot" class="contact-form hidden">
               <h3>Get in Touch</h3>
               <p>Our team will respond as soon as possible.</p>
-              <input id="cf-name" type="text" placeholder="Your name" />
-              <input id="cf-email" type="email" placeholder="Your email *" />
-              <textarea id="cf-message" placeholder="Your message"></textarea>
-              <button class="contact-form-submit" id="cf-submit">Send Message</button>
+              ${leadFields}
+              ${this.config.leadFormEnabled ? "" : '<textarea id="cf-message" placeholder="Your message"></textarea>'}
+              <button class="contact-form-submit" id="cf-submit">${this.config.leadFormEnabled ? sanitizeHTML(this.config.leadFormButtonText || "Fill the form to continue chat") : "Send Message"}</button>
             </div>
 
             <div id="calendlySlot" class="contact-form hidden"></div>
@@ -2572,6 +2627,14 @@
 				cfEmail:
 					this.shadowRoot.getElementById(
 						"cf-email",
+					),
+				cfPhone:
+					this.shadowRoot.getElementById(
+						"cf-phone",
+					),
+				cfCountry:
+					this.shadowRoot.getElementById(
+						"cf-country",
 					),
 				cfMessage:
 					this.shadowRoot.getElementById(
@@ -3821,6 +3884,7 @@
 				text,
 			);
 			this.botMessageCount += 1;
+			this.maybeShowLeadForm();
 
 			// Show rating only once per session and only when conversation-end intent is detected.
 			const shouldShowConversationRating =
@@ -4273,9 +4337,19 @@
 		showContactForm() {
 			if (!this.elements.contactFormSlot) return;
 			this.hideCalendlyEmbed();
-			this.elements.messagesContainer.classList.add(
-				"hidden",
+			this.elements.contactFormSlot.classList.toggle(
+				"lead-form-gate",
+				Boolean(this.config.leadFormEnabled),
 			);
+			this.elements.messagesContainer.classList.toggle(
+				"lead-form-open",
+				Boolean(this.config.leadFormEnabled),
+			);
+			if (!this.config.leadFormEnabled) {
+				this.elements.messagesContainer.classList.add(
+					"hidden",
+				);
+			}
 			if (this.elements.chatInput)
 				this.elements.chatInput.classList.add(
 					"hidden",
@@ -4294,13 +4368,46 @@
 		}
 
 		async submitContactForm() {
-			const email = this.elements.cfEmail
-				? this.elements.cfEmail.value.trim()
-				: "";
-			if (!email) {
-				if (this.elements.cfEmail)
-					this.elements.cfEmail.style.borderColor =
-						"#ef4444";
+			const values = {
+				name: this.elements.cfName
+					? this.elements.cfName.value.trim() || null
+					: null,
+				email: this.elements.cfEmail
+					? this.elements.cfEmail.value.trim() || null
+					: null,
+				phone: this.elements.cfPhone
+					? this.elements.cfPhone.value.trim() || null
+					: null,
+				country: this.elements.cfCountry
+					? this.elements.cfCountry.value.trim() || null
+					: null,
+				message: this.elements.cfMessage
+					? this.elements.cfMessage.value.trim() || null
+					: null,
+			};
+			const requiredFields = this.config.leadFormEnabled
+				? [
+						this.config.leadFormNameEnabled !== false
+							? this.elements.cfName
+							: null,
+						this.config.leadFormEmailEnabled !== false
+							? this.elements.cfEmail
+							: null,
+						this.config.leadFormPhoneEnabled !== false
+							? this.elements.cfPhone
+							: null,
+						this.config.leadFormCountryEnabled !== false
+							? this.elements.cfCountry
+							: null,
+				  ].filter(Boolean)
+				: [this.elements.cfEmail].filter(Boolean);
+			const missing = requiredFields.filter(
+				(field) => !field.value.trim(),
+			);
+			if (missing.length > 0) {
+				missing.forEach((field) => {
+					field.style.borderColor = "#ef4444";
+				});
 				return;
 			}
 			if (this.elements.cfSubmit) {
@@ -4320,35 +4427,139 @@
 						body: JSON.stringify({
 							widgetKey: this.widgetKey,
 							sessionId: this.sessionId,
-							name: this.elements.cfName
-								? this.elements.cfName.value.trim() ||
-								null
-								: null,
-							email,
-							message: this.elements.cfMessage
-								? this.elements.cfMessage.value.trim() ||
-								null
-								: null,
+							...values,
 						}),
 					},
 				);
 				if (resp.ok) {
+					if (this.config.leadFormEnabled) {
+						this.setLeadFormCompletedState(true);
+						this.elements.contactFormSlot.classList.add(
+							"hidden",
+						);
+						this.elements.contactFormSlot.classList.remove(
+							"lead-form-gate",
+						);
+						this.elements.messagesContainer.classList.remove(
+							"lead-form-open",
+						);
+						this.elements.messagesContainer.classList.remove(
+							"hidden",
+						);
+						if (this.elements.chatInput) {
+							this.elements.chatInput.classList.remove(
+								"hidden",
+							);
+						}
+						if (
+							this.elements.input &&
+							!this.isEmbeddedPreview
+						) {
+							this.elements.input.focus();
+						}
+						return;
+					}
 					this.elements.contactFormSlot.innerHTML =
 						'<div class="contact-form-success">âœ“ Message sent! We\'ll be in touch soon.</div>';
 				} else {
 					if (this.elements.cfSubmit) {
 						this.elements.cfSubmit.disabled = false;
 						this.elements.cfSubmit.textContent =
-							"Send Message";
+							this.config.leadFormEnabled
+								? this.config.leadFormButtonText || "Fill the form to continue chat"
+								: "Send Message";
 					}
 				}
 			} catch (e) {
 				if (this.elements.cfSubmit) {
 					this.elements.cfSubmit.disabled = false;
 					this.elements.cfSubmit.textContent =
-						"Send Message";
+						this.config.leadFormEnabled
+							? this.config.leadFormButtonText || "Fill the form to continue chat"
+							: "Send Message";
 				}
 			}
+		}
+
+		getLeadFormTriggerMessageCount() {
+			const parsed = Number.parseInt(
+				this.config.leadFormTriggerMessageCount,
+				10,
+			);
+			return Number.isFinite(parsed) && parsed > 0
+				? parsed
+				: 5;
+		}
+
+		async maybeShowLeadForm() {
+			if (
+				!this.config.leadFormEnabled ||
+				this._leadFormCompleted
+			) {
+				return;
+			}
+			if (
+				this.elements.contactFormSlot &&
+				!this.elements.contactFormSlot.classList.contains(
+					"hidden",
+				)
+			) {
+				return;
+			}
+			if (
+				this.userMessageCount <
+				this.getLeadFormTriggerMessageCount()
+			) {
+				return;
+			}
+			if (this._leadFormStatusChecking) {
+				return;
+			}
+
+			this._leadFormStatusChecking = true;
+			try {
+				const resp = await fetch(
+					this.apiBaseUrl +
+						"/api/v1/widget/lead-status",
+					{
+						method: "POST",
+						headers: this.getRequestHeaders({
+							"Content-Type": "application/json",
+						}),
+						body: JSON.stringify({
+							widgetKey: this.widgetKey,
+							sessionId: this.sessionId,
+						}),
+					},
+				);
+				if (resp.ok) {
+					const payload = await resp
+						.json()
+						.catch(() => null);
+					if (payload?.data?.completed) {
+						this.setLeadFormCompletedState(true);
+						return;
+					}
+				}
+			} catch (e) {
+				// Non-fatal: if the status check is unavailable, keep the configured lead gate behavior.
+			} finally {
+				this._leadFormStatusChecking = false;
+			}
+
+			if (
+				this._leadFormCompleted ||
+				(this.elements.contactFormSlot &&
+					!this.elements.contactFormSlot.classList.contains(
+						"hidden",
+					))
+			) {
+				return;
+			}
+			window.setTimeout(
+				() => this.showContactForm(),
+				250,
+			);
 		}
 
 		displayDefaultMessage() {
