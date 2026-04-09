@@ -350,6 +350,8 @@
 			}
 			this.render();
 			this.bindEvents();
+			// Track this page view for the session (fire-and-forget)
+			this.trackPageView();
 			this.updateSendButtonState();
 			this._bindCalendlyMessageListener();
 
@@ -2788,6 +2790,16 @@
 			};
 		}
 
+		trackPageView() {
+			if (!this.apiBaseUrl || !this.widgetKey || !this.sessionId) return;
+			const url = window.location.href;
+			fetch(this.apiBaseUrl.replace(/\/+$/, '') + '/api/v1/widget/page-view', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ widgetKey: this.widgetKey, sessionId: this.sessionId, url }),
+			}).catch(() => {});
+		}
+
 		bindEvents() {
 			this.elements.floatingBtn.addEventListener(
 				"click",
@@ -3510,7 +3522,6 @@
 			this._wasEndIntent =
 				this.isConversationEndMessage(text);
 			this.pendingEndIntentRating =
-				this.config.planType === "basic" &&
 				this._wasEndIntent &&
 				!this.ratingShown &&
 				!this.ratingSubmitted;
@@ -4071,7 +4082,6 @@
 
 			// Show rating only once per session and only when conversation-end intent is detected.
 			const shouldShowConversationRating =
-				this.config.planType === "basic" &&
 				this.pendingEndIntentRating &&
 				!this.ratingShown &&
 				!this.ratingSubmitted &&

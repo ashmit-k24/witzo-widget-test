@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import pool from "../config/database";
 import {
 	coercePlanType,
 	getPlanCapabilities,
@@ -197,17 +198,18 @@ export const getUserChatSessions = async (
 			await chatService.getUserChatSessions(
 				userId,
 			);
-		const limitedSessions =
-			maxVisibleSessions === null
-				? sessions
-				: sessions.slice(
-						0,
-						maxVisibleSessions,
-				  );
+
+		// Mark each session as locked if it's beyond the plan's visible limit.
+		// We send ALL sessions so the frontend can show real blurred sessions
+		// instead of dummy placeholders — but locked sessions get no messages.
+		const taggedSessions = sessions.map((s, i) => ({
+			...s,
+			isLocked: maxVisibleSessions !== null && i >= maxVisibleSessions,
+		}));
 
 		res.status(200).json({
 			success: true,
-			data: limitedSessions,
+			data: taggedSessions,
 			meta: {
 				planType,
 				maxVisibleSessions,
@@ -261,6 +263,49 @@ export const getChatSession = async (
 			return;
 		}
 
+		// Check plan limit — determine if this session is beyond the visible window
+		const planType = coercePlanType(req.user?.plan_type);
+		const planCapabilities = getPlanCapabilities(planType);
+		const maxVisible = planCapabilities.chatHistoryLimit; // null = unlimited
+
+		let isGated = false;
+		if (maxVisible !== null) {
+			// Find the rank of this session among all sessions ordered by last_message_at DESC
+			const rankResult = await pool.query<{ rank: string }>(
+				`SELECT COUNT(*) AS rank
+				 FROM chat_conversations
+				 WHERE user_id = $1 AND is_deleted = FALSE
+				   AND last_message_at > (
+				     SELECT COALESCE(last_message_at, created_at)
+				     FROM chat_conversations
+				     WHERE id = $2 AND user_id = $1 AND is_deleted = FALSE
+				   )`,
+				[userId, sessionId],
+			);
+			// rank = number of sessions newer than this one (0-based index)
+			const rank = parseInt(rankResult.rows[0]?.rank ?? "0", 10);
+			isGated = rank >= maxVisible;
+		}
+
+		// Fetch lead info and viewed pages in parallel
+		const [leadResult, pageViewsResult] = await Promise.all([
+			pool.query<{ name: string | null; email: string | null; phone: string | null; country: string | null }>(
+				`SELECT name, email, phone, country FROM leads WHERE session_id = $1 AND user_id = $2 LIMIT 1`,
+				[session.sessionId, userId],
+			),
+			pool.query<{ url: string; viewed_at: string }>(
+				`SELECT url, viewed_at FROM session_page_views
+				 WHERE session_id = $1 AND user_id = $2
+				 ORDER BY viewed_at ASC`,
+				[session.sessionId, userId],
+			).catch(() => ({ rows: [] as { url: string; viewed_at: string }[] })),
+		]);
+		const lead = leadResult.rows[0] ?? null;
+		const viewedPages = pageViewsResult.rows.map((r) => ({
+			url: r.url,
+			timestamp: r.viewed_at,
+		}));
+
 		res.status(200).json({
 			success: true,
 			data: {
@@ -268,7 +313,14 @@ export const getChatSession = async (
 				messageCount: session.messages.length,
 				createdAt: session.createdAt,
 				updatedAt: session.updatedAt,
-				messages: session.messages,
+				// Strip messages server-side for gated sessions
+				messages: isGated ? [] : session.messages,
+				isGated,
+				customerName: lead?.name ?? null,
+				customerEmail: lead?.email ?? null,
+				customerPhone: lead?.phone ?? null,
+				customerCountry: lead?.country ?? null,
+				viewedPages,
 			},
 		});
 	} catch (error) {

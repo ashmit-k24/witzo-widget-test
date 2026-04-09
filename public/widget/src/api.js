@@ -37,3 +37,14 @@ export async function getLeadStatus({ apiBaseUrl, widgetKey, sessionId }) {
     body: JSON.stringify({ widgetKey, sessionId }),
   });
 }
+
+/** Track the current page as viewed by this session (fire-and-forget) */
+export function trackPageView({ apiBaseUrl, widgetKey, sessionId }) {
+  if (!apiBaseUrl || !widgetKey || !sessionId) return;
+  const url = window.location.href;
+  fetch(`${apiBaseUrl}/api/v1/widget/page-view`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ widgetKey, sessionId, url }),
+  }).catch(() => {}); // non-critical, swallow errors
+}

@@ -3365,6 +3365,10 @@ ${message}`;
 			createdAt: Date;
 			updatedAt: Date;
 			lastMessage: string | null;
+			customerName?: string | null;
+			customerEmail?: string | null;
+			customerPhone?: string | null;
+			customerCountry?: string | null;
 		}>
 	> {
 		const result = await pool.query<{
@@ -3374,11 +3378,26 @@ ${message}`;
 			updated_at: Date;
 			last_message_preview: string | null;
 			last_message_at: Date;
+			lead_name: string | null;
+			lead_email: string | null;
+			lead_phone: string | null;
+			lead_country: string | null;
 		}>(
-			`SELECT id, message_count, created_at, updated_at, last_message_preview, last_message_at
-			 FROM chat_conversations
-			 WHERE user_id = $1 AND is_deleted = FALSE
-			 ORDER BY last_message_at DESC`,
+			`SELECT
+			   c.id,
+			   c.message_count,
+			   c.created_at,
+			   c.updated_at,
+			   c.last_message_preview,
+			   c.last_message_at,
+			   l.name    AS lead_name,
+			   l.email   AS lead_email,
+			   l.phone   AS lead_phone,
+			   l.country AS lead_country
+			 FROM chat_conversations c
+			 LEFT JOIN leads l ON l.session_id = c.id::text AND l.user_id = c.user_id
+			 WHERE c.user_id = $1 AND c.is_deleted = FALSE
+			 ORDER BY c.last_message_at DESC`,
 			[userId],
 		);
 
@@ -3388,6 +3407,10 @@ ${message}`;
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
 			lastMessage: row.last_message_preview,
+			customerName: row.lead_name,
+			customerEmail: row.lead_email,
+			customerPhone: row.lead_phone,
+			customerCountry: row.lead_country,
 		}));
 	}
 

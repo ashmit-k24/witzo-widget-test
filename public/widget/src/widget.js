@@ -170,6 +170,9 @@ export class WitzoChatWidget extends HTMLElement {
     this.updateSendButtonState();
     this._bindCalendlyMessageListener();
 
+    // Track this page view for the session (fire-and-forget)
+    api.trackPageView({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId });
+
     // 7. Show default message
     if (this.config.primaryText) {
       setTimeout(() => this.displayDefaultMessage(), 500);
@@ -242,8 +245,7 @@ export class WitzoChatWidget extends HTMLElement {
     msg.appendMessage(text, 'user', this.elements.messagesContainer);
     this.userMessageCount++;
     this._wasEndIntent          = msg.isConversationEndMessage(text);
-    this.pendingEndIntentRating = this._hasPaidFeatures()
-      && this._wasEndIntent
+    this.pendingEndIntentRating = this._wasEndIntent
       && !this.ratingShown && !this.ratingSubmitted;
     this.elements.input.value = '';
     this.setAwaitingResponse(true);
@@ -348,8 +350,7 @@ export class WitzoChatWidget extends HTMLElement {
       setTimeout(() => this._lockSession(), 800);
     }
 
-    const shouldRate = this._hasPaidFeatures()
-      && this.pendingEndIntentRating
+    const shouldRate = this.pendingEndIntentRating
       && !this.ratingShown && !this.ratingSubmitted
       && this.userMessageCount > 0 && this.botMessageCount > 0;
 

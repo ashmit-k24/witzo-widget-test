@@ -3,6 +3,8 @@ import pool from "../config/database";
 import { config } from "../config/env";
 import adminAuthService from "../services/adminAuthService";
 import { signAdminToken } from "../middleware/adminAuth";
+import { PLAN_CONVERSATION_DEFAULT_LIMITS } from "../config/planConfig";
+import { redisCache } from "../config/redis";
 import logger from "../utils/logger";
 
 // ─── Login ───────────────────────────────────────────────────────────────────
@@ -953,10 +955,18 @@ export const setUserPlan = async (
 			return;
 		}
 
+		const conversationsLimit =
+			PLAN_CONVERSATION_DEFAULT_LIMITS[
+				planType as keyof typeof PLAN_CONVERSATION_DEFAULT_LIMITS
+			] ?? null;
+
 		await pool.query(
-			"UPDATE users SET plan_type = $1, updated_at = NOW() WHERE id = $2",
-			[planType, userId],
+			"UPDATE users SET plan_type = $1, conversations_limit = $2, updated_at = NOW() WHERE id = $3",
+			[planType, conversationsLimit, userId],
 		);
+
+		// Invalidate cached usage stats so the user sees updated limits immediately
+		await redisCache.del(`usage:stats:${userId}`);
 
 		await adminAuthService.recordAuditEvent({
 			adminUserId: req.admin?.id,

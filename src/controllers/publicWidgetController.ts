@@ -230,17 +230,6 @@ export async function submitChatRating(req: Request, res: Response): Promise<voi
 
 		const { userId } = resolved;
 
-		const { rows } = await pool.query<{ plan_type: string }>(
-			`SELECT plan_type FROM users WHERE id = $1`,
-			[userId],
-		);
-		const planType = coercePlanType(rows[0]?.plan_type);
-
-		if (!getPlanCapabilities(planType).chatRating) {
-			res.status(403).json({ success: false, message: "Feature not available on your plan" });
-			return;
-		}
-
 		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
 		if (!widget) {
 			res.status(404).json({ success: false, message: "Widget not found" });
@@ -268,5 +257,40 @@ export async function submitChatRating(req: Request, res: Response): Promise<voi
 	} catch (err) {
 		logger.error("Error saving chat rating", { err });
 		res.status(500).json({ success: false, message: "Failed to save rating" });
+	}
+}
+
+/**
+ * Track a page view from the widget.
+ * Body: { widgetKey, sessionId, url }
+ * Stores in session_page_views table.
+ */
+export async function trackPageView(req: Request, res: Response): Promise<void> {
+	try {
+		const { widgetKey, sessionId, url } = req.body as {
+			widgetKey?: string;
+			sessionId?: string;
+			url?: string;
+		};
+
+		if (!widgetKey || !sessionId || !url) {
+			res.status(400).json({ success: false, message: "widgetKey, sessionId, and url are required" });
+			return;
+		}
+
+		const widget = await resolveWidget(req, res, widgetKey);
+		if (!widget) return;
+
+		await pool.query(
+			`INSERT INTO session_page_views (session_id, user_id, url, viewed_at)
+			 VALUES ($1, $2, $3, NOW())`,
+			[sessionId, widget.userId, url],
+		);
+
+		res.status(200).json({ success: true });
+	} catch (error) {
+		logger.warn("Failed to track page view", { error });
+		// Non-critical — always return success to avoid breaking the widget
+		res.status(200).json({ success: true });
 	}
 }

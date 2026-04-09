@@ -6,6 +6,7 @@ import { pineconeService } from "../services/pineconeService";
 import { chatService } from "../services/chatService";
 import usageTrackingService from "../services/usageTrackingService";
 import widgetService from "../services/widgetService";
+import pool from "../config/database";
 import logger from "../utils/logger";
 
 interface WidgetEvent {
@@ -48,7 +49,7 @@ export const getOverviewAnalytics = async (
 			return;
 		}
 
-		const [usage, sessions, widgetEvents, ratings] =
+		const [usage, sessions, widgetEvents, ratings, leadsResult] =
 			await Promise.all([
 				usageTrackingService.getUserUsage(userId),
 				chatService.getUserChatSessions(userId),
@@ -59,6 +60,13 @@ export const getOverviewAnalytics = async (
 				chatRatingService.getRatingsForUser(
 					userId,
 					OVERVIEW_ANALYTICS_LIMIT,
+				),
+				pool.query<{ day: string; count: string }>(
+					`SELECT created_at::date::text AS day, COUNT(*) AS count
+					 FROM leads
+					 WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '7 days'
+					 GROUP BY created_at::date`,
+					[userId],
 				),
 			]);
 
@@ -183,28 +191,46 @@ export const getOverviewAnalytics = async (
 				: 0;
 
 		const last7DaysKeys = getLastNDaysKeys(7);
-		const dailyEventCounts = new Map<string, number>();
+
+		const dailyMessageCounts = new Map<string, number>();
+		const dailyWidgetLoadCounts = new Map<string, number>();
 		for (const key of last7DaysKeys) {
-			dailyEventCounts.set(key, 0);
+			dailyMessageCounts.set(key, 0);
+			dailyWidgetLoadCounts.set(key, 0);
 		}
 		for (const event of events) {
 			if (!event.created_at) continue;
 			const key = toDateKey(event.created_at);
-			if (!key || !dailyEventCounts.has(key))
-				continue;
-			dailyEventCounts.set(
-				key,
-				(dailyEventCounts.get(key) || 0) + 1,
-			);
+			if (!key) continue;
+			if (event.event_type === "message_sent" && dailyMessageCounts.has(key)) {
+				dailyMessageCounts.set(key, (dailyMessageCounts.get(key) || 0) + 1);
+			}
+			if (
+				(event.event_type === "widget_loaded" || event.event_type === "embed_script_loaded") &&
+				dailyWidgetLoadCounts.has(key)
+			) {
+				dailyWidgetLoadCounts.set(key, (dailyWidgetLoadCounts.get(key) || 0) + 1);
+			}
 		}
 
-		const activityLast7Days = last7DaysKeys.map(
-			(date) => ({
-				date,
-				totalEvents:
-					dailyEventCounts.get(date) || 0,
-			}),
-		);
+		const dailyLeadCounts = new Map<string, number>();
+		for (const key of last7DaysKeys) {
+			dailyLeadCounts.set(key, 0);
+		}
+		for (const row of leadsResult.rows) {
+			const key = row.day.slice(0, 10);
+			if (dailyLeadCounts.has(key)) {
+				dailyLeadCounts.set(key, parseInt(row.count, 10));
+			}
+		}
+
+		const activityLast7Days = last7DaysKeys.map((date) => ({
+			date,
+			totalEvents: (dailyMessageCounts.get(date) || 0) + (dailyWidgetLoadCounts.get(date) || 0),
+			messages: dailyMessageCounts.get(date) || 0,
+			leads: dailyLeadCounts.get(date) || 0,
+			widgetLoads: dailyWidgetLoadCounts.get(date) || 0,
+		}));
 		const activeDaysLast7 =
 			activityLast7Days.filter(
 				(point) => point.totalEvents > 0,

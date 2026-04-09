@@ -127,4 +127,15 @@ router.post(
 	publicWidgetController.submitChatRating,
 );
 
+/**
+ * @route   POST /api/v1/widget/page-view
+ * @desc    Track a page view for a chat session (called by widget on each page load)
+ * @access  Public (requires valid widget key in body)
+ */
+router.post(
+	"/widget/page-view",
+	publicWidgetActionLimiter,
+	publicWidgetController.trackPageView,
+);
+
 export default router;
