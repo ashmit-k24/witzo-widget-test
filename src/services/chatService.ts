@@ -27,15 +27,15 @@ import {
 	calendlyIntegrationService,
 	CalendlyWidgetBookingAction,
 } from "./calendlyIntegrationService";
-import personaService, {
-	WidgetPersonaKey,
-} from "./personaService";
 import { pineconeService } from "./pineconeService";
 import {
 	getTopKForQuery,
 	isAppointmentBookingIntent,
 	normalizeWidgetQuery,
 } from "./queryService";
+import personaService, {
+	WidgetPersonaKey,
+} from "./personaService";
 import { scraperStatusService } from "./scraperStatusService";
 import systemMessageService from "./systemMessageService";
 import websiteBrandingService from "./websiteBrandingService";
@@ -176,9 +176,7 @@ class ChatService {
 		return `chat:semantic-answer:${userId}`;
 	}
 
-	private hashPersonaPrompt(
-		prompt: string,
-	): string {
+	private hashPersonaPrompt(prompt: string): string {
 		return crypto
 			.createHash("sha1")
 			.update(prompt.trim())
@@ -207,9 +205,7 @@ class ChatService {
 					userId,
 				);
 			const prompt =
-				await personaService.getPersonaPrompt(
-					key,
-				);
+				await personaService.getPersonaPrompt(key);
 			return {
 				key,
 				prompt,
@@ -230,7 +226,8 @@ class ChatService {
 			return {
 				key: "general_information",
 				prompt: "",
-				promptHash: this.hashPersonaPrompt(""),
+				promptHash:
+					this.hashPersonaPrompt(""),
 			};
 		}
 	}
@@ -251,8 +248,7 @@ class ChatService {
 			normB += b[i] * b[i];
 		}
 		return normA > 0 && normB > 0
-			? dot /
-					(Math.sqrt(normA) * Math.sqrt(normB))
+			? dot / (Math.sqrt(normA) * Math.sqrt(normB))
 			: 0;
 	}
 
@@ -279,9 +275,7 @@ class ChatService {
 			) as SemanticAnswerCacheEntry[];
 			if (entries.length === 0) return null;
 			const queryEmbedding =
-				await pineconeService.generateEmbedding(
-					query,
-				);
+				await pineconeService.generateEmbedding(query);
 			let best:
 				| {
 						score: number;
@@ -293,15 +287,11 @@ class ChatService {
 			const normalizedPersonaPromptHash =
 				personaPromptHash || "";
 			for (const entry of entries) {
-				if (
-					(entry.language || "") !==
-					(language || "")
-				) {
+				if ((entry.language || "") !== (language || "")) {
 					continue;
 				}
 				if (
-					(entry.personaKey ||
-						"general_information") !==
+					(entry.personaKey || "general_information") !==
 					normalizedPersonaKey
 				) {
 					continue;
@@ -322,36 +312,29 @@ class ChatService {
 			}
 			if (
 				!best ||
-				best.score <
-					config.SEMANTIC_ANSWER_CACHE_THRESHOLD
+				best.score < config.SEMANTIC_ANSWER_CACHE_THRESHOLD
 			) {
 				return null;
 			}
-			logger.info(
-				"Chat semantic answer cache hit",
-				{
-					userId,
-					score: best.score,
-					personaKey: normalizedPersonaKey,
-					personaPromptHash:
-						normalizedPersonaPromptHash,
-				},
-			);
+			logger.info("Chat semantic answer cache hit", {
+				userId,
+				score: best.score,
+				personaKey: normalizedPersonaKey,
+				personaPromptHash:
+					normalizedPersonaPromptHash,
+			});
 			return {
 				response: best.entry.response,
 				sources: best.entry.sources,
 			};
 		} catch (error) {
-			logger.warn(
-				"Chat semantic answer cache read failed",
-				{
-					userId,
-					error:
-						error instanceof Error
-							? error.message
-							: String(error),
-				},
-			);
+			logger.warn("Chat semantic answer cache read failed", {
+				userId,
+				error:
+					error instanceof Error
+						? error.message
+						: String(error),
+			});
 			return null;
 		}
 	}
@@ -370,18 +353,13 @@ class ChatService {
 		}
 		if (!response.trim()) return;
 		try {
-			const key =
-				this.getSemanticAnswerCacheKey(userId);
+			const key = this.getSemanticAnswerCacheKey(userId);
 			const cached = await redisCache.get(key);
 			const entries = cached
-				? (JSON.parse(
-						cached,
-					) as SemanticAnswerCacheEntry[])
+				? (JSON.parse(cached) as SemanticAnswerCacheEntry[])
 				: [];
 			const embedding =
-				await pineconeService.generateEmbedding(
-					query,
-				);
+				await pineconeService.generateEmbedding(query);
 			entries.unshift({
 				query,
 				embedding,
@@ -405,16 +383,13 @@ class ChatService {
 				),
 			);
 		} catch (error) {
-			logger.warn(
-				"Chat semantic answer cache write failed",
-				{
-					userId,
-					error:
-						error instanceof Error
-							? error.message
-							: String(error),
-				},
-			);
+			logger.warn("Chat semantic answer cache write failed", {
+				userId,
+				error:
+					error instanceof Error
+						? error.message
+						: String(error),
+			});
 		}
 	}
 
@@ -1074,9 +1049,7 @@ ${message}`;
 		);
 	}
 
-	private getTopKForQuery(
-		_query: string,
-	): number {
+	private getTopKForQuery(_query: string): number {
 		return getTopKForQuery(_query);
 	}
 
@@ -1180,16 +1153,11 @@ ${message}`;
 	// URLs in our retrieved sources. We match on protocol + host + path,
 	// stripping trailing slash and fragment so tiny formatting differences
 	// don't cause a valid link to get stripped.
-	private normalizeUrlForComparison(
-		raw: string,
-	): string {
+	private normalizeUrlForComparison(raw: string): string {
 		try {
 			const u = new URL(raw.trim());
 			let pathname = u.pathname;
-			if (
-				pathname.length > 1 &&
-				pathname.endsWith("/")
-			) {
+			if (pathname.length > 1 && pathname.endsWith("/")) {
 				pathname = pathname.slice(0, -1);
 			}
 			return `${u.protocol}//${u.host.toLowerCase()}${pathname}${u.search}`;
@@ -1925,9 +1893,7 @@ ${message}`;
 					userId,
 				);
 			const languageInstruction =
-				this.buildLanguageInstruction(
-					languageCode,
-				);
+				this.buildLanguageInstruction(languageCode);
 			const conversationHistory: Array<any> = [
 				{
 					role: "system",
@@ -2056,49 +2022,47 @@ ${message}`;
 				await openAICircuitBreaker.execute(
 					async () =>
 						await retryOnRateLimit(async () =>
-							this.openai.chat.completions.create(
-								{
-									model: CHAT_COMPLETION_MODEL,
-									messages: [
-										{
-											role: "system",
-											content: [
-												`You are deciding whether to search ${websiteName}'s website knowledge base. Choose exactly one tool.`,
-												"If you respond directly, the direct response must strictly follow the selected widget persona instructions.",
-											].join(" "),
-										},
-										...(personaContext?.prompt.trim()
-											? [
-													{
-														role: "system" as const,
-														content:
-															this.buildPersonaOverrideInstruction(
-																personaContext,
-															),
-													},
-												]
-											: []),
-										...(languageInstruction
-											? [
-													{
-														role: "system" as const,
-														content:
-															languageInstruction,
-													},
-												]
-											: []),
-										...recentHistory,
-										{
-											role: "user",
-											content: query,
-										},
-									],
-									temperature: 0,
-									max_tokens: 120,
-									tools,
-									tool_choice: "required",
-								},
-							),
+							this.openai.chat.completions.create({
+								model: CHAT_COMPLETION_MODEL,
+								messages: [
+									{
+										role: "system",
+										content: [
+											`You are deciding whether to search ${websiteName}'s website knowledge base. Choose exactly one tool.`,
+											"If you respond directly, the direct response must strictly follow the selected widget persona instructions.",
+										].join(" "),
+									},
+									...(personaContext?.prompt.trim()
+										? [
+												{
+													role: "system" as const,
+													content:
+														this.buildPersonaOverrideInstruction(
+															personaContext,
+														),
+												},
+											]
+										: []),
+									...(languageInstruction
+										? [
+												{
+													role: "system" as const,
+													content:
+														languageInstruction,
+												},
+											]
+										: []),
+									...recentHistory,
+									{
+										role: "user",
+										content: query,
+									},
+								],
+								temperature: 0,
+								max_tokens: 120,
+								tools,
+								tool_choice: "required",
+							}),
 						),
 				);
 			const toolCall: any =
@@ -2262,10 +2226,7 @@ ${message}`;
 				? decision.message
 				: fallbackResponse;
 
-		if (
-			shouldCallLlm &&
-			decision.mode === "search"
-		) {
+		if (shouldCallLlm && decision.mode === "search") {
 			const completion =
 				await this.generateNonStreamingResponse(
 					await this.buildChatMessages(
@@ -2735,7 +2696,8 @@ ${message}`;
 						content: cachedAnswer.response,
 						timestamp: assistantTimestamp,
 					});
-					session.updatedAt = assistantTimestamp;
+					session.updatedAt =
+						assistantTimestamp;
 					await this.saveCachedSession(session);
 					return {
 						sessionId: session.sessionId,
@@ -2795,10 +2757,7 @@ ${message}`;
 			let usedFallback = !shouldCallLlm;
 			let usage: CompletionUsage | undefined;
 			const llmStart = Date.now();
-			if (
-				shouldCallLlm &&
-				decision.mode === "search"
-			) {
+			if (shouldCallLlm && decision.mode === "search") {
 				try {
 					const conversationHistory =
 						await this.buildChatMessages(
@@ -3068,18 +3027,13 @@ ${message}`;
 				? decision.message
 				: decision.mode === "search" &&
 					  relevantMatches.length === 0 &&
-					  (await this.hasActiveScrapeJob(
-							userId,
-					  ))
+					  (await this.hasActiveScrapeJob(userId))
 					? this.getLearningFallbackResponse()
 					: fallbackResponse;
 		let usedFallback = !shouldCallLlm;
 		let usage: CompletionUsage | undefined;
 		const llmStart = Date.now();
-		if (
-			shouldCallLlm &&
-			decision.mode === "search"
-		) {
+		if (shouldCallLlm && decision.mode === "search") {
 			const timeoutController =
 				new AbortController();
 			const timeout = setTimeout(() => {

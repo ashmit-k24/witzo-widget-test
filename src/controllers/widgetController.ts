@@ -572,34 +572,14 @@ export const webhookChat = async (
 			sessionId.trim()
 				? sessionId
 				: undefined;
-		const manualLeadCaptureActive =
-			await chatService.hasManualLeadCaptureActive(
-				visitorId,
-			);
-		const manualLeadCaptureThresholdReached =
-			manualLeadCaptureActive
-				? false
-				: await chatService.hasReachedManualLeadCaptureThreshold(
-						visitorId,
-					);
-		const shouldForceManualLeadCapture =
-			manualLeadCaptureActive ||
-			manualLeadCaptureThresholdReached;
 
 		// Atomically check AND increment the conversation counter in one query,
 		// eliminating the TOCTOU race that existed with the old canUserChat() +
 		// trackConversation() two-step pattern.
-		const usageCheck = shouldForceManualLeadCapture
-			? {
-					allowed: true,
-					usage: await usageTrackingService.getUserUsage(
-						userId,
-					),
-				}
-			: await usageTrackingService.checkAndTrackConversation(
-					userId,
-				);
-		const { allowed, usage } = usageCheck;
+		const { allowed, usage } =
+			await usageTrackingService.checkAndTrackConversation(
+				userId,
+			);
 
 		if (!allowed) {
 			// Fetch current stats (read-only, no increment) for the error body
@@ -613,7 +593,7 @@ export const webhookChat = async (
 			);
 
 			logger.warn(
-				"Widget user exceeded conversation limit, starting manual lead capture",
+				"Widget user exceeded conversation limit",
 				{
 					userId,
 					widgetKey,
@@ -624,151 +604,21 @@ export const webhookChat = async (
 				},
 			);
 
-			if (streamRequested) {
-				res.status(200);
-				res.setHeader(
-					"Content-Type",
-					"text/event-stream",
-				);
-				res.setHeader(
-					"Cache-Control",
-					"no-cache, no-transform",
-				);
-				res.setHeader(
-					"Connection",
-					"keep-alive",
-				);
-				res.flushHeaders?.();
-
-				const writeEvent = (
-					payload: Record<string, any>,
-				) => {
-					res.write(
-						`data: ${JSON.stringify(payload)}\n\n`,
-					);
-				};
-
-				try {
-					const result =
-						await chatService.startManualLeadCapture(
-							userId,
-							{
-								sessionId,
-								language:
-									resolvedLanguage,
-								onToken: (
-									token,
-								) =>
-									writeEvent(
-										{
-											type: "token",
-											token,
-										},
-									),
-							},
-						);
-					await chatService.attachConversationContext(
-						result.sessionId,
-						userId,
-						{
-							widgetKeyId:
-								widget.id,
-							visitorId:
-								visitorId ||
-								result.sessionId,
-						},
-					);
-					writeEvent({
-						type: "done",
-						sessionId:
-							result.sessionId,
-						language:
-							result.language,
-						manualLeadCapture: true,
-						limitReached: true,
-						usage: {
-							conversationsRemaining:
-								0,
-							resetDate:
-								currentUsage.resetDate,
-						},
-					});
-				} catch (streamError) {
-					logger.error(
-						"Error starting manual lead capture stream",
-						{ streamError },
-					);
-					writeEvent({
-						type: "error",
-						message:
-							"Temporary issue while collecting your details",
-					});
-				} finally {
-					res.end();
-				}
-				return;
-			}
-
-			const result =
-				await chatService.startManualLeadCapture(
-					userId,
-					{
-						sessionId,
-						language: resolvedLanguage,
-					},
-				);
-			await chatService.attachConversationContext(
-				result.sessionId,
-				userId,
-				{
-					widgetKeyId: widget.id,
-					visitorId:
-						visitorId ||
-						result.sessionId,
-				},
-			);
-			res.status(200).json({
-				success: true,
-				sessionId: result.sessionId,
-				response: result.response,
-				language: result.language,
-				manualLeadCapture: true,
+			res.status(403).json({
+				success: false,
+				message:
+					"You've reached your conversation limit for this month. Please upgrade your plan to continue chatting.",
 				limitReached: true,
-				usage: {
-					conversationsRemaining: 0,
+				data: {
+					planType: currentUsage.planType,
+					conversationsUsed:
+						currentUsage.conversationsUsed,
+					conversationsLimit:
+						currentUsage.conversationsLimit,
 					resetDate: currentUsage.resetDate,
 				},
 			});
 			return;
-		}
-
-		if (manualLeadCaptureThresholdReached) {
-			logger.info(
-				"Widget session reached manual lead capture threshold",
-				{
-					userId,
-					widgetKey,
-					sessionId: visitorId,
-				},
-			);
-
-			const activationResult =
-				await chatService.activateManualLeadCapture(
-					userId,
-					{
-						sessionId,
-					},
-				);
-			await chatService.attachConversationContext(
-				activationResult.sessionId,
-				userId,
-				{
-					widgetKeyId: widget.id,
-					visitorId:
-						visitorId ||
-						activationResult.sessionId,
-				},
-			);
 		}
 
 		// Non-critical analytics write is intentionally decoupled from request latency.
@@ -845,26 +695,19 @@ export const webhookChat = async (
 				| undefined;
 			try {
 				const appointmentResult =
-					shouldForceManualLeadCapture
-						? null
-						: await chatService.handleAppointmentLeadCapture(
-								userId,
-								message,
-								{
-									sessionId,
-									language:
-										resolvedLanguage,
-									onToken: (
-										token,
-									) =>
-										writeEvent(
-											{
-												type: "token",
-												token,
-											},
-										),
-								},
-							);
+					await chatService.handleAppointmentLeadCapture(
+						userId,
+						message,
+						{
+							sessionId,
+							language: resolvedLanguage,
+							onToken: (token) =>
+								writeEvent({
+									type: "token",
+									token,
+								}),
+						},
+					);
 				if (appointmentResult) {
 					result = appointmentResult;
 				} else {
@@ -921,14 +764,7 @@ export const webhookChat = async (
 			} finally {
 				res.end();
 
-				if (
-					result &&
-					!(
-						"manualLeadCapture" in
-							result &&
-						result.manualLeadCapture
-					)
-				) {
+				if (result) {
 					queueLeadExtraction(
 						result.sessionId,
 					);
@@ -937,20 +773,15 @@ export const webhookChat = async (
 			return;
 		}
 
-		const appointmentResult =
-			shouldForceManualLeadCapture
-				? null
-				: await chatService.handleAppointmentLeadCapture(
-						userId,
-						message,
-						{
-							sessionId,
-							language:
-								resolvedLanguage,
-						},
-					);
 		const result =
-			appointmentResult ??
+			(await chatService.handleAppointmentLeadCapture(
+				userId,
+				message,
+				{
+					sessionId,
+					language: resolvedLanguage,
+				},
+			)) ??
 			(await chatService.chat(
 				userId,
 				message,
@@ -968,14 +799,7 @@ export const webhookChat = async (
 		);
 
 		// Queue non-critical writes out of request path
-		if (
-			!(
-				"manualLeadCapture" in result &&
-				result.manualLeadCapture
-			)
-		) {
-			queueLeadExtraction(result.sessionId);
-		}
+		queueLeadExtraction(result.sessionId);
 
 		// usage came from checkAndTrackConversation — no extra DB query needed
 		res.status(200).json({
@@ -1000,161 +824,7 @@ export const webhookChat = async (
 		logger.error("Error in webhook chat", {
 			error,
 		});
-		try {
-			const {
-				widgetKey,
-				sessionId,
-				language,
-			} = req.body;
-			const streamRequested =
-				req.query.stream === "1" ||
-				(req.get("accept") || "").includes(
-					"text/event-stream",
-				);
-			if (!widgetKey) {
-				next(error);
-				return;
-			}
-			const referer =
-				req.get("referer") ||
-				req.get("origin") ||
-				"";
-			const refererDomain =
-				extractDomain(referer);
-			const originToken =
-				getOriginTokenHeader(req);
-			const verification =
-				await widgetService.verifyWidgetKey(
-					widgetKey,
-					refererDomain,
-					originToken,
-				);
-			if (!verification.valid || !verification.userId) {
-				next(error);
-				return;
-			}
-			const userId = verification.userId;
-			const widget =
-				await widgetService.getWidgetKeyByKey(
-					widgetKey,
-				);
-			if (!widget) {
-				next(error);
-				return;
-			}
-			const widgetDefaultLanguage =
-				typeof widget.widget_config
-					?.defaultLanguage ===
-				"string"
-					? widget.widget_config.defaultLanguage
-					: undefined;
-			const resolvedLanguage =
-				typeof language === "string" &&
-				language.trim()
-					? language
-					: widgetDefaultLanguage;
-			const visitorId =
-				typeof sessionId === "string" &&
-				sessionId.trim()
-					? sessionId
-					: undefined;
-
-			if (streamRequested) {
-				res.status(200);
-				res.setHeader(
-					"Content-Type",
-					"text/event-stream",
-				);
-				res.setHeader(
-					"Cache-Control",
-					"no-cache, no-transform",
-				);
-				res.setHeader(
-					"Connection",
-					"keep-alive",
-				);
-				res.flushHeaders?.();
-
-				const writeEvent = (
-					payload: Record<string, any>,
-				) => {
-					res.write(
-						`data: ${JSON.stringify(payload)}\n\n`,
-					);
-				};
-
-				const result =
-					await chatService.startManualLeadCapture(
-						userId,
-						{
-							sessionId,
-							language:
-								resolvedLanguage,
-							onToken: (
-								token,
-							) =>
-								writeEvent(
-									{
-										type: "token",
-										token,
-									},
-								),
-						},
-					);
-				await chatService.attachConversationContext(
-					result.sessionId,
-					userId,
-					{
-						widgetKeyId:
-							widget.id,
-						visitorId:
-							visitorId ||
-							result.sessionId,
-					},
-				);
-				writeEvent({
-					type: "done",
-					sessionId: result.sessionId,
-					language: result.language,
-					manualLeadCapture: true,
-				});
-				res.end();
-				return;
-			}
-
-			const result =
-				await chatService.startManualLeadCapture(
-					userId,
-					{
-						sessionId,
-						language: resolvedLanguage,
-					},
-				);
-			await chatService.attachConversationContext(
-				result.sessionId,
-				userId,
-				{
-					widgetKeyId: widget.id,
-					visitorId:
-						visitorId ||
-						result.sessionId,
-				},
-			);
-			res.status(200).json({
-				success: true,
-				sessionId: result.sessionId,
-				response: result.response,
-				language: result.language,
-				manualLeadCapture: true,
-			});
-			return;
-		} catch (fallbackError) {
-			logger.error(
-				"Failed to start manual lead capture after webhook chat error",
-				{ fallbackError },
-			);
-			next(error);
-		}
+		next(error);
 	}
 };
 

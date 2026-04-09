@@ -1,21 +1,19 @@
 import OpenAI from "openai";
-import pool from "../config/database";
-import { config } from "../config/env";
 import {
 	getPlanCapabilities,
 	PlanType,
 } from "../config/planConfig";
+import pool from "../config/database";
+import { config } from "../config/env";
 import { ChatMessage } from "../types";
 import logger from "../utils/logger";
 import emailService from "./emailService";
-import { hubspotIntegrationService } from "./hubspotIntegrationService";
 import { leadWebhookService } from "./leadWebhookService";
+import { hubspotIntegrationService } from "./hubspotIntegrationService";
 import { salesforceIntegrationService } from "./salesforceIntegrationService";
 import { zohoIntegrationService } from "./zohoIntegrationService";
 
-const openai = new OpenAI({
-	apiKey: config.OPENAI_API_KEY,
-});
+const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
 export interface Lead {
 	id: string;
@@ -29,11 +27,7 @@ export interface Lead {
 	company: string | null;
 	chat_summary: string | null;
 	raw_contact: Record<string, any>;
-	status:
-		| "new"
-		| "contacted"
-		| "qualified"
-		| "converted";
+	status: "new" | "contacted" | "qualified" | "converted";
 	source_url: string | null;
 	ip_address: string | null;
 	message_count: number;
@@ -73,9 +67,7 @@ class LeadService {
 			return null;
 		}
 		const normalized = value.trim();
-		return normalized.length > 0
-			? normalized
-			: null;
+		return normalized.length > 0 ? normalized : null;
 	}
 
 	private hasConnectableChannel(
@@ -136,9 +128,7 @@ ${fullConversation}`;
 					],
 					temperature: 0,
 					max_tokens: 300,
-					response_format: {
-						type: "json_object",
-					},
+					response_format: { type: "json_object" },
 				});
 
 			const raw =
@@ -194,9 +184,7 @@ ${fullConversation}`;
 
 			// Only persist leads when there is a direct contact method.
 			// Name, company, or summary alone should not create a lead.
-			if (
-				!this.hasConnectableChannel(extracted)
-			) {
+			if (!this.hasConnectableChannel(extracted)) {
 				logger.info(
 					"Skipping lead upsert: no email or phone found",
 					{
@@ -209,11 +197,7 @@ ${fullConversation}`;
 
 			const leadResult = await pool.query<{
 				id: string;
-				status:
-					| "new"
-					| "contacted"
-					| "qualified"
-					| "converted";
+				status: "new" | "contacted" | "qualified" | "converted";
 			}>(
 				`INSERT INTO leads
 					(user_id, widget_key_id, session_id, name, email, phone, country, company,
@@ -262,8 +246,7 @@ ${fullConversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ??
-								"new",
+								leadResult.rows[0]?.status ?? "new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -294,8 +277,7 @@ ${fullConversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ??
-								"new",
+								leadResult.rows[0]?.status ?? "new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -326,8 +308,7 @@ ${fullConversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ??
-								"new",
+								leadResult.rows[0]?.status ?? "new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -358,8 +339,7 @@ ${fullConversation}`;
 							sessionId,
 							widgetKeyId,
 							status:
-								leadResult.rows[0]?.status ??
-								"new",
+								leadResult.rows[0]?.status ?? "new",
 							contact: extracted,
 							metadata: {
 								ipAddress:
@@ -398,17 +378,12 @@ ${fullConversation}`;
 						[userId, sessionId],
 					);
 					const leadRow = checkResult.rows[0];
-					if (
-						leadRow &&
-						leadRow.follow_up_sent_at === null
-					) {
+					if (leadRow && leadRow.follow_up_sent_at === null) {
 						const ownerResult = await pool.query(
 							`SELECT full_name, email FROM users WHERE id = $1`,
 							[userId],
 						);
-						const ownerDisplayName:
-							| string
-							| null =
+						const ownerDisplayName: string | null =
 							ownerResult.rows[0]?.full_name?.trim() ||
 							ownerResult.rows[0]?.email?.trim() ||
 							null;
@@ -425,22 +400,15 @@ ${fullConversation}`;
 							[userId, sessionId],
 						);
 
-						logger.info(
-							"Follow-up email sent for lead",
-							{
-								userId,
-								sessionId,
-							},
-						);
+						logger.info("Follow-up email sent for lead", {
+							userId,
+							sessionId,
+						});
 					}
 				} catch (emailErr) {
 					logger.error(
 						"Failed to send follow-up email for lead",
-						{
-							userId,
-							sessionId,
-							error: emailErr,
-						},
+						{ userId, sessionId, error: emailErr },
 					);
 				}
 			}
@@ -469,11 +437,7 @@ ${fullConversation}`;
 	): Promise<void> {
 		const result = await pool.query<{
 			id: string;
-			status:
-				| "new"
-				| "contacted"
-				| "qualified"
-				| "converted";
+			status: "new" | "contacted" | "qualified" | "converted";
 		}>(
 			`INSERT INTO leads
 				(user_id, widget_key_id, session_id, name, email, phone, country, chat_summary,
@@ -508,10 +472,7 @@ ${fullConversation}`;
 				data.sourceUrl ?? null,
 			],
 		);
-		logger.info("Contact form lead saved", {
-			userId,
-			sessionId,
-		});
+		logger.info("Contact form lead saved", { userId, sessionId });
 		const leadId = result.rows[0]?.id;
 		if (leadId) {
 			void leadWebhookService
@@ -532,8 +493,10 @@ ${fullConversation}`;
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress: data.ipAddress ?? null,
-							sourceUrl: data.sourceUrl ?? null,
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -566,8 +529,10 @@ ${fullConversation}`;
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress: data.ipAddress ?? null,
-							sourceUrl: data.sourceUrl ?? null,
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -600,8 +565,10 @@ ${fullConversation}`;
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress: data.ipAddress ?? null,
-							sourceUrl: data.sourceUrl ?? null,
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -634,8 +601,10 @@ ${fullConversation}`;
 							summary: data.summary ?? null,
 						},
 						metadata: {
-							ipAddress: data.ipAddress ?? null,
-							sourceUrl: data.sourceUrl ?? null,
+							ipAddress:
+								data.ipAddress ?? null,
+							sourceUrl:
+								data.sourceUrl ?? null,
 						},
 					},
 					leadId,
@@ -670,16 +639,11 @@ ${fullConversation}`;
 		if (userMessages.length < 1) return;
 
 		const extracted =
-			await this.extractContactFromMessages(
-				messages,
-			);
+			await this.extractContactFromMessages(messages);
 		const hasConfiguredField = (
-			[
-				"name",
-				"email",
-				"phone",
-				"country",
-			] as Array<keyof LeadRequiredFields>
+			["name", "email", "phone", "country"] as Array<
+				keyof LeadRequiredFields
+			>
 		).some((field) => {
 			if (!requiredFields[field]) return false;
 			const value = extracted[field];
@@ -713,19 +677,11 @@ ${fullConversation}`;
 		requiredFields: LeadRequiredFields,
 	): Promise<{
 		completed: boolean;
-		missingFields: Array<
-			keyof LeadRequiredFields
-		>;
-		lead: Pick<
-			Lead,
-			"name" | "email" | "phone" | "country"
-		> | null;
+		missingFields: Array<keyof LeadRequiredFields>;
+		lead: Pick<Lead, "name" | "email" | "phone" | "country"> | null;
 	}> {
 		const result = await pool.query<
-			Pick<
-				Lead,
-				"name" | "email" | "phone" | "country"
-			>
+			Pick<Lead, "name" | "email" | "phone" | "country">
 		>(
 			`SELECT name, email, phone, country
 			 FROM leads
@@ -735,12 +691,9 @@ ${fullConversation}`;
 		);
 		const lead = result.rows[0] || null;
 		const missingFields = (
-			[
-				"name",
-				"email",
-				"phone",
-				"country",
-			] as Array<keyof LeadRequiredFields>
+			["name", "email", "phone", "country"] as Array<
+				keyof LeadRequiredFields
+			>
 		).filter((field) => {
 			if (!requiredFields[field]) return false;
 			const value = lead?.[field];
@@ -769,7 +722,9 @@ ${fullConversation}`;
 		} = options;
 		const offset = (page - 1) * limit;
 
-		const conditions: string[] = ["user_id = $1"];
+		const conditions: string[] = [
+			"user_id = $1",
+		];
 		const values: any[] = [userId];
 		let idx = 2;
 
