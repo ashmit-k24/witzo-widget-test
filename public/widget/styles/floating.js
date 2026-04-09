@@ -18,6 +18,10 @@ export const floatingCSS = `
     pointer-events: auto;
   }
 
+  .floating-launcher-prompt.widget-open {
+    pointer-events: none;
+  }
+
   .floating-launcher-prompt {
     --floating-help-pill-right-rest: 70px;
     --floating-help-pill-right-typing: 0px;
@@ -266,6 +270,7 @@ export const floatingCSS = `
   .floating-launcher-prompt.widget-open .floating-prompt-send {
     background: var(--color-primary, #471791);
     box-shadow: 0 14px 30px rgba(244,69,105,0.3);
+    pointer-events: auto;
   }
   .floating-launcher-prompt.widget-open .floating-prompt-send-icon-chat {
     opacity: 0;
@@ -276,22 +281,16 @@ export const floatingCSS = `
     transform: scale(1);
   }
   .floating-launcher-prompt.widget-open .floating-input-shell {
-    max-width: 58px;
-    gap: 0;
-    padding: 0;
     background: transparent;
     box-shadow: none;
   }
-  .floating-launcher-prompt.widget-open .floating-input-shell::before {
-    transform: scaleX(0);
-  }
-  .floating-launcher-prompt.widget-open .floating-prompt-input {
-    width: 0;
+  .floating-launcher-prompt.widget-open .floating-input-shell::before,
+  .floating-launcher-prompt.widget-open .floating-input-shell::after {
     opacity: 0;
-    transform: translateX(18px);
-    padding-left: 0;
-    padding-right: 0;
-    box-shadow: none;
+  }
+  .floating-launcher-prompt.widget-open .floating-prompt-input-wrapper {
+    opacity: 0;
+    pointer-events: none;
   }
 
   .floating-launcher.entering {

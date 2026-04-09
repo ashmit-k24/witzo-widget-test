@@ -1948,9 +1948,7 @@
             opacity: 1;
             pointer-events: auto;
           }
-          .floating-launcher:hover {
-            transform: translateY(-2px);
-          }
+          
           .floating-launcher:focus-visible {
             outline: 2px solid var(--color-primary, #fc0e3f);
             outline-offset: 2px;
@@ -2109,7 +2107,7 @@
             transform-origin: right bottom;
           }
           .floating-launcher-prompt.widget-open {
-            width: auto;
+            pointer-events: none;
           }
           .floating-launcher-prompt.widget-open .floating-help-pill {
             display: none;
@@ -2337,6 +2335,7 @@
           .floating-launcher-prompt.widget-open .floating-prompt-send {
             background: var(--color-primary, #471791);
             box-shadow: 0 14px 30px rgba(244, 69, 105, 0.3);
+            pointer-events: auto;
           }
           .floating-launcher-prompt.widget-open .floating-prompt-send-icon-chat {
             opacity: 0;
@@ -2347,22 +2346,16 @@
             transform: scale(1);
           }
           .floating-launcher-prompt.widget-open .floating-input-shell {
-            max-width: 58px;
-            gap: 0;
-            padding: 0;
             background: transparent;
             box-shadow: none;
           }
-          .floating-launcher-prompt.widget-open .floating-input-shell::before {
-            transform: scaleX(0);
-          }
-          .floating-launcher-prompt.widget-open .floating-prompt-input {
-            width: 0;
+          .floating-launcher-prompt.widget-open .floating-input-shell::before,
+          .floating-launcher-prompt.widget-open .floating-input-shell::after {
             opacity: 0;
-            transform: translateX(18px);
-            padding-left: 0;
-            padding-right: 0;
-            box-shadow: none;
+          }
+          .floating-launcher-prompt.widget-open .floating-prompt-input-wrapper {
+            opacity: 0;
+            pointer-events: none;
           }
 
           .floating-launcher.entering {
