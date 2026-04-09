@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -629,7 +629,10 @@
             <span class="floating-help-pill-text">👋 Need help?</span>
           </button>
           <div class="floating-input-shell">
-            <input id="floatingPromptInput" type="text" class="floating-prompt-input" placeholder="${placeholder}" />
+            <div id="floatingPromptInputWrapper" class="floating-prompt-input-wrapper is-glowing">
+              <div class="chat-input-beam"></div>
+              <input id="floatingPromptInput" type="text" class="floating-prompt-input" placeholder="${placeholder}" />
+            </div>
             <button type="button" id="floatingPromptSend" class="floating-prompt-send" aria-label="Send message">
               <span class="floating-prompt-send-icon floating-prompt-send-icon-chat">
                 ${chatIcon}
@@ -2169,7 +2172,6 @@
             border-radius: 999px;
             background: transparent;
 			height: 56px;
-            overflow: hidden;
             transition: max-width 0.6s cubic-bezier(0.22, 1, 0.36, 1), padding 0.6s cubic-bezier(0.22, 1, 0.36, 1), gap 0.6s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
             transform-origin: right center;
             will-change: transform, opacity;
@@ -2182,7 +2184,8 @@
             background: #ffffff;
             transform-origin: left center;
             transform: scaleX(0.7);
-            transition: transform 1s cubic-bezier(0.22, 1, 0.36, 1);
+            border: 1px solid transparent;
+            transition: transform 1s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease;
             will-change: transform;
             pointer-events: none;
           }
@@ -2190,9 +2193,24 @@
             position: relative;
             z-index: 1;
           }
+          .floating-prompt-input-wrapper {
+            flex: 1;
+            display: flex;
+            position: relative;
+            border-radius: 999px;
+            transition: all 0.3s ease;
+            height: 100%;
+            z-index: 1;
+          }
+          .floating-prompt-input-wrapper.is-glowing {
+            box-shadow: 1px 0px 18px -11px #800CF4;
+          }
+          .floating-prompt-input-wrapper.is-glowing .chat-input-beam {
+            opacity: 1;
+          }
           .floating-prompt-input {
             flex: 1;
-            border: none;
+            border: 1px solid transparent;
             background: #ffffff;
             border-radius: 999px;
             color: #000000;
@@ -2210,8 +2228,8 @@
           .floating-prompt-input:focus,
           .floating-prompt-input:focus-visible {
             outline: none;
-            box-shadow: none;
-            border: none;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+            border: 1px solid var(--color-primary, #fc0e3f);
           }
           .floating-prompt-input::placeholder {
             color: #b7b7b7;
@@ -2278,10 +2296,16 @@
           }
           .floating-launcher-prompt.is-typing .floating-input-shell::before {
             transform: scaleX(1);
+            border-color: var(--color-primary, #fc0e3f);
+          }
+          .floating-launcher-prompt.is-typing .floating-prompt-input-wrapper {
+            background: transparent;
+            box-shadow: none;
           }
           .floating-launcher-prompt.is-typing .floating-prompt-input {
             background: transparent;
             box-shadow: none;
+            border: 1px solid transparent;
             padding-left: 8px;
           }
           .floating-launcher-prompt .floating-prompt-send-icon-arrow {
@@ -2445,6 +2469,9 @@
             }
             .floating-input-shell {
               min-height: 56px;
+            }
+            .floating-prompt-input-wrapper {
+              font-size: 15px;
             }
             .floating-prompt-input {
               font-size: 15px;
@@ -3412,9 +3439,27 @@
 					(e) => {
 						if (e.key === "Enter") {
 							e.preventDefault();
-							this.handleFloatingLauncherSend();
+							this.handleFloatingPromptSubmit();
 						}
 					},
+				);
+				this.elements.floatingPromptInput.addEventListener(
+					"focus",
+					() => {
+						const wrapper = this.shadowRoot.getElementById("floatingPromptInputWrapper");
+						if (wrapper) {
+							wrapper.classList.remove("is-glowing");
+						}
+					}
+				);
+				this.elements.floatingPromptInput.addEventListener(
+					"blur",
+					() => {
+						const wrapper = this.shadowRoot.getElementById("floatingPromptInputWrapper");
+						if (wrapper && !this.elements.floatingPromptInput.value.trim()) {
+							wrapper.classList.add("is-glowing");
+						}
+					}
 				);
 			}
 			if (this.elements.backBtn) {

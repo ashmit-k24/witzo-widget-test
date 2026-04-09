@@ -107,7 +107,6 @@ export const floatingCSS = `
     border-radius: 999px;
     background: transparent;
     height: 56px;
-    overflow: hidden;
     transition: max-width 0.6s cubic-bezier(0.22, 1, 0.36, 1), padding 0.6s cubic-bezier(0.22, 1, 0.36, 1), gap 0.6s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
     transform-origin: right center;
     will-change: transform, opacity;
@@ -120,19 +119,35 @@ export const floatingCSS = `
     background: #fff;
     transform-origin: left center;
     transform: scaleX(0.7);
-    transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
+    border: 1px solid transparent;
+    transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease;
     will-change: transform;
     pointer-events: none;
-    top:2px;
+    top: 2px;
   }
   .floating-input-shell > * {
     position: relative;
     z-index: 1;
   }
+  .floating-prompt-input-wrapper {
+    flex: 1;
+    display: flex;
+    position: relative;
+    border-radius: 999px;
+    transition: all 0.3s ease;
+    height: 100%;
+    z-index: 1;
+  }
+  .floating-prompt-input-wrapper.is-glowing {
+    box-shadow: 1px 0px 18px -11px #800CF4;
+  }
+  .floating-prompt-input-wrapper.is-glowing .chat-input-beam {
+    opacity: 1;
+  }
   .floating-prompt-input {
     flex: 1;
     min-width: 0;
-    border: none;
+    border: 1px solid transparent;
     background: #fff;
     border-radius: 999px;
     color: #000000;
@@ -148,8 +163,8 @@ export const floatingCSS = `
   .floating-prompt-input:focus,
   .floating-prompt-input:focus-visible {
     outline: none;
-    box-shadow: none;
-    border: none;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.12);
+    border: 1px solid var(--color-primary, #fc0e3f);
   }
   .floating-prompt-input::placeholder {
     color: #b7b7b7;
@@ -213,10 +228,16 @@ export const floatingCSS = `
   }
   .floating-launcher-prompt.is-typing .floating-input-shell::before {
     transform: scaleX(1);
+    border-color: var(--color-primary, #fc0e3f);
+  }
+  .floating-launcher-prompt.is-typing .floating-prompt-input-wrapper {
+    background: transparent;
+    box-shadow: none;
   }
   .floating-launcher-prompt.is-typing .floating-prompt-input {
     background: transparent;
     box-shadow: none;
+    border: 1px solid transparent;
     padding-left: 8px;
   }
 
@@ -365,6 +386,9 @@ export const floatingCSS = `
     }
     .floating-help-pill {
       padding: 10px 18px;
+      font-size: 15px;
+    }
+    .floating-prompt-input-wrapper {
       font-size: 15px;
     }
     .floating-prompt-input {
