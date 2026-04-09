@@ -771,7 +771,7 @@
 			btn.classList.add("entering");
 			setTimeout(
 				() => btn.classList.remove("entering"),
-				550,
+				1300,
 			);
 		}
 
@@ -2099,6 +2099,7 @@
             padding-right: 0;
             cursor: default;
             transition: width 0.35s ease, opacity 0.35s ease;
+            transform-origin: right bottom;
           }
           .floating-launcher-prompt.widget-open {
             width: auto;
@@ -2149,6 +2150,8 @@
             white-space: nowrap;
             z-index: 2;
             transition: top 0.6s cubic-bezier(0.22, 1, 0.36, 1), right 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+            transform-origin: right bottom;
+            will-change: transform, opacity;
           }
           .floating-help-pill-text {
             display: inline-flex;
@@ -2168,6 +2171,8 @@
 			height: 56px;
             overflow: hidden;
             transition: max-width 0.6s cubic-bezier(0.22, 1, 0.36, 1), padding 0.6s cubic-bezier(0.22, 1, 0.36, 1), gap 0.6s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+            transform-origin: right center;
+            will-change: transform, opacity;
           }
           .floating-input-shell::before {
             content: "";
@@ -2227,6 +2232,7 @@
             overflow: hidden;
             flex-shrink: 0;
             transition: background-color 0.75s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.75s cubic-bezier(0.22, 1, 0.36, 1), transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: transform, opacity;
           }
           .floating-prompt-send-icon {
             position: absolute;
@@ -2317,14 +2323,95 @@
           }
 
           .floating-launcher.entering {
-            animation: floatingBtnIn 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
+            animation: floatingBtnIn 1.15s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+          }
+          .floating-launcher-prompt.entering {
+            pointer-events: none;
+          }
+          .floating-launcher-prompt.entering .floating-prompt-send {
+            animation: floatingOrbIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.02s both;
+          }
+          .floating-launcher-prompt.entering .floating-prompt-send-icon-chat {
+            animation: floatingOrbIconIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+          }
+          .floating-launcher-prompt.entering .floating-input-shell {
+            animation: floatingFieldFrameIn 0.72s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
+          }
+          .floating-launcher-prompt.entering .floating-input-shell::before {
+            opacity: 0;
+            animation: none;
+            transition: none;
+          }
+          .floating-launcher-prompt.entering .floating-prompt-input {
+            animation: floatingInputTextIn 0.66s cubic-bezier(0.22, 1, 0.36, 1) 0.34s both;
+          }
+          .floating-launcher-prompt.entering .floating-help-pill {
+            animation: floatingHelpPillIn 0.62s cubic-bezier(0.22, 1, 0.36, 1) 0.52s both;
           }
 
           @keyframes floatingBtnIn {
-            0% { opacity: 0; transform: scale(0.3); }
-            55% { opacity: 1; transform: scale(1.12); }
-            75% { transform: scale(0.96); }
-            100% { opacity: 1; transform: scale(1); }
+            0% {
+              opacity: 0;
+              transform: translate3d(0, 18px, 0) scale(0.985);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scale(1);
+            }
+          }
+          @keyframes floatingOrbIn {
+            0% {
+              opacity: 0;
+              transform: translate3d(20px, 0, 0) scale(0.76);
+              filter: blur(6px);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scale(1);
+              filter: blur(0);
+            }
+          }
+          @keyframes floatingOrbIconIn {
+            0% {
+              opacity: 0;
+              transform: scale(0.78);
+            }
+            100% {
+              opacity: 1;
+              transform: scale(1);
+            }
+          }
+          @keyframes floatingFieldFrameIn {
+            0% {
+              opacity: 0;
+              transform: translate3d(28px, 0, 0) scaleX(0.94);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scaleX(1);
+            }
+          }
+          @keyframes floatingInputTextIn {
+            0% {
+              opacity: 0;
+              transform: translate3d(22px, 0, 0);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0);
+            }
+          }
+          @keyframes floatingHelpPillIn {
+            0% {
+              opacity: 0;
+              transform: translate3d(22px, -6px, 0) scale(0.96);
+              filter: blur(6px);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scale(1);
+              filter: blur(0);
+            }
           }
 
           @media (max-width: 640px) {
@@ -4110,7 +4197,7 @@
 							this.elements.floatingBtn?.classList.remove(
 								"entering",
 							);
-						}, 550);
+						}, 1300);
 					}
 				}, 300);
 			}
