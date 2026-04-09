@@ -585,9 +585,9 @@
 
 		getFloatingTriggerMarkup() {
 			const type = this.config.floatingType;
-			const closeIconSvg = `<svg width="18" height="11" viewBox="0 0 18 11" fill="none" xmlns="http://www.w3.org/2000/svg">
-								<path d="M1 1L8.64758 8.64758L16.2952 1" stroke="white" stroke-width="2" stroke-linecap="round"/>
-								</svg>`;
+			const closeIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
+<path d="M1 1L8.64758 8.64758L16.2952 1" stroke="white" stroke-width="2" stroke-linecap="round"/>
+</svg>`;
 			const iconMarkup = `<span class="floating-orb"><span class="floating-orb-inner"><span class="floating-icon-chat">${this.getFloatingIconSvg()}</span><span class="floating-icon-close">${closeIconSvg}</span></span></span>`;
 
 			if (type === "full") {
@@ -639,8 +639,8 @@
               </span>
               <span class="floating-prompt-send-icon floating-prompt-send-icon-arrow">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
-                  <path d="M1 1L8.64758 8.64758L16.2952 1" stroke="white" stroke-width="2" stroke-linecap="round"/>
-                </svg>
+<path d="M1 1L8.64758 8.64758L16.2952 1" stroke="white" stroke-width="2" stroke-linecap="round"/>
+</svg>
               </span>
             </button>
           </div>
@@ -2329,8 +2329,8 @@
             transform: scale(0.82);
           }
           .floating-launcher-prompt .floating-prompt-send-icon-arrow svg {
-            width: 46%;
-            height: 28%;
+            width: 16px;
+            height: 16px;
           }
           .floating-launcher-prompt.widget-open .floating-prompt-send {
             background: var(--color-primary, #471791);

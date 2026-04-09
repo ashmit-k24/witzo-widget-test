@@ -263,8 +263,8 @@ export const floatingCSS = `
     transform: scale(0.82);
   }
   .floating-launcher-prompt .floating-prompt-send-icon-arrow svg {
-    width: 46%;
-    height: 28%;
+    width: 16px;
+    height: 16px;
   }
 
   .floating-launcher-prompt.widget-open .floating-prompt-send {
