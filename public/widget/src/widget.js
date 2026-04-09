@@ -170,6 +170,9 @@ export class WitzoChatWidget extends HTMLElement {
     this.updateSendButtonState();
     this._bindCalendlyMessageListener();
 
+    // Track this page view for the session (fire-and-forget)
+    api.trackPageView({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId });
+
     // 7. Show default message
     if (this.config.primaryText) {
       setTimeout(() => this.displayDefaultMessage(), 500);
