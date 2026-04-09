@@ -1,6 +1,11 @@
+import {
+	RecursiveCharacterTextSplitter,
+	MarkdownTextSplitter,
+} from "@langchain/textsplitters";
+
 export interface ChunkResult {
-	childText: string;  // ~200 words, heading-prefixed → used for embedding
-	parentText: string; // up to 600 words → sent to LLM for answer
+	childText: string; // small chunk (~200 words) → used for embedding
+	parentText: string; // larger context (~600 words) → sent to LLM for answer
 }
 
 export interface SparseVector {
@@ -8,149 +13,118 @@ export interface SparseVector {
 	values: number[];
 }
 
-interface MarkdownSection {
-	heading: string;
-	body: string;
+// ── LangChain splitter instances (created once, reused) ────────────
+
+// Markdown-aware parent splitter: large chunks for LLM context (~1200 words ≈ ~6000 chars)
+// Uses markdown separators: splits at headings, code blocks, paragraphs first.
+// Bumped from 3000 -> 6000 so a single chunk can cover a full section of a
+// page (e.g., a pricing table + its surrounding copy) instead of carving the
+// section into narrow slices that lose cross-reference context.
+const parentSplitter = new MarkdownTextSplitter({
+	chunkSize: 6000,
+	chunkOverlap: 400,
+});
+
+// Child splitter: small chunks for embedding (~300 words ≈ ~1500 chars).
+// Bumped from 1000 -> 1500 for richer embedding input without blowing past
+// the 4000-char metadata text cap even after contextual enrichment.
+const childSplitter = new RecursiveCharacterTextSplitter({
+	chunkSize: 1500,
+	chunkOverlap: 250,
+});
+
+// Plain text fallback splitter (~1000 words ≈ ~5000 chars, overlap ~150 words ≈ ~750 chars)
+const plainTextSplitter = new RecursiveCharacterTextSplitter({
+	chunkSize: 5000,
+	chunkOverlap: 750,
+});
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+function extractHeading(text: string): string {
+	const match = text.match(/^#{1,3}\s+(.+)/m);
+	return match ? match[1].trim() : "";
 }
 
-function isMarkdown(text: string): boolean {
-	return (
-		text.includes("\n## ") ||
-		text.startsWith("## ") ||
-		text.includes("\n### ") ||
-		text.startsWith("### ")
-	);
+// ── Main entry point ───────────────────────────────────────────────
+
+export async function chunkMarkdown(
+	text: string,
+	pageTitle: string,
+): Promise<ChunkResult[]> {
+	if (!text || !text.trim()) return [];
+
+	// Detect any level of ATX heading (# through ######). The previous
+	// detection only recognised `## ` / `### `, so pages with only an H1
+	// (or H4+) fell through to the plain-text splitter and lost their
+	// heading-aware structure.
+	const hasAtxHeading = /(^|\n)#{1,6}\s+\S/.test(text);
+	// Also treat common markdown structural markers as "markdown enough"
+	// to use the markdown splitter (lists, fenced code, horizontal rules,
+	// blockquotes, tables).
+	const hasMarkdownStructure =
+		hasAtxHeading ||
+		/\n\s*[-*+]\s+\S/.test(text) ||
+		/\n\s*\d+\.\s+\S/.test(text) ||
+		/\n```/.test(text) ||
+		/\n\s*>\s+\S/.test(text) ||
+		/\n\s*\|.+\|/.test(text) ||
+		/\n\s*(?:---|\*\*\*|___)\s*\n/.test(text);
+
+	if (!hasMarkdownStructure) {
+		return chunkPlainText(text);
+	}
+
+	return chunkMarkdownContent(text, pageTitle);
 }
 
-function splitMarkdownSections(text: string): MarkdownSection[] {
-	const lines = text.split("\n");
-	const sections: MarkdownSection[] = [];
-	let currentHeading = "";
-	let currentBodyLines: string[] = [];
+// ── Markdown chunking (parent/child via LangChain) ────────────────
 
-	function flush() {
-		const body = currentBodyLines.join("\n").trim();
-		if (body) {
-			sections.push({ heading: currentHeading, body });
-		}
-		currentBodyLines = [];
+async function chunkMarkdownContent(
+	text: string,
+	pageTitle: string,
+): Promise<ChunkResult[]> {
+	// Step 1: split into parent chunks (markdown-aware, respects headings)
+	const parentChunks = await parentSplitter.splitText(text);
+
+	if (parentChunks.length === 0) {
+		return chunkPlainText(text);
 	}
-
-	for (const line of lines) {
-		const trimmed = line.trim();
-		if (trimmed.startsWith("### ")) {
-			flush();
-			currentHeading = trimmed.slice(4).trim();
-		} else if (trimmed.startsWith("## ")) {
-			flush();
-			currentHeading = trimmed.slice(3).trim();
-		} else {
-			currentBodyLines.push(line);
-		}
-	}
-	flush();
-
-	return sections;
-}
-
-function mergeTinySections(sections: MarkdownSection[], minWords = 50): MarkdownSection[] {
-	if (sections.length === 0) return [];
-	const merged: MarkdownSection[] = [sections[0]];
-
-	for (let i = 1; i < sections.length; i++) {
-		const curr = sections[i];
-		const last = merged[merged.length - 1];
-		const currWordCount = curr.body.split(/\s+/).filter(Boolean).length;
-		const lastWordCount = last.body.split(/\s+/).filter(Boolean).length;
-
-		if (currWordCount < minWords || lastWordCount < minWords) {
-			if (curr.heading) {
-				last.body = last.body + "\n\n" + curr.heading + ":\n" + curr.body;
-			} else {
-				last.body = last.body + "\n\n" + curr.body;
-			}
-		} else {
-			merged.push(curr);
-		}
-	}
-	return merged;
-}
-
-// chunkPlainText splits plain text into word-count chunks with overlap.
-// chunkSize=800 words, overlap=120 words
-function chunkPlainText(raw: string, chunkSize = 800, overlap = 120): string[] {
-	const words = raw.trim().split(/\s+/).filter(Boolean);
-	if (words.length === 0) return [];
-	if (chunkSize <= 0) chunkSize = 500;
-	if (overlap < 0 || overlap >= chunkSize) overlap = 75;
-
-	const step = chunkSize - overlap;
-	const out: string[] = [];
-
-	for (let start = 0; start < words.length; start += step) {
-		const end = Math.min(start + chunkSize, words.length);
-		out.push(words.slice(start, end).join(" "));
-		if (end === words.length) break;
-	}
-	return out;
-}
-
-// chunkMarkdown is the main entry point.
-// Returns ChunkResult[] with small childText (for embedding) and larger parentText (for LLM).
-export function chunkMarkdown(text: string, pageTitle: string): ChunkResult[] {
-	if (!isMarkdown(text)) {
-		const plain = chunkPlainText(text, 800, 120);
-		return plain.map((c) => ({ childText: c, parentText: c }));
-	}
-
-	let sections = splitMarkdownSections(text);
-	sections = mergeTinySections(sections, 50);
 
 	const results: ChunkResult[] = [];
 
-	for (const sec of sections) {
-		const bodyWords = sec.body.split(/\s+/).filter(Boolean);
-		if (bodyWords.length === 0) continue;
+	for (const parentText of parentChunks) {
+		// Extract heading from this parent chunk for embedding prefix
+		const heading = extractHeading(parentText) || pageTitle || "";
+		const headingPrefix = heading ? `${heading}: ` : "";
 
-		const headingPrefix = sec.heading
-			? sec.heading + ": "
-			: pageTitle
-				? pageTitle + ": "
-				: "";
+		// Step 2: split parent into smaller child chunks for embedding
+		const childChunks = await childSplitter.splitText(parentText);
 
-		// Parent text: full section up to 600 words (for LLM)
-		const parentWords = bodyWords.slice(0, 600);
-		const parentText = parentWords.join(" ");
-
-		if (bodyWords.length <= 200) {
-			// Small section → single chunk
-			const childText = headingPrefix + bodyWords.join(" ");
-			results.push({ childText, parentText });
-		} else {
-			// Large section → sub-split into 200-word child chunks, all sharing same parent
-			const childSize = 200;
-			const childOverlap = 40;
-			const step = childSize - childOverlap;
-
-			for (let start = 0; start < bodyWords.length; start += step) {
-				const end = Math.min(start + childSize, bodyWords.length);
-				const childText = headingPrefix + bodyWords.slice(start, end).join(" ");
-				results.push({ childText, parentText });
-				if (end === bodyWords.length) break;
-			}
+		for (const childText of childChunks) {
+			results.push({
+				childText: headingPrefix + childText,
+				parentText,
+			});
 		}
 	}
 
 	if (results.length === 0) {
-		// Fallback if parsing produced nothing
-		const plain = chunkPlainText(text, 800, 120);
-		return plain.map((c) => ({ childText: c, parentText: c }));
+		return chunkPlainText(text);
 	}
 
 	return results;
 }
 
-// fnv32a computes FNV-32a hash of a string. Stable across runs.
+// ── Plain-text fallback ───────────────────────────────────────────
+
+async function chunkPlainText(text: string): Promise<ChunkResult[]> {
+	const chunks = await plainTextSplitter.splitText(text);
+	return chunks.map((c) => ({ childText: c, parentText: c }));
+}
+
+// ── BM25 sparse vector (kept as-is — no LangChain equivalent) ────
+
 function fnv32a(s: string): number {
 	const offset32 = 0x811c9dc5;
 	const prime32 = 0x01000193;
@@ -162,8 +136,6 @@ function fnv32a(s: string): number {
 	return h;
 }
 
-// bm25SparseVector builds a BM25-inspired sparse vector from text.
-// Uses TF with log-normalization. Token indices are stable FNV-32a hashes.
 export function bm25SparseVector(text: string): SparseVector {
 	const words = text.toLowerCase().split(/\s+/).filter(Boolean);
 	if (words.length === 0) return { indices: [], values: [] };

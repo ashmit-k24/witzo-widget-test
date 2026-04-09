@@ -14,6 +14,13 @@ export const DEFAULT_CONFIG = {
   logoIcon:         null,
   planType:         'free',
   defaultLanguage:  'en',
+  leadFormEnabled:  false,
+  leadFormButtonText: 'Fill the form to continue chat',
+  leadFormNameEnabled: true,
+  leadFormEmailEnabled: true,
+  leadFormPhoneEnabled: true,
+  leadFormCountryEnabled: true,
+  leadFormTriggerMessageCount: 5,
 };
 
 /** Supported languages for the language selector */
@@ -41,4 +48,7 @@ export const ATTR_LIST = [
   'floating-type',
   'auto-open', 'banner-text', 'banner-text-color', 'banner-color', 'user-chat-color',
   'close-button-color', 'logo-icon', 'plan-type', 'default-language',
+  'lead-form-enabled', 'lead-form-button-text', 'lead-form-name-enabled',
+  'lead-form-email-enabled', 'lead-form-phone-enabled', 'lead-form-country-enabled',
+  'lead-form-trigger-message-count',
 ];

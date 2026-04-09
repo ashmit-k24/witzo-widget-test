@@ -6,6 +6,7 @@ import {
 import { User } from "../types";
 import { hasUserSystemMessageColumns } from "./userSystemMessageSchemaService";
 import websiteBrandingService from "./websiteBrandingService";
+import personaService from "./personaService";
 
 export type SystemMessageSettings = {
 	platformDefaultSystemMessage: string;
@@ -53,6 +54,18 @@ class SystemMessageService {
 			/\{\{websiteName\}\}/g,
 			websiteName,
 		);
+	}
+
+	private renderPersonaSystemMessage(
+		personaPrompt: string,
+	): string {
+		const trimmed = personaPrompt.trim();
+		if (!trimmed) return "";
+		return [
+			"Mandatory selected widget persona instructions:",
+			trimmed,
+			"These persona instructions are binding for every reply. If they conflict with the default website assistant instructions, follow the persona instructions.",
+		].join("\n");
 	}
 
 	private async mapSettings(
@@ -269,15 +282,45 @@ class SystemMessageService {
 	): Promise<string> {
 		try {
 			const settings = await this.getSettings(userId);
-			return settings.effectiveSystemMessage;
+			const personaPrompt =
+				await personaService.getUserPersonaPrompt(
+					userId,
+				);
+			return [
+				settings.effectiveSystemMessage,
+				"",
+				this.renderPersonaSystemMessage(
+					personaPrompt,
+				),
+			]
+				.filter((part) => part.trim())
+				.join("\n\n");
 		} catch {
 			const websiteName =
 				await websiteBrandingService.resolveUserWidgetLabel(
 					userId,
 				);
-			return this.renderPlatformDefaultSystemMessage(
-				websiteName,
-			);
+			const defaultMessage =
+				this.renderPlatformDefaultSystemMessage(
+					websiteName,
+				);
+			try {
+				const personaPrompt =
+					await personaService.getUserPersonaPrompt(
+						userId,
+					);
+				return [
+					defaultMessage,
+					"",
+					this.renderPersonaSystemMessage(
+						personaPrompt,
+					),
+				]
+					.filter((part) => part.trim())
+					.join("\n\n");
+			} catch {
+				return defaultMessage;
+			}
 		}
 	}
 

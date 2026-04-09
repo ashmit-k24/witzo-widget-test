@@ -21,6 +21,16 @@ export const formsCSS = `
   }
   .contact-form-submit:disabled { opacity: 0.6; cursor: not-allowed; }
   .contact-form-success { text-align: center; font-size: 0.9rem; color: #16a34a; padding: 2rem 0; }
+  .contact-form.lead-form-gate {
+    flex: 0 0 auto;
+    max-height: 48%;
+    border-top: 1px solid #e2e8f0;
+    box-shadow: 0 -18px 36px rgba(15, 23, 42, 0.08);
+  }
+  .chat-messages.lead-form-open {
+    flex: 1 1 52%;
+    min-height: 42%;
+  }
 
   /* --- Conversation Rating --- */
   .rating-row {
