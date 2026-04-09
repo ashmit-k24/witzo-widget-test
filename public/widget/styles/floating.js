@@ -264,7 +264,7 @@ export const floatingCSS = `
   }
 
   .floating-launcher-prompt.widget-open .floating-prompt-send {
-    background: var(--color-send, #fc0e3f);
+    background: var(--color-primary, #471791);
     box-shadow: 0 14px 30px rgba(244,69,105,0.3);
   }
   .floating-launcher-prompt.widget-open .floating-prompt-send-icon-chat {
