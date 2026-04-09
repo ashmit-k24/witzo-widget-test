@@ -57,7 +57,7 @@ export const PLAN_CAPABILITIES: Record<
 		widgetInstancesLimit: 1,
 		teamMembersLimit: 1,
 		fallbackLeadForm: false,
-		chatRating: false,
+		chatRating: true,
 		autoFollowUpEmail: false,
 		crmIntegration: false,
 		multiLanguageSupport: false,

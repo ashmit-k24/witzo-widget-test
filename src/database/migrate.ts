@@ -271,6 +271,12 @@ const migrations: Migration[] = [
 			"Create admin-managed widget persona prompt table",
 		file: "20260408_042_widget_personas.sql",
 	},
+	{
+		id: "20260409_043_session_page_views",
+		description:
+			"Create session_page_views table for widget page tracking",
+		file: "20260409_043_session_page_views.sql",
+	},
 ];
 
 const ensureMigrationTable = async (
