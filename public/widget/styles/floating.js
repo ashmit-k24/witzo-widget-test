@@ -119,14 +119,24 @@ export const floatingCSS = `
     background: #fff;
     transform-origin: left center;
     transform: scaleX(0.7);
-    border: 1px solid transparent;
-    transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease, opacity 0.3s ease;
+    transition: transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
     will-change: transform;
     pointer-events: none;
     top: 2px;
   }
-  .floating-launcher-prompt:not(.is-typing) .floating-input-shell:focus-within::before {
-    opacity: 0;
+  .floating-input-shell::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0; left: 0; right: 70px;
+    border-radius: inherit;
+    border: 1px solid transparent;
+    transition: right 1.3s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease;
+    will-change: right;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .floating-input-shell:focus-within::after {
+    border-color: var(--color-primary, #fc0e3f);
   }
   .floating-input-shell > * {
     position: relative;
@@ -150,8 +160,8 @@ export const floatingCSS = `
   .floating-prompt-input {
     flex: 1;
     min-width: 0;
-    border: 1px solid transparent;
     background: #fff;
+    border: none;
     border-radius: 999px;
     color: #000000;
     line-height: 1.35;
@@ -167,7 +177,7 @@ export const floatingCSS = `
   .floating-prompt-input:focus-visible {
     outline: none;
     box-shadow: 0 12px 28px rgba(0,0,0,0.12);
-    border: 1px solid var(--color-primary, #fc0e3f);
+    border: none;
   }
   .floating-prompt-input::placeholder {
     color: #b7b7b7;
@@ -231,8 +241,10 @@ export const floatingCSS = `
   }
   .floating-launcher-prompt.is-typing .floating-input-shell::before {
     transform: scaleX(1);
+  }
+  .floating-launcher-prompt.is-typing .floating-input-shell::after {
+    right: 0;
     border-color: var(--color-primary, #fc0e3f);
-    opacity: 1;
   }
   .floating-launcher-prompt.is-typing .floating-prompt-input-wrapper {
     background: transparent;
@@ -241,8 +253,8 @@ export const floatingCSS = `
   .floating-launcher-prompt.is-typing .floating-prompt-input {
     background: transparent;
     box-shadow: none;
-    border: 1px solid transparent;
     padding-left: 8px;
+    border: none;
   }
 
   .floating-launcher-prompt .floating-prompt-send-icon-arrow {
