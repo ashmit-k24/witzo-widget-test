@@ -20,7 +20,7 @@ export const headerCSS = `
     display: flex;
     align-items: center;
     justify-content: center;
-		padding-top:9px;
+    color: var(--color-primary, #8B27FB);
   }
   .bot-msg-chat-icon img {
     width: 100%; height: 100%; object-fit: contain; border-radius: 50%;
@@ -37,7 +37,7 @@ export const headerCSS = `
 		margin: 0 !important;
 
   }
-  .chat-header-right { display: flex; align-items: center;gap:16px }
+  .chat-header-right { display: flex; align-items: center;gap:10px }
   .chat-action-btn {
     border: none; background: transparent; border-radius: 0.5rem;
     display: flex; align-items: center; justify-content: center;

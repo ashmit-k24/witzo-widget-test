@@ -1,7 +1,7 @@
 /* Uses CSS vars: --color-user-bubble */
 export const chatCSS = `
   .chat-messages {
-    padding: 16px; background: #fff; flex: 1;
+    padding:  30px 16px 16px; background: #fff; flex: 1;
     overflow-y: auto; display: flex; flex-direction: column; gap: 1rem;
     scrollbar-width: thin; scrollbar-color: #888 #f5f5f5;
     transition: all 0.6s ease-in-out;
@@ -12,9 +12,15 @@ export const chatCSS = `
 
   .chat-bubble-ai  { padding: 0; max-width: min(420px, calc(100vw - 110px)); color: #0f172a; font-size: 0.875rem; line-height: 1.45; }
   .chat-bubble-user {
-    background: var(--color-user-bubble, #ffdde4);
-    color: #fff; border-radius: 11px 0 11px 11px;
-    padding: 10px 22px; max-width: min(360px, calc(100vw - 110px)); font-size: 0.875rem; line-height: 1.4;
+    	border: solid 1px #D3D3D3;
+			padding:10px 16px;
+            max-width: 280px;
+            font-size: 14px;
+            line-height: 1.3;
+			    border-top-left-radius: 16px;
+    		border-top-right-radius: 16px;
+    		border-bottom-right-radius: 2px;
+    		border-bottom-left-radius: 16px;
   }
 
   .bot-message-row { display: flex; flex-direction: row; align-items: flex-start; gap: 0.5rem; }

@@ -1125,7 +1125,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-			padding-top:9px;
+			color: var(--color-primary, #8B27FB);
 
           }
             .bot-msg-chat-icon img{
@@ -1150,7 +1150,7 @@
             display: flex;
             align-items: center;
             position: relative;
-			gap:16px
+			gap:10px
           }
 
 		  .chat-action-row{
@@ -1255,7 +1255,7 @@
           
           /* Messages Area */
           .chat-messages {
-            padding: 16px;
+            padding: 30px 16px 16px;
             background: #fff;
             flex: 1;
             overflow-y: auto;
@@ -1300,13 +1300,16 @@
 
           }
           .chat-bubble-user {
-            background: var(--color-user-bubble, #ffdde4); /* Default or Config */
-            color: #ffffff;
-            border-radius: 16px 16px 8px 16px;
-            padding: 10px 16px;
+
+		  	border: solid 1px #D3D3D3;
+			padding:10px 16px;
             max-width: 280px;
-            font-size: 0.875rem;
+            font-size: 14px;
             line-height: 1.3;
+			    border-top-left-radius: 16px;
+    		border-top-right-radius: 16px;
+    		border-bottom-right-radius: 2px;
+    		border-bottom-left-radius: 16px;
           }
           
           .chat-message.user {
@@ -1375,7 +1378,7 @@
             transform: translate(-50%, -50%);
             animation: orbitBeam 4s linear infinite;
             opacity: 0;
-            transition: opacity 0.5s ease;
+            transition: opacity 0.6s ease;
           }
 
           .chat-input-container.is-glowing .chat-input-beam {
@@ -1384,10 +1387,10 @@
 
           @keyframes orbitBeam {
             0%   { top: 10px; left: 0; }
-            25%  { top: 10px; left: 100%; }
-            50%  { top: 90%; left: 100%; }
-            75%  { top: 90%; left: 0; }
-            100% { top: 10px; left: 0; }
+            25%  { top: 10px; left: 90%; }
+            50%  { top: 90%; left: 90%; }
+            75%  { top: 90%; left: 10%; }
+            100% { top: 10px; left: 10%; }
           }
           
           .chat-input-container:focus-within {
@@ -1803,13 +1806,13 @@
           .powered-by {
             margin: 0;
             font-size: 11px;
-            color: #9ca3af;
+            color: #818181;
             font-weight: 400;
             letter-spacing: 0.01em;
             text-align: center;
           }
           .powered-by-brand {
-            color: #4b5563;
+            color: #1F1F1F;
             text-decoration: none;
             font-weight: 700;
           }
@@ -2146,10 +2149,10 @@
             }
 			  .bot-message-row .md-content{
 				background-color: #F1F1F1;
-				padding: 8px 14px;
+				padding: 10px 16px;
 				border-top-left-radius: 2px;
-				border-top-right-radius: 20px;
-				border-bottom-right-radius: 20px;
+				border-top-right-radius: 16px;
+				border-bottom-right-radius: 16px;
 				border-bottom-left-radius: 16px;
 
 			  }
@@ -2493,6 +2496,11 @@
 							<circle cx="15.1914" cy="1.6875" r="1.6875" transform="rotate(-90 15.1914 1.6875)" fill="currentColor"/>
 						</svg>
                     </button>
+                    <button id="headerCloseBtn" class="chat-action-btn icon-stroke" aria-label="Close chat">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none">
+<path d="M10.6992 0.700012L0.699219 10.7M0.699219 0.700012L10.6992 10.7" stroke="white" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+                    </button>
                     <div id="headerMenuDropdown" class="chat-header-menu hidden">
                       <button id="downloadTranscriptBtn" class="chat-menu-item" type="button">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
@@ -2780,6 +2788,10 @@
 					this.shadowRoot.getElementById(
 						"headerMenuBtn",
 					),
+				headerCloseBtn:
+					this.shadowRoot.getElementById(
+						"headerCloseBtn",
+					),
 				headerMenuDropdown:
 					this.shadowRoot.getElementById(
 						"headerMenuDropdown",
@@ -2921,6 +2933,17 @@
 						this.elements.headerMenuDropdown?.classList.toggle(
 							"hidden",
 						);
+					},
+				);
+			}
+			if (this.elements.headerCloseBtn) {
+				this.elements.headerCloseBtn.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						if (this.isOpen) {
+							this.toggleChat();
+						}
 					},
 				);
 			}
@@ -3784,16 +3807,7 @@
 
 			wrapper.appendChild(bubble);
 
-			// Double-tick read receipt for user messages
-			if (type === "user") {
-				const tick =
-					document.createElement("div");
-				tick.className = "msg-status-tick";
-				tick.innerHTML = `
-				<small>Read</small>
-				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check-check-icon lucide-check-check"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>`;
-				wrapper.appendChild(tick);
-			}
+
 
 			this.elements.messagesContainer.appendChild(
 				wrapper,
@@ -3830,20 +3844,27 @@
 
 		getBotIconHtml() {
 			return `<div class="bot-msg-chat-icon">
-                       <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 19 19" fill="none">
-<circle cx="9.5" cy="9.5" r="9" fill="white" stroke="url(#paint0_linear_2082_9533)"/>
-<path d="M9.34952 4.92014C9.37338 4.80273 9.62662 4.80273 9.65048 4.92014C9.84029 5.85394 10.2365 7.26553 10.9855 8.0145C11.7345 8.76347 13.1461 9.15971 14.0799 9.34952C14.1973 9.37338 14.1973 9.62662 14.0799 9.65048C13.1461 9.84029 11.7345 10.2365 10.9855 10.9855C10.2365 11.7345 9.84029 13.1461 9.65048 14.0799C9.62662 14.1973 9.37338 14.1973 9.34952 14.0799C9.15971 13.1461 8.76347 11.7345 8.0145 10.9855C7.26553 10.2365 5.85394 9.84029 4.92014 9.65048C4.80273 9.62662 4.80273 9.37338 4.92014 9.34952C5.85394 9.15971 7.26553 8.76347 8.0145 8.0145C8.76347 7.26553 9.15971 5.85394 9.34952 4.92014Z" fill="url(#paint1_linear_2082_9533)"/>
-<defs>
-<linearGradient id="paint0_linear_2082_9533" x1="9.5" y1="0" x2="9.5" y2="19" gradientUnits="userSpaceOnUse">
-<stop stop-color="#7E0AF4"/>
-<stop offset="1" stop-color="#F54749"/>
-</linearGradient>
-<linearGradient id="paint1_linear_2082_9533" x1="9.5" y1="4" x2="9.5" y2="15" gradientUnits="userSpaceOnUse">
-<stop stop-color="#7B09F8"/>
-<stop offset="1" stop-color="#F4464B"/>
-</linearGradient>
-</defs>
-</svg>
+                       <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+							<circle cx="16" cy="16" r="16" fill="url(#paint0_radial_2257_38075)" fill-opacity="0.1"/>
+							<circle cx="16" cy="16" r="1" fill="url(#paint1_radial_2257_38075)" fill-opacity="0.2"/>
+							<path d="M15.861 8.92114C15.8821 8.80321 16.1179 8.80321 16.139 8.92114C16.3754 10.2376 16.9526 12.6311 18.1607 13.8393C19.3689 15.0474 21.7624 15.6246 23.0789 15.861C23.1968 15.8821 23.1968 16.1179 23.0789 16.139C21.7624 16.3754 19.3689 16.9526 18.1607 18.1607C16.9526 19.3689 16.3754 21.7624 16.139 23.0789C16.1179 23.1968 15.8821 23.1968 15.861 23.0789C15.6246 21.7624 15.0474 19.3689 13.8393 18.1607C12.6311 16.9526 10.2376 16.3754 8.92114 16.139C8.80321 16.1179 8.80321 15.8821 8.92114 15.861C10.2376 15.6246 12.6311 15.0474 13.8393 13.8393C15.0474 12.6311 15.6246 10.2376 15.861 8.92114Z" fill="url(#paint2_linear_2257_38075)"/>
+							<defs>
+							<radialGradient id="paint0_radial_2257_38075" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(16 16) rotate(90) scale(16)">
+							<stop stop-color="white" stop-opacity="0"/>
+							<stop offset="0.442308" stop-color="currentColor"/>
+							<stop offset="1" stop-color="currentColor"/>
+							</radialGradient>
+							<radialGradient id="paint1_radial_2257_38075" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(16 16) rotate(90)">
+							<stop stop-color="white" stop-opacity="0"/>
+							<stop offset="0.442308" stop-color="currentColor"/>
+							<stop offset="1" stop-color="currentColor"/>
+							</radialGradient>
+							<linearGradient id="paint2_linear_2257_38075" x1="16" y1="8" x2="16" y2="24" gradientUnits="userSpaceOnUse">
+							<stop stop-color="currentColor"/>
+							<stop offset="1" stop-color="currentColor"/>
+							</linearGradient>
+							</defs>
+						</svg>
                     </div>`;
 		}
 
