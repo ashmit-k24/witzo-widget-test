@@ -25,8 +25,8 @@ export const floatingCSS = `
   }
 
   .floating-orb {
-    width: 64px;
-    height: 64px;
+    width: 58px;
+    height: 58px;
     border-radius: 9999px;
     padding: 3px;
     box-shadow: 0 10px 24px rgba(0,0,0,0.22);
