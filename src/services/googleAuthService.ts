@@ -61,6 +61,10 @@ class GoogleAuthService {
 				user.profile_completed_at,
 			onboardingStep: user.onboarding_step,
 			onboardingCompleted: user.onboarding_completed,
+			dashboardTourCompleted:
+				user.dashboard_tour_completed,
+			dashboardTourCompletedAt:
+				user.dashboard_tour_completed_at,
 			useDefaultSystemMessage:
 				user.use_default_system_message ?? true,
 			systemMessageConfigured:

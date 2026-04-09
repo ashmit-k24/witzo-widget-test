@@ -1404,30 +1404,7 @@ class PineconeService {
 		userId: string,
 	): Promise<void> {
 		try {
-			const namespace =
-				this.getUserNamespace(userId);
-			const index = this.pinecone
-				.index(this.indexName)
-				.namespace(namespace);
-
-			try {
-				await index.deleteAll();
-			} catch (error) {
-				if (!this.isIgnorableDeleteError(error)) {
-					throw error;
-				}
-
-				logger.info(
-					"Pinecone deleteAll skipped because the namespace was already empty",
-					{
-						userId,
-						error:
-							error instanceof Error
-								? error.message
-								: String(error),
-					},
-				);
-			}
+			await this.deleteAllUserVectors(userId);
 			await pool.query(
 				`DELETE FROM rag_source_pages WHERE user_id = $1`,
 				[userId],
@@ -1446,6 +1423,35 @@ class PineconeService {
 				},
 			);
 			throw error;
+		}
+	}
+
+	async deleteAllUserVectors(
+		userId: string,
+	): Promise<void> {
+		const namespace =
+			this.getUserNamespace(userId);
+		const index = this.pinecone
+			.index(this.indexName)
+			.namespace(namespace);
+
+		try {
+			await index.deleteAll();
+		} catch (error) {
+			if (!this.isIgnorableDeleteError(error)) {
+				throw error;
+			}
+
+			logger.info(
+				"Pinecone deleteAll skipped because the namespace was already empty",
+				{
+					userId,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
 		}
 	}
 

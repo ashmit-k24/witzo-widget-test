@@ -277,6 +277,30 @@ const migrations: Migration[] = [
 			"Create session_page_views table for widget page tracking",
 		file: "20260409_043_session_page_views.sql",
 	},
+	{
+		id: "20260409_044_account_deletion_requests",
+		description:
+			"Track user account deletion requests and outcomes",
+		file: "20260409_044_account_deletion_requests.sql",
+	},
+	{
+		id: "20260409_045_preserve_billing_on_account_delete",
+		description:
+			"Keep subscription and payment history when users are deleted",
+		file: "20260409_045_preserve_billing_on_account_delete.sql",
+	},
+	{
+		id: "20260409_046_dashboard_tour_completion",
+		description:
+			"Track whether users have completed or dismissed the dashboard tour",
+		file: "20260409_046_dashboard_tour_completion.sql",
+	},
+	{
+		id: "20260409_047_backfill_dashboard_tour_for_existing_users",
+		description:
+			"Mark pre-existing users as having completed the dashboard tour",
+		file: "20260409_047_backfill_dashboard_tour_for_existing_users.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

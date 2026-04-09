@@ -1,7 +1,12 @@
 import crypto from "crypto";
 import { PoolClient } from "pg";
 import pool from "../config/database";
+import {
+	redisAnalytics,
+	redisCache,
+} from "../config/redis";
 import { PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD } from "../constants";
+import { WIDGET_ANALYTICS_BUFFER_KEY } from "../constants/widget.constants";
 import { PlanType } from "../config/planConfig";
 import { config } from "../config/env";
 import {
@@ -24,13 +29,69 @@ import logger from "../utils/logger";
 import tokenUtil from "../utils/token";
 import uuidUtil from "../utils/uuid";
 import emailService from "./emailService";
+import { pineconeService } from "./pineconeService";
+import { widgetIconStorageService } from "./widgetIconStorageService";
+import { scraperQueue } from "../config/queue";
+import { subscriptionService } from "./subscriptionService";
 import { getUserSystemMessageSelectFields } from "./userSystemMessageSchemaService";
+import { hubspotIntegrationService } from "./hubspotIntegrationService";
+import { zohoIntegrationService } from "./zohoIntegrationService";
+import { salesforceIntegrationService } from "./salesforceIntegrationService";
+import { calendlyIntegrationService } from "./calendlyIntegrationService";
 
 /**
  * Authentication Service
  * Handles email-based authentication with JWT tokens and refresh tokens
  */
 class AuthService {
+	private async createDeletionRequest(
+		userId: string,
+		email: string,
+		context?: {
+			ipAddress?: string | null;
+			userAgent?: string | null;
+		},
+	): Promise<string> {
+		const result = await pool.query<{ id: string }>(
+			`INSERT INTO account_deletion_requests
+				(user_id, email, status, requested_ip, requested_user_agent)
+			 VALUES ($1, $2, 'pending', $3, $4)
+			 RETURNING id`,
+			[
+				userId,
+				email,
+				context?.ipAddress ?? null,
+				context?.userAgent ?? null,
+			],
+		);
+
+		return result.rows[0].id;
+	}
+
+	private async updateDeletionRequest(
+		requestId: string,
+		payload: {
+			status: "pending" | "in_progress" | "completed" | "failed";
+			failureReason?: string | null;
+			completedAt?: boolean;
+		},
+	): Promise<void> {
+		await pool.query(
+			`UPDATE account_deletion_requests
+			    SET status = $2,
+			        failure_reason = $3,
+			        completed_at = CASE WHEN $4 THEN CURRENT_TIMESTAMP ELSE completed_at END,
+			        updated_at = CURRENT_TIMESTAMP
+			  WHERE id = $1`,
+			[
+				requestId,
+				payload.status,
+				payload.failureReason ?? null,
+				payload.completedAt ?? false,
+			],
+		);
+	}
+
 	private createHttpError(
 		message: string,
 		statusCode: number,
@@ -89,6 +150,10 @@ class AuthService {
 				user.profile_completed_at,
 			onboardingStep: user.onboarding_step,
 			onboardingCompleted: user.onboarding_completed,
+			dashboardTourCompleted:
+				user.dashboard_tour_completed,
+			dashboardTourCompletedAt:
+				user.dashboard_tour_completed_at,
 			useDefaultSystemMessage:
 				user.use_default_system_message ?? true,
 			systemMessageConfigured:
@@ -105,6 +170,239 @@ class AuthService {
 		if (typeof value !== "string") return null;
 		const normalized = value.trim();
 		return normalized.length > 0 ? normalized : null;
+	}
+
+	private async scanRedisKeys(
+		pattern: string,
+	): Promise<string[]> {
+		const keys: string[] = [];
+		let cursor = "0";
+		do {
+			const [nextCursor, batch] =
+				await redisCache.scan(
+					cursor,
+					"MATCH",
+					pattern,
+					"COUNT",
+					100,
+				);
+			cursor = nextCursor;
+			keys.push(...batch);
+		} while (cursor !== "0");
+		return keys;
+	}
+
+	private async clearScraperRedisKeysForUser(
+		userId: string,
+	): Promise<void> {
+		const matchingKeys: string[] = [];
+		let cursor = "0";
+
+		do {
+			const [nextCursor, batch] =
+				await redisCache.scan(
+					cursor,
+					"MATCH",
+					"scraper:job:*",
+					"COUNT",
+					100,
+				);
+			cursor = nextCursor;
+			if (batch.length === 0) {
+				continue;
+			}
+
+			const pipeline = redisCache.pipeline();
+			for (const key of batch) {
+				pipeline.get(key);
+			}
+			const responses = await pipeline.exec();
+			responses?.forEach((response, index) => {
+				const [, rawValue] = response || [];
+				if (typeof rawValue !== "string") {
+					return;
+				}
+				try {
+					const parsed = JSON.parse(rawValue) as {
+						userId?: string;
+					};
+					if (parsed.userId === userId) {
+						matchingKeys.push(batch[index]);
+					}
+				} catch {
+					// Ignore malformed cached job payloads
+				}
+			});
+		} while (cursor !== "0");
+
+		if (matchingKeys.length > 0) {
+			await redisCache.del(...matchingKeys);
+		}
+	}
+
+	private async removePendingScrapeJobsForUser(
+		userId: string,
+	): Promise<void> {
+		const jobs = await scraperQueue.getJobs(
+			[
+				"waiting",
+				"delayed",
+				"prioritized",
+				"paused",
+				"waiting-children",
+			],
+			0,
+			-1,
+			false,
+		);
+
+		for (const job of jobs) {
+			if (job.data?.userId !== userId) {
+				continue;
+			}
+
+			try {
+				await job.remove();
+			} catch (error) {
+				logger.warn(
+					"Failed to remove pending scrape job during account deletion",
+					{
+						userId,
+						jobId: job.id,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			}
+		}
+	}
+
+	private async clearUserRedisState(
+		userId: string,
+		chatSessionIds: string[],
+	): Promise<void> {
+		const directKeys = [
+			`chat:semantic-answer:${userId}`,
+			`scraper:user:${userId}:latest`,
+			`usage:stats:${userId}`,
+		];
+		for (const sessionId of chatSessionIds) {
+			directKeys.push(
+				`chat:session:${sessionId}`,
+				`chat:appointment-lead:${sessionId}`,
+			);
+		}
+
+		const retrievalKeys =
+			await this.scanRedisKeys(
+				`chat:retrieval:${userId}:*`,
+			);
+		const keysToDelete = [
+			...directKeys,
+			...retrievalKeys,
+		].filter(Boolean);
+
+		if (keysToDelete.length > 0) {
+			await redisCache.del(...keysToDelete);
+		}
+
+		await this.clearScraperRedisKeysForUser(userId);
+	}
+
+	private async removeBufferedWidgetAnalytics(
+		widgetKeyId: number,
+	): Promise<void> {
+		const rawEvents = await redisAnalytics.lrange(
+			WIDGET_ANALYTICS_BUFFER_KEY,
+			0,
+			-1,
+		);
+		if (rawEvents.length === 0) {
+			return;
+		}
+
+		const filteredEvents = rawEvents.filter((raw) => {
+			try {
+				const parsed = JSON.parse(raw) as {
+					widget_key_id?: number;
+				};
+				return parsed.widget_key_id !== widgetKeyId;
+			} catch {
+				return true;
+			}
+		});
+
+		if (filteredEvents.length === rawEvents.length) {
+			return;
+		}
+
+		const pipeline = redisAnalytics.pipeline();
+		pipeline.del(WIDGET_ANALYTICS_BUFFER_KEY);
+		if (filteredEvents.length > 0) {
+			pipeline.rpush(
+				WIDGET_ANALYTICS_BUFFER_KEY,
+				...filteredEvents,
+			);
+		}
+		await pipeline.exec();
+	}
+
+	private async disconnectExternalIntegrationsForUser(
+		userId: string,
+	): Promise<void> {
+		const steps: Array<{
+			label: string;
+			run: () => Promise<void>;
+		}> = [
+			{
+				label: "Calendly",
+				run: () =>
+					calendlyIntegrationService.disconnect(
+						userId,
+					),
+			},
+			{
+				label: "HubSpot",
+				run: () =>
+					hubspotIntegrationService.disconnect(
+						userId,
+					),
+			},
+			{
+				label: "Zoho",
+				run: () =>
+					zohoIntegrationService.disconnect(
+						userId,
+					),
+			},
+			{
+				label: "Salesforce",
+				run: () =>
+					salesforceIntegrationService.disconnect(
+						userId,
+					),
+			},
+		];
+
+		for (const step of steps) {
+			try {
+				await step.run();
+			} catch (error) {
+				logger.warn(
+					"External integration disconnect failed during account deletion",
+					{
+						userId,
+						integration: step.label,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			}
+		}
 	}
 
 	/**
@@ -643,7 +941,8 @@ class AuthService {
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
 				        u.profile_prompt_required_at, u.profile_completed_at,
-				        u.onboarding_step, u.onboarding_completed
+				        u.onboarding_step, u.onboarding_completed,
+				        u.dashboard_tour_completed, u.dashboard_tour_completed_at
 				        ${systemMessageFields}
          FROM sessions s
          JOIN users u ON s.user_id = u.id
@@ -692,6 +991,10 @@ class AuthService {
 						session.onboarding_step,
 					onboardingCompleted:
 						session.onboarding_completed,
+					dashboardTourCompleted:
+						session.dashboard_tour_completed,
+					dashboardTourCompletedAt:
+						session.dashboard_tour_completed_at,
 					useDefaultSystemMessage:
 						session.use_default_system_message,
 					systemMessageConfigured:
@@ -778,6 +1081,8 @@ class AuthService {
 				profile_completed_at: Date | null;
 				onboarding_step: number;
 				onboarding_completed: boolean;
+				dashboard_tour_completed: boolean;
+				dashboard_tour_completed_at: Date | null;
 				use_default_system_message: boolean;
 				system_message_configured: boolean;
 			}>(
@@ -785,7 +1090,8 @@ class AuthService {
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
 				        u.profile_prompt_required_at, u.profile_completed_at,
-				        u.onboarding_step, u.onboarding_completed
+				        u.onboarding_step, u.onboarding_completed,
+				        u.dashboard_tour_completed, u.dashboard_tour_completed_at
 				        ${systemMessageFields}
          FROM sessions s
          JOIN users u ON s.user_id = u.id
@@ -892,6 +1198,10 @@ class AuthService {
 						session.onboarding_step,
 					onboardingCompleted:
 						session.onboarding_completed,
+					dashboardTourCompleted:
+						session.dashboard_tour_completed,
+					dashboardTourCompletedAt:
+						session.dashboard_tour_completed_at,
 					useDefaultSystemMessage:
 						session.use_default_system_message,
 					systemMessageConfigured:
@@ -1155,6 +1465,309 @@ class AuthService {
 		}
 	}
 
+	async deleteAccount(
+		userId: string,
+		payload: {
+			confirmationText?: unknown;
+			currentPassword?: unknown;
+			ipAddress?: unknown;
+			userAgent?: unknown;
+		},
+	): Promise<{
+		success: boolean;
+		message: string;
+	}> {
+		const confirmationText = String(
+			payload.confirmationText || "",
+		).trim();
+		if (confirmationText !== "DELETE") {
+			throw this.createHttpError(
+				'Type "DELETE" to confirm account deletion.',
+				400,
+			);
+		}
+
+		const client: PoolClient = await pool.connect();
+		let chatSessionIds: string[] = [];
+		let widgetKey: string | null = null;
+		let widgetKeyId: number | null = null;
+		let widgetIconUrls: string[] = [];
+		let deletionRequestId: string | null = null;
+		let userEmail: string | null = null;
+
+		try {
+			await client.query("BEGIN");
+
+			const userResult = await client.query<
+				User & { password_hash: string | null }
+			>(
+				`SELECT *,
+				        password_hash
+				   FROM users
+				  WHERE id = $1
+				  LIMIT 1`,
+				[userId],
+			);
+			const user = userResult.rows[0];
+			if (!user) {
+				throw this.createHttpError("User not found", 404);
+			}
+			userEmail = user.email;
+
+			if (user.password_hash) {
+				const currentPassword = String(
+					payload.currentPassword || "",
+				);
+				if (!currentPassword.trim()) {
+					throw this.createHttpError(
+						"Current password is required.",
+						400,
+					);
+				}
+				const passwordMatches =
+					await this.verifyPassword(
+						currentPassword,
+						user.password_hash,
+					);
+				if (!passwordMatches) {
+					throw this.createHttpError(
+						"Current password is incorrect.",
+						400,
+					);
+				}
+			}
+
+			const currentSubscription =
+				await subscriptionService.getCurrentSubscription(
+					userId,
+				);
+			if (
+				currentSubscription.subscription &&
+				["active", "trialing"].includes(
+					currentSubscription.subscription.status,
+				)
+			) {
+				throw this.createHttpError(
+					"Cancel your active subscription before deleting your account.",
+					409,
+				);
+			}
+
+			deletionRequestId =
+				await this.createDeletionRequest(
+					userId,
+					user.email,
+					{
+						ipAddress:
+							typeof payload.ipAddress ===
+							"string"
+								? payload.ipAddress
+								: null,
+						userAgent:
+							typeof payload.userAgent ===
+							"string"
+								? payload.userAgent
+								: null,
+					},
+				);
+			await this.updateDeletionRequest(
+				deletionRequestId,
+				{ status: "in_progress" },
+			);
+
+			const sessionResult = await client.query<{
+				id: string;
+			}>(
+				`SELECT id
+				   FROM chat_conversations
+				  WHERE user_id = $1`,
+				[userId],
+			);
+			chatSessionIds = sessionResult.rows.map(
+				(row) => row.id,
+			);
+
+			const widgetResult = await client.query<{
+				id: number;
+				widget_key: string;
+			}>(
+				`SELECT id, widget_key
+				   FROM widget_keys
+				  WHERE user_id = $1
+				  LIMIT 1`,
+				[userId],
+			);
+			if (widgetResult.rows[0]) {
+				widgetKeyId = widgetResult.rows[0].id;
+				widgetKey = widgetResult.rows[0].widget_key;
+				const widgetConfigResult = await client.query<{
+					widget_config: Record<string, unknown> | null;
+				}>(
+					`SELECT widget_config
+					   FROM widget_keys
+					  WHERE id = $1
+					  LIMIT 1`,
+					[widgetKeyId],
+				);
+				const widgetConfig =
+					widgetConfigResult.rows[0]
+						?.widget_config ?? null;
+				widgetIconUrls = Array.from(
+					new Set(
+						[
+							typeof widgetConfig?.logoIcon ===
+							"string"
+								? widgetConfig.logoIcon
+								: null,
+							typeof widgetConfig?.bubbleIcon ===
+							"string"
+								? widgetConfig.bubbleIcon
+								: null,
+						].filter(
+							(
+								value,
+							): value is string =>
+								Boolean(value),
+						),
+					),
+				);
+			}
+
+			await this.disconnectExternalIntegrationsForUser(
+				userId,
+			);
+
+			await client.query(
+				`DELETE FROM session_page_views
+				  WHERE user_id = $1`,
+				[userId],
+			);
+
+			await pineconeService.deleteAllUserVectors(
+				userId,
+			);
+
+			const deleteUserResult = await client.query(
+				`DELETE FROM users
+				  WHERE id = $1`,
+				[userId],
+			);
+
+			if ((deleteUserResult.rowCount || 0) === 0) {
+				throw this.createHttpError(
+					"User not found",
+					404,
+				);
+			}
+
+			await client.query("COMMIT");
+		} catch (error) {
+			try {
+				await client.query("ROLLBACK");
+			} catch {
+				// ignore rollback errors
+			}
+
+			if (deletionRequestId) {
+				await this.updateDeletionRequest(
+					deletionRequestId,
+					{
+						status: "failed",
+						failureReason:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				).catch(() => {
+					// Ignore request-status update failures.
+				});
+			}
+
+			throw error;
+		} finally {
+			client.release();
+		}
+
+		try {
+			await this.clearUserRedisState(
+				userId,
+				chatSessionIds,
+			);
+			await this.removePendingScrapeJobsForUser(
+				userId,
+			);
+			if (widgetKey) {
+				await redisCache.del(
+					`widget_key:${widgetKey}`,
+				);
+			}
+			if (widgetKeyId !== null) {
+				await this.removeBufferedWidgetAnalytics(
+					widgetKeyId,
+				);
+			}
+			for (const widgetIconUrl of widgetIconUrls) {
+				try {
+					await widgetIconStorageService.deleteWidgetIconByUrl(
+						widgetIconUrl,
+					);
+				} catch (error) {
+					logger.warn(
+						"Widget icon cleanup failed during account deletion",
+						{
+							userId,
+							widgetIconUrl,
+							error:
+								error instanceof Error
+									? error.message
+									: String(error),
+						},
+					);
+				}
+			}
+		} catch (error) {
+			logger.warn(
+				"Account deleted but some cache cleanup failed",
+				{
+					userId,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+		}
+
+		if (deletionRequestId) {
+			await this.updateDeletionRequest(
+				deletionRequestId,
+				{
+					status: "completed",
+					completedAt: true,
+				},
+			).catch(() => {
+				logger.warn(
+					"Failed to mark account deletion request completed",
+					{
+						userId,
+						email: userEmail,
+						deletionRequestId,
+					},
+				);
+			});
+		}
+
+		logger.info("User account deleted", {
+			userId,
+		});
+
+		return {
+			success: true,
+			message:
+				"Your account has been deleted successfully.",
+		};
+	}
+
 	async updateUserProfile(
 		userId: string,
 		payload: {
@@ -1287,6 +1900,26 @@ class AuthService {
        WHERE id = $1
        RETURNING *`,
 			[userId, step, completed],
+		);
+
+		if (result.rows.length === 0) {
+			throw this.createHttpError("User not found", 404);
+		}
+
+		return this.formatUserResponse(result.rows[0]);
+	}
+
+	async completeDashboardTour(
+		userId: string,
+	): Promise<UserResponse> {
+		const result = await pool.query<User>(
+			`UPDATE users
+			    SET dashboard_tour_completed = TRUE,
+			        dashboard_tour_completed_at = COALESCE(dashboard_tour_completed_at, CURRENT_TIMESTAMP),
+			        updated_at = CURRENT_TIMESTAMP
+			  WHERE id = $1
+			  RETURNING *`,
+			[userId],
 		);
 
 		if (result.rows.length === 0) {

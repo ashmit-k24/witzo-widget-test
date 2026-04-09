@@ -18,6 +18,7 @@ import googleAuthService, {
 import sessionService from "../services/sessionService";
 import {
 	ChangePasswordBody,
+	DeleteAccountBody,
 	ForgotPasswordBody,
 	LoginPasswordBody,
 	RegisterBody,
@@ -554,6 +555,42 @@ export const updatePassword = async (
 };
 
 /**
+ * @route   DELETE /api/auth/account
+ * @desc    Permanently delete the current user's account and product data
+ * @access  Protected
+ */
+export const deleteAccount = async (
+	req: Request<{}, {}, DeleteAccountBody>,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const result = await authService.deleteAccount(
+			userId,
+			{
+				...req.body,
+				ipAddress: req.ip,
+				userAgent: req.get("user-agent"),
+			},
+		);
+
+		clearCookies(res);
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
  * @route   PUT /api/auth/onboarding
  * @desc    Mark an onboarding step as complete (step 4 auto-completes onboarding)
  * @access  Protected
@@ -576,6 +613,41 @@ export const updateOnboarding = async (
 		const step = Number(req.body.step);
 		const user = await authService.updateOnboardingStep(userId, step);
 		res.status(200).json({ success: true, user });
+	} catch (error) {
+		next(error);
+	}
+};
+
+/**
+ * @route   POST /api/auth/dashboard-tour/complete
+ * @desc    Mark the dashboard tour as completed or dismissed
+ * @access  Protected
+ */
+export const completeDashboardTour = async (
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const userId = req.user?.id;
+		if (!userId) {
+			res.status(401).json({
+				success: false,
+				message: "Authentication required",
+			});
+			return;
+		}
+
+		const user =
+			await authService.completeDashboardTour(
+				userId,
+			);
+		res.status(200).json({
+			success: true,
+			message:
+				"Dashboard tour preference saved",
+			user,
+		});
 	} catch (error) {
 		next(error);
 	}

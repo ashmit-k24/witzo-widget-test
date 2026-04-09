@@ -30,6 +30,8 @@ export interface User {
 	onboarding_step: number;
 	onboarding_completed: boolean;
 	onboarding_completed_at: Date | null;
+	dashboard_tour_completed: boolean;
+	dashboard_tour_completed_at: Date | null;
 	custom_system_message: string | null;
 	use_default_system_message: boolean;
 	system_message_configured: boolean;
@@ -57,6 +59,8 @@ export interface UserResponse {
 	profileCompletedAt?: Date | null;
 	onboardingStep?: number;
 	onboardingCompleted?: boolean;
+	dashboardTourCompleted?: boolean;
+	dashboardTourCompletedAt?: Date | null;
 	useDefaultSystemMessage?: boolean;
 	systemMessageConfigured?: boolean;
 	knowledgeBoundary?: string | null;
@@ -184,6 +188,11 @@ export interface ResetPasswordBody {
 export interface ChangePasswordBody {
 	currentPassword?: string;
 	newPassword: string;
+}
+
+export interface DeleteAccountBody {
+	confirmationText: string;
+	currentPassword?: string;
 }
 
 // Database query result types

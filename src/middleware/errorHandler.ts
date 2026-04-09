@@ -47,7 +47,9 @@ export const errorHandler = (
 	// Don't leak error details in production
 	const message =
 		config.NODE_ENV === "production"
-			? "An unexpected error occurred"
+			? statusCode >= 500
+				? "An unexpected error occurred"
+				: err.message
 			: err.message;
 
 	res.status(statusCode).json({
