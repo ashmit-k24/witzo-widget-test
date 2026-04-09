@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -1420,7 +1420,7 @@
           .chat-input-beam {
             position: absolute;
             width: 80px;
-            height: 6px;
+            height: 4px;
             background: var(--color-banner-bg, #120b14);
             filter: blur(18px);
             border-radius: 50%;
@@ -1437,11 +1437,15 @@
           }
 
           @keyframes orbitBeam {
-            0%   { top: 10px; left: 0; }
-            25%  { top: 10px; left: 90%; }
-            50%  { top: 90%; left: 90%; }
-            75%  { top: 90%; left: 10%; }
-            100% { top: 10px; left: 10%; }
+            0%   { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); width: 80px; }
+            38%  { top: 0%; left: 100%; transform: translate(-50%, -50%) rotate(0deg); width: 80px; }
+            40%  { top: 0%; left: 100%; transform: translate(-50%, -50%) rotate(90deg); width: 40px; }
+            48%  { top: 100%; left: 100%; transform: translate(-50%, -50%) rotate(90deg); width: 40px; }
+            50%  { top: 100%; left: 100%; transform: translate(-50%, -50%) rotate(180deg); width: 80px; }
+            88%  { top: 100%; left: 0%; transform: translate(-50%, -50%) rotate(180deg); width: 80px; }
+            90%  { top: 100%; left: 0%; transform: translate(-50%, -50%) rotate(270deg); width: 40px; }
+            98%  { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(270deg); width: 40px; }
+            100% { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(360deg); width: 80px; }
           }
           
           .chat-input-container:focus-within {
