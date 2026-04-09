@@ -139,6 +139,7 @@ export const floatingCSS = `
     line-height: 1.35;
     padding: 18px 19px;
     font-weight: 500;
+			height: 100%;
     font-size: 14px;
     letter-spacing: 0%;
     box-shadow: 0 12px 28px rgba(0,0,0,0.12);

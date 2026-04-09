@@ -2202,6 +2202,7 @@
 			font-weight: 500;
 			font-size: 14px;
 			line-height: 100%;
+			height: 100%;
 			letter-spacing: 0%;
             box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
             transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1), width 0.75s cubic-bezier(0.22, 1, 0.36, 1), padding 0.75s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.75s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.75s cubic-bezier(0.22, 1, 0.36, 1);
@@ -2478,6 +2479,9 @@
 			.status-pill-text {
 				font-size: 9px;
 			}
+				.floating-input-shell::before {
+					transform: scaleX(0.79);
+				}
           }
 
            @keyframes float {
