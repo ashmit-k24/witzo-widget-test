@@ -352,8 +352,11 @@ export const floatingCSS = `
   .floating-launcher-prompt.entering .floating-prompt-input {
     animation: floatingInputTextIn 0.66s cubic-bezier(0.22, 1, 0.36, 1) 0.34s both;
   }
+  .floating-launcher-prompt.entering .floating-close-btn {
+    animation: floatingCloseBtnIn 0.52s cubic-bezier(0.22, 1, 0.36, 1) 0.46s both;
+  }
   .floating-launcher-prompt.entering .floating-help-pill {
-    animation: floatingHelpPillIn 0.62s cubic-bezier(0.22, 1, 0.36, 1) 0.52s both;
+    animation: floatingHelpPillIn 0.62s cubic-bezier(0.22, 1, 0.36, 1) 0.56s both;
   }
 
   @keyframes floatingBtnIn {
@@ -411,7 +414,19 @@ export const floatingCSS = `
   @keyframes floatingHelpPillIn {
     0% {
       opacity: 0;
-      transform: translate3d(22px, -6px, 0) scale(0.96);
+      transform: translate3d(24px, 0, 0) scale(0.96);
+      filter: blur(6px);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: blur(0);
+    }
+  }
+  @keyframes floatingCloseBtnIn {
+    0% {
+      opacity: 0;
+      transform: translate3d(18px, 0, 0) scale(0.9);
       filter: blur(6px);
     }
     100% {
