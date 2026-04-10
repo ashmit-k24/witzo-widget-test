@@ -25,6 +25,8 @@ export const floatingCSS = `
   .floating-launcher-prompt {
     --floating-help-pill-right-rest: 70px;
     --floating-help-pill-right-typing: 0px;
+    --floating-close-btn-right-rest: calc(var(--floating-help-pill-right-rest) + 4px);
+    --floating-close-btn-right-typing: calc(var(--floating-help-pill-right-typing) + 4px);
     --floating-help-pill-top-space: 66px;
     position: relative;
     width: min(690px, calc(100vw - 48px));
@@ -83,7 +85,7 @@ export const floatingCSS = `
   .floating-close-btn {
     position: absolute;
     top: 0;
-    right: calc(var(--floating-help-pill-right-rest) + 4px);
+    right: var(--floating-close-btn-right-rest);
     width: 21px;
     height: 21px;
     padding: 0;
@@ -94,6 +96,9 @@ export const floatingCSS = `
     justify-content: center;
     cursor: pointer;
     z-index: 3;
+    transition: top 0.6s cubic-bezier(0.22, 1, 0.36, 1), right 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    transform-origin: right bottom;
+    will-change: transform, opacity;
   }
   .floating-close-btn svg {
     width: 21px;
@@ -266,6 +271,11 @@ export const floatingCSS = `
     right: var(--floating-help-pill-right-typing);
     transform: none;
   }
+  .floating-launcher-prompt.is-typing .floating-close-btn {
+    top: 0;
+    right: var(--floating-close-btn-right-typing);
+    transform: none;
+  }
   .floating-launcher-prompt.is-typing .floating-input-shell::before {
     right: 0;
   }
@@ -420,6 +430,8 @@ export const floatingCSS = `
       width: min(92vw, 460px);
       --floating-help-pill-right-rest: 52px;
       --floating-help-pill-right-typing: 0px;
+      --floating-close-btn-right-rest: calc(var(--floating-help-pill-right-rest) + 4px);
+      --floating-close-btn-right-typing: calc(var(--floating-help-pill-right-typing) + 4px);
       --floating-help-pill-top-space: 66px;
     }
     .floating-help-pill {
