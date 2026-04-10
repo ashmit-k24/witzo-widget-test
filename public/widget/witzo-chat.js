@@ -362,6 +362,23 @@
 			this.trackPageView();
 			this.updateSendButtonState();
 			this._bindCalendlyMessageListener();
+			this._messagesFadeSyncHandler = () =>
+				this.updateMessagesFadeOverlays();
+			window.addEventListener(
+				"resize",
+				this._messagesFadeSyncHandler,
+			);
+			window.addEventListener(
+				"scroll",
+				this._messagesFadeSyncHandler,
+				true,
+			);
+			this.elements.messagesContainer?.addEventListener(
+				"scroll",
+				this._messagesFadeSyncHandler,
+				{ passive: true },
+			);
+			this.updateMessagesFadeOverlays();
 
 
 			this.hasStartedChat = true;
@@ -425,6 +442,22 @@
 					this._calendlyMessageHandler,
 				);
 				this._calendlyMessageHandler = null;
+			}
+			if (this._messagesFadeSyncHandler) {
+				window.removeEventListener(
+					"resize",
+					this._messagesFadeSyncHandler,
+				);
+				window.removeEventListener(
+					"scroll",
+					this._messagesFadeSyncHandler,
+					true,
+				);
+				this.elements.messagesContainer?.removeEventListener(
+					"scroll",
+					this._messagesFadeSyncHandler,
+				);
+				this._messagesFadeSyncHandler = null;
 			}
 		}
 
@@ -1382,6 +1415,23 @@
             transition: all 0.6s ease-in-out;
 			border-radius:20px 20px 0 0;
           }
+          .messages-fade-overlay {
+            position: fixed;
+            pointer-events: none;
+            z-index: 2147483648;
+            opacity: 0;
+            transition: opacity 0.18s ease;
+          }
+          .messages-fade-overlay.show {
+            opacity: 1;
+          }
+          .messages-fade-overlay.top {
+            background: linear-gradient(to bottom, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0));
+			border-radius:20px 20px 0 0;
+          }
+          .messages-fade-overlay.bottom {
+            background: linear-gradient(to top, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+          }
           .chat-messages::-webkit-scrollbar {
             width: 8px;
           }
@@ -1404,6 +1454,8 @@
           .chat-message.has-feedback {
             position: relative;
           }
+
+		  
 
 		  
           
@@ -3420,6 +3472,8 @@
         <div id="floatingBtn" class="floating floating-${this.config.floatingType}">
             ${this.getFloatingTriggerMarkup()}
         </div>
+        <div id="messagesFadeTop" class="messages-fade-overlay top hidden"></div>
+        <div id="messagesFadeBottom" class="messages-fade-overlay bottom hidden"></div>
       `;
 
 			// Cache elements
@@ -3474,6 +3528,14 @@
 				messagesContainer:
 					this.shadowRoot.getElementById(
 						"textMessagesArea",
+					),
+				messagesFadeTop:
+					this.shadowRoot.getElementById(
+						"messagesFadeTop",
+					),
+				messagesFadeBottom:
+					this.shadowRoot.getElementById(
+						"messagesFadeBottom",
 					),
 				textMessageInput: this.shadowRoot.getElementById("textMessageInput"),
 				emojiPickerBtn: this.shadowRoot.getElementById("emojiPickerBtn"),
@@ -4338,6 +4400,73 @@
 			);
 		}
 
+		setMessagesFadeOverlaysVisible(visible) {
+			const top = this.elements.messagesFadeTop;
+			const bottom = this.elements.messagesFadeBottom;
+			if (!top || !bottom) return;
+			top.classList.toggle("hidden", !visible);
+			bottom.classList.toggle("hidden", !visible);
+			top.classList.toggle("show", visible);
+			bottom.classList.toggle("show", visible);
+			if (!visible) {
+				top.style.cssText = "";
+				bottom.style.cssText = "";
+			}
+		}
+
+		updateMessagesFadeOverlays() {
+			const container = this.elements.messagesContainer;
+			const top = this.elements.messagesFadeTop;
+			const bottom = this.elements.messagesFadeBottom;
+			if (!container || !top || !bottom) return;
+			const shouldShow =
+				this.isOpen &&
+				!container.classList.contains("hidden") &&
+				this.elements.chatMainView &&
+				!this.elements.chatMainView.classList.contains(
+					"hidden",
+				);
+			if (!shouldShow) {
+				this.setMessagesFadeOverlaysVisible(false);
+				return;
+			}
+			const rect = container.getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0) {
+				this.setMessagesFadeOverlaysVisible(false);
+				return;
+			}
+			const overlayHeight = Math.min(28, rect.height / 4);
+			this.setMessagesFadeOverlaysVisible(true);
+			top.style.left = `${rect.left}px`;
+			top.style.top = `${rect.top}px`;
+			top.style.width = `${rect.width}px`;
+			top.style.height = `${overlayHeight}px`;
+			bottom.style.left = `${rect.left}px`;
+			bottom.style.top = `${rect.bottom - overlayHeight}px`;
+			bottom.style.width = `${rect.width}px`;
+			bottom.style.height = `${overlayHeight}px`;
+		}
+
+		scheduleMessagesFadeOverlaySync(duration = 520) {
+			if (this._messagesFadeRaf) {
+				cancelAnimationFrame(this._messagesFadeRaf);
+				this._messagesFadeRaf = null;
+			}
+			const startedAt = performance.now();
+			const tick = (now) => {
+				this.updateMessagesFadeOverlays();
+				if (now - startedAt < duration) {
+					this._messagesFadeRaf =
+						requestAnimationFrame(tick);
+					return;
+				}
+				this._messagesFadeRaf = null;
+			};
+			this._messagesFadeRaf = requestAnimationFrame(
+				tick,
+			);
+		}
+
 		dismissFloatingLauncher() {
 			if (this.isOpen) {
 				this.toggleChat();
@@ -4550,6 +4679,12 @@
 				this.elements.widget.classList.remove(
 					"minimizing",
 				);
+				this.updateMessagesFadeOverlays();
+				this.scheduleMessagesFadeOverlaySync();
+				setTimeout(
+					() => this.updateMessagesFadeOverlays(),
+					40,
+				);
 				const shouldShowIntro =
 					!this.hasStartedChat;
 				this.showIntroScreen(shouldShowIntro);
@@ -4569,6 +4704,7 @@
 				this.isOpen = false;
 				this.elements.floatingPromptInput?.blur();
 				this.elements.input?.blur();
+				this.setMessagesFadeOverlaysVisible(false);
 				this.elements.widget.classList.add(
 					"minimizing",
 				);
@@ -5696,6 +5832,7 @@
 			this.elements.messagesContainer?.classList.remove(
 				"hidden",
 			);
+			this.updateMessagesFadeOverlays();
 			if (
 				this.elements.contactFormSlot &&
 				!this.elements.contactFormSlot.classList.contains(
@@ -5732,6 +5869,7 @@
 			this.elements.messagesContainer?.classList.add(
 				"hidden",
 			);
+			this.setMessagesFadeOverlaysVisible(false);
 			this.elements.chatInput?.classList.add(
 				"hidden",
 			);
@@ -5809,6 +5947,7 @@
 				this.elements.messagesContainer.classList.add(
 					"hidden",
 				);
+				this.setMessagesFadeOverlaysVisible(false);
 			}
 			if (this.elements.chatInput)
 				this.elements.chatInput.classList.add(
@@ -5906,6 +6045,7 @@
 						this.elements.messagesContainer.classList.remove(
 							"hidden",
 						);
+						this.updateMessagesFadeOverlays();
 						if (this.elements.chatInput) {
 							this.elements.chatInput.classList.remove(
 								"hidden",
