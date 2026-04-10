@@ -717,6 +717,11 @@
 			const chatIcon = this.getFloatingIconSvg();
 			return `
         <div class="floating-launcher floating-launcher-prompt hidden" id="floating-btn">
+          <button type="button" id="floatingCloseBtn" class="floating-close-btn" aria-label="Hide help launcher">
+            <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 9 9" fill="none">
+			<path d="M0.5 8.11538L4.30769 4.30769M8.11538 0.5L4.30769 4.30769M4.30769 4.30769L8.11538 8.11538M4.30769 4.30769L0.5 0.5" stroke="black" stroke-linecap="round"/>
+			</svg>
+          </button>
           <button type="button" id="floatingHelpBtn" class="floating-help-pill" aria-label="Open chat">
             <span class="floating-help-pill-text">👋 Need help?</span>
           </button>
@@ -769,6 +774,10 @@
 			this.elements.floatingPromptSend =
 				this.shadowRoot.getElementById(
 					"floatingPromptSend",
+				);
+			this.elements.floatingCloseBtn =
+				this.shadowRoot.getElementById(
+					"floatingCloseBtn",
 				);
 			this.elements.floatingHelpBtn =
 				this.shadowRoot.getElementById(
@@ -2356,7 +2365,7 @@
           .floating-launcher-prompt {
             --floating-help-pill-right-rest: 70px;
             --floating-help-pill-right-typing: 0px;
-            --floating-help-pill-top-space: 40px;
+            --floating-help-pill-top-space: 66px;
             position: relative;
             width: min(690px, calc(100vw - 48px));
             min-height: calc(56px + var(--floating-help-pill-top-space));
@@ -2376,12 +2385,18 @@
           .floating-launcher-prompt.widget-open .floating-help-pill {
             display: none;
           }
+          .floating-launcher-prompt.widget-open .floating-close-btn {
+            display: none;
+          }
           .floating-launcher-prompt.is-collapsed {
             width: auto;
             min-height: 58px;
             padding-top: 0;
           }
           .floating-launcher-prompt.is-collapsed .floating-help-pill {
+            display: none;
+          }
+          .floating-launcher-prompt.is-collapsed .floating-close-btn {
             display: none;
           }
           .floating-launcher-prompt.is-collapsed .floating-input-shell {
@@ -2402,9 +2417,30 @@
           .floating-launcher-prompt.is-collapsed .floating-prompt-send {
             margin: 0;
           }
-          .floating-help-pill {
+          .floating-close-btn {
             position: absolute;
             top: 0;
+            right: calc(var(--floating-help-pill-right-rest) + 4px);
+            width: 21px;
+            height: 21px;
+            padding: 6px;
+            border: none;
+            background: white;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 3;
+			border-radius: 50%;
+          }
+          .floating-close-btn svg {
+            width: 21px;
+            height: 21px;
+            display: block;
+          }
+          .floating-help-pill {
+            position: absolute;
+            top: 29px;
             right: var(--floating-help-pill-right-rest);
             border: none;
             background: #ffffff;
@@ -2577,7 +2613,7 @@
             padding-right: 0;
           }
           .floating-launcher-prompt.is-typing .floating-help-pill {
-            top: 0;
+            top: 29px;
             right: var(--floating-help-pill-right-typing);
             transform: none;
           }
@@ -2783,7 +2819,7 @@
               width: min(92vw, 460px);
               --floating-help-pill-right-rest: 52px;
               --floating-help-pill-right-typing: 0px;
-              --floating-help-pill-top-space: 40px;
+              --floating-help-pill-top-space: 66px;
             }
             .floating-launcher-prompt.is-collapsed .floating-input-shell {
               width: 58px;
@@ -3631,10 +3667,14 @@
 				this.shadowRoot.querySelector(
 					".floating-input-shell",
 				),
-			floatingPromptSend:
-				this.shadowRoot.getElementById(
-					"floatingPromptSend",
-				),
+				floatingPromptSend:
+					this.shadowRoot.getElementById(
+						"floatingPromptSend",
+					),
+				floatingCloseBtn:
+					this.shadowRoot.getElementById(
+						"floatingCloseBtn",
+					),
 				floatingHelpBtn:
 					this.shadowRoot.getElementById(
 						"floatingHelpBtn",
@@ -3820,6 +3860,16 @@
 		}
 
 		bindEvents() {
+			if (this.elements.floatingCloseBtn) {
+				this.elements.floatingCloseBtn.addEventListener(
+					"click",
+					(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						this.hideFloatingLauncher();
+					},
+				);
+			}
 			if (this.elements.floatingHelpBtn) {
 				this.elements.floatingHelpBtn.addEventListener(
 					"click",
@@ -4643,6 +4693,19 @@
 			this.elements.floatingBtn?.classList.add(
 				"is-collapsed",
 			);
+		}
+
+		hideFloatingLauncher() {
+			if (this.isOpen) {
+				this.toggleChat();
+			}
+			if (this.elements.floatingPromptInput) {
+				this.elements.floatingPromptInput.value = "";
+			}
+			this.updateFloatingLauncherState();
+			this.shadowRoot
+				.getElementById("floatingBtn")
+				?.classList.add("hidden");
 		}
 
 		toggleExpandedView() {

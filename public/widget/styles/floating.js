@@ -25,7 +25,7 @@ export const floatingCSS = `
   .floating-launcher-prompt {
     --floating-help-pill-right-rest: 70px;
     --floating-help-pill-right-typing: 0px;
-    --floating-help-pill-top-space: 40px;
+    --floating-help-pill-top-space: 66px;
     position: relative;
     width: min(690px, calc(100vw - 48px));
     min-height: calc(56px + var(--floating-help-pill-top-space));
@@ -43,12 +43,18 @@ export const floatingCSS = `
   .floating-launcher-prompt.widget-open .floating-help-pill {
     display: none;
   }
+  .floating-launcher-prompt.widget-open .floating-close-btn {
+    display: none;
+  }
   .floating-launcher-prompt.is-collapsed {
     width: auto;
     min-height: 58px;
     padding-top: 0;
   }
   .floating-launcher-prompt.is-collapsed .floating-help-pill {
+    display: none;
+  }
+  .floating-launcher-prompt.is-collapsed .floating-close-btn {
     display: none;
   }
   .floating-launcher-prompt.is-collapsed .floating-input-shell {
@@ -74,9 +80,29 @@ export const floatingCSS = `
     margin: 0;
   }
 
-  .floating-help-pill {
+  .floating-close-btn {
     position: absolute;
     top: 0;
+    right: calc(var(--floating-help-pill-right-rest) + 4px);
+    width: 21px;
+    height: 21px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 3;
+  }
+  .floating-close-btn svg {
+    width: 21px;
+    height: 21px;
+    display: block;
+  }
+  .floating-help-pill {
+    position: absolute;
+    top: 29px;
     right: var(--floating-help-pill-right-rest);
     border: none;
     background: #fff;
@@ -236,7 +262,7 @@ export const floatingCSS = `
     padding-right: 0;
   }
   .floating-launcher-prompt.is-typing .floating-help-pill {
-    top: 0;
+    top: 29px;
     right: var(--floating-help-pill-right-typing);
     transform: none;
   }
@@ -394,7 +420,7 @@ export const floatingCSS = `
       width: min(92vw, 460px);
       --floating-help-pill-right-rest: 52px;
       --floating-help-pill-right-typing: 0px;
-      --floating-help-pill-top-space: 40px;
+      --floating-help-pill-top-space: 66px;
     }
     .floating-help-pill {
       padding: 10px 18px;
