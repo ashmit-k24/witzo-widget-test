@@ -1538,6 +1538,8 @@
             height: 18px;
           }
 
+		  
+
           .chat-send-btn {
             width: 36px;
             height: 36px;
@@ -1644,6 +1646,46 @@
           .lang-dropdown {
             scrollbar-width: thin;
             scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+          }
+
+          .chat-emoji-picker {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            margin-bottom: 12px;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 4px;
+            padding: 8px;
+            z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(10px);
+            transition: all 0.2s ease;
+          }
+          .chat-emoji-picker.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+          }
+          .chat-emoji-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 8px;
+            transition: background 0.2s;
+          }
+          .chat-emoji-btn:hover {
+            background: #f1f5f9;
+          }
+          .chat-input-left-actions {
+            position: relative;
           }
 
           .chat-main-view {
@@ -3201,15 +3243,32 @@
                         <textarea id="textMessageInput" rows="1" placeholder="${this.config.placeholderText || "Type your message..."}" class="chat-text-input"></textarea>
                     </div>
                     <div class="chat-input-actions">
-                        <div class="chat-input-left-actions">
-                            <button type="button" class="input-action-btn" aria-label="Add emoji">
+                        <div class="chat-input-left-actions" style="position: relative;">
+                            <button type="button" class="input-action-btn" id="emojiPickerBtn" aria-label="Add emoji">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
 									<path d="M9.69922 18.7002C14.6698 18.7002 18.6992 14.6708 18.6992 9.7002C18.6992 4.72963 14.6698 0.700195 9.69922 0.700195C4.72866 0.700195 0.699219 4.72963 0.699219 9.7002C0.699219 14.6708 4.72866 18.7002 9.69922 18.7002Z" stroke="#969696" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
 									<path d="M6.77872 8.48419C7.45041 8.48419 7.99493 7.93967 7.99493 7.26797C7.99493 6.59628 7.45041 6.05176 6.77872 6.05176C6.10702 6.05176 5.5625 6.59628 5.5625 7.26797C5.5625 7.93967 6.10702 8.48419 6.77872 8.48419Z" fill="#969696"/>
 									<path d="M12.6186 8.48419C13.2903 8.48419 13.8348 7.93967 13.8348 7.26797C13.8348 6.59628 13.2903 6.05176 12.6186 6.05176C11.9469 6.05176 11.4023 6.59628 11.4023 7.26797C11.4023 7.93967 11.9469 8.48419 12.6186 8.48419Z" fill="#969696"/>
 									<path d="M13.0689 11.8892C12.7273 12.4808 12.236 12.972 11.6444 13.3136C11.0527 13.6551 10.3816 13.8349 9.6985 13.8349C9.01537 13.8349 8.34426 13.6551 7.75264 13.3136C7.16102 12.972 6.66972 12.4808 6.32812 11.8892" stroke="#969696" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
+                                </svg>
                             </button>
+                            <div class="chat-emoji-picker" id="chatEmojiPicker">
+                                <button type="button" class="chat-emoji-btn">😀</button>
+                                <button type="button" class="chat-emoji-btn">😂</button>
+                                <button type="button" class="chat-emoji-btn">🥺</button>
+                                <button type="button" class="chat-emoji-btn">😍</button>
+                                <button type="button" class="chat-emoji-btn">🙏</button>
+                                <button type="button" class="chat-emoji-btn">✨</button>
+                                <button type="button" class="chat-emoji-btn">🔥</button>
+                                <button type="button" class="chat-emoji-btn">👍</button>
+                                <button type="button" class="chat-emoji-btn">😢</button>
+                                <button type="button" class="chat-emoji-btn">😊</button>
+                                <button type="button" class="chat-emoji-btn">🎉</button>
+                                <button type="button" class="chat-emoji-btn">🤔</button>
+                                <button type="button" class="chat-emoji-btn">🙌</button>
+                                <button type="button" class="chat-emoji-btn">😎</button>
+                                <button type="button" class="chat-emoji-btn">👀</button>
+                            </div>
                         </div>
                         <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
                             <div class="chat-send-icon">
@@ -3299,6 +3358,9 @@
 					this.shadowRoot.getElementById(
 						"textMessagesArea",
 					),
+				textMessageInput: this.shadowRoot.getElementById("textMessageInput"),
+				emojiPickerBtn: this.shadowRoot.getElementById("emojiPickerBtn"),
+				chatEmojiPicker: this.shadowRoot.getElementById("chatEmojiPicker"),
 				input: this.shadowRoot.getElementById(
 					"textMessageInput",
 				),
@@ -3560,6 +3622,23 @@
 					},
 				);
 			}
+			if (this.elements.emojiPickerBtn) {
+				this.elements.emojiPickerBtn.addEventListener("click", (e) => {
+					e.stopPropagation();
+					this.elements.chatEmojiPicker.classList.toggle("show");
+				});
+			}
+			this.shadowRoot.querySelectorAll(".chat-emoji-btn").forEach(btn => {
+				btn.addEventListener("click", (e) => {
+					e.stopPropagation();
+					const emoji = btn.textContent;
+					this.elements.textMessageInput.value += emoji;
+					this.resizeChatInput();
+					this.updateSendButtonState();
+					this.elements.chatEmojiPicker.classList.remove("show");
+					this.elements.textMessageInput.focus();
+				});
+			});
 			if (this.elements.expandChatBtn) {
 				this.elements.expandChatBtn.addEventListener(
 					"click",
@@ -3644,6 +3723,9 @@
 						this.elements.langDropdown.classList.remove(
 							"show",
 						);
+					}
+					if (this.elements.chatEmojiPicker) {
+						this.elements.chatEmojiPicker.classList.remove("show");
 					}
 					if (this.elements.headerMenuDropdown) {
 						this.elements.headerMenuDropdown.classList.add(
