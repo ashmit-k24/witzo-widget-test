@@ -1242,15 +1242,21 @@
             position: absolute;
             top: 42px;
             right: 0;
-            min-width: 220px;
+            min-width: 188px;
             background: #fff;
-            border: 1px solid #e5e7eb;
             border-radius: 16px;
-            box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
-            overflow: hidden;
-            z-index: 0;
+            box-shadow: 0 18px 40px rgba(17, 17, 17, 0.18);
+            padding: 6px;
+            overflow: visible;
+            z-index: 12;
             transform-origin: right top;
-            animation: headerMenuIn 0.3s ease-out;
+            animation: headerMenuIn 0.22s ease-out;
+          }
+          .chat-header-menu-list {
+            max-height: 318px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(17, 17, 17, 0.18) transparent;
           }
           @keyframes headerMenuIn {
             0% {
@@ -1265,21 +1271,88 @@
           .chat-header-menu .chat-menu-item {
             width: 100%;
             border: none;
-            background: #fff;
+            background: transparent;
+            border-radius: 6px;
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 12px 16px;
+            justify-content: flex-start;
+            gap: 14px;
+            padding: 6px 10px;
             cursor: pointer;
             text-align: left;
             font-size: 14px;
-            color: #1f2937;
+            line-height: 1.2;
+            color: #111111;
           }
-          .chat-header-menu .chat-menu-item:hover {
-            background: #f9fafb;
+          .chat-header-menu .chat-menu-item.has-submenu {
+            justify-content: space-between;
           }
-          .chat-header-menu .chat-menu-item + .chat-menu-item {
-            border-top: 1px solid #f1f5f9;
+          .chat-header-menu .chat-menu-item > svg {
+            flex-shrink: 0;
+          }
+          .chat-header-menu .chat-menu-item > span:last-child {
+            min-width: 0;
+          }
+          .chat-menu-item-main {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            flex: 1;
+          }
+          .chat-menu-chevron {
+            flex-shrink: 0;
+          }
+          .chat-header-menu .chat-menu-item:hover,
+          .chat-header-menu .chat-menu-item.is-open {
+            background: #f4f4f5;
+          }
+          .chat-menu-submenu {
+            position: absolute;
+            top: 0;
+            right: calc(100% + 10px);
+            min-width: 188px;
+            max-height: 318px;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 18px 40px rgba(17, 17, 17, 0.18);
+            padding: 6px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(17, 17, 17, 0.18) transparent;
+            opacity: 0;
+            transform: translateY(8px) scale(0.96);
+            transform-origin: top right;
+            pointer-events: none;
+            transition: opacity 0.22s ease, transform 0.22s ease;
+            z-index: 13;
+          }
+          .chat-menu-submenu.show {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+          }
+          .chat-menu-language-item {
+            width: 100%;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 6px 10px;
+            color: #111111;
+            cursor: pointer;
+            text-align: left;
+            font-size: 14px;
+            line-height: 1.2;
+          }
+          .chat-menu-language-item:hover {
+            background: #f4f4f5;
+          }
+          .chat-menu-language-item.active {
+            background: #f1f1f3;
           }
           
           .chat-widget.expanded {
@@ -2134,7 +2207,7 @@
           .floating-launcher-prompt {
             --floating-help-pill-right-rest: 70px;
             --floating-help-pill-right-typing: 0px;
-            --floating-help-pill-top-space: 54px;
+            --floating-help-pill-top-space: 40px;
             position: relative;
             width: min(690px, calc(100vw - 48px));
             min-height: calc(56px + var(--floating-help-pill-top-space));
@@ -2187,9 +2260,9 @@
             border: none;
             background: #ffffff;
             border-radius: 999px 999px 0 999px;
-            padding: 12px 22px;
+            padding: 8px 16px;
             color: #111111;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             line-height: 1;
             box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
@@ -2376,7 +2449,7 @@
           }
           .floating-launcher-prompt.widget-open .floating-prompt-send {
             background: var(--color-primary, #471791);
-            box-shadow: 0 14px 30px rgba(244, 69, 105, 0.3);
+            box-shadow: 0 14px 30px rgba(var(--color-primary, #471791), 0.3);
             pointer-events: auto;
           }
           .floating-launcher-prompt.widget-open .floating-prompt-send-icon-chat {
@@ -2510,15 +2583,15 @@
               width: min(92vw, 460px);
               --floating-help-pill-right-rest: 52px;
               --floating-help-pill-right-typing: 0px;
-              --floating-help-pill-top-space: 50px;
+              --floating-help-pill-top-space: 40px;
             }
             .floating-launcher-prompt.is-collapsed .floating-input-shell {
               width: 58px;
               min-height: 58px;
             }
             .floating-help-pill {
-              padding: 10px 18px;
-              font-size: 15px;
+              padding: 8px 16px;
+              font-size: 14px;
             }
             .floating-input-shell {
               min-height: 56px;
@@ -3127,15 +3200,38 @@
 </svg>
                     </button>
                     <div id="headerMenuDropdown" class="chat-header-menu hidden">
+                      <div class="chat-header-menu-list">
+                      <button id="headerLanguageBtn" class="chat-menu-item has-submenu" type="button">
+                        <span class="chat-menu-item-main">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+                          <span>Language</span>
+                        </span>
+                        <svg class="chat-menu-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                      </button>
                       <button id="downloadTranscriptBtn" class="chat-menu-item" type="button">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
                         <span>Download transcript</span>
+                      </button>
+                      <button id="headerHelpBtn" class="chat-menu-item" type="button">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9.09 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                        <span>Help</span>
                       </button>
                       <button id="clearConversationBtn" class="chat-menu-item" type="button">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2 lucide-trash-2 h-4 w-4 text-muted-foreground" aria-hidden="true"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
 						</svg>
                         <span>Clear conversation</span>
                       </button>
+                      </div>
+                      <div id="headerLanguageMenu" class="chat-menu-submenu">
+                        ${this.supportedLanguages
+							.map(
+								(language) => `
+                          <button class="chat-menu-language-item${language.code === this.selectedLanguage ? " active" : ""}" type="button" data-code="${this.escapeHtml(language.code)}">
+                            <span>${this.escapeHtml(language.label)}</span>
+                          </button>`,
+							)
+							.join("")}
+                      </div>
                     </div>
                 </div>
             </div>
@@ -3453,6 +3549,22 @@
 					this.shadowRoot.getElementById(
 						"headerMenuDropdown",
 					),
+				headerLanguageBtn:
+					this.shadowRoot.getElementById(
+						"headerLanguageBtn",
+					),
+				headerLanguageMenu:
+					this.shadowRoot.getElementById(
+						"headerLanguageMenu",
+					),
+				headerLanguageItems:
+					this.shadowRoot.querySelectorAll(
+						".chat-menu-language-item",
+					),
+				headerHelpBtn:
+					this.shadowRoot.getElementById(
+						"headerHelpBtn",
+					),
 				downloadTranscriptBtn:
 					this.shadowRoot.getElementById(
 						"downloadTranscriptBtn",
@@ -3653,6 +3765,12 @@
 					"click",
 					(e) => {
 						e.stopPropagation();
+						this.elements.headerLanguageMenu?.classList.remove(
+							"show",
+						);
+						this.elements.headerLanguageBtn?.classList.remove(
+							"is-open",
+						);
 						this.elements.headerMenuDropdown?.classList.toggle(
 							"hidden",
 						);
@@ -3676,6 +3794,26 @@
 					(e) => e.stopPropagation(),
 				);
 			}
+			if (this.elements.headerLanguageBtn) {
+				this.elements.headerLanguageBtn.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						const willShow =
+							!this.elements.headerLanguageMenu?.classList.contains(
+								"show",
+							);
+						this.elements.headerLanguageMenu?.classList.toggle(
+							"show",
+							willShow,
+						);
+						this.elements.headerLanguageBtn?.classList.toggle(
+							"is-open",
+							willShow,
+						);
+					},
+				);
+			}
 			if (this.elements.downloadTranscriptBtn) {
 				this.elements.downloadTranscriptBtn.addEventListener(
 					"click",
@@ -3687,6 +3825,37 @@
 					},
 				);
 			}
+			if (this.elements.headerHelpBtn) {
+				this.elements.headerHelpBtn.addEventListener(
+					"click",
+					() => {
+						const helpUrl = sanitizeURL(
+							this.config.introHelpOptionOneUrl ||
+								this.config.introHelpOptionTwoUrl ||
+								"",
+						);
+						this.elements.headerMenuDropdown?.classList.add(
+							"hidden",
+						);
+						this.elements.headerLanguageMenu?.classList.remove(
+							"show",
+						);
+						this.elements.headerLanguageBtn?.classList.remove(
+							"is-open",
+						);
+						if (helpUrl) {
+							window.open(
+								helpUrl,
+								"_blank",
+								"noopener,noreferrer",
+							);
+							return;
+						}
+						this.hasStartedChat = false;
+						this.showIntroScreen(true);
+					},
+				);
+			}
 			if (this.elements.clearConversationBtn) {
 				this.elements.clearConversationBtn.addEventListener(
 					"click",
@@ -3694,6 +3863,12 @@
 						this.clearConversation();
 						this.elements.headerMenuDropdown?.classList.add(
 							"hidden",
+						);
+						this.elements.headerLanguageMenu?.classList.remove(
+							"show",
+						);
+						this.elements.headerLanguageBtn?.classList.remove(
+							"is-open",
 						);
 					},
 				);
@@ -3705,6 +3880,23 @@
 					const code =
 						item.getAttribute("data-code");
 					this.handleLanguageSelect(code);
+				});
+			});
+			this.elements.headerLanguageItems.forEach((item) => {
+				item.addEventListener("click", (e) => {
+					e.stopPropagation();
+					const code =
+						item.getAttribute("data-code");
+					this.handleLanguageSelect(code);
+					this.elements.headerLanguageMenu?.classList.remove(
+						"show",
+					);
+					this.elements.headerLanguageBtn?.classList.remove(
+						"is-open",
+					);
+					this.elements.headerMenuDropdown?.classList.add(
+						"hidden",
+					);
 				});
 			});
 
@@ -3722,6 +3914,16 @@
 					if (this.elements.langDropdown) {
 						this.elements.langDropdown.classList.remove(
 							"show",
+						);
+					}
+					if (this.elements.headerLanguageMenu) {
+						this.elements.headerLanguageMenu.classList.remove(
+							"show",
+						);
+					}
+					if (this.elements.headerLanguageBtn) {
+						this.elements.headerLanguageBtn.classList.remove(
+							"is-open",
 						);
 					}
 					if (this.elements.chatEmojiPicker) {
@@ -3815,6 +4017,16 @@
 					item.classList.remove("active");
 				}
 			});
+			this.elements.headerLanguageItems.forEach((item) => {
+				if (
+					item.getAttribute("data-code") ===
+					nextLanguage
+				) {
+					item.classList.add("active");
+				} else {
+					item.classList.remove("active");
+				}
+			});
 
 			// Close dropdown
 			if (this.elements.langDropdown) {
@@ -3822,6 +4034,12 @@
 					"show",
 				);
 			}
+			this.elements.headerLanguageMenu?.classList.remove(
+				"show",
+			);
+			this.elements.headerLanguageBtn?.classList.remove(
+				"is-open",
+			);
 		}
 
 		setAwaitingResponse(isAwaiting) {

@@ -25,7 +25,7 @@ export const floatingCSS = `
   .floating-launcher-prompt {
     --floating-help-pill-right-rest: 70px;
     --floating-help-pill-right-typing: 0px;
-    --floating-help-pill-top-space: 54px;
+    --floating-help-pill-top-space: 40px;
     position: relative;
     width: min(690px, calc(100vw - 48px));
     min-height: calc(56px + var(--floating-help-pill-top-space));
@@ -81,9 +81,9 @@ export const floatingCSS = `
     border: none;
     background: #fff;
     border-radius: 999px 999px 0 999px;
-    padding: 12px 22px;
+    padding: 8px 16px;
     color: #111111;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1;
     box-shadow: 0 10px 26px rgba(0,0,0,0.14);
@@ -394,7 +394,7 @@ export const floatingCSS = `
       width: min(92vw, 460px);
       --floating-help-pill-right-rest: 52px;
       --floating-help-pill-right-typing: 0px;
-      --floating-help-pill-top-space: 50px;
+      --floating-help-pill-top-space: 40px;
     }
     .floating-help-pill {
       padding: 10px 18px;
