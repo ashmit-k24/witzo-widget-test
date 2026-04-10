@@ -1371,7 +1371,7 @@
             padding: 6px 10px;
             cursor: pointer;
             text-align: left;
-            font-size: 14px;
+            font-size: 13px;
             line-height: 1.2;
             color: #111111;
           }
@@ -1381,6 +1381,7 @@
           .chat-header-menu .chat-menu-item > svg {
             flex-shrink: 0;
           }
+			
           .chat-header-menu .chat-menu-item > span:last-child {
             min-width: 0;
           }
@@ -1398,11 +1399,15 @@
           .chat-header-menu .chat-menu-item.is-open {
             background: #f4f4f5;
           }
+			.chat-header-menu .chat-menu-item > svg{
+			    width: 14px;
+    			height: 14px;
+			}
           .chat-menu-submenu {
             position: absolute;
             top: 0;
             right: calc(100% + 10px);
-            min-width: 188px;
+            min-width: 160px;
             max-height: 318px;
             background: #ffffff;
             border-radius: 16px;
@@ -1479,10 +1484,17 @@
             transition: all 0.6s ease-in-out;
 			border-radius:20px 20px 0 0;
           }
+			.message-feedback{
+				display:none;
+			}
+
+			#headerHelpBtn{
+			display:none;
+			}
           .messages-fade-overlay {
             position: fixed;
             pointer-events: none;
-            z-index: 2147483648;
+            z-index: 11;
             opacity: 0;
             transition: opacity 0.18s ease;
           }
@@ -2547,7 +2559,7 @@
           }
           .floating-launcher-prompt.is-typing .floating-prompt-send-icon-arrow {
             opacity: 1;
-            transform: scale(1);
+            transform: scale(1.2);
           }
           .floating-launcher-prompt.is-typing .floating-prompt-send {
             background: var(--color-primary, #471791);
@@ -3561,9 +3573,9 @@
                         </div>
                         <button class="chat-send-btn" id="textSendButton" disabled aria-disabled="true">
                             <div class="chat-send-icon">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="17" viewBox="0 0 14 17" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M7 15V1M7 1L1 7M7 1L13 7" stroke="white"/>
-                                </svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="14" viewBox="0 0 12 14" fill="none">
+<path d="M5.95833 12.6189L5.95833 0.885562M5.95833 0.885562L0.625 6.26334M5.95833 0.885562L11.2917 6.26334" stroke="white" stroke-width="1.24705" stroke-linecap="round"/>
+</svg>
                             </div>
                         </button>
                     </div>
