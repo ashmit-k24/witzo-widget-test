@@ -2919,31 +2919,65 @@
           /* Typing Indicators */
            .typing-indicator {
             display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+          }
+          .typing-status-text {
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 1.25;
+            display: flex;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 0.25rem;
+            row-gap: 2px;
+            column-gap: 0;
+          }
+          .typing-status-char {
+            display: inline-block;
+            background: linear-gradient(90deg, #820DEF 0%, #ED4355 100%);
+            background-size: 200% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            opacity: 0.38;
+            transform: translateY(0.18em) scale(0.98);
+            filter: blur(0.4px);
+            animation: typingStatusChar 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+            animation-delay: calc(var(--char-index, 0) * 0.035s);
+            will-change: transform, opacity, filter, background-position;
+          }
+          .typing-status-char.space {
+            width: 0.38em;
+            background: none;
+            opacity: 1;
+            filter: none;
+            transform: none;
+            animation: none;
           }
            .typing-container{
-              border-radius: 50px;
-              padding: 7px 15px;
-              font-size: 14px;
-              color: #4b4b4b;
+              background-color: #F1F1F1;
+              padding: 0 16px;
+              border-top-left-radius: 2px;
+              border-top-right-radius: 16px;
+              border-bottom-right-radius: 16px;
+              border-bottom-left-radius: 16px;
               display: flex;
               align-items: center;
               justify-content: center;
-              gap: 3px;
+              gap: 6px;
               position: relative;
-              height: 36px;
-
+              height: 40px;
+              min-width: 72px;
             }
              
            .typing-dots-text  {
-            font-size: 2.5rem;
-            line-height: 1;
+            width: 6px;
+            height: 6px;
             animation: typingBounce 2.2s infinite;
-            opacity: 0;
-            display: inline-block;
-            position: relative;
-            top: -9px;
+            opacity: 0.55;
+            display: block;
+            background: #111111;
 			border-radius: 50%;
           }
            .typing-dots-text:nth-child(1) { animation-delay: 0s; }
@@ -2953,6 +2987,26 @@
            @keyframes typingBounce {
             0%, 100% { opacity: 0.5; transform: translateY(0); }
             50% { opacity: 1; transform: translateY(-3px); }
+          }
+          @keyframes typingStatusChar {
+            0%, 100% {
+              opacity: 0.34;
+              transform: translateY(0.18em) scale(0.98);
+              filter: blur(0.45px);
+              background-position: 0% 50%;
+            }
+            45% {
+              opacity: 1;
+              transform: translateY(0) scale(1);
+              filter: blur(0);
+              background-position: 100% 50%;
+            }
+            60% {
+              opacity: 0.96;
+              transform: translateY(0) scale(1);
+              filter: blur(0);
+              background-position: 100% 50%;
+            }
           }
 
            #logoIcon{
@@ -5282,10 +5336,11 @@
 			bubble.className =
 				"typing-indicator chat-bubble-ai"; // Borrow styles
 			bubble.innerHTML = `
+            ${this.getTypingStatusMarkup()}
             <div class="typing-container">
-                <span class="typing-dots-text">.</span>
-                <span class="typing-dots-text">.</span>
-                <span class="typing-dots-text">.</span>
+                <span class="typing-dots-text"></span>
+                <span class="typing-dots-text"></span>
+                <span class="typing-dots-text"></span>
             </div>
         `;
 
@@ -5393,6 +5448,21 @@
 
 		getBotMessageMarkup(text) {
 			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${this.getMessageFeedbackMarkup()}</div>`;
+		}
+
+		getTypingStatusMarkup(
+			text = "Finding the perfect result for you!",
+		) {
+			const chars = Array.from(text);
+			const charMarkup = chars
+				.map((char, index) => {
+					if (char === " ") {
+						return `<span class="typing-status-char space" aria-hidden="true" style="--char-index:${index}"></span>`;
+					}
+					return `<span class="typing-status-char" aria-hidden="true" style="--char-index:${index}">${this.escapeHtml(char)}</span>`;
+				})
+				.join("");
+			return `<div class="typing-status-text" aria-label="${this.escapeHtml(text)}">${charMarkup}</div>`;
 		}
 
 		closeAllMessageFeedbackMenus() {

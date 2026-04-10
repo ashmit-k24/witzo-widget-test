@@ -88,14 +88,73 @@ export const chatCSS = `
   .md-content a:hover { text-decoration: underline; }
 
   .typing-container {
-    display: flex; align-items: center; gap: 5px; padding: 10px 2px;
+    background-color: #F1F1F1;
+    padding: 0 16px;
+    border-top-left-radius: 2px;
+    border-top-right-radius: 16px;
+    border-bottom-right-radius: 16px;
+    border-bottom-left-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    position: relative;
+    height: 40px;
+    min-width: 72px;
   }
-  .typing-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #94a3b8; display: inline-block;
-    animation: typingBounce 1.4s ease-in-out infinite;
+  .typing-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
-  .typing-dot:nth-child(1) { animation-delay: 0s; }
-  .typing-dot:nth-child(2) { animation-delay: 0.18s; }
-  .typing-dot:nth-child(3) { animation-delay: 0.36s; }
+  .typing-status-text {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.25;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 2px;
+    column-gap: 0;
+  }
+  .typing-status-char {
+    display: inline-block;
+    background: linear-gradient(90deg, #820DEF 0%, #ED4355 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    opacity: 0.38;
+    transform: translateY(1px) scale(0.98);
+    filter: blur(0.4px);
+    animation: typingStatusChar 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    animation-delay: calc(var(--char-index, 0) * 0.035s);
+    will-change: transform, opacity, filter, background-position;
+  }
+  .typing-status-char.space {
+    width: 3px;
+    background: none;
+    opacity: 1;
+    filter: none;
+    transform: none;
+    animation: none;
+  }
+  .typing-dots-text {
+    width: 6px;
+    height: 6px;
+    animation: typingBounce 2.2s infinite;
+    opacity: 0.55;
+    display: block;
+    background: #111111;
+    border-radius: 50%;
+  }
+  .typing-dots-text:nth-child(1) { animation-delay: 0s; }
+  .typing-dots-text:nth-child(2) { animation-delay: 0.5s; }
+  .typing-dots-text:nth-child(3) { animation-delay: 1s; }
+  @keyframes typingStatusChar {
+    0%, 100% { opacity: 0.34; transform: translateY(1px) scale(0.98); filter: blur(0.45px); background-position: 0% 50%; }
+    45% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); background-position: 100% 50%; }
+    60% { opacity: 0.96; transform: translateY(0) scale(1); filter: blur(0); background-position: 100% 50%; }
+  }
 `;
