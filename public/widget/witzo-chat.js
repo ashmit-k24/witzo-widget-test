@@ -2565,12 +2565,32 @@
               right: 14px;
               bottom: 14px;
             }
-            #textChatWidget.intro-mode {
-              width: min(570px, 30em);
-              height: min(570px, 82vh);
-              min-height: min(570px, 82vh);
-              max-height: min(570px, 82vh);
+            #floatingBtn .floating-launcher.widget-open {
+              opacity: 0 !important;
+              pointer-events: none !important;
+              transform: translateY(12px) scale(0.96);
             }
+            #textChatWidget {
+              inset: 0;
+              right: auto;
+              bottom: auto;
+              width: 100vw;
+              max-width: 100vw;
+              height: 100vh;
+              min-height: 100vh;
+              max-height: 100vh;
+              border-radius: 0;
+            }
+            #textChatWidget.intro-mode {
+              width: 100vw;
+              height: 100vh;
+              min-height: 100vh;
+              max-height: 100vh;
+              border-radius: 0;
+            }
+			.chat-header{
+			  border-radius: 0; 
+			}
             .floating-launcher-full {
               width: 230px;
             }
@@ -2603,15 +2623,17 @@
               height: 58px;
             }
             .chat-widget.expanded {
-              width: min(96vw, 555px) !important;
-              max-width: min(96vw, 555px) !important;
-              height: 80vh !important;
-              min-height: 80vh !important;
-              max-height: 80vh !important;
-              right: 2vw !important;
+              inset: 0 !important;
+              right: auto !important;
+              width: 100vw !important;
+              max-width: 100vw !important;
+              height: 100vh !important;
+              min-height: 100vh !important;
+              max-height: 100vh !important;
+              border-radius: 0 !important;
             }
 			  .chat-widget.expanded.intro-mode {
-              height: 554px !important;
+              height: 100vh !important;
 				
 			  }
 
@@ -3219,13 +3241,13 @@
                       </div>
                       <div id="headerLanguageMenu" class="chat-menu-submenu">
                         ${this.supportedLanguages
-							.map(
-								(language) => `
+					.map(
+						(language) => `
                           <button class="chat-menu-language-item${language.code === this.selectedLanguage ? " active" : ""}" type="button" data-code="${this.escapeHtml(language.code)}">
                             <span>${this.escapeHtml(language.label)}</span>
                           </button>`,
-							)
-							.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                 </div>
@@ -3826,8 +3848,8 @@
 					() => {
 						const helpUrl = sanitizeURL(
 							this.config.introHelpOptionOneUrl ||
-								this.config.introHelpOptionTwoUrl ||
-								"",
+							this.config.introHelpOptionTwoUrl ||
+							"",
 						);
 						this.elements.headerMenuDropdown?.classList.add(
 							"hidden",
