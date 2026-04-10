@@ -16,18 +16,28 @@ export const headerCSS = `
     display: flex; align-items: center; justify-content: center;
   }
   .bot-msg-chat-icon {
-    width: 40px; height: 40px; border-radius: 50%;
-    padding: 4px; margin-right: 6px;
-    display: flex; align-items: center; justify-content: center;
-    background: #f1f5f9; flex-shrink: 0;
+    margin-right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-primary, #8B27FB);
   }
   .bot-msg-chat-icon img {
     width: 100%; height: 100%; object-fit: contain; border-radius: 50%;
     box-shadow: 0px 2.4px 4.8px 0px #00000033;
   }
   #logoIcon { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
-  .chat-title { color: #fff; font-size: 14px; font-weight: 500; margin: 0; }
-  .chat-header-right { display: flex; align-items: center; }
+  .chat-title { 
+    font-weight: 700;
+	  font-style: Bold;
+	  font-size: 15px;
+	  letter-spacing: 0%;
+	  vertical-align: middle;
+    font-family: "Plus Jakarta Sans", sans-serif;
+		margin: 0 !important;
+
+  }
+  .chat-header-right { display: flex; align-items: center;gap:10px }
   .chat-action-btn {
     border: none; background: transparent; border-radius: 0.5rem;
     display: flex; align-items: center; justify-content: center;

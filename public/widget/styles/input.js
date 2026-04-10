@@ -4,12 +4,13 @@ export const inputCSS = `
     padding: 1rem; padding-bottom: 0.25rem;
     background: #fff; border-top: 1px solid #e2e8f0;
     display: flex; flex-direction: column; align-items: center;
-    gap: 0.75rem; overflow: visible;
+    gap: 0.75rem; overflow: visible; position: relative; z-index: 4;
   }
   .chat-input-container {
     display: flex; width: 100%; gap: 0.5rem;
-    align-items: center; justify-content: space-between; position: relative;
+    align-items: center; justify-content: space-between; position: relative; z-index: 4;
   }
+  .chat-input-left-actions { position: relative; z-index: 5; }
   .chat-text-input {
     flex: 1; width: 100%; background: #fff; border-radius: 9999px;
     padding: 14px 24px; padding-right: 65px !important;
@@ -76,4 +77,8 @@ export const inputCSS = `
   .lang-dropdown-item.active { color: var(--color-primary, #fc0e3f); background: #f8fafc; }
   .lang-check { width: 14px; height: 14px; color: var(--color-primary, #fc0e3f); opacity: 0; }
   .lang-dropdown-item.active .lang-check { opacity: 1; }
+
+  .chat-emoji-picker {
+    z-index: 12;
+  }
 `;

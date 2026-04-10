@@ -1,7 +1,13 @@
 /* Uses CSS vars: --color-user-bubble */
 export const chatCSS = `
   .chat-messages {
-    padding: 1.25rem; background: #fff; flex: 1;
+    --chat-messages-pad-top: 30px;
+    --chat-messages-pad-side: 16px;
+    --chat-messages-pad-bottom: 16px;
+    --chat-messages-fade-size: 34px;
+    padding: var(--chat-messages-pad-top) var(--chat-messages-pad-side) var(--chat-messages-pad-bottom);
+    background: #fff;
+    flex: 1;
     overflow-y: auto; display: flex; flex-direction: column; gap: 1rem;
     scrollbar-width: thin; scrollbar-color: #888 #f5f5f5;
     transition: all 0.6s ease-in-out;
@@ -12,12 +18,41 @@ export const chatCSS = `
 
   .chat-bubble-ai  { padding: 0; max-width: min(420px, calc(100vw - 110px)); color: #0f172a; font-size: 0.875rem; line-height: 1.45; }
   .chat-bubble-user {
-    background: var(--color-user-bubble, #ffdde4);
-    color: #fff; border-radius: 11px 0 11px 11px;
-    padding: 10px 22px; max-width: min(360px, calc(100vw - 110px)); font-size: 0.875rem; line-height: 1.4;
+    	border: solid 1px #D3D3D3;
+			padding:10px 16px;
+            max-width: 280px;
+            font-size: 14px;
+            line-height: 1.3;
+			    border-top-left-radius: 16px;
+    		border-top-right-radius: 16px;
+    		border-bottom-right-radius: 2px;
+    		border-bottom-left-radius: 16px;
+            position: relative;
+            z-index: 2;
   }
 
-  .bot-message-row { display: flex; flex-direction: row; align-items: flex-start; gap: 0.5rem; }
+  .bot-message-row { display: flex; flex-direction: row; align-items: flex-start; gap: 0.5rem; position: relative; z-index: 2; }
+  .bot-response-block { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; position: relative; }
+  .message-feedback-row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin-left: 56px;
+    position: relative;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+    margin-top: 3px;
+  }
+  .bot-response-block:hover .message-feedback-row,
+  .message-feedback:hover .message-feedback-row,
+  .message-feedback:focus-within .message-feedback-row {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
 
   .md-content { line-height: 1.65; word-break: break-word; }
   .md-content strong { font-weight: 600; }
@@ -53,14 +88,71 @@ export const chatCSS = `
   .md-content a:hover { text-decoration: underline; }
 
   .typing-container {
-    display: flex; align-items: center; gap: 5px; padding: 10px 2px;
+    background-color: #F1F1F1;
+    padding: 0 16px;
+    border-top-left-radius: 2px;
+    border-top-right-radius: 16px;
+    border-bottom-right-radius: 16px;
+    border-bottom-left-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    position: relative;
+    height: 40px;
+    min-width: 72px;
   }
-  .typing-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #94a3b8; display: inline-block;
-    animation: typingBounce 1.4s ease-in-out infinite;
+  .typing-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
-  .typing-dot:nth-child(1) { animation-delay: 0s; }
-  .typing-dot:nth-child(2) { animation-delay: 0.18s; }
-  .typing-dot:nth-child(3) { animation-delay: 0.36s; }
+  .typing-status-text {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.25;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 2px;
+    column-gap: 0;
+  }
+  .typing-status-char {
+    display: inline-block;
+    background: linear-gradient(90deg, #820DEF 0%, #ED4355 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    opacity: 0.38;
+    filter: blur(0.4px);
+    animation: typingStatusChar 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    animation-delay: calc(var(--char-index, 0) * 0.035s);
+    will-change: opacity, filter, background-position;
+  }
+  .typing-status-char.space {
+    width: 3px;
+    background: none;
+    opacity: 1;
+    filter: none;
+    animation: none;
+  }
+  .typing-dots-text {
+    width: 6px;
+    height: 6px;
+    animation: typingBounce 2.2s infinite;
+    opacity: 0.55;
+    display: block;
+    background: #111111;
+    border-radius: 50%;
+  }
+  .typing-dots-text:nth-child(1) { animation-delay: 0s; }
+  .typing-dots-text:nth-child(2) { animation-delay: 0.5s; }
+  .typing-dots-text:nth-child(3) { animation-delay: 1s; }
+  @keyframes typingStatusChar {
+    0%, 100% { opacity: 0.34; filter: blur(0.45px); background-position: 0% 50%; }
+    45% { opacity: 1; filter: blur(0); background-position: 100% 50%; }
+    60% { opacity: 0.96; filter: blur(0); background-position: 100% 50%; }
+  }
 `;
