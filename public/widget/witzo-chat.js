@@ -1450,7 +1450,7 @@
             color: #111111;
             cursor: pointer;
             text-align: left;
-            font-size: 14px;
+            font-size: 13px;
             line-height: 1.2;
           }
           .chat-menu-language-item:hover {
@@ -1497,9 +1497,7 @@
             transition: all 0.6s ease-in-out;
 			border-radius:20px 20px 0 0;
           }
-			.message-feedback{
-				display:none;
-			}
+			
 
 			#headerHelpBtn{
 			display:none;
@@ -1620,8 +1618,8 @@
           /* Beam Implementaton */
           .chat-input-beam {
             position: absolute;
-            width: 80px;
-            height: 4px;
+            width: 50px;
+            height: 3px;
             background: var(--color-banner-bg, #120b14);
             filter: blur(18px);
             border-radius: 50%;
@@ -1638,15 +1636,15 @@
           }
 
           @keyframes orbitBeam {
-            0%   { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); width: 80px; }
-            38%  { top: 0%; left: 100%; transform: translate(-50%, -50%) rotate(0deg); width: 80px; }
-            40%  { top: 0%; left: 100%; transform: translate(-50%, -50%) rotate(90deg); width: 40px; }
-            48%  { top: 100%; left: 100%; transform: translate(-50%, -50%) rotate(90deg); width: 40px; }
-            50%  { top: 100%; left: 100%; transform: translate(-50%, -50%) rotate(180deg); width: 80px; }
-            88%  { top: 100%; left: 0%; transform: translate(-50%, -50%) rotate(180deg); width: 80px; }
-            90%  { top: 100%; left: 0%; transform: translate(-50%, -50%) rotate(270deg); width: 40px; }
-            98%  { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(270deg); width: 40px; }
-            100% { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(360deg); width: 80px; }
+            0%   { top: 6%; left: 8%; width: 44px; transform: translate(-50%, -50%); }
+            22%  { top: 6%; left: 50%; width: 48px; transform: translate(-50%, -50%); }
+            40%  { top: 6%; left: 92%; width: 44px; transform: translate(-50%, -50%); }
+            50%  { top: 18%; left: 94%; width: 32px; transform: translate(-50%, -50%); }
+            60%  { top: 82%; left: 94%; width: 32px; transform: translate(-50%, -50%); }
+            70%  { top: 94%; left: 92%; width: 44px; transform: translate(-50%, -50%); }
+            84%  { top: 94%; left: 50%; width: 48px; transform: translate(-50%, -50%); }
+            94%  { top: 94%; left: 8%; width: 44px; transform: translate(-50%, -50%); }
+            100% { top: 6%; left: 8%; width: 44px; transform: translate(-50%, -50%); }
           }
           
           .chat-input-container:focus-within {
