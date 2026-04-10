@@ -2378,7 +2378,7 @@
             --floating-close-btn-right-typing: calc(var(--floating-help-pill-right-typing) + 4px);
             --floating-help-pill-top-space: 66px;
             position: relative;
-            width: min(690px, calc(100vw - 48px));
+            width: min(460px, calc(100vw - 48px));
             min-height: calc(56px + var(--floating-help-pill-top-space));
             display: flex;
             flex-direction: column;
@@ -2925,7 +2925,7 @@
           }
           .typing-status-text {
             font-size: 14px;
-            font-weight: 600;
+            font-weight: 500;
             line-height: 1.25;
             display: flex;
             flex-wrap: wrap;
@@ -2935,24 +2935,22 @@
           }
           .typing-status-char {
             display: inline-block;
-            background: linear-gradient(90deg, #820DEF 0%, #ED4355 100%);
+            background: linear-gradient(90deg, var(--color-primary) 0%,  var(--color-banner-bg) 100%);
             background-size: 200% 100%;
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
             opacity: 0.38;
-            transform: translateY(0.18em) scale(0.98);
             filter: blur(0.4px);
             animation: typingStatusChar 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
             animation-delay: calc(var(--char-index, 0) * 0.035s);
-            will-change: transform, opacity, filter, background-position;
+            will-change: opacity, filter, background-position;
           }
           .typing-status-char.space {
             width: 0.38em;
             background: none;
             opacity: 1;
             filter: none;
-            transform: none;
             animation: none;
           }
            .typing-container{
@@ -2991,19 +2989,16 @@
           @keyframes typingStatusChar {
             0%, 100% {
               opacity: 0.34;
-              transform: translateY(0.18em) scale(0.98);
               filter: blur(0.45px);
               background-position: 0% 50%;
             }
             45% {
               opacity: 1;
-              transform: translateY(0) scale(1);
               filter: blur(0);
               background-position: 100% 50%;
             }
             60% {
               opacity: 0.96;
-              transform: translateY(0) scale(1);
               filter: blur(0);
               background-position: 100% 50%;
             }
