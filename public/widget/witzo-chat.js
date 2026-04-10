@@ -2842,7 +2842,7 @@
             }
             .floating-launcher-prompt {
               width: min(92vw, 460px);
-              --floating-help-pill-right-rest: 52px;
+              --floating-help-pill-right-rest: 70px;
               --floating-help-pill-right-typing: 0px;
               --floating-close-btn-right-rest: calc(var(--floating-help-pill-right-rest) + 4px);
               --floating-close-btn-right-typing: calc(var(--floating-help-pill-right-typing) + 4px);
