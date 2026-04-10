@@ -364,6 +364,10 @@
 			this._bindCalendlyMessageListener();
 			this._messagesFadeSyncHandler = () =>
 				this.updateMessagesFadeOverlays();
+			this._messagesScrollUiHandler = () => {
+				this._messagesFadeSyncHandler?.();
+				this.updateScrollBottomButton();
+			};
 			window.addEventListener(
 				"resize",
 				this._messagesFadeSyncHandler,
@@ -375,10 +379,12 @@
 			);
 			this.elements.messagesContainer?.addEventListener(
 				"scroll",
-				this._messagesFadeSyncHandler,
+				this._messagesScrollUiHandler,
 				{ passive: true },
 			);
+			this._bindMessagesFadeResizeObservers?.();
 			this.updateMessagesFadeOverlays();
+			this.updateScrollBottomButton();
 
 
 			this.hasStartedChat = true;
@@ -443,6 +449,7 @@
 				);
 				this._calendlyMessageHandler = null;
 			}
+			this._unbindMessagesFadeResizeObservers?.();
 			if (this._messagesFadeSyncHandler) {
 				window.removeEventListener(
 					"resize",
@@ -455,10 +462,62 @@
 				);
 				this.elements.messagesContainer?.removeEventListener(
 					"scroll",
-					this._messagesFadeSyncHandler,
+					this._messagesScrollUiHandler,
 				);
+				this._messagesScrollUiHandler = null;
 				this._messagesFadeSyncHandler = null;
 			}
+		}
+
+		_bindMessagesFadeResizeObservers() {
+			if (this._messagesFadeResizeObserver) {
+				return;
+			}
+			if (typeof ResizeObserver === "undefined") {
+				return;
+			}
+
+			const targets = [];
+			if (this.elements?.widget) targets.push(this.elements.widget);
+			if (this.elements?.messagesContainer) targets.push(this.elements.messagesContainer);
+			if (this.elements?.chatInputContainer) targets.push(this.elements.chatInputContainer);
+			if (this.elements?.textMessageInput) targets.push(this.elements.textMessageInput);
+
+			if (!targets.length) {
+				return;
+			}
+
+			this._messagesFadeResizeQueued = false;
+			this._messagesFadeResizeObserverTargets = targets;
+			this._messagesFadeResizeObserver = new ResizeObserver(() => {
+				if (this._messagesFadeResizeQueued) return;
+				this._messagesFadeResizeQueued = true;
+				requestAnimationFrame(() => {
+					this._messagesFadeResizeQueued = false;
+					this.updateMessagesFadeOverlays?.();
+					this.updateScrollBottomButton?.();
+				});
+			});
+			for (const el of targets) {
+				try {
+					this._messagesFadeResizeObserver.observe(el);
+				} catch (_) {
+					// ignore
+				}
+			}
+		}
+
+		_unbindMessagesFadeResizeObservers() {
+			if (this._messagesFadeResizeObserver) {
+				try {
+					this._messagesFadeResizeObserver.disconnect();
+				} catch (_) {
+					// ignore
+				}
+			}
+			this._messagesFadeResizeObserver = null;
+			this._messagesFadeResizeObserverTargets = null;
+			this._messagesFadeResizeQueued = false;
 		}
 
 		initializeSession() {
@@ -1806,6 +1865,43 @@
             transition: opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1);
 			background: var(--color-banner-bg, #471791);
             overflow: hidden;
+            position: relative;
+          }
+          .scroll-bottom-btn {
+           position: absolute;
+    		left: 50%;
+    		bottom: 129px;
+    		transform: translateX(-50%) translateY(10px);
+    		width: 40px;
+    		height: 40px;;
+            border: none;
+            border-radius: 999px;
+            background: #ffffff;
+            color: #111111;
+            box-shadow: 0px 2px 10px 0px #00000029;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+            z-index: 8;
+          }
+          .scroll-bottom-btn.show {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateX(-50%) translateY(0);
+          }
+          
+          .scroll-bottom-btn svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            stroke-width: 2.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
           }
 
           .intro-screen {
@@ -3375,6 +3471,11 @@
             <div id="textMessagesArea" class="chat-messages" data-lenis-prevent>
                 <!-- Messages will be appended here -->
             </div>
+            <button id="scrollBottomBtn" class="scroll-bottom-btn hidden" type="button" aria-label="Scroll to latest messages">
+             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="7" viewBox="0 0 12 7" fill="none">
+			<path d="M0.625 0.623535L5.625 5.62353L10.625 0.623536" stroke="black" stroke-width="1.24705" stroke-linecap="round"/>
+			</svg>
+            </button>
 
             <!-- Contact Form (basic plan — shown when conversation limit hit) -->
             <div id="contactFormSlot" class="contact-form hidden">
@@ -3517,6 +3618,10 @@
 				messagesContainer:
 					this.shadowRoot.getElementById(
 						"textMessagesArea",
+					),
+				scrollBottomBtn:
+					this.shadowRoot.getElementById(
+						"scrollBottomBtn",
 					),
 				messagesFadeTop:
 					this.shadowRoot.getElementById(
@@ -4019,6 +4124,15 @@
 				(e) =>
 					this.handleMessageFeedbackClick(e),
 			);
+			if (this.elements.scrollBottomBtn) {
+				this.elements.scrollBottomBtn.addEventListener(
+					"click",
+					() => {
+						this.queueScrollToBottom();
+						this.updateScrollBottomButton();
+					},
+				);
+			}
 
 			// Hope Banner Buttons
 			if (this.elements.hopeBannerUp) {
@@ -4434,6 +4548,19 @@
 			bottom.style.top = `${rect.bottom - overlayHeight}px`;
 			bottom.style.width = `${rect.width}px`;
 			bottom.style.height = `${overlayHeight}px`;
+		}
+
+		updateScrollBottomButton() {
+			const container = this.elements.messagesContainer;
+			const button = this.elements.scrollBottomBtn;
+			if (!container || !button) return;
+			const shouldShow =
+				this.isOpen &&
+				!container.classList.contains("hidden") &&
+				container.scrollHeight - container.scrollTop - container.clientHeight >
+					Math.max(container.clientHeight * 0.6, 180);
+			button.classList.toggle("hidden", !shouldShow);
+			button.classList.toggle("show", shouldShow);
 		}
 
 		scheduleMessagesFadeOverlaySync(duration = 520) {
@@ -5218,6 +5345,7 @@
 					this.elements.messagesContainer.scrollTop =
 						this.elements.messagesContainer.scrollHeight;
 				}
+				this.updateScrollBottomButton();
 				this._scrollFrameQueued = false;
 			});
 		}
@@ -5822,6 +5950,7 @@
 				"hidden",
 			);
 			this.updateMessagesFadeOverlays();
+			this.updateScrollBottomButton();
 			if (
 				this.elements.contactFormSlot &&
 				!this.elements.contactFormSlot.classList.contains(
@@ -5859,6 +5988,7 @@
 				"hidden",
 			);
 			this.setMessagesFadeOverlaysVisible(false);
+			this.updateScrollBottomButton();
 			this.elements.chatInput?.classList.add(
 				"hidden",
 			);
@@ -5937,6 +6067,7 @@
 					"hidden",
 				);
 				this.setMessagesFadeOverlaysVisible(false);
+				this.updateScrollBottomButton();
 			}
 			if (this.elements.chatInput)
 				this.elements.chatInput.classList.add(
@@ -6035,6 +6166,7 @@
 							"hidden",
 						);
 						this.updateMessagesFadeOverlays();
+						this.updateScrollBottomButton();
 						if (this.elements.chatInput) {
 							this.elements.chatInput.classList.remove(
 								"hidden",
