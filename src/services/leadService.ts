@@ -748,6 +748,7 @@ ${fullConversation}`;
 				pool.query(
 					`SELECT
              id,
+             session_id,
              name,
              email,
              phone,
@@ -781,6 +782,7 @@ ${fullConversation}`;
 		const result = await pool.query(
 			`SELECT
          id,
+         session_id,
          name,
          email,
          phone,
@@ -817,6 +819,7 @@ ${fullConversation}`;
 			 WHERE id = $2 AND user_id = $3
 			 RETURNING
          id,
+         session_id,
          name,
          email,
          phone,

@@ -43,7 +43,7 @@ const requestAsync = (
 	url: URL,
 	method: string,
 	headers: Record<string, string>,
-	body: Buffer,
+	body: Buffer = Buffer.alloc(0),
 ): Promise<{ statusCode: number; body: string }> =>
 	new Promise((resolve, reject) => {
 		const request = https.request(
@@ -104,18 +104,63 @@ class WidgetIconStorageService {
 		].join("/");
 	}
 
-	async uploadWidgetIcon({
-		userId,
-		buffer,
-		contentType,
-	}: UploadWidgetIconParams): Promise<UploadWidgetIconResult> {
+	private buildPublicUrl(settings: ReturnType<WidgetIconStorageService["getSettings"]>, key: string): string {
+		return settings.publicBaseUrl
+			? `${settings.publicBaseUrl.replace(/\/+$/, "")}/${key}`
+			: `https://${settings.bucket}.s3.${settings.region}.amazonaws.com${encodeS3Path(key)}`;
+	}
+
+	private extractObjectKeyFromUrl(rawUrl: string): string | null {
+		if (!rawUrl) {
+			return null;
+		}
+
+		let parsed: URL;
+		try {
+			parsed = new URL(rawUrl);
+		} catch {
+			return null;
+		}
+
 		const settings = this.getSettings();
-		const key = this.getObjectKey(userId);
+		const normalizedPath = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+		const expectedPrefix = "widget-icons/";
+		if (!normalizedPath.startsWith(expectedPrefix)) {
+			return null;
+		}
+
+		const publicBaseUrl = settings.publicBaseUrl?.replace(/\/+$/, "");
+		if (publicBaseUrl) {
+			try {
+				const publicBase = new URL(publicBaseUrl);
+				if (publicBase.origin === parsed.origin) {
+					return normalizedPath;
+				}
+			} catch {
+				// Ignore malformed public base URL config.
+			}
+		}
+
+		const bucketHost = `${settings.bucket}.s3.${settings.region}.amazonaws.com`;
+		if (parsed.hostname === bucketHost) {
+			return normalizedPath;
+		}
+
+		return null;
+	}
+
+	private async sendSignedRequest(
+		method: "PUT" | "DELETE",
+		key: string,
+		body: Buffer,
+		contentType?: string,
+	): Promise<void> {
+		const settings = this.getSettings();
 		const canonicalUri = encodeS3Path(key);
 		const endpointUrl = new URL(
 			`https://${settings.bucket}.s3.${settings.region}.amazonaws.com${canonicalUri}`,
 		);
-		const payloadHash = hashSha256Hex(buffer);
+		const payloadHash = hashSha256Hex(body);
 		const now = new Date();
 		const { amzDate, dateStamp } = formatAmzDate(now);
 		const credentialScope = `${dateStamp}/${settings.region}/${S3_SERVICE_NAME}/aws4_request`;
@@ -135,10 +180,15 @@ class WidgetIconStorageService {
 			signedHeadersParts.push("x-amz-security-token");
 		}
 
+		if (contentType) {
+			canonicalHeadersParts.push(`content-type:${contentType}`);
+			signedHeadersParts.push("content-type");
+		}
+
 		const canonicalHeaders = `${canonicalHeadersParts.join("\n")}\n`;
 		const signedHeaders = signedHeadersParts.join(";");
 		const canonicalRequest = [
-			"PUT",
+			method,
 			canonicalUri,
 			"",
 			canonicalHeaders,
@@ -161,33 +211,52 @@ class WidgetIconStorageService {
 
 		const headers: Record<string, string> = {
 			Authorization: authorizationHeader,
-			"Content-Length": String(buffer.length),
-			"Content-Type": contentType,
+			"Content-Length": String(body.length),
 			host: endpointUrl.host,
 			"x-amz-content-sha256": payloadHash,
 			"x-amz-date": amzDate,
 		};
 
+		if (contentType) {
+			headers["Content-Type"] = contentType;
+		}
+
 		if (settings.sessionToken) {
 			headers["x-amz-security-token"] = settings.sessionToken;
 		}
 
-		const response = await requestAsync(endpointUrl, "PUT", headers, buffer);
+		const response = await requestAsync(endpointUrl, method, headers, body);
 
 		if (response.statusCode < 200 || response.statusCode >= 300) {
 			throw new Error(
-				`S3 upload failed with status ${response.statusCode}: ${response.body || "Unknown error"}`,
+				`S3 ${method} failed with status ${response.statusCode}: ${response.body || "Unknown error"}`,
 			);
 		}
+	}
 
-		const publicUrl = settings.publicBaseUrl
-			? `${settings.publicBaseUrl.replace(/\/+$/, "")}/${key}`
-			: endpointUrl.toString();
+	async uploadWidgetIcon({
+		userId,
+		buffer,
+		contentType,
+	}: UploadWidgetIconParams): Promise<UploadWidgetIconResult> {
+		const settings = this.getSettings();
+		const key = this.getObjectKey(userId);
+		await this.sendSignedRequest("PUT", key, buffer, contentType);
 
 		return {
 			key,
-			url: publicUrl,
+			url: this.buildPublicUrl(settings, key),
 		};
+	}
+
+	async deleteWidgetIconByUrl(rawUrl: string): Promise<boolean> {
+		const key = this.extractObjectKeyFromUrl(rawUrl);
+		if (!key) {
+			return false;
+		}
+
+		await this.sendSignedRequest("DELETE", key, Buffer.alloc(0));
+		return true;
 	}
 }
 

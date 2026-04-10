@@ -227,6 +227,15 @@ router.put(
 	authController.updatePassword,
 );
 
+router.delete(
+	"/account",
+	verifyCsrfToken,
+	authenticateToken,
+	validationRules.deleteAccount,
+	validate,
+	authController.deleteAccount,
+);
+
 router.put(
 	"/settings/password",
 	verifyCsrfToken,
@@ -247,6 +256,13 @@ router.put(
 	validationRules.updateOnboarding,
 	validate,
 	authController.updateOnboarding,
+);
+
+router.post(
+	"/dashboard-tour/complete",
+	verifyCsrfToken,
+	authenticateToken,
+	authController.completeDashboardTour,
 );
 
 router.get(

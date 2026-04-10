@@ -1,4 +1,5 @@
 import { scraperQueue } from "../config/queue";
+import pool from "../config/database";
 import { scraperService } from "./scraperService";
 import { scraperStatusService } from "./scraperStatusService";
 import logger from "../utils/logger";
@@ -60,6 +61,28 @@ export const runScrapeJob = async (
 	});
 
 	try {
+		const userExistsResult = await pool.query(
+			`SELECT 1
+			   FROM users
+			  WHERE id = $1
+			  LIMIT 1`,
+			[job.userId],
+		);
+		if (userExistsResult.rowCount === 0) {
+			const message =
+				"Scrape job skipped because the account no longer exists.";
+			await scraperStatusService.failJob(
+				job.jobId,
+				message,
+			);
+			logger.info("Skipping scrape job for deleted account", {
+				jobId: job.jobId,
+				userId: job.userId,
+				url: job.url,
+			});
+			return false;
+		}
+
 		const startedProgress = {
 			totalPages: 0,
 			scrapedPages: 0,

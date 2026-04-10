@@ -204,6 +204,20 @@ export const validationRules: Record<
 			.withMessage("newPassword must be 8-256 characters"),
 	],
 
+	deleteAccount: [
+		body("confirmationText")
+			.isString()
+			.withMessage("confirmationText is required")
+			.custom((value) => String(value).trim() === "DELETE")
+			.withMessage('confirmationText must be "DELETE"'),
+		body("currentPassword")
+			.optional({ nullable: true })
+			.isString()
+			.withMessage("currentPassword must be a string")
+			.isLength({ min: 0, max: 256 })
+			.withMessage("currentPassword must be 0-256 characters"),
+	],
+
 	updateOnboarding: [
 		body("step")
 			.isInt({ min: 1, max: 4 })
