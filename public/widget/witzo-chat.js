@@ -730,6 +730,11 @@
                 ${chatIcon}
               </span>
               <span class="floating-prompt-send-icon floating-prompt-send-icon-arrow">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="14" viewBox="0 0 12 14" fill="none">
+<path d="M5.95833 12.6189L5.95833 0.885562M5.95833 0.885562L0.625 6.26334M5.95833 0.885562L11.2917 6.26334" stroke="white" stroke-width="1.24705" stroke-linecap="round"/>
+</svg>
+              </span>
+              <span class="floating-prompt-send-icon floating-prompt-send-icon-chevron">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
 <path d="M1 1L8.64758 8.64758L16.2952 1" stroke="white" stroke-width="2" stroke-linecap="round"/>
 </svg>
@@ -1717,7 +1722,7 @@
             justify-content: center;
             color: #fff;
             cursor: pointer;
-            background: #7E0AF5;
+            background: var(--color-primary, #7E0AF5);
             padding: 0;
             transition: all 0.3s ease;
             opacity: 0.45;
@@ -2520,7 +2525,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+            transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.38s cubic-bezier(0.22, 1, 0.36, 1);
           }
           .floating-prompt-send-icon svg {
             width: 100%;
@@ -2537,8 +2542,17 @@
             height: 100%;
           }
           .floating-launcher-prompt.is-typing .floating-prompt-send-icon-chat {
+            opacity: 0;
+            transform: scale(0.82);
+          }
+          .floating-launcher-prompt.is-typing .floating-prompt-send-icon-arrow {
             opacity: 1;
-            transform: scale(0.9);
+            transform: scale(1);
+          }
+          .floating-launcher-prompt.is-typing .floating-prompt-send {
+            background: var(--color-primary, #471791);
+            box-shadow: 0 14px 30px rgba(var(--color-primary, #471791), 0.3);
+			transform: scale(0.87);
           }
           .floating-launcher-prompt.is-typing .floating-input-shell {
             gap: 0;
@@ -2579,6 +2593,14 @@
             width: 16px;
             height: 16px;
           }
+          .floating-launcher-prompt .floating-prompt-send-icon-chevron {
+            opacity: 0;
+            transform: scale(0.82);
+          }
+          .floating-launcher-prompt .floating-prompt-send-icon-chevron svg {
+            width: 16px;
+            height: 16px;
+          }
           .floating-launcher-prompt.widget-open .floating-prompt-send {
             background: var(--color-primary, #471791);
             box-shadow: 0 14px 30px rgba(var(--color-primary, #471791), 0.3);
@@ -2589,6 +2611,18 @@
             transform: scale(0.82);
           }
           .floating-launcher-prompt.widget-open .floating-prompt-send-icon-arrow {
+            opacity: 0;
+            transform: scale(0.82);
+          }
+          .floating-launcher-prompt.widget-open .floating-prompt-send-icon-chevron {
+            opacity: 1;
+            transform: scale(1);
+          }
+          .floating-launcher-prompt.widget-open.is-typing .floating-prompt-send-icon-arrow {
+            opacity: 0;
+            transform: scale(0.82);
+          }
+          .floating-launcher-prompt.widget-open.is-typing .floating-prompt-send-icon-chevron {
             opacity: 1;
             transform: scale(1);
           }
