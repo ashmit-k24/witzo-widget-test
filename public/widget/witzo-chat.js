@@ -1481,7 +1481,11 @@
           
           /* Messages Area */
           .chat-messages {
-            padding: 30px 16px 16px;
+            --chat-messages-pad-top: 30px;
+            --chat-messages-pad-side: 16px;
+            --chat-messages-pad-bottom: 16px;
+            --chat-messages-fade-size: 34px;
+            padding: var(--chat-messages-pad-top) var(--chat-messages-pad-side) var(--chat-messages-pad-bottom);
             background: #fff;
             flex: 1;
             overflow-y: auto;
@@ -1501,9 +1505,9 @@
 			display:none;
 			}
           .messages-fade-overlay {
-            position: fixed;
+            position: absolute;
             pointer-events: none;
-            z-index: 11;
+            z-index: 2;
             opacity: 0;
             transition: opacity 0.18s ease;
           }
@@ -1511,11 +1515,11 @@
             opacity: 1;
           }
           .messages-fade-overlay.top {
-            background: linear-gradient(to bottom, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0));
+            background: linear-gradient(to bottom, rgb(255, 255, 255), rgba(255, 0, 0, 0));
 			border-radius:20px 20px 0 0;
           }
           .messages-fade-overlay.bottom {
-            background: linear-gradient(to top, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
+            background: linear-gradient(to top, rgb(255, 255, 255), rgba(255, 0, 0, 0));
           }
           .chat-messages::-webkit-scrollbar {
             display: none;
@@ -1554,6 +1558,8 @@
     		border-top-right-radius: 16px;
     		border-bottom-right-radius: 2px;
     		border-bottom-left-radius: 16px;
+            position: relative;
+            z-index: 2;
           }
           
           .chat-message.user {
@@ -2956,6 +2962,8 @@
               display: flex;
               flex-direction: row;
               align-items: flex-start;
+              position: relative;
+              z-index: 2;
             }
             .bot-response-block {
               display: flex;
@@ -3582,6 +3590,8 @@
             <div id="textMessagesArea" class="chat-messages" data-lenis-prevent>
                 <!-- Messages will be appended here -->
             </div>
+            <div id="messagesFadeTop" class="messages-fade-overlay top hidden"></div>
+            <div id="messagesFadeBottom" class="messages-fade-overlay bottom hidden"></div>
             <button id="scrollBottomBtn" class="scroll-bottom-btn hidden" type="button" aria-label="Scroll to latest messages">
              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="7" viewBox="0 0 12 7" fill="none">
 			<path d="M0.625 0.623535L5.625 5.62353L10.625 0.623536" stroke="black" stroke-width="1.24705" stroke-linecap="round"/>
@@ -3673,8 +3683,6 @@
         <div id="floatingBtn" class="floating floating-${this.config.floatingType}">
             ${this.getFloatingTriggerMarkup()}
         </div>
-        <div id="messagesFadeTop" class="messages-fade-overlay top hidden"></div>
-        <div id="messagesFadeBottom" class="messages-fade-overlay bottom hidden"></div>
       `;
 
 			// Cache elements
@@ -4665,13 +4673,13 @@
 			}
 			const overlayHeight = Math.min(28, rect.height / 4);
 			this.setMessagesFadeOverlaysVisible(true);
-			top.style.left = `${rect.left}px`;
-			top.style.top = `${rect.top}px`;
-			top.style.width = `${rect.width}px`;
+			top.style.left = `${container.offsetLeft}px`;
+			top.style.top = `${container.offsetTop}px`;
+			top.style.width = `${container.offsetWidth}px`;
 			top.style.height = `${overlayHeight}px`;
-			bottom.style.left = `${rect.left}px`;
-			bottom.style.top = `${rect.bottom - overlayHeight}px`;
-			bottom.style.width = `${rect.width}px`;
+			bottom.style.left = `${container.offsetLeft}px`;
+			bottom.style.top = `${container.offsetTop + container.offsetHeight - overlayHeight}px`;
+			bottom.style.width = `${container.offsetWidth}px`;
 			bottom.style.height = `${overlayHeight}px`;
 		}
 

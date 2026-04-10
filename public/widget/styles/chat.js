@@ -1,7 +1,13 @@
 /* Uses CSS vars: --color-user-bubble */
 export const chatCSS = `
   .chat-messages {
-    padding:  30px 16px 16px; background: #fff; flex: 1;
+    --chat-messages-pad-top: 30px;
+    --chat-messages-pad-side: 16px;
+    --chat-messages-pad-bottom: 16px;
+    --chat-messages-fade-size: 34px;
+    padding: var(--chat-messages-pad-top) var(--chat-messages-pad-side) var(--chat-messages-pad-bottom);
+    background: #fff;
+    flex: 1;
     overflow-y: auto; display: flex; flex-direction: column; gap: 1rem;
     scrollbar-width: thin; scrollbar-color: #888 #f5f5f5;
     transition: all 0.6s ease-in-out;
@@ -21,9 +27,11 @@ export const chatCSS = `
     		border-top-right-radius: 16px;
     		border-bottom-right-radius: 2px;
     		border-bottom-left-radius: 16px;
+            position: relative;
+            z-index: 2;
   }
 
-  .bot-message-row { display: flex; flex-direction: row; align-items: flex-start; gap: 0.5rem; }
+  .bot-message-row { display: flex; flex-direction: row; align-items: flex-start; gap: 0.5rem; position: relative; z-index: 2; }
   .bot-response-block { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; position: relative; }
   .message-feedback-row {
     display: flex;
