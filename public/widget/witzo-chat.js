@@ -2747,7 +2747,9 @@
             #floatingBtn {
               right: 14px;
               bottom: 14px;
+			  z-index: 1
             }
+			  
             #floatingBtn .floating-launcher.widget-open {
               opacity: 0 !important;
               pointer-events: none !important;
