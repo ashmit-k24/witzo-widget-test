@@ -1599,6 +1599,8 @@
             flex-direction: column;
             gap: 8px;
             overflow: visible;
+            position: relative;
+            z-index: 4;
           }
           .chat-input-container {
             display: flex;
@@ -1608,7 +1610,7 @@
             border-radius: 24px;
             position: relative;
             transition: all 0.3s ease;
-            z-index: 1;
+            z-index: 4;
           }
           
           .chat-input-container.is-glowing {
@@ -1860,7 +1862,7 @@
             grid-template-columns: repeat(5, 1fr);
             gap: 4px;
             padding: 8px;
-            z-index: 100;
+            z-index: 12;
             opacity: 0;
             visibility: hidden;
             transform: translateY(10px);
@@ -1885,6 +1887,7 @@
           }
           .chat-input-left-actions {
             position: relative;
+            z-index: 5;
           }
 
           .chat-main-view {
@@ -1918,7 +1921,7 @@
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
-            z-index: 8;
+            z-index: 4;
           }
           .scroll-bottom-btn.show {
             opacity: 1;
