@@ -869,7 +869,7 @@
             max-height: 80vh;
             display: flex;
             flex-direction: column;
-            border-radius: 15px;
+            border-radius: 20px;
             overflow: hidden;
             transition:
               right 0.6s cubic-bezier(0.22, 1, 0.36, 1);
@@ -984,9 +984,9 @@
           .chat-widget {
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
             backdrop-filter: blur(10px);
-            transform: scale(0.15) translateY(40px);
+            transform: translateY(18px) scale(0.965);
             opacity: 0;
-            animation: slideUp 1s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            animation: slideUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
             transform-origin: right bottom;
             position: relative;
           }
@@ -1003,14 +1003,11 @@
 
           @keyframes slideUp {
             0% {
-              transform: scale(0.15) translateY(40px);
-              opacity: 1;
-            }
-            70% {
-              transform: scale(1) translateY(0);
+              transform: translateY(18px) scale(0.5);
+              opacity: 0;
             }
             100% {
-              transform: scale(1) translateY(0);
+              transform: translateY(0) scale(1);
               opacity: 1;
             }
           }
@@ -1028,18 +1025,18 @@
 
           .chat-widget.minimizing {
             opacity: 1;
-            transform: scale(1) translateY(0);
-            animation: slideDown 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+            transform: translateY(0) scale(1);
+            animation: slideDown 0.32s cubic-bezier(0.4, 0, 0.2, 1) forwards;
           }
 
           @keyframes slideDown {
             0% {
-              transform: scale(1) translateY(0);
+              transform: translateY(0) scale(1);
               opacity: 1;
             }
             
             100% {
-              transform: scale(0.15) translateY(40px);
+              transform: translateY(16px) scale(0.9);
               opacity: 0;
             }
           }
@@ -1049,21 +1046,18 @@
             position: absolute;
             inset: 0;
             background: #ffffff;
-            border-radius: 15px;
-            animation: overlayFade 1.2s ease-out forwards;
+            border-radius: inherit;
+            animation: overlayFade 0.42s ease-out forwards;
             pointer-events: none;
             z-index: 10;
           }
 
           .chat-widget.minimizing::before {
-            animation: overlayMinimize 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+            animation: overlayMinimize 0.32s cubic-bezier(0.4, 0, 0.2, 1) forwards;
           }
 
           @keyframes overlayFade {
             0% {
-              opacity: 1;
-            }
-            70% {
               opacity: 1;
             }
             100% {
@@ -1074,7 +1068,7 @@
 
           @keyframes overlayMinimize {
             0% {
-              opacity: 1;
+              opacity: 0;
               pointer-events: auto;
             }
             100% {
@@ -1769,7 +1763,8 @@
             opacity: 1;
             transform: none;
             transition: opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1);
-			background: var(--color-banner-bg, #120b14);
+			background: var(--color-banner-bg, #471791);
+            overflow: hidden;
           }
 
           .intro-screen {
