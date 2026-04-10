@@ -1410,8 +1410,8 @@
             display: flex;
             flex-direction: column;
             gap: 1rem;
-            scrollbar-width: thin;
-            scrollbar-color: #888 #f5f5f5;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
             transition: all 0.6s ease-in-out;
 			border-radius:20px 20px 0 0;
           }
@@ -1433,18 +1433,7 @@
             background: linear-gradient(to top, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0));
           }
           .chat-messages::-webkit-scrollbar {
-            width: 8px;
-          }
-          .chat-messages::-webkit-scrollbar-track {
-            background: #f5f5f5;
-            border-radius: 999px;
-          }
-          .chat-messages::-webkit-scrollbar-thumb {
-            background: #9ca3af;
-            border-radius: 999px;
-          }
-          .chat-messages::-webkit-scrollbar-thumb:hover {
-            background: #6b7280;
+            display: none;
           }
           .chat-message { display: flex; align-items: flex-start; gap: 0.75rem; }
           .chat-message.mt-space {
