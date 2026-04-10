@@ -3926,7 +3926,7 @@
 					(e) => {
 						if (e.key === "Enter") {
 							e.preventDefault();
-							this.handleFloatingPromptSubmit();
+							this.handleFloatingLauncherSend();
 						}
 					},
 				);
