@@ -2304,12 +2304,13 @@
             top: 0; bottom: 0; left: 0; right: 70px;
             border-radius: inherit;
             border: 1px solid transparent;
-            transition: right 1s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s ease;
-            will-change: right;
+            opacity: 1;
+            transition: right 1s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease;
+            will-change: right, opacity;
             pointer-events: none;
             z-index: 2;
           }
-          .floating-input-shell:focus-within::after {
+          .floating-input-shell.input-focused::after {
             border-color: var(--color-primary, #fc0e3f);
           }
           .floating-input-shell > * {
@@ -2422,7 +2423,6 @@
           }
           .floating-launcher-prompt.is-typing .floating-input-shell::after {
             right: 0;
-            border-color: var(--color-primary, #fc0e3f);
           }
           .floating-launcher-prompt.is-typing .floating-prompt-input-wrapper {
             background: transparent;
@@ -3431,14 +3431,18 @@
 					this.shadowRoot.getElementById(
 						"floating-btn",
 					),
-				floatingPromptInput:
-					this.shadowRoot.getElementById(
-						"floatingPromptInput",
-					),
-				floatingPromptSend:
-					this.shadowRoot.getElementById(
-						"floatingPromptSend",
-					),
+			floatingPromptInput:
+				this.shadowRoot.getElementById(
+					"floatingPromptInput",
+				),
+			floatingInputShell:
+				this.shadowRoot.querySelector(
+					".floating-input-shell",
+				),
+			floatingPromptSend:
+				this.shadowRoot.getElementById(
+					"floatingPromptSend",
+				),
 				floatingHelpBtn:
 					this.shadowRoot.getElementById(
 						"floatingHelpBtn",
@@ -3649,6 +3653,9 @@
 					"focus",
 					() => {
 						const wrapper = this.shadowRoot.getElementById("floatingPromptInputWrapper");
+						this.elements.floatingInputShell?.classList.add(
+							"input-focused",
+						);
 						if (wrapper) {
 							wrapper.classList.remove("is-glowing");
 						}
@@ -3658,6 +3665,9 @@
 					"blur",
 					() => {
 						const wrapper = this.shadowRoot.getElementById("floatingPromptInputWrapper");
+						this.elements.floatingInputShell?.classList.remove(
+							"input-focused",
+						);
 						if (wrapper && !this.elements.floatingPromptInput.value.trim()) {
 							wrapper.classList.add("is-glowing");
 						}
@@ -4525,6 +4535,7 @@
 			if (!this.isOpen) {
 				// Open
 				this.isOpen = true;
+				this.elements.floatingPromptInput?.blur();
 				if (this.elements.floatingBtn) {
 					this.elements.floatingBtn.classList.add(
 						"widget-open",
@@ -4556,6 +4567,8 @@
 			} else {
 				// Close
 				this.isOpen = false;
+				this.elements.floatingPromptInput?.blur();
+				this.elements.input?.blur();
 				this.elements.widget.classList.add(
 					"minimizing",
 				);
