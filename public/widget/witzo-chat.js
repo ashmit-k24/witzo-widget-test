@@ -1619,7 +1619,7 @@
           .chat-input-beam {
             position: absolute;
             width: 50px;
-            height: 3px;
+            height: 4px;
             background: var(--color-banner-bg, #120b14);
             filter: blur(18px);
             border-radius: 50%;
@@ -2452,7 +2452,7 @@
           }
           .floating-help-pill {
             position: absolute;
-            top: 29px;
+            top: 28px;
             right: var(--floating-help-pill-right-rest);
             border: none;
             background: #ffffff;

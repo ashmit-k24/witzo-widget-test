@@ -107,7 +107,7 @@ export const floatingCSS = `
   }
   .floating-help-pill {
     position: absolute;
-    top: 29px;
+    top: 28px;
     right: var(--floating-help-pill-right-rest);
     border: none;
     background: #fff;
