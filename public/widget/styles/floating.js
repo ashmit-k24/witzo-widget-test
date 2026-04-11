@@ -442,6 +442,9 @@ export const floatingCSS = `
       right: 14px;
       bottom: 14px;
     }
+      .contact-form-shell {
+			    bottom: 30px;
+			}
     .floating-launcher-prompt {
       width: min(92vw, 460px);
       --floating-help-pill-right-rest: 70px;

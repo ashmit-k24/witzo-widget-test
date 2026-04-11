@@ -87,11 +87,21 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
 
       <!-- Contact Form (paid plan fallback) -->
       <div id="contactFormSlot" class="contact-form hidden">
-        <h3>Get in Touch</h3>
-        <p>Our team will respond as soon as possible.</p>
-        ${leadFields}
-        ${config.leadFormEnabled ? '' : '<textarea id="cf-message" placeholder="Your message"></textarea>'}
-        <button id="cf-submit" class="contact-form-submit">${config.leadFormEnabled ? config.leadFormButtonText || 'Fill the form to continue chat' : 'Send Message'}</button>
+        <div class="contact-form-backdrop"></div>
+        <div class="contact-form-shell">
+          <div class="contact-form-card">
+            <div class="contact-form-copy">
+              <h3>${config.leadFormEnabled ? "Let's stay connected" : 'What can we improve?'}</h3>
+              <p>${config.leadFormEnabled ? 'Share your details to continue the conversation with our team.' : "Thanks for helping us do better. Tell us what we can improve and we'll take it from there."}</p>
+            </div>
+            <div class="contact-form-fields">
+              ${leadFields}
+              ${config.leadFormEnabled ? '' : '<textarea id="cf-message" placeholder="Type your feedback..."></textarea>'}
+            </div>
+            <button id="cf-submit" class="contact-form-submit">${config.leadFormEnabled ? config.leadFormButtonText || 'Continue' : 'Continue'}</button>
+            <div class="contact-form-note">${config.leadFormEnabled ? "We'll only use these details to follow up on your request." : 'Your feedback helps us refine the experience.'}</div>
+          </div>
+        </div>
       </div>
 
       <!-- Calendly booking slot -->
