@@ -337,12 +337,17 @@ export const floatingCSS = `
     pointer-events: none;
   }
   .floating-launcher-prompt.entering .floating-prompt-send {
-    animation: floatingOrbIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.02s both;
+    transform-origin: center center;
+    animation: floatingOrbZoomIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.02s both;
   }
   .floating-launcher-prompt.entering .floating-prompt-send-icon-chat {
+    transform-origin: center center;
     animation: floatingOrbIconIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
   }
   .floating-launcher-prompt.entering .floating-input-shell {
+    animation: none;
+  }
+  .floating-launcher-prompt.entering .floating-prompt-input-wrapper {
     animation: floatingFieldFrameIn 0.72s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
   }
   .floating-launcher-prompt.entering .floating-input-shell::before {
@@ -370,16 +375,14 @@ export const floatingCSS = `
       transform: translate3d(0, 0, 0) scale(1);
     }
   }
-  @keyframes floatingOrbIn {
+  @keyframes floatingOrbZoomIn {
     0% {
       opacity: 0;
-      transform: translate3d(20px, 0, 0) scale(0.76);
-      filter: blur(6px);
+      transform: scale(0.9);
     }
     100% {
       opacity: 1;
-      transform: translate3d(0, 0, 0) scale(1);
-      filter: blur(0);
+      transform: scale(1);
     }
   }
   @keyframes floatingOrbIconIn {
