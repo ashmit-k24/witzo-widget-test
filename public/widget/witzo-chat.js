@@ -1499,6 +1499,16 @@
           .chat-menu-language-item.active {
             background: #f1f1f3;
           }
+          .chat-menu-language-item-check {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+            opacity: 0;
+            color: #111111;
+          }
+          .chat-menu-language-item.active .chat-menu-language-item-check {
+            opacity: 1;
+          }
           
           .chat-widget.expanded {
             width: min(96vw, 555px) !important;
@@ -3754,15 +3764,15 @@
                       <div class="chat-header-menu-list">
                       <button id="headerLanguageBtn" class="chat-menu-item has-submenu" type="button">
                         <span class="chat-menu-item-main">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                          <span>Language</span>
+                         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 18 18" fill="none">
+							<path d="M1.81934 4.73953C3.65312 5.20886 3.94912 7.23375 4.66556 8.17953C5.61667 9.43553 6.51001 9.27109 7.5029 10.5298C9.10734 12.5644 8.66912 15.6009 8.66912 16.4898M15.7127 11.2666H14.8238C13.8808 11.2666 12.9764 11.6412 12.3096 12.308C11.6428 12.9748 11.2682 13.8792 11.2682 14.8222V15.7111M5.56778 1.48175C5.56778 2.21242 5.66734 3.1582 6.91445 3.77509C8.16067 4.39109 9.50823 4.08709 9.50823 5.84975C9.50823 6.09509 9.50823 7.63464 11.2611 7.63464C13.062 7.6622 13.062 6.14309 13.062 5.84975C13.062 5.27198 13.5305 5.04975 14.1082 5.04975H15.7127M16.6016 8.59998C16.6016 9.65055 16.3946 10.6908 15.9926 11.6614C15.5906 12.632 15.0013 13.514 14.2584 14.2568C13.5155 14.9997 12.6336 15.589 11.663 15.991C10.6924 16.3931 9.65214 16.6 8.60156 16.6C7.55099 16.6 6.5107 16.3931 5.54009 15.991C4.56949 15.589 3.68758 14.9997 2.94471 14.2568C2.20184 13.514 1.61256 12.632 1.21053 11.6614C0.808489 10.6908 0.601562 9.65055 0.601563 8.59998C0.601563 6.47824 1.44442 4.44341 2.94471 2.94312C4.445 1.44283 6.47983 0.599976 8.60156 0.599976C10.7233 0.599976 12.7581 1.44283 14.2584 2.94312C15.7587 4.44341 16.6016 6.47824 16.6016 8.59998Z" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
+						</svg>
+                          <span> &nbsp;Language</span>
                         </span>
                         <svg class="chat-menu-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
                       </button>
                       <button id="downloadTranscriptBtn" class="chat-menu-item" type="button">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18" fill="none">
-							<path d="M1.81934 4.73953C3.65312 5.20886 3.94912 7.23375 4.66556 8.17953C5.61667 9.43553 6.51001 9.27109 7.5029 10.5298C9.10734 12.5644 8.66912 15.6009 8.66912 16.4898M15.7127 11.2666H14.8238C13.8808 11.2666 12.9764 11.6412 12.3096 12.308C11.6428 12.9748 11.2682 13.8792 11.2682 14.8222V15.7111M5.56778 1.48175C5.56778 2.21242 5.66734 3.1582 6.91445 3.77509C8.16067 4.39109 9.50823 4.08709 9.50823 5.84975C9.50823 6.09509 9.50823 7.63464 11.2611 7.63464C13.062 7.6622 13.062 6.14309 13.062 5.84975C13.062 5.27198 13.5305 5.04975 14.1082 5.04975H15.7127M16.6016 8.59998C16.6016 9.65055 16.3946 10.6908 15.9926 11.6614C15.5906 12.632 15.0013 13.514 14.2584 14.2568C13.5155 14.9997 12.6336 15.589 11.663 15.991C10.6924 16.3931 9.65214 16.6 8.60156 16.6C7.55099 16.6 6.5107 16.3931 5.54009 15.991C4.56949 15.589 3.68758 14.9997 2.94471 14.2568C2.20184 13.514 1.61256 12.632 1.21053 11.6614C0.808489 10.6908 0.601562 9.65055 0.601563 8.59998C0.601563 6.47824 1.44442 4.44341 2.94471 2.94312C4.445 1.44283 6.47983 0.599976 8.60156 0.599976C10.7233 0.599976 12.7581 1.44283 14.2584 2.94312C15.7587 4.44341 16.6016 6.47824 16.6016 8.59998Z" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
-						</svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
                         <span>Download Chat</span>
                       </button>
                       <button id="headerHelpBtn" class="chat-menu-item" type="button">
@@ -3781,6 +3791,7 @@
 						(language) => `
                           <button class="chat-menu-language-item${language.code === this.selectedLanguage ? " active" : ""}" type="button" data-code="${this.escapeHtml(language.code)}">
                             <span>${this.escapeHtml(language.label)}</span>
+                            <svg class="chat-menu-language-item-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </button>`,
 					)
 					.join("")}
