@@ -9,7 +9,7 @@ export const headerCSS = `
     flex-shrink: 0; position: relative; z-index: 1;
   }
   .chat-header-left {
-    display: flex; align-items: center; gap: 0.75rem; width: auto;
+    display: flex; align-items: center; gap: 12px; width: auto;
   }
   .chat-icon {
     width: auto; border-radius: 0.75rem;
