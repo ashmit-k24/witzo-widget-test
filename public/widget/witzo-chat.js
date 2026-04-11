@@ -159,6 +159,7 @@
 				leadFormPhoneEnabled: true,
 				leadFormCountryEnabled: true,
 				leadFormTriggerMessageCount: 5,
+				closePromptFrequency: 0.35,
 			};
 		}
 
@@ -280,6 +281,7 @@
 				["lead-form-phone-enabled", "leadFormPhoneEnabled"],
 				["lead-form-country-enabled", "leadFormCountryEnabled"],
 				["lead-form-trigger-message-count", "leadFormTriggerMessageCount"],
+				["close-prompt-frequency", "closePromptFrequency"],
 			];
 
 			ATTR_TO_CONFIG_KEY.forEach(
@@ -307,6 +309,15 @@
 				this.normalizeFloatingType(
 					this.config.floatingType,
 				);
+			this.config.closePromptFrequency = Math.max(
+				0,
+				Math.min(
+					1,
+					Number.parseFloat(
+						this.config.closePromptFrequency,
+					) || 0,
+				),
+			);
 			// Intro screen is intentionally disabled so the widget opens directly to chat.
 			this.config.showIntroScreen = false;
 
@@ -746,6 +757,20 @@
               </span>
             </button>
           </div>
+          <div id="floatingExitPrompt" class="floating-exit-prompt hidden" aria-live="polite">
+            <button type="button" id="floatingExitPromptClose" class="floating-exit-close" aria-label="Close prompt">
+              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M1 1L10 10M10 1L1 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <div class="floating-exit-card">
+              <div class="floating-exit-title">Still didn't find what you're looking for?</div>
+              <div class="floating-exit-actions">
+                <button type="button" id="floatingExitPromptHelp" class="floating-exit-btn floating-exit-btn-primary">Help Me</button>
+                <button type="button" id="floatingExitPromptDismiss" class="floating-exit-btn floating-exit-btn-secondary">No Thanks</button>
+              </div>
+            </div>
+          </div>
         </div>
       `;
 		}
@@ -782,6 +807,22 @@
 			this.elements.floatingHelpBtn =
 				this.shadowRoot.getElementById(
 					"floatingHelpBtn",
+				);
+			this.elements.floatingExitPrompt =
+				this.shadowRoot.getElementById(
+					"floatingExitPrompt",
+				);
+			this.elements.floatingExitPromptClose =
+				this.shadowRoot.getElementById(
+					"floatingExitPromptClose",
+				);
+			this.elements.floatingExitPromptHelp =
+				this.shadowRoot.getElementById(
+					"floatingExitPromptHelp",
+				);
+			this.elements.floatingExitPromptDismiss =
+				this.shadowRoot.getElementById(
+					"floatingExitPromptDismiss",
 				);
 			if (!this.elements.floatingBtn) return;
 			this.elements.floatingBtn.classList.remove(
@@ -1647,8 +1688,9 @@
           }
           
           .chat-input-container:focus-within {
-            border-color: var(--color-primary, #fc0e3f);
-          }
+  			    border-color: 
+				color-mix(in srgb, var(--color-primary, #fc0e3f) 30%, transparent);
+			}
           
           .chat-input-row {
             display: flex;
@@ -2825,6 +2867,91 @@
               filter: blur(0);
             }
           }
+          .floating-exit-prompt {
+            position: absolute;
+            right: 0;
+            bottom: 72px;
+            width: min(320px, calc(100vw - 40px));
+            opacity: 0;
+            transform: translateY(8px) scale(0.96);
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            z-index: 6;
+          }
+          .floating-exit-prompt.show {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+          }
+          .floating-launcher-prompt:has(.floating-exit-prompt.show .floating-exit-card) > .floating-close-btn,
+          .floating-launcher-prompt:has(.floating-exit-prompt.show .floating-exit-card) > .floating-help-pill,
+          .floating-launcher-prompt:has(.floating-exit-prompt.show .floating-exit-card) .floating-prompt-input-wrapper {
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
+          }
+          .floating-launcher-prompt:has(.floating-exit-prompt.show .floating-exit-card) .floating-input-shell::before {
+            opacity: 0;
+            visibility: hidden;
+          }
+          .floating-exit-close {
+            position: absolute;
+            top: -30px;
+            right: 0;
+            width: 22px;
+            height: 22px;
+            border: none;
+            border-radius: 999px;
+            background: #fff;
+            color: #161616;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.14);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+          }
+          .floating-exit-card {
+            padding: 16px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+			max-width: 246px;
+			float: right;
+          }
+          .floating-exit-title {
+            margin: 0 0 20px;
+            color: #111111;
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 1.25;
+            max-width: 250px;
+          }
+          .floating-exit-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }
+          .floating-exit-btn {
+            height: 35px;
+            padding: 8px 18px;
+            border-radius: 200px;
+            font-size: 14px;
+            font-weight: 600	;
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+          }
+          
+          .floating-exit-btn-primary {
+            border: none;
+            color: #fff;
+            background: var(--color-primary);
+            box-shadow: 0 12px 26px rgba(var(--color-primary), 0.28);
+          }
+          .floating-exit-btn-secondary {
+            border: 1.5px solid #111111;
+            color: #111111;
+            background: #fff;
+          }
 
           @media (max-width: 640px) {
             #floatingBtn {
@@ -2896,6 +3023,28 @@
             .floating-prompt-send {
               width: 58px;
               height: 58px;
+            }
+            .floating-exit-prompt {
+              width: min(300px, calc(100vw - 28px));
+              bottom: 70px;
+            }
+            .floating-exit-card {
+              padding: 14px;
+              border-radius: 20px;
+            }
+            .floating-exit-title {
+              margin-bottom: 14px;
+              font-size: 16px;
+              max-width: 220px;
+            }
+            .floating-exit-actions {
+              gap: 10px;
+            }
+            .floating-exit-btn {
+              flex: 1;
+              height: 42px;
+              padding: 0 14px;
+              font-size: 13px;
             }
             .chat-widget.expanded {
               inset: 0 !important;
@@ -3611,8 +3760,10 @@
                         <svg class="chat-menu-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
                       </button>
                       <button id="downloadTranscriptBtn" class="chat-menu-item" type="button">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
-                        <span>Download transcript</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18" fill="none">
+							<path d="M1.81934 4.73953C3.65312 5.20886 3.94912 7.23375 4.66556 8.17953C5.61667 9.43553 6.51001 9.27109 7.5029 10.5298C9.10734 12.5644 8.66912 15.6009 8.66912 16.4898M15.7127 11.2666H14.8238C13.8808 11.2666 12.9764 11.6412 12.3096 12.308C11.6428 12.9748 11.2682 13.8792 11.2682 14.8222V15.7111M5.56778 1.48175C5.56778 2.21242 5.66734 3.1582 6.91445 3.77509C8.16067 4.39109 9.50823 4.08709 9.50823 5.84975C9.50823 6.09509 9.50823 7.63464 11.2611 7.63464C13.062 7.6622 13.062 6.14309 13.062 5.84975C13.062 5.27198 13.5305 5.04975 14.1082 5.04975H15.7127M16.6016 8.59998C16.6016 9.65055 16.3946 10.6908 15.9926 11.6614C15.5906 12.632 15.0013 13.514 14.2584 14.2568C13.5155 14.9997 12.6336 15.589 11.663 15.991C10.6924 16.3931 9.65214 16.6 8.60156 16.6C7.55099 16.6 6.5107 16.3931 5.54009 15.991C4.56949 15.589 3.68758 14.9997 2.94471 14.2568C2.20184 13.514 1.61256 12.632 1.21053 11.6614C0.808489 10.6908 0.601562 9.65055 0.601563 8.59998C0.601563 6.47824 1.44442 4.44341 2.94471 2.94312C4.445 1.44283 6.47983 0.599976 8.60156 0.599976C10.7233 0.599976 12.7581 1.44283 14.2584 2.94312C15.7587 4.44341 16.6016 6.47824 16.6016 8.59998Z" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
+						</svg>
+                        <span>Download Chat</span>
                       </button>
                       <button id="headerHelpBtn" class="chat-menu-item" type="button">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9.09 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
@@ -3839,6 +3990,22 @@
 					this.shadowRoot.getElementById(
 						"floatingHelpBtn",
 					),
+				floatingExitPrompt:
+					this.shadowRoot.getElementById(
+						"floatingExitPrompt",
+					),
+				floatingExitPromptClose:
+					this.shadowRoot.getElementById(
+						"floatingExitPromptClose",
+					),
+				floatingExitPromptHelp:
+					this.shadowRoot.getElementById(
+						"floatingExitPromptHelp",
+					),
+				floatingExitPromptDismiss:
+					this.shadowRoot.getElementById(
+						"floatingExitPromptDismiss",
+					),
 				backBtn: this.shadowRoot.getElementById(
 					"backToIntroBtn",
 				),
@@ -4015,31 +4182,17 @@
 					(e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						const closeBtn = this.elements.floatingCloseBtn;
-						const helpBtn = this.elements.floatingHelpBtn;
-						const inputWrapper = this.shadowRoot.getElementById("floatingPromptInputWrapper");
-						const inputShell = closeBtn?.closest('.floating-input-shell');
-						if (closeBtn) closeBtn.classList.add("fade-out-float");
-						if (helpBtn) helpBtn.classList.add("fade-out-float");
-						if (inputWrapper) inputWrapper.classList.add("fade-out-float");
-						if (inputShell) {
-							inputShell.classList.add("fade-out-float");
-							inputShell.classList.add("hide-before");
-						}
-						if (inputWrapper) inputWrapper.style.display = "none";
-						setTimeout(() => {
-							if (closeBtn) closeBtn.style.display = "none";
-							if (helpBtn) helpBtn.style.display = "none";
-							if (inputWrapper) inputWrapper.style.display = "none";
-							if (inputShell) inputShell.style.display = "none";
-						}, 350);
+						this.requestFloatingLauncherDismiss();
 					},
 				);
 			}
 			if (this.elements.floatingHelpBtn) {
 				this.elements.floatingHelpBtn.addEventListener(
 					"click",
-					() => this.openFromFloatingLauncher(),
+					() => {
+						this.hideFloatingExitPrompt();
+						this.openFromFloatingLauncher();
+					},
 				);
 			}
 			if (this.elements.floatingPromptSend) {
@@ -4047,10 +4200,41 @@
 					"click",
 					() => {
 						if (this.isOpen) {
-							this.toggleChat();
+							this.requestWidgetClose();
 							return;
 						}
+						this.hideFloatingExitPrompt();
 						this.handleFloatingLauncherSend();
+					},
+				);
+			}
+			if (this.elements.floatingExitPromptClose) {
+				this.elements.floatingExitPromptClose.addEventListener(
+					"click",
+					(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						this.resolveFloatingExitPrompt("dismiss");
+					},
+				);
+			}
+			if (this.elements.floatingExitPromptHelp) {
+				this.elements.floatingExitPromptHelp.addEventListener(
+					"click",
+					(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						this.resolveFloatingExitPrompt("help");
+					},
+				);
+			}
+			if (this.elements.floatingExitPromptDismiss) {
+				this.elements.floatingExitPromptDismiss.addEventListener(
+					"click",
+					(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						this.resolveFloatingExitPrompt("dismiss");
 					},
 				);
 			}
@@ -4230,7 +4414,7 @@
 					(e) => {
 						e.stopPropagation();
 						if (this.isOpen) {
-							this.toggleChat();
+							this.requestWidgetClose();
 						}
 					},
 				);
@@ -4685,7 +4869,154 @@
 			}, 120);
 		}
 
+		shouldShowClosePrompt() {
+			const frequency = Math.max(
+				0,
+				Math.min(
+					1,
+					Number(this.config.closePromptFrequency) || 0,
+				),
+			);
+			return (
+				frequency > 0 &&
+				!this.elements.floatingExitPrompt?.classList.contains(
+					"show",
+				) &&
+				Math.random() < frequency
+			);
+		}
+
+		showFloatingExitPrompt(handlers = {}) {
+			const prompt = this.elements.floatingExitPrompt;
+			if (!prompt) return;
+			this._floatingExitPromptHandlers = {
+				onHelp:
+					typeof handlers.onHelp === "function"
+						? handlers.onHelp
+						: null,
+				onDismiss:
+					typeof handlers.onDismiss === "function"
+						? handlers.onDismiss
+						: null,
+			};
+			this.elements.floatingBtn?.classList.remove(
+				"hidden",
+				"is-collapsed",
+			);
+			prompt.classList.remove("hidden");
+			requestAnimationFrame(() => {
+				prompt.classList.add("show");
+			});
+		}
+
+		hideFloatingExitPrompt() {
+			const prompt = this.elements.floatingExitPrompt;
+			if (!prompt) return;
+			prompt.classList.remove("show");
+			setTimeout(() => {
+				prompt.classList.add("hidden");
+			}, 180);
+		}
+
+		resolveFloatingExitPrompt(action) {
+			const handlers =
+				this._floatingExitPromptHandlers || {};
+			this._floatingExitPromptHandlers = null;
+			this.hideFloatingExitPrompt();
+			if (action === "help") {
+				handlers.onHelp?.();
+				return;
+			}
+			handlers.onDismiss?.();
+		}
+
+		triggerFloatingCloseButton() {
+			const closeBtn = this.elements.floatingCloseBtn;
+			if (!closeBtn) {
+				this.performFloatingLauncherDismiss();
+				return;
+			}
+			closeBtn.dispatchEvent(
+				new MouseEvent("click", {
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
+		}
+
+		performFloatingLauncherDismiss() {
+			this.hideFloatingExitPrompt();
+			const closeBtn = this.elements.floatingCloseBtn;
+			const helpBtn = this.elements.floatingHelpBtn;
+			const inputWrapper =
+				this.shadowRoot.getElementById(
+					"floatingPromptInputWrapper",
+				);
+			const inputShell =
+				closeBtn?.closest(".floating-input-shell");
+			if (closeBtn)
+				closeBtn.classList.add("fade-out-float");
+			if (helpBtn)
+				helpBtn.classList.add("fade-out-float");
+			if (inputWrapper)
+				inputWrapper.classList.add(
+					"fade-out-float",
+				);
+			if (inputShell) {
+				inputShell.classList.add("fade-out-float");
+				inputShell.classList.add("hide-before");
+			}
+			if (inputWrapper) inputWrapper.style.display = "none";
+			setTimeout(() => {
+				if (closeBtn) closeBtn.style.display = "none";
+				if (helpBtn) helpBtn.style.display = "none";
+				if (inputWrapper)
+					inputWrapper.style.display = "none";
+				if (inputShell)
+					inputShell.style.display = "none";
+			}, 350);
+		}
+
+		requestFloatingLauncherDismiss() {
+			if (
+				this.elements.floatingExitPrompt?.classList.contains(
+					"show",
+				)
+			) {
+				this.hideFloatingExitPrompt();
+				this.performFloatingLauncherDismiss();
+				return;
+			}
+			if (this.shouldShowClosePrompt()) {
+				this.showFloatingExitPrompt({
+					onHelp: () =>
+						this.openFromFloatingLauncher(),
+					onDismiss: () =>
+						this.triggerFloatingCloseButton(),
+				});
+				return;
+			}
+			this.performFloatingLauncherDismiss();
+		}
+
+		requestWidgetClose() {
+			if (!this.isOpen) return;
+			const shouldPrompt =
+				this.shouldShowClosePrompt();
+			this.toggleChat();
+			if (!shouldPrompt) return;
+			setTimeout(() => {
+				this.showFloatingExitPrompt({
+					onHelp: () =>
+						this.openFromFloatingLauncher(),
+					onDismiss: () =>
+						this.triggerFloatingCloseButton(),
+				});
+			}, 340);
+		}
+
 		openFromFloatingLauncher() {
+			this.hideFloatingExitPrompt();
 			this.elements.floatingBtn?.classList.remove(
 				"is-collapsed",
 			);
@@ -4821,6 +5152,7 @@
 		}
 
 		dismissFloatingLauncher() {
+			this.hideFloatingExitPrompt();
 			if (this.isOpen) {
 				this.toggleChat();
 				return;
@@ -4835,6 +5167,7 @@
 		}
 
 		hideFloatingLauncher() {
+			this.hideFloatingExitPrompt();
 			if (this.isOpen) {
 				this.toggleChat();
 			}
