@@ -137,6 +137,7 @@ export const floatingCSS = `
     position: relative;
     display: flex;
     align-items: center;
+    justify-content: end;
     gap: 12px;
     padding: 0;
     border-radius: 999px;

@@ -2474,12 +2474,13 @@
             align-items: center;
             gap: 6px;
           }
-          .floating-input-shell {
-            width: 100%;
+					.floating-input-shell {
+						width: auto;
 			max-width: 326px;
             position: relative;
             display: flex;
             align-items: center;
+			justify-content: end;
             gap: 12px;
             padding: 0;
             border-radius: 999px;
@@ -2489,16 +2490,28 @@
             transform-origin: right center;
             will-change: transform, opacity;
           }
-          .floating-input-shell::before {
-            content: "";
-            position: absolute;
-            top: 0; bottom: 0; left: 0; right: 70px;
-            border-radius: inherit;
-            background: #ffffff;
-            transition: right 1s cubic-bezier(0.22, 1, 0.36, 1);
-            will-change: right;
-            pointer-events: none;
-          }
+					.floating-input-shell::before {
+						content: "";
+						position: absolute;
+						top: 0; bottom: 0; left: 0; right: 70px;
+						border-radius: inherit;
+						background: #ffffff;
+						transition: right 1s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+						will-change: right, opacity;
+						pointer-events: none;
+						opacity: var(--float-shell-before-opacity, 1);
+						display: var(--float-shell-before-display, block);
+					}
+					.floating-input-shell.hide-before::before {
+						display: none !important;
+						content: none !important;
+						opacity: 0 !important;
+						background: transparent !important;
+						width: 0 !important;
+						height: 0 !important;
+						pointer-events: none !important;
+						transition: none !important;
+					}
           .floating-input-shell::after {
             content: "";
             position: absolute;
@@ -3377,13 +3390,27 @@
               
             }
 
+			.floating-launcher:has(.fade-out-float) .floating-input-shell::before {
+  				display: none;
+			}
+
             .hope-banner-btn:hover {
              drop-shadow(0 0 4px var(--color-primary, #350535));
             }
             .hope-banner-btn.active { filter: drop-shadow(0 0 4px var(--color-primary, #350535)); }
             .hope-banner.hidden { display: none; }
 
-      </style>
+					/* Fade-out for floating elements */
+					.fade-out-float {
+						opacity: 0 !important;
+						transition: opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+						pointer-events: none !important;
+					}
+					.floating-input-shell.fade-out-float::before {
+						opacity: 0 !important;
+						transition: opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1) !important;
+					}
+			</style>
 
         <!-- Chat Widget Box -->
         <div id="textChatWidget" class="chat-widget hidden">
@@ -3859,7 +3886,24 @@
 					(e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						this.hideFloatingLauncher();
+						const closeBtn = this.elements.floatingCloseBtn;
+						const helpBtn = this.elements.floatingHelpBtn;
+						const inputWrapper = this.shadowRoot.getElementById("floatingPromptInputWrapper");
+						const inputShell = closeBtn?.closest('.floating-input-shell');
+						if (closeBtn) closeBtn.classList.add("fade-out-float");
+						if (helpBtn) helpBtn.classList.add("fade-out-float");
+						if (inputWrapper) inputWrapper.classList.add("fade-out-float");
+						if (inputShell) {
+							inputShell.classList.add("fade-out-float");
+							inputShell.classList.add("hide-before");
+						}
+						if (inputWrapper) inputWrapper.style.display = "none";
+						setTimeout(() => {
+							if (closeBtn) closeBtn.style.display = "none";
+							if (helpBtn) helpBtn.style.display = "none";
+							if (inputWrapper) inputWrapper.style.display = "none";
+							if (inputShell) inputShell.style.display = "none";
+						}, 350);
 					},
 				);
 			}
