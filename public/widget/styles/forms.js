@@ -84,6 +84,48 @@ export const formsCSS = `
   .contact-form input:focus, .contact-form textarea:focus {
     border-color: color-mix(in srgb, var(--color-primary, #fc0e3f) 45%, white);
   }
+
+  /* --- Country Custom Select --- */
+  .cf-country-wrapper { position: relative; width: 100%; text-align: left; }
+  .cf-country-trigger {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; border: 1px solid #D3D3D3; border-radius: 0.9rem;
+    padding: 2px 13px 2px 10px; background: rgba(255, 255, 255, 0.96);
+    cursor: pointer; transition: border-color 0.18s ease;
+  }
+  .cf-country-trigger:hover, .cf-country-wrapper:focus-within .cf-country-trigger {
+    border-color: color-mix(in srgb, var(--color-primary, #fc0e3f) 45%, white);
+  }
+  .cf-country-flag { font-size: 1.25rem; margin-right: 6px; }
+  .cf-country-trigger input {
+    flex: 1; border: none; background: transparent; padding: 11px 0;
+    font-size: 13px; font-weight: 600; color: #0f172a; outline: none; cursor: pointer;
+    box-shadow: none; border-radius: 0;
+  }
+  .cf-country-trigger input:focus { border: none; }
+  .cf-country-trigger input::placeholder { color: #818181; font-weight: 500; }
+  .cf-country-chevron { color: #818181; flex-shrink: 0; }
+  .cf-country-menu {
+    position: absolute; bottom: calc(100% + 4px); left: 0; right: 0;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 0.75rem;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.08); z-index: 50;
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .cf-country-menu.hidden { display: none; }
+  .cf-country-search { padding: 8px; border-bottom: 1px solid #f1f5f9; background: #fafafa; }
+  .cf-country-search input {
+    width: 100%; border: 1px solid #e2e8f0; border-radius: 0.5rem;
+    padding: 6px 10px; font-size: 12px; outline: none; background: #fff;
+  }
+  .cf-country-search input:focus { border-color: rgba(0,0,0,0.1); }
+  .cf-country-list { max-height: 180px; overflow-y: auto; }
+  .cf-country-item {
+    padding: 8px 12px; display: flex; align-items: center; gap: 8px;
+    cursor: pointer; font-size: 13px; color: #334155; font-weight: 600;
+    text-align: left;
+  }
+  .cf-country-item:hover { background: #f1f5f9; color: #0f172a; }
+  .cf-country-list-flag { font-size: 1.15rem; }
   .chat-widget:has(#contactFormSlot:not(.hidden)) .chat-footer {
   	display: none;
 	}

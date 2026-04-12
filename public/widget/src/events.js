@@ -1,3 +1,5 @@
+import { COUNTRIES } from './countries.js';
+
 /**
  * Bind all DOM event listeners to the widget instance.
  * Called once after render().
@@ -5,9 +7,13 @@
 export function bindEvents(widget) {
   const { elements } = widget;
 
+  if (elements.cfCountryTrigger) {
+    bindCountryDropdown(widget);
+  }
+
   // Open / close
   elements.floatingBtn.addEventListener('click', () => toggleChat(widget));
-  elements.closeBtn.addEventListener('click',    () => toggleChat(widget));
+  elements.closeBtn.addEventListener('click', () => toggleChat(widget));
 
   // Send message
   elements.sendBtn.addEventListener('click', () => widget.handleSend());
@@ -95,3 +101,55 @@ export function handleLanguageSelect(widget, code) {
   widget.elements.langDropdown?.classList.remove('show');
 }
 
+/** Initialize and bind country dropdown logic */
+export function bindCountryDropdown(widget) {
+  const { cfCountryTrigger, cfCountryMenu, cfCountrySearch, cfCountryList, cfCountry, cfCountryFlag } = widget.elements;
+  if (!cfCountryTrigger || !cfCountryMenu) return;
+
+  function renderCountries(filterText = '') {
+    const list = cfCountryList;
+    if (!list) return;
+    list.innerHTML = '';
+    const filtered = COUNTRIES.filter(c => c.n.toLowerCase().includes(filterText.toLowerCase()));
+    if (filtered.length === 0) {
+      list.innerHTML = '<div class="cf-country-item" style="pointer-events:none;color:#666;">No results</div>';
+      return;
+    }
+    filtered.forEach(country => {
+      const el = document.createElement('div');
+      el.className = 'cf-country-item';
+      el.innerHTML = `<span class="cf-country-list-flag">${country.f}</span><span class="cf-country-name">${country.n}</span>`;
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (cfCountry) cfCountry.value = country.n;
+        if (cfCountryFlag) cfCountryFlag.textContent = country.f;
+        cfCountryMenu.classList.add('hidden');
+      });
+      list.appendChild(el);
+    });
+  }
+
+  cfCountryTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isHidden = cfCountryMenu.classList.contains('hidden');
+    cfCountryMenu.classList.toggle('hidden');
+
+    if (isHidden) {
+      if (cfCountrySearch) cfCountrySearch.value = '';
+      renderCountries('');
+      if (cfCountrySearch) setTimeout(() => cfCountrySearch.focus(), 50);
+    }
+  });
+
+  if (cfCountrySearch) {
+    cfCountrySearch.addEventListener('input', (e) => {
+      renderCountries(e.target.value);
+    });
+    cfCountrySearch.addEventListener('click', e => e.stopPropagation());
+  }
+
+  // Close when clicking outside
+  widget.shadowRoot.addEventListener('click', () => {
+    cfCountryMenu.classList.add('hidden');
+  });
+}

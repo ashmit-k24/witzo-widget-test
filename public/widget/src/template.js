@@ -20,7 +20,19 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
     config.leadFormNameEnabled !== false ? `<input id="cf-name" type="text" placeholder="Your name" />` : '',
     config.leadFormEmailEnabled !== false ? `<input id="cf-email" type="email" placeholder="Your email" />` : '',
     config.leadFormPhoneEnabled !== false ? `<input id="cf-phone" type="tel" placeholder="Phone number" />` : '',
-    config.leadFormCountryEnabled !== false ? `<input id="cf-country" type="text" placeholder="Country" />` : '',
+    config.leadFormCountryEnabled !== false ? `
+      <div class="cf-country-wrapper" id="cf-country-wrapper">
+        <div class="cf-country-trigger" id="cf-country-trigger">
+          <span class="cf-country-flag" id="cf-country-flag">🌐</span>
+          <input id="cf-country" type="text" placeholder="Country" readonly />
+          <svg class="cf-country-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </div>
+        <div class="cf-country-menu hidden" id="cf-country-menu">
+          <div class="cf-country-search"><input type="text" id="cf-country-search" placeholder="Search country..." /></div>
+          <div class="cf-country-list" id="cf-country-list"></div>
+        </div>
+      </div>
+    ` : '',
   ] : [
     `<input id="cf-name" type="text" placeholder="Your name" />`,
     `<input id="cf-email" type="email" placeholder="Your email *" />`,

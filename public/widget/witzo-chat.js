@@ -964,7 +964,18 @@
 					this.config.leadFormNameEnabled !== false ? '<input id="cf-name" type="text" placeholder="Your name" />' : '',
 					this.config.leadFormEmailEnabled !== false ? '<input id="cf-email" type="email" placeholder="Your email" />' : '',
 					this.config.leadFormPhoneEnabled !== false ? '<input id="cf-phone" type="tel" placeholder="Phone number" />' : '',
-					this.config.leadFormCountryEnabled !== false ? '<input id="cf-country" type="text" placeholder="Country" />' : '',
+					this.config.leadFormCountryEnabled !== false ? `
+						<div class="cf-country-wrapper" id="cf-country-wrapper">
+							<div class="cf-country-trigger" id="cf-country-trigger">
+								<input id="cf-country" type="text" placeholder="Country" readonly />
+								<svg class="cf-country-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+							</div>
+							<div class="cf-country-menu hidden" id="cf-country-menu">
+								<div class="cf-country-search"><input type="text" id="cf-country-search" placeholder="Search country..." /></div>
+								<div class="cf-country-list" id="cf-country-list"></div>
+							</div>
+						</div>
+					` : '',
 				]
 				: [
 					'<input id="cf-name" type="text" placeholder="Your name" />',
@@ -3483,6 +3494,48 @@
             .contact-form input:focus, .contact-form textarea:focus {
               border-color: color-mix(in srgb, var(--color-primary, #fc0e3f) 45%, white);
             }
+
+            /* --- Country Custom Select --- */
+            .cf-country-wrapper { position: relative; width: 100%; text-align: left; }
+            .cf-country-trigger {
+              display: flex; align-items: center; justify-content: space-between;
+              width: 100%; border: 1px solid #D3D3D3; border-radius: 0.9rem;
+              padding: 2px 13px 2px 10px; background: rgba(255, 255, 255, 0.96);
+              cursor: pointer; transition: border-color 0.18s ease;
+            }
+            .cf-country-trigger:hover, .cf-country-wrapper:focus-within .cf-country-trigger {
+              border-color: color-mix(in srgb, var(--color-primary, #fc0e3f) 45%, white);
+            }
+            .cf-country-flag { font-size: 1.25rem; margin-right: 6px; }
+            .cf-country-trigger input {
+              flex: 1; border: none; background: transparent; padding: 11px 0;
+              font-size: 13px; font-weight: 600; color: #0f172a; outline: none; cursor: pointer;
+              box-shadow: none; border-radius: 0;
+            }
+            .cf-country-trigger input:focus { border: none; }
+            .cf-country-trigger input::placeholder { color: #818181; font-weight: 500; }
+            .cf-country-chevron { color: #818181; flex-shrink: 0; }
+            .cf-country-menu {
+              position: absolute; bottom: calc(100% + 4px); left: 0; right: 0;
+              background: #fff; border: 1px solid #e2e8f0; border-radius: 0.75rem;
+              box-shadow: 0 10px 25px rgba(0,0,0,0.08); z-index: 50;
+              overflow: hidden; display: flex; flex-direction: column;
+            }
+            .cf-country-menu.hidden { display: none; }
+            .cf-country-search { padding: 8px; border-bottom: 1px solid #f1f5f9; background: #fafafa; }
+            .cf-country-search input {
+              width: 100%; border: 1px solid #e2e8f0; border-radius: 0.5rem;
+              padding: 6px 10px; font-size: 12px; outline: none; background: #fff;
+            }
+            .cf-country-search input:focus { border-color: rgba(0,0,0,0.1); }
+            .cf-country-list { max-height: 180px; overflow-y: auto; }
+            .cf-country-item {
+              padding: 8px 12px; display: flex; align-items: center; gap: 8px;
+              cursor: pointer; font-size: 13px; color: #334155; font-weight: 600;
+              text-align: left;
+            }
+            .cf-country-item:hover { background: #f1f5f9; color: #0f172a; }
+            .cf-country-list-flag { font-size: 1.15rem; }
 			.chat-widget:has(#contactFormSlot:not(.hidden)) .chat-footer {
   				display: none;
 			}
@@ -3981,14 +4034,14 @@
 					this.shadowRoot.getElementById(
 						"floating-btn",
 					),
-			floatingPromptInput:
-				this.shadowRoot.getElementById(
-					"floatingPromptInput",
-				),
-			floatingInputShell:
-				this.shadowRoot.querySelector(
-					".floating-input-shell",
-				),
+				floatingPromptInput:
+					this.shadowRoot.getElementById(
+						"floatingPromptInput",
+					),
+				floatingInputShell:
+					this.shadowRoot.querySelector(
+						".floating-input-shell",
+					),
 				floatingPromptSend:
 					this.shadowRoot.getElementById(
 						"floatingPromptSend",
@@ -4094,6 +4147,26 @@
 					this.shadowRoot.getElementById(
 						"cf-country",
 					),
+				cfCountryTrigger:
+					this.shadowRoot.getElementById(
+						"cf-country-trigger",
+					),
+				cfCountryMenu:
+					this.shadowRoot.getElementById(
+						"cf-country-menu",
+					),
+				cfCountrySearch:
+					this.shadowRoot.getElementById(
+						"cf-country-search",
+					),
+				cfCountryList:
+					this.shadowRoot.getElementById(
+						"cf-country-list",
+					),
+				cfCountryFlag:
+					this.shadowRoot.getElementById(
+						"cf-country-flag",
+					),
 				cfMessage:
 					this.shadowRoot.getElementById(
 						"cf-message",
@@ -4112,7 +4185,7 @@
 					this.shadowRoot.getElementById(
 						"conversationRatingSlot",
 					),
-				   // ...removed hopeBanner related code...
+				// ...removed hopeBanner related code...
 				langPillBtn:
 					this.shadowRoot.getElementById(
 						"langPillBtn",
@@ -4364,6 +4437,73 @@
 			this.resizeChatInput(true);
 			this.updateFloatingLauncherState();
 
+			const COUNTRIES = [
+				{ c: 'US', n: 'United States', f: '🇺🇸' },
+				{ c: 'GB', n: 'United Kingdom', f: '🇬🇧' },
+				{ c: 'IN', n: 'India', f: '🇮🇳' },
+				{ c: 'CA', n: 'Canada', f: '🇨🇦' },
+				{ c: 'AU', n: 'Australia', f: '🇦🇺' },
+				{ c: 'DE', n: 'Germany', f: '🇩🇪' },
+				{ c: 'FR', n: 'France', f: '🇫🇷' },
+				{ c: 'IT', n: 'Italy', f: '🇮🇹' },
+				{ c: 'ES', n: 'Spain', f: '🇪🇸' },
+				{ c: 'BR', n: 'Brazil', f: '🇧🇷' },
+				{ c: 'ZA', n: 'South Africa', f: '🇿🇦' },
+				{ c: 'MX', n: 'Mexico', f: '🇲🇽' },
+				{ c: 'NL', n: 'Netherlands', f: '🇳🇱' },
+				{ c: 'SE', n: 'Sweden', f: '🇸🇪' },
+				{ c: 'CH', n: 'Switzerland', f: '🇨🇭' },
+				{ c: 'AE', n: 'United Arab Emirates', f: '🇦🇪' },
+				{ c: 'SG', n: 'Singapore', f: '🇸🇬' },
+				{ c: 'JP', n: 'Japan', f: '🇯🇵' },
+				{ c: 'NZ', n: 'New Zealand', f: '🇳🇿' },
+			];
+
+			if (this.elements.cfCountryTrigger && this.elements.cfCountryMenu) {
+				const renderCountries = (filterText = '') => {
+					const list = this.elements.cfCountryList;
+					if (!list) return;
+					list.innerHTML = '';
+					const filtered = COUNTRIES.filter(c => c.n.toLowerCase().includes(filterText.toLowerCase()));
+					if (filtered.length === 0) {
+						list.innerHTML = '<div class="cf-country-item" style="pointer-events:none;color:#666;">No results</div>';
+						return;
+					}
+					filtered.forEach(country => {
+						const el = document.createElement('div');
+						el.className = 'cf-country-item';
+						el.innerHTML = `<span class="cf-country-name">${country.n}</span>`;
+						el.addEventListener('click', (e) => {
+							e.stopPropagation();
+							if (this.elements.cfCountry) this.elements.cfCountry.value = country.n;
+							if (this.elements.cfCountryFlag) this.elements.cfCountryFlag.textContent = country.f;
+							this.elements.cfCountryMenu.classList.add('hidden');
+						});
+						list.appendChild(el);
+					});
+				};
+
+				this.elements.cfCountryTrigger.addEventListener('click', (e) => {
+					e.stopPropagation();
+					const isHidden = this.elements.cfCountryMenu.classList.contains('hidden');
+					this.elements.cfCountryMenu.classList.toggle('hidden');
+					if (isHidden) {
+						if (this.elements.cfCountrySearch) this.elements.cfCountrySearch.value = '';
+						renderCountries('');
+						if (this.elements.cfCountrySearch) setTimeout(() => this.elements.cfCountrySearch.focus(), 50);
+					}
+				});
+
+				if (this.elements.cfCountrySearch) {
+					this.elements.cfCountrySearch.addEventListener('input', (e) => renderCountries(e.target.value));
+					this.elements.cfCountrySearch.addEventListener('click', e => e.stopPropagation());
+				}
+
+				this.shadowRoot.addEventListener('click', () => {
+					this.elements.cfCountryMenu.classList.add('hidden');
+				});
+			}
+
 			// Custom Language Dropdown Logic
 			if (this.elements.langPillBtn) {
 				this.elements.langPillBtn.addEventListener(
@@ -4594,7 +4734,7 @@
 			}
 
 			// Hope Banner Buttons
-			   // ...removed hopeBanner related code...
+			// ...removed hopeBanner related code...
 
 			// Bottom Nav Events
 			if (this.elements.navChat) {
@@ -5137,7 +5277,7 @@
 				this.isOpen &&
 				!container.classList.contains("hidden") &&
 				container.scrollHeight - container.scrollTop - container.clientHeight >
-					Math.max(container.clientHeight * 0.6, 180);
+				Math.max(container.clientHeight * 0.6, 180);
 			button.classList.toggle("hidden", !shouldShow);
 			button.classList.toggle("show", shouldShow);
 		}
