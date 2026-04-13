@@ -10,6 +10,7 @@ export type QueryClass =
 	| "case_study"
 	| "service"
 	| "blog"
+	| "people"
 	| "general";
 
 export function normalizeWidgetQuery(q: string): string {
@@ -43,6 +44,9 @@ export function classifyQuery(query: string): QueryClass {
 	if (/\b(blog|article|news|insight|guide)\b/.test(q)) {
 		return "blog";
 	}
+	if (/\b(founder|ceo|director|owner|leadership|team|who is|about person)\b/.test(q)) {
+	return "people";
+	}
 	return "general";
 }
 
@@ -58,11 +62,15 @@ export function getTopKForQuery(query: string): number {
 			return 12;
 		case "general":
 			return 15;
+		case "people":
+			return 15;
 	}
 }
 
 export function buildPageTypeFilters(query: string): string[] {
 	switch (classifyQuery(query)) {
+		case "people":
+			return ["service","services","case_study","contact","pricing","blog"];
 		case "pricing":
 			return ["pricing"];
 		case "contact":
@@ -95,6 +103,9 @@ export function generateQueryVariations(query: string): string[] {
 	}
 	if (/\b(contact|email|phone|address)\b/.test(normalized)) {
 		variations.add(`${q} contact details`);
+	}
+	if (/\b(founder|ceo|director|owner|leadership|team)\b/.test(normalized)) {
+	variations.add(`${q} company leadership founder ceo director about team`);
 	}
 
 	return Array.from(variations)
