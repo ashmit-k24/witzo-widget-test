@@ -4,16 +4,16 @@ import {
 } from "@pinecone-database/pinecone";
 import crypto from "crypto";
 import OpenAI from "openai";
+import pool from "../config/database";
+import { config } from "../config/env";
 import {
 	coercePlanType,
 	PlanType,
 } from "../config/planConfig";
-import { config } from "../config/env";
-import pool from "../config/database";
 import { redisCache } from "../config/redis";
 import {
-	DocumentUsageStats,
 	DOCUMENT_LIMITS,
+	DocumentUsageStats,
 	PineconeMetadata,
 	RagChunk,
 	ScraperUsageStats,
@@ -27,15 +27,15 @@ import {
 	retryOnRateLimit,
 	retryWithBackoff,
 } from "../utils/retry";
-import { chunkMarkdown, bm25SparseVector } from "./chunkingService";
-import { cohereRerank } from "./rerankService";
-import { scraperSourceService } from "./scraperSourceService";
-import { subscriptionService } from "./subscriptionService";
+import { bm25SparseVector, chunkMarkdown } from "./chunkingService";
 import {
 	buildPageTypeFilters,
 	generateQueryVariations,
 	stepBackRewrite,
 } from "./queryService";
+import { cohereRerank } from "./rerankService";
+import { scraperSourceService } from "./scraperSourceService";
+import { subscriptionService } from "./subscriptionService";
 
 class PineconeService {
 	private static readonly EMBEDDING_CONCURRENCY = 8;
@@ -1067,12 +1067,13 @@ class PineconeService {
 				query,
 				options?.history,
 			);
-			const pageTypes =
-				(await scraperSourceService.isMetadataReady(
+			const metadataReady =
+				await scraperSourceService.isMetadataReady(
 					userId,
-				))
-					? buildPageTypeFilters(query)
-					: [];
+				);
+			const pageTypes = metadataReady //Just for trial
+				? buildPageTypeFilters(query)
+				: [];
 			const inputs = [
 				rewrittenQuery,
 				...(rewrittenQuery !== query ? [query] : []),
@@ -1097,10 +1098,13 @@ class PineconeService {
 					topK: Math.max(effectiveTopK * 3, effectiveTopK),
 					includeMetadata: true,
 				};
-				if (withFilter && pageTypes.length > 0) {
-					payload.filter = {
-						pageType: { $in: pageTypes },
-					};
+				
+				if (withFilter) {
+					if (pageTypes.length > 0) {
+						payload.filter = {
+							pageType: { $in: pageTypes },
+						};
+					}
 				}
 				if (withSparse && config.PINECONE_HYBRID) {
 					const sparse = bm25SparseVector(queryText);
@@ -1140,10 +1144,11 @@ class PineconeService {
 
 			const resultLists: any[][] = [];
 			for (let inputIndex = 0; inputIndex < inputs.length; inputIndex += 1) {
+				const useFilter = metadataReady && pageTypes.length > 0;
 				const matches = await queryOnce(
 					inputs[inputIndex],
 					embeddings[inputIndex],
-					true,
+					useFilter,
 					inputIndex === 0,
 				);
 				if (matches.length > 0) {
@@ -1169,12 +1174,13 @@ class PineconeService {
 				lists: resultLists.length,
 				matches: matches.length,
 			});
-
-			return await cohereRerank(
+	
+			const reranked = await cohereRerank(
 				query,
 				matches,
 				effectiveTopK,
 			);
+			return reranked;
 		} catch (error) {
 			logger.error("Error querying Pinecone", {
 				error,
@@ -1183,6 +1189,81 @@ class PineconeService {
 			throw error;
 		}
 	}
+
+	// async queryPineconeDirect(
+	// 	userId: string,
+	// 	query: string,
+	// 	options?: {
+	// 		topK?: number;
+	// 		pageTypes?: string[];
+	// 		includeMetadata?: boolean;
+	// 		includeValues?: boolean;
+	// 		useHybrid?: boolean;
+	// 	},
+	// ): Promise<any[]> {
+	// 	const index = this.getNamespaceIndex(userId);
+	// 	const effectiveTopK =
+	// 		options?.topK && options.topK > 0
+	// 			? Math.trunc(options.topK)
+	// 			: 10;
+	// 	const embedding = await this.generateEmbedding(
+	// 		query,
+	// 	);
+	// 	const payload: Record<string, unknown> = {
+	// 		vector: embedding,
+	// 		topK: effectiveTopK,
+	// 		includeMetadata:
+	// 			options?.includeMetadata !== false,
+	// 	};
+	// 	if (options?.includeValues) {
+	// 		(payload as any).includeValues = true;
+	// 	}
+	// 	if (options?.pageTypes?.length) {
+	// 		payload.filter = {
+	// 			pageType: { $in: options.pageTypes },
+	// 		};
+	// 	}
+	// 	const useHybrid =
+	// 		options?.useHybrid ??
+	// 		config.PINECONE_HYBRID;
+	// 	if (useHybrid) {
+	// 		const sparse = bm25SparseVector(query);
+	// 		if (sparse.indices.length > 0) {
+	// 			(payload as any).sparseVector = sparse;
+	// 		}
+	// 	}
+
+	// 	console.log("🔍 Pinecone Query Debug:");
+	// 	console.log({
+	// 		queryText: query,
+	// 		embeddingLength: embedding.length,
+	// 		embeddingPreview: embedding.slice(0, 10),
+	// 		topK: (payload as any).topK,
+	// 		filter: (payload as any).filter || null,
+	// 		hasSparse: Boolean(
+	// 			(payload as any).sparseVector,
+	// 		),
+	// 	});
+
+	// 	const response =
+	// 		await pineconeCircuitBreaker.execute(
+	// 			async () =>
+	// 				await (index as any).query(payload),
+	// 		);
+	// 	console.log("📦 Pinecone Raw Matches:");
+	// 	console.log({
+	// 		matchCount: response.matches?.length || 0,
+	// 		sample: (response.matches || [])
+	// 			.slice(0, 5)
+	// 			.map((m: any) => ({
+	// 				score: m.score,
+	// 				pageType: m.metadata?.pageType,
+	// 				title: m.metadata?.title,
+	// 				url: m.metadata?.url,
+	// 			})),
+	// 	});
+	// 	return response.matches || [];
+	// }
 
 	private rrfMerge(resultLists: any[][]): any[] {
 		const rankConstant = 60;
