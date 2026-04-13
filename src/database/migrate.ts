@@ -307,6 +307,12 @@ const migrations: Migration[] = [
 			"Create per-message feedback storage for widget chat responses",
 		file: "20260413_048_chat_message_feedback.sql",
 	},
+	{
+		id: "20260413_049_lead_draft_finalize",
+		description:
+			"Add draft/finalize state tracking for lead capture and CRM sync",
+		file: "20260413_049_lead_draft_finalize.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

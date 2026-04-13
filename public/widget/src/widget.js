@@ -49,6 +49,11 @@ export class WitzoChatWidget extends HTMLElement {
     this._calendlyBookingActive = false;
     this._leadFormCompleted = false;
     this._leadFormStatusChecking = false;
+    this._lastLeadFinalizeSessionId = null;
+    this._pageHideHandler = () => this.finalizePendingLeadDraft();
+    this._visibilityHandler = () => {
+      if (document.visibilityState === 'hidden') this.finalizePendingLeadDraft();
+    };
 
     // Auto-open timer (cleared on first manual interaction)
     this._autoOpenTimer = null;
@@ -70,6 +75,8 @@ export class WitzoChatWidget extends HTMLElement {
     this.apiUrl     = this.getAttribute('api-url')      || '';
     this.apiBaseUrl = this.getAttribute('api-base-url') || this.apiUrl.replace('/api/v1/webhook', '');
     this.widgetKey  = this.getAttribute('widget-key')   || '';
+    window.addEventListener('pagehide', this._pageHideHandler);
+    document.addEventListener('visibilitychange', this._visibilityHandler);
 
     ATTR_LIST.forEach(attr => {
       const val = this.getAttribute(attr);
@@ -202,6 +209,8 @@ export class WitzoChatWidget extends HTMLElement {
   }
 
   disconnectedCallback() {
+    window.removeEventListener('pagehide', this._pageHideHandler);
+    document.removeEventListener('visibilitychange', this._visibilityHandler);
     if (this._calendlyMessageHandler) {
       window.removeEventListener('message', this._calendlyMessageHandler);
       this._calendlyMessageHandler = null;
@@ -407,6 +416,12 @@ export class WitzoChatWidget extends HTMLElement {
       await api.submitRating({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId, rating });
       this.elements.conversationRatingSlot?.classList.add('hidden');
     } catch (_) {}
+  }
+
+  finalizePendingLeadDraft() {
+    if (!this.apiBaseUrl || !this.widgetKey || !this.sessionId || this._lastLeadFinalizeSessionId === this.sessionId) return;
+    this._lastLeadFinalizeSessionId = this.sessionId;
+    api.finalizeLead({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId }).catch(() => {});
   }
 
   showRatingAcknowledgement(rating) {

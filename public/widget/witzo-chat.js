@@ -104,6 +104,14 @@
 			this._calendlyBookingActive = false;
 			this._leadFormCompleted = false;
 			this._leadFormStatusChecking = false;
+			this._lastLeadFinalizeSessionId = null;
+			this._pageHideHandler = () =>
+				this.finalizePendingLeadDraft();
+			this._visibilityHandler = () => {
+				if (document.visibilityState === "hidden") {
+					this.finalizePendingLeadDraft();
+				}
+			};
 			this._messageFeedbackReasons = [
 				"Incorrect",
 				"Not helpful",
@@ -175,6 +183,14 @@
 				);
 			this.widgetKey =
 				this.getAttribute("widget-key") || "";
+			window.addEventListener(
+				"pagehide",
+				this._pageHideHandler,
+			);
+			document.addEventListener(
+				"visibilitychange",
+				this._visibilityHandler,
+			);
 			this._leadFormCompleted =
 				sessionStorage.getItem(
 					this.getLeadFormCompletedKey(),
@@ -450,6 +466,14 @@
 		}
 
 		disconnectedCallback() {
+			window.removeEventListener(
+				"pagehide",
+				this._pageHideHandler,
+			);
+			document.removeEventListener(
+				"visibilitychange",
+				this._visibilityHandler,
+			);
 			if (this._calendlyMessageHandler) {
 				window.removeEventListener(
 					"message",
@@ -6618,6 +6642,35 @@
 					e,
 				);
 			}
+		}
+
+		finalizePendingLeadDraft() {
+			if (
+				!this.apiBaseUrl ||
+				!this.widgetKey ||
+				!this.sessionId ||
+				this._lastLeadFinalizeSessionId ===
+					this.sessionId
+			) {
+				return;
+			}
+			this._lastLeadFinalizeSessionId =
+				this.sessionId;
+			fetch(
+				this.apiBaseUrl +
+					"/api/v1/widget/lead-finalize",
+				{
+					method: "POST",
+					headers: this.getRequestHeaders({
+						"Content-Type": "application/json",
+					}),
+					body: JSON.stringify({
+						widgetKey: this.widgetKey,
+						sessionId: this.sessionId,
+					}),
+					keepalive: true,
+				},
+			).catch(() => {});
 		}
 
 		showRatingAcknowledgement(rating) {

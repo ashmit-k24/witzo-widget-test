@@ -114,6 +114,14 @@ router.post(
 	publicWidgetController.getLeadFormStatus,
 );
 
+router.post(
+	"/widget/lead-finalize",
+	publicWidgetActionLimiter,
+	validationRules.publicWidgetLeadFinalize,
+	validate,
+	publicWidgetController.finalizeLeadCapture,
+);
+
 /**
  * @route   POST /api/v1/widget/rating
  * @desc    Submit a chat rating (👍/👎) for a session (basic plan only)

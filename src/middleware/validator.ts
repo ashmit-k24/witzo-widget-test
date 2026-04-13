@@ -1081,6 +1081,14 @@ export const validationRules: Record<
 			.isUUID()
 			.withMessage("sessionId must be a valid UUID"),
 	],
+	publicWidgetLeadFinalize: [
+		body("widgetKey")
+			.matches(WIDGET_KEY_REGEX)
+			.withMessage("widgetKey is invalid"),
+		body("sessionId")
+			.isUUID()
+			.withMessage("sessionId must be a valid UUID"),
+	],
 
 	publicWidgetRating: [
 		body("widgetKey")
