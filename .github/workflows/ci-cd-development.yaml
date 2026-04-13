@@ -21,7 +21,7 @@ jobs:
           [ -d /var/cache/apt ] && sudo apt-get clean
 
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Debug - Check workspace
         run: |
@@ -53,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout code (so we have a workspace dir)
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
       - name: Re-create .env file on the runner
         run: |
