@@ -107,10 +107,7 @@
 			this._messageFeedbackReasons = [
 				"Incorrect",
 				"Not helpful",
-				"Too long",
-				"Incomplete",
-				"Slow",
-				"Tell us more",
+
 			];
 
 			this.elements = {};
@@ -1396,7 +1393,7 @@
             min-width: 188px;
             background: #fff;
             border-radius: 16px;
-            box-shadow: 0 18px 40px rgba(17, 17, 17, 0.18);
+            box-shadow: 0px 4px 20px 0px #00000024;
             padding: 6px;
             overflow: visible;
             z-index: 12;
@@ -1471,7 +1468,7 @@
             max-height: 318px;
             background: #ffffff;
             border-radius: 16px;
-            box-shadow: 0 18px 40px rgba(17, 17, 17, 0.18);
+            box-shadow: 0px 4px 20px 0px #00000024;
             padding: 6px;
             overflow-y: auto;
             scrollbar-width: thin;
@@ -1660,6 +1657,7 @@
             overflow: visible;
             position: relative;
             z-index: 4;
+			padding-top:0 !important;
           }
           .chat-input-container {
             display: flex;
@@ -3259,6 +3257,9 @@
               cursor: pointer;
               transition: color 0.2s ease, transform 0.2s ease;
             }
+			  .message-feedback-btn.down{
+			 	padding-bottom:1px; 
+			  }
             .message-feedback-btn:hover {
               color: #111111;
               transform: translateY(-1px);
@@ -3313,7 +3314,7 @@
               min-width: 188px;
               background: #ffffff;
               border-radius: 16px;
-              box-shadow: 0 18px 40px rgba(17, 17, 17, 0.18);
+              box-shadow: 0px 4px 20px 0px #00000024;
               padding: 6px;
               opacity: 0;
               transform: translateY(8px) scale(0.96);
@@ -5966,7 +5967,7 @@
                   ${this.getMessageFeedbackIcon("up")}
                   <span class="message-feedback-tooltip">Helpful</span>
                 </button>
-                <button type="button" class="message-feedback-btn" data-feedback="down" aria-label="Not helpful">
+                <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
                   ${this.getMessageFeedbackIcon("down")}
                   <span class="message-feedback-tooltip">Not helpful</span>
                 </button>
