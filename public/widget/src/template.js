@@ -20,7 +20,19 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
     config.leadFormNameEnabled !== false ? `<input id="cf-name" type="text" placeholder="Your name" />` : '',
     config.leadFormEmailEnabled !== false ? `<input id="cf-email" type="email" placeholder="Your email" />` : '',
     config.leadFormPhoneEnabled !== false ? `<input id="cf-phone" type="tel" placeholder="Phone number" />` : '',
-    config.leadFormCountryEnabled !== false ? `<input id="cf-country" type="text" placeholder="Country" />` : '',
+    config.leadFormCountryEnabled !== false ? `
+      <div class="cf-country-wrapper" id="cf-country-wrapper">
+        <div class="cf-country-trigger" id="cf-country-trigger">
+          <span class="cf-country-flag" id="cf-country-flag">🌐</span>
+          <input id="cf-country" type="text" placeholder="Country" readonly />
+          <svg class="cf-country-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </div>
+        <div class="cf-country-menu hidden" id="cf-country-menu">
+          <div class="cf-country-search"><input type="text" id="cf-country-search" placeholder="Search country..." /></div>
+          <div class="cf-country-list" id="cf-country-list"></div>
+        </div>
+      </div>
+    ` : '',
   ] : [
     `<input id="cf-name" type="text" placeholder="Your name" />`,
     `<input id="cf-email" type="email" placeholder="Your email *" />`,
@@ -87,11 +99,21 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
 
       <!-- Contact Form (paid plan fallback) -->
       <div id="contactFormSlot" class="contact-form hidden">
-        <h3>Get in Touch</h3>
-        <p>Our team will respond as soon as possible.</p>
-        ${leadFields}
-        ${config.leadFormEnabled ? '' : '<textarea id="cf-message" placeholder="Your message"></textarea>'}
-        <button id="cf-submit" class="contact-form-submit">${config.leadFormEnabled ? config.leadFormButtonText || 'Fill the form to continue chat' : 'Send Message'}</button>
+        <div class="contact-form-backdrop"></div>
+        <div class="contact-form-shell">
+          <div class="contact-form-card">
+            <div class="contact-form-copy">
+              <h3>${config.leadFormEnabled ? "Let's stay connected" : 'What can we improve?'}</h3>
+              <p>${config.leadFormEnabled ? 'Share your details to continue the conversation with our team.' : "Thanks for helping us do better. Tell us what we can improve and we'll take it from there."}</p>
+            </div>
+            <div class="contact-form-fields">
+              ${leadFields}
+              ${config.leadFormEnabled ? '' : '<textarea id="cf-message" placeholder="Type your feedback..."></textarea>'}
+            </div>
+            <button id="cf-submit" class="contact-form-submit">${config.leadFormEnabled ? config.leadFormButtonText || 'Continue' : 'Continue'}</button>
+            <div class="contact-form-note">${config.leadFormEnabled ? "We'll only use these details to follow up on your request." : 'Your feedback helps us refine the experience.'}</div>
+          </div>
+        </div>
       </div>
 
       <!-- Calendly booking slot -->

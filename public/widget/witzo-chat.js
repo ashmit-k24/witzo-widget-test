@@ -90,7 +90,7 @@
 			this.ratingSubmitted = false;
 			this._wasEndIntent = false;
 			this._idleTimer = null;
-			this._pendingHopeBanner = false;
+			// ...removed hopeBanner related code...
 			this._ratingToastTimer = null;
 			this.selectedLanguage = "en";
 			this.isExpanded = false;
@@ -159,6 +159,7 @@
 				leadFormPhoneEnabled: true,
 				leadFormCountryEnabled: true,
 				leadFormTriggerMessageCount: 5,
+				closePromptFrequency: 0.35,
 			};
 		}
 
@@ -280,6 +281,7 @@
 				["lead-form-phone-enabled", "leadFormPhoneEnabled"],
 				["lead-form-country-enabled", "leadFormCountryEnabled"],
 				["lead-form-trigger-message-count", "leadFormTriggerMessageCount"],
+				["close-prompt-frequency", "closePromptFrequency"],
 			];
 
 			ATTR_TO_CONFIG_KEY.forEach(
@@ -307,6 +309,15 @@
 				this.normalizeFloatingType(
 					this.config.floatingType,
 				);
+			this.config.closePromptFrequency = Math.max(
+				0,
+				Math.min(
+					1,
+					Number.parseFloat(
+						this.config.closePromptFrequency,
+					) || 0,
+				),
+			);
 			// Intro screen is intentionally disabled so the widget opens directly to chat.
 			this.config.showIntroScreen = false;
 
@@ -746,6 +757,20 @@
               </span>
             </button>
           </div>
+          <div id="floatingExitPrompt" class="floating-exit-prompt hidden" aria-live="polite">
+            <button type="button" id="floatingExitPromptClose" class="floating-exit-close" aria-label="Close prompt">
+              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M1 1L10 10M10 1L1 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <div class="floating-exit-card">
+              <div class="floating-exit-title">Still didn't find what you're looking for?</div>
+              <div class="floating-exit-actions">
+                <button type="button" id="floatingExitPromptHelp" class="floating-exit-btn floating-exit-btn-primary">Help Me</button>
+                <button type="button" id="floatingExitPromptDismiss" class="floating-exit-btn floating-exit-btn-secondary">No Thanks</button>
+              </div>
+            </div>
+          </div>
         </div>
       `;
 		}
@@ -782,6 +807,22 @@
 			this.elements.floatingHelpBtn =
 				this.shadowRoot.getElementById(
 					"floatingHelpBtn",
+				);
+			this.elements.floatingExitPrompt =
+				this.shadowRoot.getElementById(
+					"floatingExitPrompt",
+				);
+			this.elements.floatingExitPromptClose =
+				this.shadowRoot.getElementById(
+					"floatingExitPromptClose",
+				);
+			this.elements.floatingExitPromptHelp =
+				this.shadowRoot.getElementById(
+					"floatingExitPromptHelp",
+				);
+			this.elements.floatingExitPromptDismiss =
+				this.shadowRoot.getElementById(
+					"floatingExitPromptDismiss",
 				);
 			if (!this.elements.floatingBtn) return;
 			this.elements.floatingBtn.classList.remove(
@@ -830,8 +871,7 @@
 			this.pendingEndIntentRating = false;
 			this.setRatingShownState(false);
 			this.setRatingSubmittedState(false);
-			this._pendingHopeBanner = false;
-			this._clearHopeBannerTimer();
+			// ...removed hopeBanner related code...
 			if (
 				this.elements &&
 				this.elements.conversationRatingSlot
@@ -842,7 +882,7 @@
 					"hidden",
 				);
 			}
-			this._hideHopeBanner();
+			// ...removed hopeBanner related code...
 		}
 
 		isConversationEndMessage(text) {
@@ -924,7 +964,18 @@
 					this.config.leadFormNameEnabled !== false ? '<input id="cf-name" type="text" placeholder="Your name" />' : '',
 					this.config.leadFormEmailEnabled !== false ? '<input id="cf-email" type="email" placeholder="Your email" />' : '',
 					this.config.leadFormPhoneEnabled !== false ? '<input id="cf-phone" type="tel" placeholder="Phone number" />' : '',
-					this.config.leadFormCountryEnabled !== false ? '<input id="cf-country" type="text" placeholder="Country" />' : '',
+					this.config.leadFormCountryEnabled !== false ? `
+						<div class="cf-country-wrapper" id="cf-country-wrapper">
+							<div class="cf-country-trigger" id="cf-country-trigger">
+								<input id="cf-country" type="text" placeholder="Country" readonly />
+								<svg class="cf-country-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+							</div>
+							<div class="cf-country-menu hidden" id="cf-country-menu">
+								<div class="cf-country-search"><input type="text" id="cf-country-search" placeholder="Search country..." /></div>
+								<div class="cf-country-list" id="cf-country-list"></div>
+							</div>
+						</div>
+					` : '',
 				]
 				: [
 					'<input id="cf-name" type="text" placeholder="Your name" />',
@@ -1186,7 +1237,7 @@
           /* Header */
           .chat-header {
             background: var(--color-banner-bg, #120b14);
-            padding: 0rem 1rem;
+            padding: 0rem 17px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1202,7 +1253,7 @@
             width: auto;
             justify-content: flex-start;
             align-items: center;
-            gap: 0.75rem;
+            gap: 12px;
             flex: 1;
             min-width: 0;
           }
@@ -1450,7 +1501,7 @@
             color: #111111;
             cursor: pointer;
             text-align: left;
-            font-size: 14px;
+            font-size: 13px;
             line-height: 1.2;
           }
           .chat-menu-language-item:hover {
@@ -1458,6 +1509,16 @@
           }
           .chat-menu-language-item.active {
             background: #f1f1f3;
+          }
+          .chat-menu-language-item-check {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+            opacity: 0;
+            color: #111111;
+          }
+          .chat-menu-language-item.active .chat-menu-language-item-check {
+            opacity: 1;
           }
           
           .chat-widget.expanded {
@@ -1497,9 +1558,7 @@
             transition: all 0.6s ease-in-out;
 			border-radius:20px 20px 0 0;
           }
-			.message-feedback{
-				display:none;
-			}
+			
 
 			#headerHelpBtn{
 			display:none;
@@ -1620,7 +1679,7 @@
           /* Beam Implementaton */
           .chat-input-beam {
             position: absolute;
-            width: 80px;
+            width: 50px;
             height: 4px;
             background: var(--color-banner-bg, #120b14);
             filter: blur(18px);
@@ -1638,20 +1697,21 @@
           }
 
           @keyframes orbitBeam {
-            0%   { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); width: 80px; }
-            38%  { top: 0%; left: 100%; transform: translate(-50%, -50%) rotate(0deg); width: 80px; }
-            40%  { top: 0%; left: 100%; transform: translate(-50%, -50%) rotate(90deg); width: 40px; }
-            48%  { top: 100%; left: 100%; transform: translate(-50%, -50%) rotate(90deg); width: 40px; }
-            50%  { top: 100%; left: 100%; transform: translate(-50%, -50%) rotate(180deg); width: 80px; }
-            88%  { top: 100%; left: 0%; transform: translate(-50%, -50%) rotate(180deg); width: 80px; }
-            90%  { top: 100%; left: 0%; transform: translate(-50%, -50%) rotate(270deg); width: 40px; }
-            98%  { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(270deg); width: 40px; }
-            100% { top: 0%; left: 0%; transform: translate(-50%, -50%) rotate(360deg); width: 80px; }
+            0%   { top: 6%; left: 8%; width: 44px; transform: translate(-50%, -50%); }
+            22%  { top: 6%; left: 50%; width: 48px; transform: translate(-50%, -50%); }
+            40%  { top: 6%; left: 92%; width: 44px; transform: translate(-50%, -50%); }
+            50%  { top: 18%; left: 94%; width: 32px; transform: translate(-50%, -50%); }
+            60%  { top: 82%; left: 94%; width: 32px; transform: translate(-50%, -50%); }
+            70%  { top: 94%; left: 92%; width: 44px; transform: translate(-50%, -50%); }
+            84%  { top: 94%; left: 50%; width: 48px; transform: translate(-50%, -50%); }
+            94%  { top: 94%; left: 8%; width: 44px; transform: translate(-50%, -50%); }
+            100% { top: 6%; left: 8%; width: 44px; transform: translate(-50%, -50%); }
           }
           
           .chat-input-container:focus-within {
-            border-color: var(--color-primary, #fc0e3f);
-          }
+  			    border-color: 
+				color-mix(in srgb, var(--color-primary, #fc0e3f) 30%, transparent);
+			}
           
           .chat-input-row {
             display: flex;
@@ -2454,7 +2514,7 @@
           }
           .floating-help-pill {
             position: absolute;
-            top: 29px;
+            top: 28px;
             right: var(--floating-help-pill-right-rest);
             border: none;
             background: #ffffff;
@@ -2477,12 +2537,13 @@
             align-items: center;
             gap: 6px;
           }
-          .floating-input-shell {
-            width: 100%;
+					.floating-input-shell {
+						width: auto;
 			max-width: 326px;
             position: relative;
             display: flex;
             align-items: center;
+			justify-content: end;
             gap: 12px;
             padding: 0;
             border-radius: 999px;
@@ -2492,16 +2553,28 @@
             transform-origin: right center;
             will-change: transform, opacity;
           }
-          .floating-input-shell::before {
-            content: "";
-            position: absolute;
-            top: 0; bottom: 0; left: 0; right: 70px;
-            border-radius: inherit;
-            background: #ffffff;
-            transition: right 1s cubic-bezier(0.22, 1, 0.36, 1);
-            will-change: right;
-            pointer-events: none;
-          }
+					.floating-input-shell::before {
+						content: "";
+						position: absolute;
+						top: 0; bottom: 0; left: 0; right: 70px;
+						border-radius: inherit;
+						background: #ffffff;
+						transition: right 1s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+						will-change: right, opacity;
+						pointer-events: none;
+						opacity: var(--float-shell-before-opacity, 1);
+						display: var(--float-shell-before-display, block);
+					}
+					.floating-input-shell.hide-before::before {
+						display: none !important;
+						content: none !important;
+						opacity: 0 !important;
+						background: transparent !important;
+						width: 0 !important;
+						height: 0 !important;
+						pointer-events: none !important;
+						transition: none !important;
+					}
           .floating-input-shell::after {
             content: "";
             position: absolute;
@@ -2713,12 +2786,17 @@
             pointer-events: none;
           }
           .floating-launcher-prompt.entering .floating-prompt-send {
-            animation: floatingOrbIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.02s both;
+            transform-origin: center center;
+            animation: floatingOrbZoomIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.02s both;
           }
           .floating-launcher-prompt.entering .floating-prompt-send-icon-chat {
+            transform-origin: center center;
             animation: floatingOrbIconIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
           }
           .floating-launcher-prompt.entering .floating-input-shell {
+            animation: none;
+          }
+          .floating-launcher-prompt.entering .floating-prompt-input-wrapper {
             animation: floatingFieldFrameIn 0.72s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
           }
           .floating-launcher-prompt.entering .floating-input-shell::before {
@@ -2746,16 +2824,14 @@
               transform: translate3d(0, 0, 0) scale(1);
             }
           }
-          @keyframes floatingOrbIn {
+          @keyframes floatingOrbZoomIn {
             0% {
               opacity: 0;
-              transform: translate3d(20px, 0, 0) scale(0.76);
-              filter: blur(6px);
+              transform: scale(0.9);
             }
             100% {
               opacity: 1;
-              transform: translate3d(0, 0, 0) scale(1);
-              filter: blur(0);
+              transform: scale(1);
             }
           }
           @keyframes floatingOrbIconIn {
@@ -2812,6 +2888,91 @@
               filter: blur(0);
             }
           }
+          .floating-exit-prompt {
+            position: absolute;
+            right: 0;
+            bottom: 72px;
+            width: min(320px, calc(100vw - 40px));
+            opacity: 0;
+            transform: translateY(8px) scale(0.96);
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            z-index: 6;
+          }
+          .floating-exit-prompt.show {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+          }
+          .floating-launcher-prompt:has(.floating-exit-prompt.show .floating-exit-card) > .floating-close-btn,
+          .floating-launcher-prompt:has(.floating-exit-prompt.show .floating-exit-card) > .floating-help-pill,
+          .floating-launcher-prompt:has(.floating-exit-prompt.show .floating-exit-card) .floating-prompt-input-wrapper {
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
+          }
+          .floating-launcher-prompt:has(.floating-exit-prompt.show .floating-exit-card) .floating-input-shell::before {
+            opacity: 0;
+            visibility: hidden;
+          }
+          .floating-exit-close {
+            position: absolute;
+            top: -30px;
+            right: 0;
+            width: 22px;
+            height: 22px;
+            border: none;
+            border-radius: 999px;
+            background: #fff;
+            color: #161616;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.14);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+          }
+          .floating-exit-card {
+            padding: 16px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+			max-width: 246px;
+			float: right;
+          }
+          .floating-exit-title {
+            margin: 0 0 20px;
+            color: #111111;
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 1.25;
+            max-width: 250px;
+          }
+          .floating-exit-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }
+          .floating-exit-btn {
+            height: 35px;
+            padding: 8px 18px;
+            border-radius: 200px;
+            font-size: 14px;
+            font-weight: 600	;
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+          }
+          
+          .floating-exit-btn-primary {
+            border: none;
+            color: #fff;
+            background: var(--color-primary);
+            box-shadow: 0 12px 26px rgba(var(--color-primary), 0.28);
+          }
+          .floating-exit-btn-secondary {
+            border: 1.5px solid #111111;
+            color: #111111;
+            background: #fff;
+          }
 
           @media (max-width: 640px) {
             #floatingBtn {
@@ -2819,6 +2980,11 @@
               bottom: 14px;
 			  z-index: 1
             }
+
+			.contact-form-shell {
+			    bottom: 30px;
+			}
+
 			  
             #floatingBtn .floating-launcher.widget-open {
               opacity: 0 !important;
@@ -2878,6 +3044,28 @@
             .floating-prompt-send {
               width: 58px;
               height: 58px;
+            }
+            .floating-exit-prompt {
+              width: min(300px, calc(100vw - 28px));
+              bottom: 70px;
+            }
+            .floating-exit-card {
+              padding: 14px;
+              border-radius: 20px;
+            }
+            .floating-exit-title {
+              margin-bottom: 14px;
+              font-size: 16px;
+              max-width: 220px;
+            }
+            .floating-exit-actions {
+              gap: 10px;
+            }
+            .floating-exit-btn {
+              flex: 1;
+              height: 42px;
+              padding: 0 14px;
+              font-size: 13px;
             }
             .chat-widget.expanded {
               inset: 0 !important;
@@ -3224,51 +3412,203 @@
 
             /* --- Contact Form (basic plan fallback) --- */
             .contact-form {
-              padding: 1.25rem;
+              position: absolute;
+              inset: 0;
+              z-index: 18;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: clamp(1rem, 3vw, 1.5rem);
+              overflow-y: auto;
+            }
+            .contact-form-backdrop {
+              position: absolute;
+              inset: 0;
+              background: rgba(255, 255, 255, 0.18);
+              backdrop-filter: blur(12px);
+              -webkit-backdrop-filter: blur(12px);
+            }
+            .contact-form-shell {
+              position: relative;
+              z-index: 1;
+              width: 100%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            .contact-form-card {
+              width: min(100%, 29rem);
+              padding: clamp(0.95rem, 2vw, 1.15rem);
               display: flex;
               flex-direction: column;
               gap: 0.75rem;
-              background: #fff;
-              flex: 1;
-              overflow-y: auto;
+              border-radius: 1.35rem;
+              background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(250, 250, 252, 0.96) 100%);
+              border: 1px solid rgba(255, 255, 255, 0.84);
+              box-shadow:
+                0 30px 70px rgba(15, 23, 42, 0.18),
+                0 10px 30px rgba(15, 23, 42, 0.08);
             }
-            .contact-form h3 { margin: 0 0 0.25rem 0; font-size: 1rem; font-weight: 700; color: #0f172a; }
-            .contact-form p { margin: 0 0 0.5rem 0; font-size: 0.82rem; color: #64748b; line-height: 1.5; }
+            .contact-form-copy {
+              display: flex;
+              flex-direction: column;
+              gap: 0.3rem;
+              text-align: center;
+            }
+            .contact-form-kicker {
+              align-self: center;
+              padding: 0.24rem 0.55rem;
+              border-radius: 999px;
+              font-size: 0.64rem;
+              font-weight: 800;
+              letter-spacing: 0.12em;
+              text-transform: uppercase;
+              color: var(--color-primary, #fc0e3f);
+              background: color-mix(in srgb, var(--color-primary, #fc0e3f) 12%, white);
+            }
+            .contact-form h3 { margin: 0; font-size: 18px; font-weight: 800; color: #111827; line-height: 1.1; }
+            .contact-form p { margin: 0; font-size: 13px; color: #818181; line-height: 1.45; font-weight:600 }
+            .contact-form-fields {
+              display: grid;
+              gap: 0.6rem;
+            }
             .contact-form input, .contact-form textarea {
               width: 100%;
-              border: 1px solid #e2e8f0;
-              border-radius: 0.5rem;
-              padding: 0.6rem 0.75rem;
-              font-size: 0.875rem;
+              border: 1px solid #D3D3D3;
+              border-radius: 0.9rem;
+              padding: 13px;
+              font-size: 13px;
+              font-weight: 600;
+              color: #0f172a;
+              background: rgba(255, 255, 255, 0.96);
               outline: none;
               font-family: inherit;
               box-sizing: border-box;
+              transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
             }
-            .contact-form input:focus, .contact-form textarea:focus { border-color: #3b82f6; }
-            .contact-form textarea { min-height: 70px; resize: vertical; }
+            .contact-form input::placeholder, .contact-form textarea::placeholder {
+              color: #818181;
+              font-weight: 500;
+            }
+            .contact-form input:focus, .contact-form textarea:focus {
+              border-color: color-mix(in srgb, var(--color-primary, #fc0e3f) 45%, white);
+            }
+
+            /* --- Country Custom Select --- */
+            .cf-country-wrapper { position: relative; width: 100%; text-align: left; }
+            .cf-country-trigger {
+              display: flex; align-items: center; justify-content: space-between;
+              width: 100%; border: 1px solid #D3D3D3; border-radius: 0.9rem;
+              padding: 2px 13px 2px 10px; background: rgba(255, 255, 255, 0.96);
+              cursor: pointer; transition: border-color 0.18s ease;
+            }
+            .cf-country-trigger:hover, .cf-country-wrapper:focus-within .cf-country-trigger {
+              border-color: color-mix(in srgb, var(--color-primary, #fc0e3f) 45%, white);
+            }
+            .cf-country-flag { font-size: 1.25rem; margin-right: 6px; }
+            .cf-country-trigger input {
+              flex: 1; border: none; background: transparent; padding: 11px 0;
+              font-size: 13px; font-weight: 600; color: #0f172a; outline: none; cursor: pointer;
+              box-shadow: none; border-radius: 0;
+            }
+            .cf-country-trigger input:focus { border: none; }
+            .cf-country-trigger input::placeholder { color: #818181; font-weight: 500; }
+            .cf-country-chevron { color: #818181; flex-shrink: 0; }
+            .cf-country-menu {
+              position: absolute; bottom: calc(100% + 4px); left: 0; right: 0;
+              background: #fff; border: 1px solid #e2e8f0; border-radius: 0.75rem;
+              box-shadow: 0 10px 25px rgba(0,0,0,0.08); z-index: 50;
+              overflow: hidden; display: flex; flex-direction: column;
+            }
+            .cf-country-menu.hidden { display: none; }
+            .cf-country-search { padding: 8px; border-bottom: 1px solid #f1f5f9; background: #fafafa; }
+            .cf-country-search input {
+              width: 100%; border: 1px solid #e2e8f0; border-radius: 0.5rem;
+              padding: 6px 10px; font-size: 12px; outline: none; background: #fff;
+            }
+            .cf-country-search input:focus { border-color: rgba(0,0,0,0.1); }
+            .cf-country-list { max-height: 180px; overflow-y: auto; }
+            .cf-country-item {
+              padding: 8px 12px; display: flex; align-items: center; gap: 8px;
+              cursor: pointer; font-size: 13px; color: #334155; font-weight: 600;
+              text-align: left;
+            }
+            .cf-country-item:hover { background: #f1f5f9; color: #0f172a; }
+            .cf-country-list-flag { font-size: 1.15rem; }
+			.chat-widget:has(#contactFormSlot:not(.hidden)) .chat-footer {
+  				display: none;
+			}
+            .contact-form textarea { min-height: 110px; resize: vertical; }
             .contact-form-submit {
-              background: #0f172a;
+              background: linear-gradient(90deg, color-mix(in srgb, var(--color-primary, #fc0e3f) 82%, #7c3aed) 0%, var(--color-primary, #fc0e3f) 100%);
               color: #fff;
               border: none;
-              border-radius: 0.5rem;
-              padding: 0.65rem 1rem;
-              font-size: 0.875rem;
+              border-radius: 999px;
+              padding: 12px;
+              font-size: 14px;
               font-weight: 600;
               cursor: pointer;
               width: 100%;
               font-family: inherit;
+              transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
             }
+            .contact-form-submit:active { transform: translateY(0); }
             .contact-form-submit:disabled { opacity: 0.6; cursor: not-allowed; }
-            .contact-form-success { text-align: center; font-size: 0.9rem; color: #16a34a; padding: 2rem 0; }
-            .contact-form.lead-form-gate {
-              flex: 0 0 auto;
-              max-height: 48%;
-              border-top: 1px solid #e2e8f0;
-              box-shadow: 0 -18px 36px rgba(15, 23, 42, 0.08);
+            .contact-form-note {
+              text-align: center;
+              font-size: 13px;
+              line-height: 1.4;
+              color: #818181;
+			  font-weight: 600;
             }
+            .contact-form-success { text-align: center; font-size: 0.88rem; font-weight: 700; color: #0f9f64; padding: 1.4rem 0; }
+            .contact-form.lead-form-gate {
+              position: absolute;
+              inset: 0;
+              max-height: none;
+              padding: clamp(1rem, 3vw, 1.5rem);
+              border-top: none;
+              background: transparent;
+              box-shadow: none;
+              backdrop-filter: none;
+              -webkit-backdrop-filter: none;
+            }
+            .contact-form.lead-form-gate .contact-form-shell { align-items: center; }
+            .contact-form.lead-form-gate .contact-form-card {
+              width: min(100%, 29rem);
+              max-width: 29rem;
+              border-radius: 1.35rem;
+              padding: clamp(0.95rem, 2vw, 1.15rem);
+              gap: 0.75rem;
+              box-shadow:
+                0 30px 70px rgba(15, 23, 42, 0.18),
+                0 10px 30px rgba(15, 23, 42, 0.08);
+            }
+            .contact-form.lead-form-gate .contact-form-copy { text-align: center; }
+            .contact-form.lead-form-gate .contact-form-kicker { align-self: center; }
+            .contact-form.lead-form-gate .contact-form-note { text-align: center; }
             .chat-messages.lead-form-open {
               flex: 1 1 52%;
               min-height: 42%;
+            }
+            @media (max-width: 640px) {
+              .contact-form {
+                padding: 0.85rem;
+                align-items: flex-end;
+              }
+              .contact-form-card {
+                width: 100%;
+                border-radius: 1.2rem;
+                padding: 0.9rem;
+                gap: 0.7rem;
+              }
+              .contact-form h3 { font-size: 1.1rem; }
+              .contact-form p { font-size: 13px; }
+              .contact-form input, .contact-form textarea, .contact-form-submit {
+                font-size: 14px;
+              }
+              .contact-form textarea { min-height: 84px; }
             }
 
             /* --- Rating Buttons (basic plan) --- */
@@ -3326,25 +3666,7 @@
             }
 
             /* Hope Banner */
-            @keyframes hopeBannerSlideIn {
-              0% {
-                opacity: 0;
-                transform: translateY(-15px) scaleY(0.95);
-              }
-              40% {
-                opacity: 1;
-              }
-              65% {
-                transform: translateY(0) scaleY(1);
-              }
-              85% {
-                transform: translateY(-4px) scaleY(0.85);
-              }
-              100% {
-                opacity: 1;
-                transform: translateY(0) scaleY(1);
-              }
-            }
+						// ...removed hopeBanner related code...
             @keyframes textFadeInExpand {
               0% {
                 opacity: 0;
@@ -3372,54 +3694,7 @@
                 opacity: 1;
               }
             }
-            .hope-banner {
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              gap: 0;
-              width:fit-content;
-              left: 0;
-              right: 0;
-              padding: 12px 24px;
-              border-radius: 0 0 25px 25px;
-              background: linear-gradient(135deg, color-mix(in srgb, var(--color-banner-bg, #120b14) 5%, white) 0%, color-mix(in srgb, var(--color-primary, #350535) 15%, white) 100%);
-              border: 1.5px solid transparent;
-              background-clip: padding-box;
-              box-shadow: inset 0 0 0 1.5px transparent;
-              position: fixed;
-              font-size: 0.9rem;
-              font-weight: 500;
-              color: #1a1a2e;
-              flex-shrink: 0;
-              z-index: 10;
-              animation: hopeBannerSlideIn 1.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
-              animation-delay: 0.3s;
-              opacity: 0;
-              top: 56px;
-              margin: 0 auto;
-            }
-             
-            .hope-banner.hidden {
-              animation: none;
-            }
-
-            #hopeBannerUp, #hopeBannerDown {
-              transition: transform 0.8s ease;
-            }
-            #hopeBannerDown{
-              transform: translateY(2px);
-            }
-            .hope-banner::before {
-              content: '';
-              position: absolute;
-              inset: 0;
-              border-radius: 0 0 25px 25px;
-              padding: 1.5px;
-              background: linear-gradient(135deg, var(--color-banner-bg, #120b14) 0%, var(--color-primary, #350535) 100%);
-              -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-              -webkit-mask-composite: xor;
-              mask-composite: exclude;
-              pointer-events: none;
+						// ...removed hopeBanner related code...
             }
             .hope-banner-text {
               flex: 1;
@@ -3445,13 +3720,27 @@
               
             }
 
+			.floating-launcher:has(.fade-out-float) .floating-input-shell::before {
+  				display: none;
+			}
+
             .hope-banner-btn:hover {
              drop-shadow(0 0 4px var(--color-primary, #350535));
             }
             .hope-banner-btn.active { filter: drop-shadow(0 0 4px var(--color-primary, #350535)); }
             .hope-banner.hidden { display: none; }
 
-      </style>
+					/* Fade-out for floating elements */
+					.fade-out-float {
+						opacity: 0 !important;
+						transition: opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+						pointer-events: none !important;
+					}
+					.floating-input-shell.fade-out-float::before {
+						opacity: 0 !important;
+						transition: opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1) !important;
+					}
+			</style>
 
         <!-- Chat Widget Box -->
         <div id="textChatWidget" class="chat-widget hidden">
@@ -3528,14 +3817,16 @@
                       <div class="chat-header-menu-list">
                       <button id="headerLanguageBtn" class="chat-menu-item has-submenu" type="button">
                         <span class="chat-menu-item-main">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                          <span>Language</span>
+                         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 18 18" fill="none">
+							<path d="M1.81934 4.73953C3.65312 5.20886 3.94912 7.23375 4.66556 8.17953C5.61667 9.43553 6.51001 9.27109 7.5029 10.5298C9.10734 12.5644 8.66912 15.6009 8.66912 16.4898M15.7127 11.2666H14.8238C13.8808 11.2666 12.9764 11.6412 12.3096 12.308C11.6428 12.9748 11.2682 13.8792 11.2682 14.8222V15.7111M5.56778 1.48175C5.56778 2.21242 5.66734 3.1582 6.91445 3.77509C8.16067 4.39109 9.50823 4.08709 9.50823 5.84975C9.50823 6.09509 9.50823 7.63464 11.2611 7.63464C13.062 7.6622 13.062 6.14309 13.062 5.84975C13.062 5.27198 13.5305 5.04975 14.1082 5.04975H15.7127M16.6016 8.59998C16.6016 9.65055 16.3946 10.6908 15.9926 11.6614C15.5906 12.632 15.0013 13.514 14.2584 14.2568C13.5155 14.9997 12.6336 15.589 11.663 15.991C10.6924 16.3931 9.65214 16.6 8.60156 16.6C7.55099 16.6 6.5107 16.3931 5.54009 15.991C4.56949 15.589 3.68758 14.9997 2.94471 14.2568C2.20184 13.514 1.61256 12.632 1.21053 11.6614C0.808489 10.6908 0.601562 9.65055 0.601563 8.59998C0.601563 6.47824 1.44442 4.44341 2.94471 2.94312C4.445 1.44283 6.47983 0.599976 8.60156 0.599976C10.7233 0.599976 12.7581 1.44283 14.2584 2.94312C15.7587 4.44341 16.6016 6.47824 16.6016 8.59998Z" stroke="black" stroke-width="1.2" stroke-linecap="round"/>
+						</svg>
+                          <span> &nbsp;Language</span>
                         </span>
                         <svg class="chat-menu-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
                       </button>
                       <button id="downloadTranscriptBtn" class="chat-menu-item" type="button">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
-                        <span>Download transcript</span>
+                        <span>Download Chat</span>
                       </button>
                       <button id="headerHelpBtn" class="chat-menu-item" type="button">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9.09 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
@@ -3553,6 +3844,7 @@
 						(language) => `
                           <button class="chat-menu-language-item${language.code === this.selectedLanguage ? " active" : ""}" type="button" data-code="${this.escapeHtml(language.code)}">
                             <span>${this.escapeHtml(language.label)}</span>
+                            <svg class="chat-menu-language-item-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </button>`,
 					)
 					.join("")}
@@ -3561,22 +3853,7 @@
                 </div>
             </div>
 
-            <!-- Hope Banner (shown after first user message) -->
-            <div id="hopeBanner" class="hope-banner hidden">
-              <span class="hope-banner-text">Hope that helped!</span>
-              <div class="hope-banner-btns">
-                  <button class="hope-banner-btn" id="hopeBannerUp" title="Thumbs up">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="16" viewBox="0 0 18 16" fill="none">
-                    <path d="M16.9591 4.98816C16.7839 4.78957 16.5684 4.63054 16.3269 4.52162C16.0855 4.41271 15.8237 4.35641 15.5588 4.35647H11.2023V3.11176C11.2023 2.28647 10.8745 1.49498 10.2909 0.911414C9.70736 0.327846 8.91587 1.59557e-07 8.09058 1.59557e-07C7.97496 -8.26176e-05 7.86161 0.0320443 7.76322 0.0927784C7.66484 0.153513 7.58532 0.240453 7.53358 0.34385L4.59452 6.22353H1.24471C0.914589 6.22353 0.597993 6.35466 0.364566 6.58809C0.131138 6.82152 0 7.13811 0 7.46823V14.3141C0 14.6442 0.131138 14.9608 0.364566 15.1942C0.597993 15.4277 0.914589 15.5588 1.24471 15.5588H14.6253C15.0801 15.559 15.5194 15.3931 15.8606 15.0923C16.2018 14.7915 16.4215 14.3764 16.4783 13.9251L17.4119 6.45691C17.445 6.19398 17.4217 5.92702 17.3436 5.67378C17.2656 5.42054 17.1345 5.18682 16.9591 4.98816ZM1.24471 7.46823H4.35647V14.3141H1.24471V7.46823ZM16.1765 6.30132L15.243 13.7696C15.224 13.92 15.1508 14.0583 15.0371 14.1586C14.9233 14.2589 14.7769 14.3142 14.6253 14.3141H5.60117V6.99291L8.45699 1.28049C8.88026 1.3652 9.2611 1.59397 9.5347 1.92785C9.8083 2.26173 9.95776 2.6801 9.95764 3.11176V4.97882C9.95764 5.14388 10.0232 5.30218 10.1399 5.41889C10.2566 5.5356 10.4149 5.60117 10.58 5.60117H15.5588C15.6471 5.60114 15.7344 5.61991 15.8149 5.65622C15.8954 5.69254 15.9673 5.74557 16.0257 5.8118C16.0841 5.87802 16.1278 5.95593 16.1538 6.04033C16.1798 6.12473 16.1875 6.2137 16.1765 6.30132Z" fill="black"/>
-                  </svg>
-                  </button>
-                  <button class="hope-banner-btn" id="hopeBannerDown" title="Thumbs down">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="16" viewBox="0 0 18 16" fill="none">
-                    <path d="M17.4119 9.10191L16.4783 1.63368C16.4215 1.18238 16.2018 0.767359 15.8606 0.466553C15.5194 0.165746 15.0801 -0.000156023 14.6253 1.10104e-07H1.24471C0.914589 1.10104e-07 0.597993 0.131138 0.364566 0.364566C0.131138 0.597993 0 0.914589 0 1.24471V8.09058C0 8.4207 0.131138 8.7373 0.364566 8.97072C0.597993 9.20415 0.914589 9.33529 1.24471 9.33529H4.59452L7.53358 15.215C7.58532 15.3184 7.66484 15.4053 7.76322 15.466C7.86161 15.5268 7.97496 15.5589 8.09058 15.5588C8.91587 15.5588 9.70736 15.231 10.2909 14.6474C10.8745 14.0638 11.2023 13.2723 11.2023 12.4471V11.2023H15.5588C15.8238 11.2024 16.0857 11.1461 16.3272 11.0372C16.5687 10.9282 16.7843 10.7691 16.9595 10.5705C17.1348 10.3718 17.2658 10.1381 17.3438 9.88488C17.4218 9.63168 17.445 9.36477 17.4119 9.10191ZM4.35647 8.09058H1.24471V1.24471H4.35647V8.09058ZM16.0256 9.74682C15.9676 9.81354 15.8958 9.86692 15.8153 9.90331C15.7347 9.9397 15.6472 9.95823 15.5588 9.95764H10.58C10.4149 9.95764 10.2566 10.0232 10.1399 10.1399C10.0232 10.2566 9.95764 10.4149 9.95764 10.58V12.4471C9.95776 12.8787 9.8083 13.2971 9.5347 13.631C9.2611 13.9648 8.88026 14.1936 8.45699 14.2783L5.60117 8.5659V1.24471H14.6253C14.7769 1.24465 14.9233 1.29995 15.0371 1.40022C15.1508 1.50049 15.224 1.63883 15.243 1.78926L16.1765 9.25749C16.1882 9.34512 16.1807 9.43422 16.1547 9.51869C16.1286 9.60316 16.0846 9.68099 16.0256 9.74682Z" fill="black"/>
-                  </svg>
-                  </div>
-              </button>
-            </div>
+						<!-- ...removed hopeBanner related code... -->
 
             <div id="introScreen" class="intro-screen">
               	<div class="intro-top-section" data-intro-anim="fade-up" style="--fade-order:1">
@@ -3652,11 +3929,22 @@
 
             <!-- Contact Form (basic plan — shown when conversation limit hit) -->
             <div id="contactFormSlot" class="contact-form hidden">
-              <h3>Get in Touch</h3>
-              <p>Our team will respond as soon as possible.</p>
-              ${leadFields}
-              ${this.config.leadFormEnabled ? "" : '<textarea id="cf-message" placeholder="Your message"></textarea>'}
-              <button class="contact-form-submit" id="cf-submit">${this.config.leadFormEnabled ? sanitizeHTML(this.config.leadFormButtonText || "Fill the form to continue chat") : "Send Message"}</button>
+              <div class="contact-form-backdrop"></div>
+              <div class="contact-form-shell">
+                <div class="contact-form-card">
+                  <div class="contact-form-copy">
+                   
+                    <h3>${this.config.leadFormEnabled ? "Let's stay connected" : "What can we improve?"}</h3>
+                    <p>${this.config.leadFormEnabled ? "Share your details to continue the conversation with our team." : "Thanks for helping us do better. Tell us what we can improve and we'll take it from there."}</p>
+                  </div>
+                  <div class="contact-form-fields">
+                    ${leadFields}
+                    ${this.config.leadFormEnabled ? "" : '<textarea id="cf-message" placeholder="Type your feedback..."></textarea>'}
+                  </div>
+                  <button class="contact-form-submit" id="cf-submit">${this.config.leadFormEnabled ? sanitizeHTML(this.config.leadFormButtonText || "Continue") : "Continue"}</button>
+                  <div class="contact-form-note">${this.config.leadFormEnabled ? "We'll only use these details to follow up on your request." : "Your feedback helps us refine the experience."}</div>
+                </div>
+              </div>
             </div>
             <div id="calendlySlot" class="contact-form hidden"></div>
 
@@ -3746,14 +4034,14 @@
 					this.shadowRoot.getElementById(
 						"floating-btn",
 					),
-			floatingPromptInput:
-				this.shadowRoot.getElementById(
-					"floatingPromptInput",
-				),
-			floatingInputShell:
-				this.shadowRoot.querySelector(
-					".floating-input-shell",
-				),
+				floatingPromptInput:
+					this.shadowRoot.getElementById(
+						"floatingPromptInput",
+					),
+				floatingInputShell:
+					this.shadowRoot.querySelector(
+						".floating-input-shell",
+					),
 				floatingPromptSend:
 					this.shadowRoot.getElementById(
 						"floatingPromptSend",
@@ -3765,6 +4053,22 @@
 				floatingHelpBtn:
 					this.shadowRoot.getElementById(
 						"floatingHelpBtn",
+					),
+				floatingExitPrompt:
+					this.shadowRoot.getElementById(
+						"floatingExitPrompt",
+					),
+				floatingExitPromptClose:
+					this.shadowRoot.getElementById(
+						"floatingExitPromptClose",
+					),
+				floatingExitPromptHelp:
+					this.shadowRoot.getElementById(
+						"floatingExitPromptHelp",
+					),
+				floatingExitPromptDismiss:
+					this.shadowRoot.getElementById(
+						"floatingExitPromptDismiss",
 					),
 				backBtn: this.shadowRoot.getElementById(
 					"backToIntroBtn",
@@ -3843,6 +4147,26 @@
 					this.shadowRoot.getElementById(
 						"cf-country",
 					),
+				cfCountryTrigger:
+					this.shadowRoot.getElementById(
+						"cf-country-trigger",
+					),
+				cfCountryMenu:
+					this.shadowRoot.getElementById(
+						"cf-country-menu",
+					),
+				cfCountrySearch:
+					this.shadowRoot.getElementById(
+						"cf-country-search",
+					),
+				cfCountryList:
+					this.shadowRoot.getElementById(
+						"cf-country-list",
+					),
+				cfCountryFlag:
+					this.shadowRoot.getElementById(
+						"cf-country-flag",
+					),
 				cfMessage:
 					this.shadowRoot.getElementById(
 						"cf-message",
@@ -3861,18 +4185,7 @@
 					this.shadowRoot.getElementById(
 						"conversationRatingSlot",
 					),
-				hopeBanner:
-					this.shadowRoot.getElementById(
-						"hopeBanner",
-					),
-				hopeBannerUp:
-					this.shadowRoot.getElementById(
-						"hopeBannerUp",
-					),
-				hopeBannerDown:
-					this.shadowRoot.getElementById(
-						"hopeBannerDown",
-					),
+				// ...removed hopeBanner related code...
 				langPillBtn:
 					this.shadowRoot.getElementById(
 						"langPillBtn",
@@ -3953,14 +4266,17 @@
 					(e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						this.hideFloatingLauncher();
+						this.requestFloatingLauncherDismiss();
 					},
 				);
 			}
 			if (this.elements.floatingHelpBtn) {
 				this.elements.floatingHelpBtn.addEventListener(
 					"click",
-					() => this.openFromFloatingLauncher(),
+					() => {
+						this.hideFloatingExitPrompt();
+						this.openFromFloatingLauncher();
+					},
 				);
 			}
 			if (this.elements.floatingPromptSend) {
@@ -3968,10 +4284,41 @@
 					"click",
 					() => {
 						if (this.isOpen) {
-							this.toggleChat();
+							this.requestWidgetClose();
 							return;
 						}
+						this.hideFloatingExitPrompt();
 						this.handleFloatingLauncherSend();
+					},
+				);
+			}
+			if (this.elements.floatingExitPromptClose) {
+				this.elements.floatingExitPromptClose.addEventListener(
+					"click",
+					(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						this.resolveFloatingExitPrompt("dismiss");
+					},
+				);
+			}
+			if (this.elements.floatingExitPromptHelp) {
+				this.elements.floatingExitPromptHelp.addEventListener(
+					"click",
+					(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						this.resolveFloatingExitPrompt("help");
+					},
+				);
+			}
+			if (this.elements.floatingExitPromptDismiss) {
+				this.elements.floatingExitPromptDismiss.addEventListener(
+					"click",
+					(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						this.resolveFloatingExitPrompt("dismiss");
 					},
 				);
 			}
@@ -4090,6 +4437,73 @@
 			this.resizeChatInput(true);
 			this.updateFloatingLauncherState();
 
+			const COUNTRIES = [
+				{ c: 'US', n: 'United States', f: '🇺🇸' },
+				{ c: 'GB', n: 'United Kingdom', f: '🇬🇧' },
+				{ c: 'IN', n: 'India', f: '🇮🇳' },
+				{ c: 'CA', n: 'Canada', f: '🇨🇦' },
+				{ c: 'AU', n: 'Australia', f: '🇦🇺' },
+				{ c: 'DE', n: 'Germany', f: '🇩🇪' },
+				{ c: 'FR', n: 'France', f: '🇫🇷' },
+				{ c: 'IT', n: 'Italy', f: '🇮🇹' },
+				{ c: 'ES', n: 'Spain', f: '🇪🇸' },
+				{ c: 'BR', n: 'Brazil', f: '🇧🇷' },
+				{ c: 'ZA', n: 'South Africa', f: '🇿🇦' },
+				{ c: 'MX', n: 'Mexico', f: '🇲🇽' },
+				{ c: 'NL', n: 'Netherlands', f: '🇳🇱' },
+				{ c: 'SE', n: 'Sweden', f: '🇸🇪' },
+				{ c: 'CH', n: 'Switzerland', f: '🇨🇭' },
+				{ c: 'AE', n: 'United Arab Emirates', f: '🇦🇪' },
+				{ c: 'SG', n: 'Singapore', f: '🇸🇬' },
+				{ c: 'JP', n: 'Japan', f: '🇯🇵' },
+				{ c: 'NZ', n: 'New Zealand', f: '🇳🇿' },
+			];
+
+			if (this.elements.cfCountryTrigger && this.elements.cfCountryMenu) {
+				const renderCountries = (filterText = '') => {
+					const list = this.elements.cfCountryList;
+					if (!list) return;
+					list.innerHTML = '';
+					const filtered = COUNTRIES.filter(c => c.n.toLowerCase().includes(filterText.toLowerCase()));
+					if (filtered.length === 0) {
+						list.innerHTML = '<div class="cf-country-item" style="pointer-events:none;color:#666;">No results</div>';
+						return;
+					}
+					filtered.forEach(country => {
+						const el = document.createElement('div');
+						el.className = 'cf-country-item';
+						el.innerHTML = `<span class="cf-country-name">${country.n}</span>`;
+						el.addEventListener('click', (e) => {
+							e.stopPropagation();
+							if (this.elements.cfCountry) this.elements.cfCountry.value = country.n;
+							if (this.elements.cfCountryFlag) this.elements.cfCountryFlag.textContent = country.f;
+							this.elements.cfCountryMenu.classList.add('hidden');
+						});
+						list.appendChild(el);
+					});
+				};
+
+				this.elements.cfCountryTrigger.addEventListener('click', (e) => {
+					e.stopPropagation();
+					const isHidden = this.elements.cfCountryMenu.classList.contains('hidden');
+					this.elements.cfCountryMenu.classList.toggle('hidden');
+					if (isHidden) {
+						if (this.elements.cfCountrySearch) this.elements.cfCountrySearch.value = '';
+						renderCountries('');
+						if (this.elements.cfCountrySearch) setTimeout(() => this.elements.cfCountrySearch.focus(), 50);
+					}
+				});
+
+				if (this.elements.cfCountrySearch) {
+					this.elements.cfCountrySearch.addEventListener('input', (e) => renderCountries(e.target.value));
+					this.elements.cfCountrySearch.addEventListener('click', e => e.stopPropagation());
+				}
+
+				this.shadowRoot.addEventListener('click', () => {
+					this.elements.cfCountryMenu.classList.add('hidden');
+				});
+			}
+
 			// Custom Language Dropdown Logic
 			if (this.elements.langPillBtn) {
 				this.elements.langPillBtn.addEventListener(
@@ -4151,7 +4565,7 @@
 					(e) => {
 						e.stopPropagation();
 						if (this.isOpen) {
-							this.toggleChat();
+							this.requestWidgetClose();
 						}
 					},
 				);
@@ -4320,34 +4734,7 @@
 			}
 
 			// Hope Banner Buttons
-			if (this.elements.hopeBannerUp) {
-				this.elements.hopeBannerUp.addEventListener(
-					"click",
-					() => {
-						this.elements.hopeBannerUp.classList.add(
-							"active",
-						);
-						this.elements.hopeBannerDown.classList.remove(
-							"active",
-						);
-						this.submitRating("up");
-					},
-				);
-			}
-			if (this.elements.hopeBannerDown) {
-				this.elements.hopeBannerDown.addEventListener(
-					"click",
-					() => {
-						this.elements.hopeBannerDown.classList.add(
-							"active",
-						);
-						this.elements.hopeBannerUp.classList.remove(
-							"active",
-						);
-						this.submitRating("down");
-					},
-				);
-			}
+			// ...removed hopeBanner related code...
 
 			// Bottom Nav Events
 			if (this.elements.navChat) {
@@ -4633,7 +5020,154 @@
 			}, 120);
 		}
 
+		shouldShowClosePrompt() {
+			const frequency = Math.max(
+				0,
+				Math.min(
+					1,
+					Number(this.config.closePromptFrequency) || 0,
+				),
+			);
+			return (
+				frequency > 0 &&
+				!this.elements.floatingExitPrompt?.classList.contains(
+					"show",
+				) &&
+				Math.random() < frequency
+			);
+		}
+
+		showFloatingExitPrompt(handlers = {}) {
+			const prompt = this.elements.floatingExitPrompt;
+			if (!prompt) return;
+			this._floatingExitPromptHandlers = {
+				onHelp:
+					typeof handlers.onHelp === "function"
+						? handlers.onHelp
+						: null,
+				onDismiss:
+					typeof handlers.onDismiss === "function"
+						? handlers.onDismiss
+						: null,
+			};
+			this.elements.floatingBtn?.classList.remove(
+				"hidden",
+				"is-collapsed",
+			);
+			prompt.classList.remove("hidden");
+			requestAnimationFrame(() => {
+				prompt.classList.add("show");
+			});
+		}
+
+		hideFloatingExitPrompt() {
+			const prompt = this.elements.floatingExitPrompt;
+			if (!prompt) return;
+			prompt.classList.remove("show");
+			setTimeout(() => {
+				prompt.classList.add("hidden");
+			}, 180);
+		}
+
+		resolveFloatingExitPrompt(action) {
+			const handlers =
+				this._floatingExitPromptHandlers || {};
+			this._floatingExitPromptHandlers = null;
+			this.hideFloatingExitPrompt();
+			if (action === "help") {
+				handlers.onHelp?.();
+				return;
+			}
+			handlers.onDismiss?.();
+		}
+
+		triggerFloatingCloseButton() {
+			const closeBtn = this.elements.floatingCloseBtn;
+			if (!closeBtn) {
+				this.performFloatingLauncherDismiss();
+				return;
+			}
+			closeBtn.dispatchEvent(
+				new MouseEvent("click", {
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
+		}
+
+		performFloatingLauncherDismiss() {
+			this.hideFloatingExitPrompt();
+			const closeBtn = this.elements.floatingCloseBtn;
+			const helpBtn = this.elements.floatingHelpBtn;
+			const inputWrapper =
+				this.shadowRoot.getElementById(
+					"floatingPromptInputWrapper",
+				);
+			const inputShell =
+				closeBtn?.closest(".floating-input-shell");
+			if (closeBtn)
+				closeBtn.classList.add("fade-out-float");
+			if (helpBtn)
+				helpBtn.classList.add("fade-out-float");
+			if (inputWrapper)
+				inputWrapper.classList.add(
+					"fade-out-float",
+				);
+			if (inputShell) {
+				inputShell.classList.add("fade-out-float");
+				inputShell.classList.add("hide-before");
+			}
+			if (inputWrapper) inputWrapper.style.display = "none";
+			setTimeout(() => {
+				if (closeBtn) closeBtn.style.display = "none";
+				if (helpBtn) helpBtn.style.display = "none";
+				if (inputWrapper)
+					inputWrapper.style.display = "none";
+				if (inputShell)
+					inputShell.style.display = "none";
+			}, 350);
+		}
+
+		requestFloatingLauncherDismiss() {
+			if (
+				this.elements.floatingExitPrompt?.classList.contains(
+					"show",
+				)
+			) {
+				this.hideFloatingExitPrompt();
+				this.performFloatingLauncherDismiss();
+				return;
+			}
+			if (this.shouldShowClosePrompt()) {
+				this.showFloatingExitPrompt({
+					onHelp: () =>
+						this.openFromFloatingLauncher(),
+					onDismiss: () =>
+						this.triggerFloatingCloseButton(),
+				});
+				return;
+			}
+			this.performFloatingLauncherDismiss();
+		}
+
+		requestWidgetClose() {
+			if (!this.isOpen) return;
+			const shouldPrompt =
+				this.shouldShowClosePrompt();
+			this.toggleChat();
+			if (!shouldPrompt) return;
+			setTimeout(() => {
+				this.showFloatingExitPrompt({
+					onHelp: () =>
+						this.openFromFloatingLauncher(),
+					onDismiss: () =>
+						this.triggerFloatingCloseButton(),
+				});
+			}, 340);
+		}
+
 		openFromFloatingLauncher() {
+			this.hideFloatingExitPrompt();
 			this.elements.floatingBtn?.classList.remove(
 				"is-collapsed",
 			);
@@ -4743,7 +5277,7 @@
 				this.isOpen &&
 				!container.classList.contains("hidden") &&
 				container.scrollHeight - container.scrollTop - container.clientHeight >
-					Math.max(container.clientHeight * 0.6, 180);
+				Math.max(container.clientHeight * 0.6, 180);
 			button.classList.toggle("hidden", !shouldShow);
 			button.classList.toggle("show", shouldShow);
 		}
@@ -4769,6 +5303,7 @@
 		}
 
 		dismissFloatingLauncher() {
+			this.hideFloatingExitPrompt();
 			if (this.isOpen) {
 				this.toggleChat();
 				return;
@@ -4783,6 +5318,7 @@
 		}
 
 		hideFloatingLauncher() {
+			this.hideFloatingExitPrompt();
 			if (this.isOpen) {
 				this.toggleChat();
 			}

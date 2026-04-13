@@ -107,7 +107,7 @@ export const floatingCSS = `
   }
   .floating-help-pill {
     position: absolute;
-    top: 29px;
+    top: 28px;
     right: var(--floating-help-pill-right-rest);
     border: none;
     background: #fff;
@@ -137,6 +137,7 @@ export const floatingCSS = `
     position: relative;
     display: flex;
     align-items: center;
+    justify-content: end;
     gap: 12px;
     padding: 0;
     border-radius: 999px;
@@ -336,12 +337,17 @@ export const floatingCSS = `
     pointer-events: none;
   }
   .floating-launcher-prompt.entering .floating-prompt-send {
-    animation: floatingOrbIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.02s both;
+    transform-origin: center center;
+    animation: floatingOrbZoomIn 0.48s cubic-bezier(0.16, 1, 0.3, 1) 0.02s both;
   }
   .floating-launcher-prompt.entering .floating-prompt-send-icon-chat {
+    transform-origin: center center;
     animation: floatingOrbIconIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
   }
   .floating-launcher-prompt.entering .floating-input-shell {
+    animation: none;
+  }
+  .floating-launcher-prompt.entering .floating-prompt-input-wrapper {
     animation: floatingFieldFrameIn 0.72s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
   }
   .floating-launcher-prompt.entering .floating-input-shell::before {
@@ -369,16 +375,14 @@ export const floatingCSS = `
       transform: translate3d(0, 0, 0) scale(1);
     }
   }
-  @keyframes floatingOrbIn {
+  @keyframes floatingOrbZoomIn {
     0% {
       opacity: 0;
-      transform: translate3d(20px, 0, 0) scale(0.76);
-      filter: blur(6px);
+      transform: scale(0.9);
     }
     100% {
       opacity: 1;
-      transform: translate3d(0, 0, 0) scale(1);
-      filter: blur(0);
+      transform: scale(1);
     }
   }
   @keyframes floatingOrbIconIn {
@@ -441,6 +445,9 @@ export const floatingCSS = `
       right: 14px;
       bottom: 14px;
     }
+      .contact-form-shell {
+			    bottom: 30px;
+			}
     .floating-launcher-prompt {
       width: min(92vw, 460px);
       --floating-help-pill-right-rest: 70px;
