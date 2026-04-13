@@ -3296,6 +3296,44 @@ ${message}`;
 		};
 	}
 
+	async getLatestAssistantMessageMeta(
+		sessionId: string,
+		userId: string,
+	): Promise<{
+		messageId: number;
+		timestamp: Date;
+	} | null> {
+		const normalized =
+			this.normalizeSessionId(sessionId);
+		if (!normalized) {
+			return null;
+		}
+
+		const result = await pool.query<{
+			id: string;
+			created_at: Date;
+		}>(
+			`SELECT id, created_at
+			 FROM chat_messages
+			 WHERE conversation_id = $1
+			   AND user_id = $2
+			   AND role = 'assistant'
+			 ORDER BY created_at DESC, id DESC
+			 LIMIT 1`,
+			[normalized, userId],
+		);
+
+		const row = result.rows[0];
+		if (!row) {
+			return null;
+		}
+
+		return {
+			messageId: Number(row.id),
+			timestamp: row.created_at,
+		};
+	}
+
 	async attachConversationContext(
 		sessionId: string,
 		userId: string,

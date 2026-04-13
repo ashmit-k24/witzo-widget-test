@@ -1093,6 +1093,24 @@ export const validationRules: Record<
 			.isIn(["up", "down"])
 			.withMessage('rating must be "up" or "down"'),
 	],
+	publicWidgetMessageFeedback: [
+		body("widgetKey")
+			.matches(WIDGET_KEY_REGEX)
+			.withMessage("widgetKey is invalid"),
+		body("sessionId")
+			.isUUID()
+			.withMessage("sessionId must be a valid UUID"),
+		body("messageId")
+			.isInt({ gt: 0 })
+			.withMessage("messageId must be a positive integer"),
+		body("feedbackType")
+			.isIn(["up", "down"])
+			.withMessage('feedbackType must be "up" or "down"'),
+		body("feedbackReason")
+			.optional({ values: "falsy" })
+			.isIn(["Incorrect", "Not helpful"])
+			.withMessage('feedbackReason must be "Incorrect" or "Not helpful"'),
+	],
 };
 
 // Middleware to handle validation errors

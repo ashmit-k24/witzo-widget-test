@@ -260,6 +260,76 @@ export async function submitChatRating(req: Request, res: Response): Promise<voi
 	}
 }
 
+export async function submitMessageFeedback(req: Request, res: Response): Promise<void> {
+	try {
+		const {
+			widgetKey,
+			sessionId,
+			messageId,
+			feedbackType,
+			feedbackReason,
+		} = req.body as {
+			widgetKey: string;
+			sessionId: string;
+			messageId: number;
+			feedbackType: "up" | "down";
+			feedbackReason?: string | null;
+		};
+
+		const resolved = await resolveWidget(req, res, widgetKey);
+		if (!resolved) return;
+
+		const { userId } = resolved;
+		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
+		if (!widget) {
+			res.status(404).json({ success: false, message: "Widget not found" });
+			return;
+		}
+
+		const sessionContext = await chatService.getConversationContext(sessionId, userId);
+		if (!sessionContext || sessionContext.widgetKeyId !== widget.id) {
+			res.status(403).json({
+				success: false,
+				message: "Invalid widget session",
+			});
+			return;
+		}
+
+		const messageResult = await pool.query<{ role: "user" | "assistant" | "system" }>(
+			`SELECT role
+			 FROM chat_messages
+			 WHERE conversation_id = $1
+			   AND user_id = $2
+			   AND id = $3
+			 LIMIT 1`,
+			[sessionId, userId, messageId],
+		);
+		const message = messageResult.rows[0];
+		if (!message) {
+			res.status(404).json({ success: false, message: "Message not found" });
+			return;
+		}
+		if (message.role !== "assistant") {
+			res.status(400).json({ success: false, message: "Feedback can only be saved for assistant messages" });
+			return;
+		}
+
+		await chatRatingService.upsertMessageFeedback(
+			userId,
+			sessionId,
+			messageId,
+			widget.id,
+			feedbackType,
+			feedbackReason,
+		);
+
+		res.status(200).json({ success: true, message: "Message feedback recorded" });
+	} catch (err) {
+		logger.error("Error saving chat message feedback", { err });
+		res.status(500).json({ success: false, message: "Failed to save message feedback" });
+	}
+}
+
 /**
  * Track a page view from the widget.
  * Body: { widgetKey, sessionId, url }

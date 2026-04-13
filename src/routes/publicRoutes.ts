@@ -127,6 +127,14 @@ router.post(
 	publicWidgetController.submitChatRating,
 );
 
+router.post(
+	"/widget/message-feedback",
+	publicWidgetActionLimiter,
+	validationRules.publicWidgetMessageFeedback,
+	validate,
+	publicWidgetController.submitMessageFeedback,
+);
+
 /**
  * @route   POST /api/v1/widget/page-view
  * @desc    Track a page view for a chat session (called by widget on each page load)

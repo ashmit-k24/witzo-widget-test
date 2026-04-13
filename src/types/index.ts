@@ -543,6 +543,7 @@ export interface ChatResponse {
 	success: boolean;
 	sessionId: string;
 	response: string;
+	assistantMessageId?: number;
 	language?: string;
 	sources?: Array<{
 		url: string;

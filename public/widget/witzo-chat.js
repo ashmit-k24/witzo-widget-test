@@ -5718,6 +5718,10 @@
 					this.appendBotReply(
 						typingWrapper,
 						content,
+						typeof result.assistantMessageId ===
+							"number"
+							? result.assistantMessageId
+							: undefined,
 					);
 					appendSources(
 						typingWrapper,
@@ -5950,7 +5954,7 @@
 			return icons[type] || "";
 		}
 
-		getMessageFeedbackMarkup() {
+		getMessageFeedbackMarkup(messageId) {
 			const items = this._messageFeedbackReasons
 				.map(
 					(reason) => `
@@ -5960,8 +5964,13 @@
               </button>`,
 				)
 				.join("");
+			const messageIdAttr =
+				typeof messageId === "number" &&
+				Number.isFinite(messageId)
+					? ` data-message-id="${String(messageId)}"`
+					: "";
 			return `
-            <div class="message-feedback">
+            <div class="message-feedback"${messageIdAttr}>
               <div class="message-feedback-row">
                 <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
                   ${this.getMessageFeedbackIcon("up")}
@@ -5978,8 +5987,8 @@
             </div>`;
 		}
 
-		getBotMessageMarkup(text) {
-			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${this.getMessageFeedbackMarkup()}</div>`;
+		getBotMessageMarkup(text, messageId) {
+			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${this.getMessageFeedbackMarkup(messageId)}</div>`;
 		}
 
 		getTypingStatusMarkup(
@@ -6057,6 +6066,15 @@
 					.forEach((item) =>
 						item.classList.remove("active"),
 					);
+				const messageId = Number(
+					feedbackRoot.dataset.messageId,
+				);
+				if (Number.isFinite(messageId)) {
+					void this.submitMessageFeedback(
+						messageId,
+						"up",
+					);
+				}
 				return;
 			}
 
@@ -6086,6 +6104,19 @@
 				.querySelector(".message-feedback-menu")
 				?.classList.remove("show");
 			feedbackRoot.classList.remove("menu-open");
+			const messageId = Number(
+				feedbackRoot.dataset.messageId,
+			);
+			const feedbackReason =
+				feedbackItem.dataset.feedbackReason ||
+				"";
+			if (Number.isFinite(messageId)) {
+				void this.submitMessageFeedback(
+					messageId,
+					"down",
+					feedbackReason || null,
+				);
+			}
 		}
 
 		queueScrollToBottom() {
@@ -6152,26 +6183,36 @@
 			return normalized;
 		}
 
-		updateTypingToMessage(wrapper, text) {
+		updateTypingToMessage(
+			wrapper,
+			text,
+			messageId,
+		) {
 			const bubble = wrapper.querySelector(
 				".typing-indicator",
 			);
 			wrapper.classList.add("has-feedback");
-			if (bubble) {
-				bubble.classList.remove(
-					"typing-indicator",
-				);
-				bubble.innerHTML =
-					this.getBotMessageMarkup(text);
-			} else {
-				const bubbleNode = wrapper.querySelector(
-					".chat-bubble-ai",
-				);
-				if (bubbleNode) {
-					bubbleNode.innerHTML =
-						this.getBotMessageMarkup(text);
+				if (bubble) {
+					bubble.classList.remove(
+						"typing-indicator",
+					);
+					bubble.innerHTML =
+						this.getBotMessageMarkup(
+							text,
+							messageId,
+						);
+				} else {
+					const bubbleNode = wrapper.querySelector(
+						".chat-bubble-ai",
+					);
+					if (bubbleNode) {
+						bubbleNode.innerHTML =
+							this.getBotMessageMarkup(
+								text,
+								messageId,
+							);
+					}
 				}
-			}
 			this.queueScrollToBottom();
 		}
 
@@ -6326,6 +6367,11 @@
 			this.appendBotReply(
 				typingWrapper,
 				assembled,
+				donePayload &&
+					typeof donePayload.assistantMessageId ===
+						"number"
+					? donePayload.assistantMessageId
+					: undefined,
 			);
 			appendSources(
 				typingWrapper,
@@ -6343,10 +6389,15 @@
 			return { completed: true };
 		}
 
-		appendBotReply(typingWrapper, text) {
+		appendBotReply(
+			typingWrapper,
+			text,
+			messageId,
+		) {
 			this.updateTypingToMessage(
 				typingWrapper,
 				text,
+				messageId,
 			);
 			this.botMessageCount += 1;
 			this.maybeShowLeadForm();
@@ -6527,6 +6578,45 @@
 				}
 			} catch (e) {
 				// Non-fatal â€” silently ignore
+			}
+		}
+
+		async submitMessageFeedback(
+			messageId,
+			feedbackType,
+			feedbackReason = null,
+		) {
+			if (
+				!this.apiBaseUrl ||
+				!this.widgetKey ||
+				!this.sessionId ||
+				!Number.isFinite(messageId)
+			) {
+				return;
+			}
+			try {
+				await fetch(
+					this.apiBaseUrl +
+					"/api/v1/widget/message-feedback",
+					{
+						method: "POST",
+						headers: this.getRequestHeaders({
+							"Content-Type": "application/json",
+						}),
+						body: JSON.stringify({
+							widgetKey: this.widgetKey,
+							sessionId: this.sessionId,
+							messageId,
+							feedbackType,
+							feedbackReason,
+						}),
+					},
+				);
+			} catch (e) {
+				console.error(
+					"Failed to submit message feedback",
+					e,
+				);
 			}
 		}
 
@@ -7044,6 +7134,7 @@
 			bubble.className = "chat-bubble-ai";
 			bubble.innerHTML = this.getBotMessageMarkup(
 				this.config.primaryText,
+				undefined,
 			);
 			wrapper.appendChild(bubble);
 			this.elements.messagesContainer.appendChild(
