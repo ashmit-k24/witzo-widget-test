@@ -3118,6 +3118,7 @@
             align-items: center;
             row-gap: 2px;
             column-gap: 0;
+			display:none;
           }
           .typing-status-char {
             display: inline-block;
