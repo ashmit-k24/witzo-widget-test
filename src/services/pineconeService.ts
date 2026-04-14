@@ -1317,6 +1317,7 @@ class PineconeService {
 				recordUrl?: string,
 			) => boolean;
 			let logLabel: string;
+			let cleanupDbState: () => Promise<void>;
 
 			if (url.startsWith("document://")) {
 				logLabel = url;
@@ -1325,11 +1326,13 @@ class PineconeService {
 				logger.info(
 					`Deleting document: ${logLabel} (user: ${userId})`,
 				);
-				await pool.query(
-					`DELETE FROM rag_source_pages
-					 WHERE user_id = $1 AND source_url = $2`,
-					[userId, url],
-				);
+				cleanupDbState = async () => {
+					await pool.query(
+						`DELETE FROM rag_source_pages
+						 WHERE user_id = $1 AND source_url = $2`,
+						[userId, url],
+					);
+				};
 			} else {
 				let baseUrl: string;
 				try {
@@ -1349,17 +1352,19 @@ class PineconeService {
 				logger.info(
 					`Deleting all documents from domain: ${logLabel} (user: ${userId})`,
 				);
-				await pool.query(
-					`DELETE FROM rag_source_pages
-					 WHERE user_id = $1
-					   AND source_type = 'website'
-					   AND (source_root = $2 OR source_url LIKE $3)`,
-					[userId, baseUrl, `${baseUrl}%`],
-				);
-				await scraperSourceService.deleteSource(
-					userId,
-					baseUrl,
-				);
+				cleanupDbState = async () => {
+					await pool.query(
+						`DELETE FROM rag_source_pages
+						 WHERE user_id = $1
+						   AND source_type = 'website'
+						   AND (source_root = $2 OR source_url LIKE $3)`,
+						[userId, baseUrl, `${baseUrl}%`],
+					);
+					await scraperSourceService.deleteSource(
+						userId,
+						baseUrl,
+					);
+				};
 			}
 
 			const matchingIds: string[] = [];
@@ -1382,6 +1387,7 @@ class PineconeService {
 			);
 
 			if (matchingIds.length === 0) {
+				await cleanupDbState();
 				logger.info(
 					`No documents found matching ${logLabel} (user: ${userId})`,
 				);
@@ -1392,6 +1398,7 @@ class PineconeService {
 				index,
 				matchingIds,
 			);
+			await cleanupDbState();
 
 			logger.info(
 				`Deleted ${matchingIds.length} chunks from ${logLabel} (user: ${userId})`,
@@ -1424,16 +1431,6 @@ class PineconeService {
 				`Deleting exact page: ${exactUrl} (user: ${userId})`,
 			);
 
-			await pool.query(
-				`DELETE FROM rag_source_pages
-				 WHERE user_id = $1 AND source_url = $2`,
-				[userId, exactUrl],
-			);
-			await scraperSourceService.deletePage(
-				userId,
-				exactUrl,
-			);
-
 			const matchingIds: string[] = [];
 			await this.forEachUserRecord(
 				userId,
@@ -1454,6 +1451,15 @@ class PineconeService {
 			);
 
 			if (matchingIds.length === 0) {
+				await pool.query(
+					`DELETE FROM rag_source_pages
+					 WHERE user_id = $1 AND source_url = $2`,
+					[userId, exactUrl],
+				);
+				await scraperSourceService.deletePage(
+					userId,
+					exactUrl,
+				);
 				logger.info(
 					`No chunks found for exact page: ${exactUrl} (user: ${userId})`,
 				);
@@ -1463,6 +1469,15 @@ class PineconeService {
 			await this.deleteVectorIds(
 				index,
 				matchingIds,
+			);
+			await pool.query(
+				`DELETE FROM rag_source_pages
+				 WHERE user_id = $1 AND source_url = $2`,
+				[userId, exactUrl],
+			);
+			await scraperSourceService.deletePage(
+				userId,
+				exactUrl,
 			);
 
 			logger.info(
@@ -2104,6 +2119,54 @@ class PineconeService {
 				"Error fetching user sources from DB",
 				{ error, userId },
 			);
+			throw error;
+		}
+	}
+
+	async checkTrackedSourceExists(
+		userId: string,
+		sourceUrl: string,
+	): Promise<{
+		exists: boolean;
+		chunks: number;
+		scrapedAt?: string;
+	}> {
+		try {
+			const result = await pool.query<{
+				chunks: number;
+				scraped_at: Date | string | null;
+			}>(
+				`SELECT chunks, scraped_at
+				 FROM rag_source_pages
+				 WHERE user_id = $1 AND source_url = $2
+				 LIMIT 1`,
+				[userId, sourceUrl],
+			);
+
+			const row = result.rows[0];
+			if (!row) {
+				return {
+					exists: false,
+					chunks: 0,
+				};
+			}
+
+			return {
+				exists: true,
+				chunks: Math.max(0, Number(row.chunks) || 0),
+				scrapedAt:
+					row.scraped_at instanceof Date
+						? row.scraped_at.toISOString()
+						: typeof row.scraped_at === "string"
+							? row.scraped_at
+							: undefined,
+			};
+		} catch (error) {
+			logger.error("Error checking tracked source existence", {
+				error,
+				userId,
+				sourceUrl,
+			});
 			throw error;
 		}
 	}
