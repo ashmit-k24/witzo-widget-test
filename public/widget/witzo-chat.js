@@ -849,6 +849,81 @@
 			this.elements.floatingBtn.classList.remove(
 				"hidden",
 			);
+
+			// Refresh floatingInputShell ref — it's inside the rebuilt innerHTML
+			this.elements.floatingInputShell =
+				this.shadowRoot.querySelector(".floating-input-shell");
+
+			// Re-bind floating launcher events to the new DOM nodes.
+			// updateFloatingType() replaces innerHTML so all previous listeners are gone.
+			var _self = this;
+			if (this.elements.floatingCloseBtn) {
+				this.elements.floatingCloseBtn.addEventListener("click", function (e) {
+					e.preventDefault();
+					e.stopPropagation();
+					_self.requestFloatingLauncherDismiss();
+				});
+			}
+			if (this.elements.floatingHelpBtn) {
+				this.elements.floatingHelpBtn.addEventListener("click", function () {
+					_self.hideFloatingExitPrompt();
+					_self.openFromFloatingLauncher();
+				});
+			}
+			if (this.elements.floatingPromptSend) {
+				this.elements.floatingPromptSend.addEventListener("click", function () {
+					if (_self.isOpen) {
+						_self.requestWidgetClose();
+						return;
+					}
+					_self.hideFloatingExitPrompt();
+					_self.handleFloatingLauncherSend();
+				});
+			}
+			if (this.elements.floatingExitPromptClose) {
+				this.elements.floatingExitPromptClose.addEventListener("click", function (e) {
+					e.preventDefault();
+					e.stopPropagation();
+					_self.resolveFloatingExitPrompt("dismiss");
+				});
+			}
+			if (this.elements.floatingExitPromptHelp) {
+				this.elements.floatingExitPromptHelp.addEventListener("click", function (e) {
+					e.preventDefault();
+					e.stopPropagation();
+					_self.resolveFloatingExitPrompt("help");
+				});
+			}
+			if (this.elements.floatingExitPromptDismiss) {
+				this.elements.floatingExitPromptDismiss.addEventListener("click", function (e) {
+					e.preventDefault();
+					e.stopPropagation();
+					_self.resolveFloatingExitPrompt("dismiss");
+				});
+			}
+			if (this.elements.floatingPromptInput) {
+				this.elements.floatingPromptInput.addEventListener("input", function () {
+					_self.updateFloatingLauncherState();
+				});
+				this.elements.floatingPromptInput.addEventListener("keydown", function (e) {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						_self.handleFloatingLauncherSend();
+					}
+				});
+				this.elements.floatingPromptInput.addEventListener("focus", function () {
+					var wrapper = _self.shadowRoot.getElementById("floatingPromptInputWrapper");
+					_self.elements.floatingInputShell?.classList.add("input-focused");
+					if (wrapper) wrapper.classList.remove("is-glowing");
+				});
+				this.elements.floatingPromptInput.addEventListener("blur", function () {
+					var wrapper = _self.shadowRoot.getElementById("floatingPromptInputWrapper");
+					_self.elements.floatingInputShell?.classList.remove("input-focused");
+					if (wrapper && !_self.elements.floatingPromptInput.value.trim()) {
+						wrapper.classList.add("is-glowing");
+					}
+				});
+			}
 		}
 
 		getLanguageStorageKey() {
