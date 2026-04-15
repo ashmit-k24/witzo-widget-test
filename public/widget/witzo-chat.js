@@ -99,6 +99,9 @@
 			this._introAnimResetTimer = null;
 			this.isEmbeddedPreview = false;
 			this.isAwaitingResponse = false;
+			this._activeResponseCount = 0;
+			this._hasVisibleStreamingResponse = false;
+			this._queuedSendAfterResponse = false;
 			this._calendlyAssetPromise = null;
 			this._calendlyMessageHandler = null;
 			this._calendlyBookingActive = false;
@@ -4893,9 +4896,32 @@
 		}
 
 		setAwaitingResponse(isAwaiting) {
+			if (isAwaiting) {
+				this._activeResponseCount =
+					(this._activeResponseCount || 0) + 1;
+				this._hasVisibleStreamingResponse = false;
+			} else {
+				this._activeResponseCount = Math.max(
+					0,
+					(this._activeResponseCount || 0) - 1,
+				);
+				if (this._activeResponseCount === 0) {
+					this._hasVisibleStreamingResponse = false;
+				}
+			}
 			this.isAwaitingResponse =
-				Boolean(isAwaiting);
+				this._activeResponseCount > 0;
 			this.updateSendButtonState();
+			if (!this.isAwaitingResponse) {
+				this._flushQueuedSend();
+			}
+		}
+
+		_flushQueuedSend() {
+			if (!this._queuedSendAfterResponse) return;
+			this._queuedSendAfterResponse = false;
+			if (!this.elements?.input?.value.trim()) return;
+			requestAnimationFrame(() => this.handleSend());
 		}
 
 		updateBackButtonVisibility(
@@ -5666,7 +5692,13 @@
 		}
 
 		async handleSend() {
-			if (this.isAwaitingResponse) {
+			if (
+				this.isAwaitingResponse &&
+				!this._hasVisibleStreamingResponse
+			) {
+				if (this.elements?.input?.value.trim()) {
+					this._queuedSendAfterResponse = true;
+				}
 				return;
 			}
 
@@ -5879,7 +5911,8 @@
 			);
 			const disabled =
 				inputDisabled ||
-				this.isAwaitingResponse ||
+				(this.isAwaitingResponse &&
+					!this._hasVisibleStreamingResponse) ||
 				!hasValue;
 			this.elements.sendBtn.disabled = disabled;
 			this.elements.sendBtn.setAttribute(
@@ -6275,6 +6308,13 @@
 					);
 				streamingTextNode.innerHTML =
 					this.parseMarkdown(normalizedText);
+				if (
+					!this._hasVisibleStreamingResponse &&
+					normalizedText.trim()
+				) {
+					this._hasVisibleStreamingResponse = true;
+					this.updateSendButtonState();
+				}
 			}
 			this.keepStreamingReplyVisible(wrapper);
 		}

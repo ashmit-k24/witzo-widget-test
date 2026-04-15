@@ -241,7 +241,7 @@ function normalizeStreamingMarkdown(text) {
 }
 
 /** Smooth streaming update: mutate text node only (no full HTML re-render). */
-export function updateStreamingBubble(wrapper, text, logoIcon) {
+export function updateStreamingBubble(wrapper, text, logoIcon, widget) {
   const bubble = wrapper.querySelector('.typing-indicator') || wrapper.querySelector('.chat-bubble-ai');
   if (!bubble) return;
 
@@ -255,6 +255,10 @@ export function updateStreamingBubble(wrapper, text, logoIcon) {
   if (streamTextNode) {
     const normalizedText = normalizeStreamingMarkdown(text || '');
     streamTextNode.innerHTML = parseMarkdown(normalizedText);
+    if (widget && !widget._hasVisibleStreamingResponse && normalizedText.trim()) {
+      widget._hasVisibleStreamingResponse = true;
+      widget.updateSendButtonState?.();
+    }
   }
   keepStreamingReplyVisible(wrapper);
 }

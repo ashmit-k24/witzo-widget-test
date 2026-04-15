@@ -61,6 +61,9 @@ export class WitzoChatWidget extends HTMLElement {
     // Daily session limit state
     this._sessionLocked = false;
     this.isAwaitingResponse = false;
+    this._activeResponseCount = 0;
+    this._hasVisibleStreamingResponse = false;
+    this._queuedSendAfterResponse = false;
 
     this.selectedLanguage = 'en';
     this.config           = { ...DEFAULT_CONFIG };
@@ -221,13 +224,35 @@ export class WitzoChatWidget extends HTMLElement {
   toggleChat()                     { events.toggleChat(this); }
   handleLanguageSelect(code)       { events.handleLanguageSelect(this, code); }
   setAwaitingResponse(isAwaiting)  {
-    this.isAwaitingResponse = Boolean(isAwaiting);
+    if (isAwaiting) {
+      this._activeResponseCount = (this._activeResponseCount || 0) + 1;
+      this._hasVisibleStreamingResponse = false;
+    } else {
+      this._activeResponseCount = Math.max(0, (this._activeResponseCount || 0) - 1);
+      if (this._activeResponseCount === 0) {
+        this._hasVisibleStreamingResponse = false;
+      }
+    }
+    this.isAwaitingResponse = this._activeResponseCount > 0;
     this.updateSendButtonState();
+    if (!this.isAwaitingResponse) {
+      this._flushQueuedSend();
+    }
+  }
+
+  _flushQueuedSend() {
+    if (!this._queuedSendAfterResponse) return;
+    this._queuedSendAfterResponse = false;
+    if (!this.elements?.input?.value.trim()) return;
+    requestAnimationFrame(() => this.handleSend());
   }
 
   // ── Core send flow ───────────────────────────────────────────────
   async handleSend() {
-    if (this.isAwaitingResponse) {
+    if (this.isAwaitingResponse && !this._hasVisibleStreamingResponse) {
+      if (this.elements?.input?.value.trim()) {
+        this._queuedSendAfterResponse = true;
+      }
       return;
     }
 
@@ -280,7 +305,7 @@ export class WitzoChatWidget extends HTMLElement {
       // — Streaming (SSE) path —
       if (response.ok && response.body && contentType.includes('text/event-stream')) {
         const result = await stream.consumeStream(response, (assembled) => {
-          msg.updateStreamingBubble(typingEl, assembled, this.config.logoIcon);
+          msg.updateStreamingBubble(typingEl, assembled, this.config.logoIcon, this);
         });
 
         if (result.hadError) {
@@ -810,7 +835,7 @@ export class WitzoChatWidget extends HTMLElement {
       this.elements.langPillBtn.style.opacity = this.isAwaitingResponse ? '0.55' : '';
     }
     const hasValue = Boolean(this.elements.input.value.trim());
-    const disabled = inputDisabled || this.isAwaitingResponse || !hasValue;
+    const disabled = inputDisabled || (this.isAwaitingResponse && !this._hasVisibleStreamingResponse) || !hasValue;
     this.elements.sendBtn.disabled = disabled;
     this.elements.sendBtn.setAttribute('aria-disabled', String(disabled));
     this.elements.sendBtn.classList.toggle('is-active', !disabled);
