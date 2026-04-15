@@ -5,7 +5,6 @@ import {
 	redisAnalytics,
 	redisCache,
 } from "../config/redis";
-import { PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD } from "../constants";
 import { WIDGET_ANALYTICS_BUFFER_KEY } from "../constants/widget.constants";
 import { PlanType } from "../config/planConfig";
 import { config } from "../config/env";
@@ -122,11 +121,6 @@ class AuthService {
 		user: User & { password_hash?: string | null },
 		sessionId?: number,
 	): UserResponse {
-		const requiresProfileCompletion =
-			!user.profile_completed &&
-			user.login_count >
-				PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD;
-
 		return {
 			id: user.id,
 			email: user.email,
@@ -143,9 +137,6 @@ class AuthService {
 			industry: user.industry,
 			companyWebsite: user.company_website,
 			profileCompleted: user.profile_completed,
-			requiresProfileCompletion,
-			profilePromptRequiredAt:
-				user.profile_prompt_required_at,
 			profileCompletedAt:
 				user.profile_completed_at,
 			onboardingStep: user.onboarding_step,
@@ -724,24 +715,16 @@ class AuthService {
 				[verificationRecord.id],
 			);
 
-			// Update verification + login tracking and trigger profile prompt threshold.
+			// Update verification + login tracking. Profile editing remains optional in Settings.
 			const updatedUserResult =
 				await client.query<User>(
 					`UPDATE users
 					 SET is_verified = TRUE,
 					     last_login = CURRENT_TIMESTAMP,
-					     login_count = login_count + 1,
-					     profile_prompt_required_at = CASE
-					       WHEN (login_count + 1) > $2 AND profile_completed = FALSE
-					         THEN COALESCE(profile_prompt_required_at, CURRENT_TIMESTAMP)
-					       ELSE profile_prompt_required_at
-					     END
+					     login_count = login_count + 1
 					 WHERE id = $1
 					 RETURNING *`,
-					[
-						user.id,
-						PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD,
-					],
+					[user.id],
 				);
 			const updatedUser =
 				updatedUserResult.rows[0] ?? user;
@@ -940,7 +923,7 @@ class AuthService {
 				`SELECT s.id, s.is_revoked, u.id as user_id, u.email, u.is_verified, u.plan_type,
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
-				        u.profile_prompt_required_at, u.profile_completed_at,
+				        u.profile_completed_at,
 				        u.onboarding_step, u.onboarding_completed,
 				        u.dashboard_tour_completed, u.dashboard_tour_completed_at
 				        ${systemMessageFields}
@@ -979,12 +962,6 @@ class AuthService {
 						session.company_website,
 					profileCompleted:
 						session.profile_completed,
-					requiresProfileCompletion:
-						!session.profile_completed &&
-						session.login_count >
-							PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD,
-					profilePromptRequiredAt:
-						session.profile_prompt_required_at,
 					profileCompletedAt:
 						session.profile_completed_at,
 					onboardingStep:
@@ -1077,7 +1054,6 @@ class AuthService {
 				industry: string | null;
 				company_website: string | null;
 				profile_completed: boolean;
-				profile_prompt_required_at: Date | null;
 				profile_completed_at: Date | null;
 				onboarding_step: number;
 				onboarding_completed: boolean;
@@ -1089,7 +1065,7 @@ class AuthService {
 				`SELECT s.id, s.user_id, u.email, u.is_verified, u.plan_type, s.refresh_token_expires_at,
 				        u.login_count, u.full_name, u.company_name, u.phone_number, u.country,
 				        u.job_title, u.industry, u.company_website, u.profile_completed,
-				        u.profile_prompt_required_at, u.profile_completed_at,
+				        u.profile_completed_at,
 				        u.onboarding_step, u.onboarding_completed,
 				        u.dashboard_tour_completed, u.dashboard_tour_completed_at
 				        ${systemMessageFields}
@@ -1186,12 +1162,6 @@ class AuthService {
 						session.company_website,
 					profileCompleted:
 						session.profile_completed,
-					requiresProfileCompletion:
-						!session.profile_completed &&
-						session.login_count >
-							PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD,
-					profilePromptRequiredAt:
-						session.profile_prompt_required_at,
 					profileCompletedAt:
 						session.profile_completed_at,
 					onboardingStep:
@@ -2484,19 +2454,14 @@ class AuthService {
 				};
 			}
 
-			// Update last_login + login_count
+			// Update last_login + login_count. Profile editing remains optional in Settings.
 			const updatedUserResult = await client.query<User>(
 				`UPDATE users
          SET last_login = CURRENT_TIMESTAMP,
-             login_count = login_count + 1,
-             profile_prompt_required_at = CASE
-               WHEN (login_count + 1) > $2 AND profile_completed = FALSE
-                 THEN COALESCE(profile_prompt_required_at, CURRENT_TIMESTAMP)
-               ELSE profile_prompt_required_at
-             END
+             login_count = login_count + 1
          WHERE id = $1
          RETURNING *`,
-				[user.id, PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD],
+				[user.id],
 			);
 			const updatedUser = updatedUserResult.rows[0] ?? user;
 

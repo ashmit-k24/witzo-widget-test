@@ -25,7 +25,6 @@ export interface User {
 	industry: string | null;
 	company_website: string | null;
 	profile_completed: boolean;
-	profile_prompt_required_at: Date | null;
 	profile_completed_at: Date | null;
 	onboarding_step: number;
 	onboarding_completed: boolean;
@@ -54,8 +53,6 @@ export interface UserResponse {
 	industry?: string | null;
 	companyWebsite?: string | null;
 	profileCompleted?: boolean;
-	requiresProfileCompletion?: boolean;
-	profilePromptRequiredAt?: Date | null;
 	profileCompletedAt?: Date | null;
 	onboardingStep?: number;
 	onboardingCompleted?: boolean;
