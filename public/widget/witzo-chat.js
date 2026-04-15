@@ -957,10 +957,6 @@
 				this.selectedLanguage,
 			);
 
-			console.log(
-				this.selectedLanguage,
-				"this.selectedLanguage",
-			);
 		}
 
 		resetConversationRatingState() {
@@ -1651,7 +1647,7 @@
             gap: 1rem;
             scrollbar-width: none;
             -ms-overflow-style: none;
-            transition: all 0.6s ease-in-out;
+            overflow-anchor: none;
 			border-radius:20px 20px 0 0;
           }
 			
@@ -1682,7 +1678,6 @@
           .chat-message { display: flex; align-items: flex-start; gap: 0.75rem; }
           .chat-message.mt-space {
             margin-top: 46px;
-            transition: all 0.7s ease-in 0.3s;
           }
           .chat-message.has-feedback {
             position: relative;
@@ -3307,7 +3302,6 @@
               display: flex;
               flex-direction: column;
               align-items: flex-start;
-              gap: 6px;
               position: relative;
             }
             .bot-message-row .bot-msg-chat-icon {
@@ -4819,11 +4813,6 @@
 					}
 				},
 			);
-			this.elements.messagesContainer?.addEventListener(
-				"click",
-				(e) =>
-					this.handleMessageFeedbackClick(e),
-			);
 			if (this.elements.scrollBottomBtn) {
 				this.elements.scrollBottomBtn.addEventListener(
 					"click",
@@ -4850,10 +4839,6 @@
 
 		handleLanguageSelect(code) {
 			const nextLanguage = code || "en";
-			console.log(
-				"Language changed to:",
-				nextLanguage,
-			);
 			this.selectedLanguage = nextLanguage;
 			this.config.defaultLanguage = nextLanguage;
 			sessionStorage.setItem(
@@ -5827,6 +5812,7 @@
 						typingWrapper,
 						this._jsonSources || [],
 					);
+					this.smoothScrollToBottom();
 					if (this._jsonCalendlyBooking) {
 						this.showCalendlyEmbed(
 							this._jsonCalendlyBooking,
@@ -6088,7 +6074,7 @@
 		}
 
 		getBotMessageMarkup(text, messageId) {
-			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${this.getMessageFeedbackMarkup(messageId)}</div>`;
+			return `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>`;
 		}
 
 		getTypingStatusMarkup(
@@ -6232,6 +6218,39 @@
 			});
 		}
 
+		smoothScrollToBottom() {
+			if (this._smoothScrollFrameQueued) return;
+			this._smoothScrollFrameQueued = true;
+			requestAnimationFrame(() => {
+				this.elements?.messagesContainer?.scrollTo({
+					top: this.elements.messagesContainer.scrollHeight,
+					behavior: "smooth",
+				});
+				this.updateScrollBottomButton();
+				this._smoothScrollFrameQueued = false;
+			});
+		}
+
+		keepStreamingReplyVisible(wrapper) {
+			const container = this.elements?.messagesContainer;
+			if (!container || !wrapper) return;
+			if (wrapper.__streamScrollQueued) return;
+			wrapper.__streamScrollQueued = true;
+
+			requestAnimationFrame(() => {
+				wrapper.__streamScrollQueued = false;
+				const containerRect = container.getBoundingClientRect();
+				const wrapperRect = wrapper.getBoundingClientRect();
+				const overflow =
+					wrapperRect.bottom - (containerRect.bottom - 12);
+
+				if (overflow > 0) {
+					container.scrollTop += overflow;
+					this.updateScrollBottomButton();
+				}
+			});
+		}
+
 		updateTypingStreaming(wrapper, text) {
 			const bubble = wrapper.querySelector(
 				".typing-indicator, .chat-bubble-ai",
@@ -6257,7 +6276,7 @@
 				streamingTextNode.innerHTML =
 					this.parseMarkdown(normalizedText);
 			}
-			this.queueScrollToBottom();
+			this.keepStreamingReplyVisible(wrapper);
 		}
 
 		normalizeStreamingMarkdown(text) {
@@ -6291,7 +6310,7 @@
 			const bubble = wrapper.querySelector(
 				".typing-indicator",
 			);
-			wrapper.classList.add("has-feedback");
+			wrapper.classList.remove("has-feedback");
 				if (bubble) {
 					bubble.classList.remove(
 						"typing-indicator",
@@ -6305,7 +6324,7 @@
 					const bubbleNode = wrapper.querySelector(
 						".chat-bubble-ai",
 					);
-					if (bubbleNode) {
+				if (bubbleNode) {
 						bubbleNode.innerHTML =
 							this.getBotMessageMarkup(
 								text,
@@ -6313,7 +6332,7 @@
 							);
 					}
 				}
-			this.queueScrollToBottom();
+			this.smoothScrollToBottom();
 		}
 
 		async consumeStreamedResponse(
@@ -6478,6 +6497,7 @@
 				(donePayload && donePayload.sources) ||
 				[],
 			);
+			this.smoothScrollToBottom();
 			if (
 				donePayload &&
 				donePayload.calendlyBooking
@@ -6637,13 +6657,6 @@
 				this.elements.hopeBanner.classList.remove(
 					"hidden",
 				);
-				const firstMessage =
-					this.elements.messagesContainer?.querySelector(
-						".chat-message",
-					);
-				if (firstMessage) {
-					firstMessage.classList.add("mt-space");
-				}
 			}
 		}
 
@@ -7256,8 +7269,7 @@
 		displayDefaultMessage() {
 			const wrapper =
 				document.createElement("div");
-			wrapper.className =
-				"chat-message has-feedback";
+			wrapper.className = "chat-message";
 			const bubble =
 				document.createElement("div");
 			bubble.className = "chat-bubble-ai";

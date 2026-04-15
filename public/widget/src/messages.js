@@ -207,6 +207,24 @@ function queueScrollToBottom(wrapper) {
   });
 }
 
+function keepStreamingReplyVisible(wrapper) {
+  const container = wrapper.parentElement;
+  if (!container) return;
+  if (wrapper.__streamScrollQueued) return;
+  wrapper.__streamScrollQueued = true;
+
+  requestAnimationFrame(() => {
+    wrapper.__streamScrollQueued = false;
+    const containerRect = container.getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const overflow = wrapperRect.bottom - (containerRect.bottom - 12);
+
+    if (overflow > 0) {
+      container.scrollTop += overflow;
+    }
+  });
+}
+
 function normalizeStreamingMarkdown(text) {
   if (!text) return '';
   let normalized = text;
@@ -238,7 +256,7 @@ export function updateStreamingBubble(wrapper, text, logoIcon) {
     const normalizedText = normalizeStreamingMarkdown(text || '');
     streamTextNode.innerHTML = parseMarkdown(normalizedText);
   }
-  queueScrollToBottom(wrapper);
+  keepStreamingReplyVisible(wrapper);
 }
 
 /** Replace a typing indicator (or existing bubble) with bot reply content */
