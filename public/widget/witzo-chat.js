@@ -2300,7 +2300,7 @@
             bottom: 20px;
             position: fixed;
             right: 24px;
-            z-index: 2147483647;
+            z-index: 1;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
