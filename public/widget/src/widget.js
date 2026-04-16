@@ -320,7 +320,7 @@ export class WitzoChatWidget extends HTMLElement {
           return;
         }
         this.successfulChatCount = session.incrementChatCount(this.successfulChatCount);
-        this.appendBotReply(typingEl, result.assembled);
+        this.appendBotReply(typingEl, result.assembled, result.donePayload?.assistantMessageId);
         msg.appendSources(typingEl, result.donePayload?.sources);
         if (result.donePayload?.calendlyBooking) {
           this.showCalendlyEmbed(result.donePayload.calendlyBooking);
@@ -332,24 +332,26 @@ export class WitzoChatWidget extends HTMLElement {
       const rawText = await response.text();
       let content   = "Sorry, didn't get that.";
       let jsonSources = [];
+      let assistantMessageId = undefined;
 
       if (response.ok) {
         try {
           const result = JSON.parse(rawText);
           content = result.response || result.output || result.message || content;
+          assistantMessageId = result.assistantMessageId;
           if (result.sessionId) this._updateSession(result.sessionId);
           if (Array.isArray(result.sources)) jsonSources = result.sources;
           if (result.calendlyBooking) {
             jsonSources = Array.isArray(result.sources) ? result.sources : [];
             this.successfulChatCount = session.incrementChatCount(this.successfulChatCount);
-            this.appendBotReply(typingEl, content);
+            this.appendBotReply(typingEl, content, result.assistantMessageId);
             msg.appendSources(typingEl, jsonSources);
             this.showCalendlyEmbed(result.calendlyBooking);
             return;
           }
         } catch (_) {}
         this.successfulChatCount = session.incrementChatCount(this.successfulChatCount);
-        this.appendBotReply(typingEl, content);
+        this.appendBotReply(typingEl, content, assistantMessageId);
         msg.appendSources(typingEl, jsonSources);
         return;
       }
@@ -378,8 +380,8 @@ export class WitzoChatWidget extends HTMLElement {
   }
 
   // ── Bot reply + optional rating ──────────────────────────────────
-  appendBotReply(typingEl, text) {
-    msg.updateBubble(typingEl, text, this.config.logoIcon);
+  appendBotReply(typingEl, text, messageId) {
+    msg.updateBubble(typingEl, text, this.config.logoIcon, messageId);
     this.botMessageCount++;
     this.maybeShowLeadForm();
 
@@ -471,6 +473,135 @@ export class WitzoChatWidget extends HTMLElement {
   }
 
   // ── Contact form ─────────────────────────────────────────────────
+  closeAllMessageFeedbackMenus() {
+    this.shadowRoot
+      .querySelectorAll('.message-feedback-menu.show')
+      .forEach((menu) => {
+        menu.classList.remove('show');
+        menu.closest('.message-feedback')?.classList.remove('menu-open');
+      });
+  }
+
+  handleMessageFeedbackClick(e) {
+    const feedbackButton = e.target.closest('.message-feedback-btn');
+    if (feedbackButton) {
+      e.stopPropagation();
+      const feedbackRoot = feedbackButton.closest('.message-feedback');
+      if (!feedbackRoot) return;
+
+      feedbackRoot
+        .querySelectorAll('.message-feedback-btn')
+        .forEach((button) => button.classList.remove('active'));
+      feedbackButton.classList.add('active');
+
+      const menu = feedbackRoot.querySelector('.message-feedback-menu');
+      if (feedbackButton.dataset.feedback === 'down') {
+        const willOpen = !menu?.classList.contains('show');
+        this.closeAllMessageFeedbackMenus();
+        if (willOpen) {
+          menu?.classList.add('show');
+          feedbackRoot.classList.add('menu-open');
+        }
+        return;
+      }
+
+      menu?.classList.remove('show');
+      feedbackRoot.classList.remove('menu-open');
+      feedbackRoot
+        .querySelectorAll('.message-feedback-item.active')
+        .forEach((item) => item.classList.remove('active'));
+
+      const messageId = Number(feedbackRoot.dataset.messageId);
+      if (Number.isFinite(messageId)) {
+        void this.submitMessageFeedback(messageId, 'up');
+      }
+      return;
+    }
+
+    const feedbackItem = e.target.closest('.message-feedback-item');
+    if (!feedbackItem) return;
+
+    e.stopPropagation();
+    const feedbackRoot = feedbackItem.closest('.message-feedback');
+    if (!feedbackRoot) return;
+
+    feedbackRoot
+      .querySelectorAll('.message-feedback-item')
+      .forEach((item) => item.classList.remove('active'));
+    feedbackItem.classList.add('active');
+    feedbackRoot
+      .querySelector('.message-feedback-btn[data-feedback="down"]')
+      ?.classList.add('active');
+    feedbackRoot.querySelector('.message-feedback-menu')?.classList.remove('show');
+    feedbackRoot.classList.remove('menu-open');
+
+    const messageId = Number(feedbackRoot.dataset.messageId);
+    const feedbackReason = feedbackItem.dataset.feedbackReason || '';
+    if (Number.isFinite(messageId)) {
+      void this.submitMessageFeedback(messageId, 'down', feedbackReason || null);
+    }
+  }
+
+  _getMessageFeedbackAcknowledgement(feedbackType, feedbackReason = null) {
+    if (feedbackType === 'down') {
+      if (feedbackReason === 'Incorrect') {
+        return 'Thanks for flagging that as incorrect. We will use your feedback to improve future replies.';
+      }
+      return 'Thanks for the feedback. We will use it to improve future replies.';
+    }
+
+    return 'Thanks for your feedback. Glad that reply was helpful.';
+  }
+
+  _upsertMessageFeedbackAcknowledgement(messageId, feedbackType, feedbackReason = null) {
+    if (!this.elements.messagesContainer || !Number.isFinite(messageId)) return;
+
+    const selector = `.chat-message[data-feedback-ack-for="${String(messageId)}"]`;
+    let wrapper = this.elements.messagesContainer.querySelector(selector);
+
+    if (!wrapper) {
+      wrapper = document.createElement('div');
+      wrapper.className = 'chat-message';
+      wrapper.dataset.feedbackAckFor = String(messageId);
+
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble-ai';
+      wrapper.appendChild(bubble);
+      this.elements.messagesContainer.appendChild(wrapper);
+    }
+
+    msg.updateBubble(
+      wrapper,
+      this._getMessageFeedbackAcknowledgement(feedbackType, feedbackReason),
+      this.config.logoIcon,
+    );
+  }
+
+  async submitMessageFeedback(messageId, feedbackType, feedbackReason = null) {
+    if (!this.apiBaseUrl || !this.widgetKey || !this.sessionId || !Number.isFinite(messageId)) return;
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/api/v1/widget/message-feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          widgetKey: this.widgetKey,
+          sessionId: this.sessionId,
+          messageId,
+          feedbackType,
+          feedbackReason,
+        }),
+      });
+
+      if (!response.ok) return;
+      this._upsertMessageFeedbackAcknowledgement(messageId, feedbackType, feedbackReason);
+    } catch (e) {
+      console.error('Failed to submit message feedback', e);
+    }
+  }
+
   showContactForm() {
     if (!this.elements.contactFormSlot) return;
     this.hideCalendlyEmbed();
@@ -540,9 +671,12 @@ export class WitzoChatWidget extends HTMLElement {
     wrapper.className = 'chat-message';
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble-ai';
-    bubble.innerHTML = `<div class="bot-message-row">${msg.getBotIconHtml(this.config.logoIcon)}<div class="md-content">${msg.parseMarkdown(this.config.primaryText)}</div></div>`;
+    bubble.innerHTML = msg.updateBubble
+      ? ''
+      : `<div class="bot-response-block"><div class="bot-message-row">${msg.getBotIconHtml(this.config.logoIcon)}<div class="md-content">${msg.parseMarkdown(this.config.primaryText)}</div></div></div>`;
     wrapper.appendChild(bubble);
     this.elements.messagesContainer.appendChild(wrapper);
+    msg.updateBubble(wrapper, this.config.primaryText, this.config.logoIcon);
   }
 
   // ── Private helpers ──────────────────────────────────────────────

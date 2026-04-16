@@ -5002,6 +5002,13 @@
 				"click",
 				(e) => {
 					if (
+						e.target.closest(".message-feedback")
+					) {
+						this.handleMessageFeedbackClick(
+							e,
+						);
+					}
+					if (
 						!e.target.closest(".message-feedback")
 					) {
 						this.closeAllMessageFeedbackMenus();
@@ -6417,7 +6424,14 @@
 		}
 
 		getBotMessageMarkup(text, messageId) {
-			return `<div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>`;
+			const feedbackMarkup =
+				typeof messageId === "number" &&
+				Number.isFinite(messageId)
+					? this.getMessageFeedbackMarkup(
+							messageId,
+						)
+					: "";
+			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${feedbackMarkup}</div>`;
 		}
 
 		getTypingStatusMarkup(
@@ -7065,7 +7079,7 @@
 				return;
 			}
 			try {
-				await fetch(
+				const response = await fetch(
 					this.apiBaseUrl +
 						"/api/v1/widget/message-feedback",
 					{
@@ -7081,6 +7095,12 @@
 							feedbackReason,
 						}),
 					},
+				);
+				if (!response.ok) return;
+				this.upsertMessageFeedbackAcknowledgement(
+					messageId,
+					feedbackType,
+					feedbackReason,
 				);
 			} catch (e) {
 				console.error(
@@ -7149,6 +7169,62 @@
 				toast.classList.add("is-hiding");
 				setTimeout(() => toast.remove(), 220);
 			}, 2400);
+		}
+
+		getMessageFeedbackAcknowledgement(
+			feedbackType,
+			feedbackReason = null,
+		) {
+			if (feedbackType === "down") {
+				if (feedbackReason === "Incorrect") {
+					return "Thanks for flagging that as incorrect. We will use your feedback to improve future replies.";
+				}
+				return "Thanks for the feedback. We will use it to improve future replies.";
+			}
+
+			return "Thanks for your feedback. Glad that reply was helpful.";
+		}
+
+		upsertMessageFeedbackAcknowledgement(
+			messageId,
+			feedbackType,
+			feedbackReason = null,
+		) {
+			if (
+				!this.elements.messagesContainer ||
+				!Number.isFinite(messageId)
+			) {
+				return;
+			}
+
+			const selector = `.chat-message[data-feedback-ack-for="${String(messageId)}"]`;
+			let wrapper =
+				this.elements.messagesContainer.querySelector(
+					selector,
+				);
+
+			if (!wrapper) {
+				wrapper = document.createElement("div");
+				wrapper.className = "chat-message";
+				wrapper.dataset.feedbackAckFor =
+					String(messageId);
+
+				const bubble =
+					document.createElement("div");
+				bubble.className = "chat-bubble-ai";
+				wrapper.appendChild(bubble);
+				this.elements.messagesContainer.appendChild(
+					wrapper,
+				);
+			}
+
+			this.updateBubble(
+				wrapper,
+				this.getMessageFeedbackAcknowledgement(
+					feedbackType,
+					feedbackReason,
+				),
+			);
 		}
 
 		_bindCalendlyMessageListener() {

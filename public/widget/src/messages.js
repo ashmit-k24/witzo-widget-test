@@ -162,6 +162,70 @@ export function getBotIconHtml(logoIcon) {
   </div>`;
 }
 
+function getMessageFeedbackIcon(type) {
+  if (type === 'up') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="14" viewBox="0 0 15 14" fill="none">
+      <path d="M6.2502 1.16675C5.75609 1.16675 5.32865 1.51491 5.22864 1.9988L4.69048 4.60008C4.62081 4.9368 4.32419 5.17865 3.98033 5.17865H2.3335C1.68816 5.17865 1.16683 5.69999 1.16683 6.34533V7.40851C1.16683 7.88991 1.22532 8.36952 1.34104 8.8368L1.94004 11.2534C2.06913 11.7743 2.53679 12.1412 3.07342 12.1412H9.20142C10.0709 12.1412 10.8121 11.514 10.9558 10.6565L11.7064 6.17709C11.8993 5.02646 11.0117 3.98351 9.84508 3.98351H8.5835L9.16138 2.24988C9.41354 1.49338 8.85047 0.700684 8.05304 0.700684H7.84514C7.4184 0.700684 7.04105 0.97693 6.91203 1.38372L6.84356 1.59953C6.72176 1.98349 6.52739 2.34036 6.27107 2.65085L5.01335 4.17494" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+  }
+
+  if (type === 'down') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="14" viewBox="0 0 15 14" fill="none">
+      <path d="M8.7498 12.8333C9.24391 12.8333 9.67135 12.4851 9.77136 12.0012L10.3095 9.39992C10.3792 9.0632 10.6758 8.82135 11.0197 8.82135H12.6665C13.3118 8.82135 13.8332 8.30001 13.8332 7.65467V6.59149C13.8332 6.11009 13.7747 5.63048 13.659 5.1632L13.06 2.74664C12.9309 2.22572 12.4632 1.85876 11.9266 1.85876H5.79858C4.92909 1.85876 4.18791 2.48598 4.0442 3.34354L3.29356 7.82291C3.10072 8.97354 3.98832 10.0165 5.15492 10.0165H6.4165L5.83862 11.7501C5.58646 12.5066 6.14953 13.2993 6.94696 13.2993H7.15486C7.5816 13.2993 7.95895 13.0231 8.08797 12.6163L8.15644 12.4005C8.27824 12.0165 8.47261 11.6596 8.72893 11.3491L9.98665 9.82506" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+  }
+
+  if (type === 'Incorrect') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>`;
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="14" viewBox="0 0 15 14" fill="none">
+    <path d="M8.7498 12.8333C9.24391 12.8333 9.67135 12.4851 9.77136 12.0012L10.3095 9.39992C10.3792 9.0632 10.6758 8.82135 11.0197 8.82135H12.6665C13.3118 8.82135 13.8332 8.30001 13.8332 7.65467V6.59149C13.8332 6.11009 13.7747 5.63048 13.659 5.1632L13.06 2.74664C12.9309 2.22572 12.4632 1.85876 11.9266 1.85876H5.79858C4.92909 1.85876 4.18791 2.48598 4.0442 3.34354L3.29356 7.82291C3.10072 8.97354 3.98832 10.0165 5.15492 10.0165H6.4165L5.83862 11.7501C5.58646 12.5066 6.14953 13.2993 6.94696 13.2993H7.15486C7.5816 13.2993 7.95895 13.0231 8.08797 12.6163L8.15644 12.4005C8.27824 12.0165 8.47261 11.6596 8.72893 11.3491L9.98665 9.82506" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function getMessageFeedbackMarkup(messageId) {
+  const items = ["Incorrect", "Not helpful"]
+    .map(
+      (reason) => `
+      <button type="button" class="message-feedback-item" data-feedback-reason="${escapeHtml(reason)}">
+        <span>${escapeHtml(reason)}</span>
+        <span class="message-feedback-item-icon">${getMessageFeedbackIcon(reason)}</span>
+      </button>`,
+    )
+    .join('');
+  const messageIdAttr =
+    typeof messageId === 'number' && Number.isFinite(messageId)
+      ? ` data-message-id="${String(messageId)}"`
+      : '';
+
+  return `
+    <div class="message-feedback"${messageIdAttr}>
+      <div class="message-feedback-row">
+        <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
+          ${getMessageFeedbackIcon('up')}
+          <span class="message-feedback-tooltip">Helpful</span>
+        </button>
+        <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
+          ${getMessageFeedbackIcon('down')}
+          <span class="message-feedback-tooltip">Not helpful</span>
+        </button>
+      </div>
+      <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?">
+        ${items}
+      </div>
+    </div>`;
+}
+
+function getBotMessageMarkup(text, logoIcon, messageId) {
+  const feedbackMarkup =
+    typeof messageId === 'number' && Number.isFinite(messageId)
+      ? getMessageFeedbackMarkup(messageId)
+      : '';
+
+  return `<div class="bot-response-block"><div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content">${parseMarkdown(text)}</div></div>${feedbackMarkup}</div>`;
+}
+
 /** Append a user or bot message bubble to the messages container */
 export function appendMessage(text, type, container) {
   const wrapper = document.createElement('div');
@@ -248,7 +312,7 @@ export function updateStreamingBubble(wrapper, text, logoIcon, widget) {
   let streamTextNode = bubble.querySelector('.streaming-text');
   if (!streamTextNode) {
     bubble.classList.remove('typing-indicator');
-    bubble.innerHTML = `<div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content"><div class="streaming-text"></div></div></div>`;
+    bubble.innerHTML = `<div class="bot-response-block"><div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content"><div class="streaming-text"></div></div></div></div>`;
     streamTextNode = bubble.querySelector('.streaming-text');
   }
 
@@ -264,11 +328,11 @@ export function updateStreamingBubble(wrapper, text, logoIcon, widget) {
 }
 
 /** Replace a typing indicator (or existing bubble) with bot reply content */
-export function updateBubble(wrapper, text, logoIcon) {
+export function updateBubble(wrapper, text, logoIcon, messageId) {
   const bubble = wrapper.querySelector('.typing-indicator') || wrapper.querySelector('.chat-bubble-ai');
   if (!bubble) return;
   bubble.classList.remove('typing-indicator');
-  bubble.innerHTML = `<div class="bot-message-row">${getBotIconHtml(logoIcon)}<div class="md-content">${parseMarkdown(text)}</div></div>`;
+  bubble.innerHTML = getBotMessageMarkup(text, logoIcon, messageId);
   queueScrollToBottom(wrapper);
 }
 
