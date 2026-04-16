@@ -1542,6 +1542,13 @@
 			color: var(--color-primary, #8B27FB);
 
           }
+		  .typing-row{
+		  	margin-right: 10px;
+            display: flex;
+            align-items: start;
+            justify-content: center;
+			color: var(--color-primary, #8B27FB);
+		  }
             .bot-msg-chat-icon img{
               width: 100%;
               height: 100%;
@@ -6301,11 +6308,15 @@
 				"typing-indicator chat-bubble-ai"; // Borrow styles
 			bubble.innerHTML = `
             ${this.getTypingStatusMarkup()}
+
+			<div class="typing-row">
+			${this.getBotIconHtml()}
             <div class="typing-container">
                 <span class="typing-dots-text"></span>
                 <span class="typing-dots-text"></span>
                 <span class="typing-dots-text"></span>
             </div>
+			</div>
         `;
 
 			wrapper.appendChild(bubble);
