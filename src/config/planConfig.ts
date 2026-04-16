@@ -22,6 +22,12 @@ export type AnalyticsTier =
 	| "standard"
 	| "advanced";
 
+export const SCRAPER_PAGE_LIMIT_FREE = 100;
+export const SCRAPER_PAGE_LIMIT_BASIC = 300;
+export const SCRAPER_PAGE_LIMIT_STANDARD = 600;
+// Enterprise has no page limit (null = unlimited)
+
+/** @deprecated Use getScraperPageLimit(planType) instead */
 export const SCRAPER_PAGE_LIMIT = 600;
 
 export interface PlanCapabilities {
@@ -140,6 +146,19 @@ export const PLAN_CONVERSATION_DEFAULT_LIMITS: Record<
 	standard: 5000,
 	enterprise: null,
 };
+
+export function getScraperPageLimit(planType: PlanType): number | null {
+	switch (planType) {
+		case "free":
+			return SCRAPER_PAGE_LIMIT_FREE;
+		case "basic":
+			return SCRAPER_PAGE_LIMIT_BASIC;
+		case "standard":
+			return SCRAPER_PAGE_LIMIT_STANDARD;
+		case "enterprise":
+			return null; // unlimited
+	}
+}
 
 export function coercePlanType(
 	value: unknown,

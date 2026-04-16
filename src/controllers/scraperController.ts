@@ -1,10 +1,8 @@
 import { Request, Response } from "express";
-import {
-	coercePlanType,
-	SCRAPER_PAGE_LIMIT,
-} from "../config/planConfig";
+import { coercePlanType } from "../config/planConfig";
 import { chatService } from "../services/chatService";
 import { pineconeService } from "../services/pineconeService";
+import { scraperSourceService } from "../services/scraperSourceService";
 import { scraperStatusService } from "../services/scraperStatusService";
 import { domainPolicyService } from "../services/domainPolicyService";
 import { enqueueScrapeJob } from "../services/scrapeJobService";
@@ -12,7 +10,6 @@ import { ScrapeRequest } from "../types";
 import logger from "../utils/logger";
 
 const SCRAPER_MAX_DEPTH = 10;
-const SCRAPER_MAX_PAGES = SCRAPER_PAGE_LIMIT;
 type DeleteJobMode =
 	| "delete_source"
 	| "delete_page"
@@ -34,21 +31,40 @@ const runDeleteJobInBackground = (
 	userId: string,
 	url: string,
 	mode: DeleteJobMode,
-	task: () => Promise<void>,
+	task: (reportProgress: (progress: {
+		percent: number;
+		label: string;
+	}) => Promise<void>) => Promise<void>,
+	onFailure?: () => Promise<void>,
 ): void => {
 	void (async () => {
 		try {
-			await scraperStatusService.updateProgress(
-				jobId,
-				{
-					totalPages: 1,
-					scrapedPages: 0,
-					storedPages: 0,
-					currentUrl: url,
-				},
-			);
+			const reportProgress = async (progress: {
+				percent: number;
+				label: string;
+			}) => {
+				await scraperStatusService.updateProgress(
+					jobId,
+					{
+						totalPages: 1,
+						scrapedPages:
+							progress.percent >= 100 ? 1 : 0,
+						storedPages:
+							progress.percent >= 100 ? 1 : 0,
+						currentUrl: url,
+						stage: "scraping_pages",
+						percent: progress.percent,
+						stageLabel: progress.label,
+					},
+				);
+			};
 
-			await task();
+			await reportProgress({
+				percent: 5,
+				label: "Delete job picked up by worker",
+			});
+
+			await task(reportProgress);
 
 			await scraperStatusService.completeJob(
 				jobId,
@@ -57,6 +73,9 @@ const runDeleteJobInBackground = (
 					scrapedPages: 1,
 					storedPages: 1,
 					currentUrl: url,
+					stage: "completed",
+					percent: 100,
+					stageLabel: "Deletion completed",
 				},
 			);
 		} catch (error) {
@@ -79,6 +98,18 @@ const runDeleteJobInBackground = (
 					currentUrl: url,
 				},
 			);
+			if (onFailure) {
+				try {
+					await onFailure();
+				} catch (callbackError) {
+					logger.warn("Delete job onFailure callback failed", {
+						jobId,
+						error: callbackError instanceof Error
+							? callbackError.message
+							: String(callbackError),
+					});
+				}
+			}
 		}
 	})();
 };
@@ -164,6 +195,7 @@ const queueScrapeAfterDeleteAll = (
 
 const normalizeRequestedMaxPages = (
 	value: unknown,
+	maxAllowed: number | null,
 ): number | undefined => {
 	const normalized = Number(value);
 	if (
@@ -173,10 +205,10 @@ const normalizeRequestedMaxPages = (
 		return undefined;
 	}
 
-	return Math.min(
-		SCRAPER_MAX_PAGES,
-		Math.trunc(normalized),
-	);
+	const truncated = Math.trunc(normalized);
+	return maxAllowed === null
+		? truncated
+		: Math.min(maxAllowed, truncated);
 };
 
 const resolveEffectiveMaxPages = (
@@ -290,7 +322,7 @@ export const scrapeWebsite = async (
 		) {
 			res.status(403).json({
 				success: false,
-				message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
+				message: `You've reached your website scraping limit. You can scrape up to ${scraperUsage.pagesLimit} pages in total.`,
 				data: {
 					...getScraperLimitPayload(
 						planType,
@@ -309,7 +341,7 @@ export const scrapeWebsite = async (
 			),
 		);
 		const normalizedMaxPages =
-			normalizeRequestedMaxPages(maxPages);
+			normalizeRequestedMaxPages(maxPages, scraperUsage.pagesLimit);
 		const effectiveMaxPages =
 			resolveEffectiveMaxPages(
 				normalizedMaxPages,
@@ -324,7 +356,7 @@ export const scrapeWebsite = async (
 		) {
 			res.status(403).json({
 				success: false,
-				message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
+				message: `You've reached your website scraping limit. You can scrape up to ${scraperUsage.pagesLimit} pages in total.`,
 				data: {
 					...getScraperLimitPayload(
 						planType,
@@ -365,6 +397,11 @@ export const scrapeWebsite = async (
 			maxPages: effectiveMaxPages,
 			mode: "scrape",
 		} as const;
+
+		// If this URL was pending deletion, abort the background delete job
+		// by clearing the flag now. The delete job checks this flag before
+		// and after its Pinecone scan and will abort when it sees FALSE.
+		await scraperSourceService.clearPendingDelete(userId, url);
 
 		if (isActiveDeleteAllJob(blockingDeleteAllJob)) {
 			queueScrapeAfterDeleteAll(
@@ -517,6 +554,11 @@ export const deleteDocuments = async (
 			"delete_source",
 		);
 
+		// Mark the source as pending-delete immediately so the sources
+		// list hides it right away — even if the user refreshes the page
+		// before the background deletion finishes.
+		await scraperSourceService.markPendingDelete(userId, url);
+
 		res.status(202).json({
 			success: true,
 			message: `Deletion started for website ${url}`,
@@ -530,11 +572,20 @@ export const deleteDocuments = async (
 			userId,
 			url,
 			"delete_source",
-			() =>
+			(reportProgress) =>
 				pineconeService.deleteDocumentsByUrl(
 					userId,
 					url,
+					reportProgress,
 				),
+			async () => {
+				// On failure, clear the pending flag so the source
+				// reappears in the list rather than staying hidden.
+				await scraperSourceService.clearPendingDelete(
+					userId,
+					url,
+				);
+			},
 		);
 	} catch (error) {
 		logger.error(
@@ -597,10 +648,11 @@ export const deletePage = async (
 			userId,
 			url,
 			"delete_page",
-			() =>
+			(reportProgress) =>
 				pineconeService.deletePageByExactUrl(
 					userId,
 					url,
+					reportProgress,
 				),
 		);
 	} catch (error) {
@@ -655,9 +707,10 @@ export const deleteAllDocuments = async (
 			userId,
 			deleteUrl,
 			"delete_all",
-			() =>
+			(reportProgress) =>
 				pineconeService.deleteAllUserDocuments(
 					userId,
+					reportProgress,
 				),
 		);
 	} catch (error) {
@@ -1127,7 +1180,7 @@ export const retrainWebsite = async (
 			) {
 				res.status(403).json({
 					success: false,
-					message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
+					message: `You've reached your website scraping limit. You can scrape up to ${scraperUsage.pagesLimit} pages in total.`,
 					data: {
 						...getScraperLimitPayload(
 							planType,
@@ -1146,7 +1199,7 @@ export const retrainWebsite = async (
 				),
 			);
 			const normalizedMaxPages =
-				normalizeRequestedMaxPages(maxPages);
+				normalizeRequestedMaxPages(maxPages, scraperUsage.pagesLimit);
 			const effectiveMaxPages =
 				resolveEffectiveMaxPages(
 					normalizedMaxPages,
@@ -1162,7 +1215,7 @@ export const retrainWebsite = async (
 			) {
 				res.status(403).json({
 					success: false,
-					message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
+					message: `You've reached your website scraping limit. You can scrape up to ${scraperUsage.pagesLimit} pages in total.`,
 					data: {
 						...getScraperLimitPayload(
 							planType,

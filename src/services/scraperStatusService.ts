@@ -76,7 +76,7 @@ const SCRAPE_PIPELINE_MILESTONES: Array<{
 }> = [
 	{
 		key: "queued",
-		label: "Scrape queued",
+		label: "Getting ready to train",
 		percent: 0,
 	},
 	{
@@ -86,27 +86,27 @@ const SCRAPE_PIPELINE_MILESTONES: Array<{
 	},
 	{
 		key: "pinecone_upsert_started",
-		label: "Pinecone upsert started",
+		label: "Starting to learn from your data",
 		percent: 55,
 	},
 	{
 		key: "pinecone_embeddings_prepared",
-		label: "Pinecone embeddings prepared",
+		label: "Understanding your content",
 		percent: 70,
 	},
 	{
 		key: "pinecone_stale_chunk_cleanup_completed",
-		label: "Pinecone stale chunk cleanup completed",
+		label: "Organizing what was learned",
 		percent: 80,
 	},
 	{
 		key: "pinecone_upsert_completed",
-		label: "Pinecone upsert pipeline completed",
+		label: "Saving what was learned",
 		percent: 90,
 	},
 	{
 		key: "scraper_primary_pinecone_upsert_completed",
-		label: "Primary Pinecone upsert completed",
+		label: "Training completed",
 		percent: 100,
 	},
 ];

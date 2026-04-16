@@ -1079,6 +1079,44 @@ class ScraperService {
 			`chat:semantic-answer:${userId}`,
 		);
 
+		// Persist to PostgreSQL BEFORE starting the Pinecone upsert.
+		// This makes the website appear immediately in the data-source list
+		// (with 0 indexed chunks) so users are not staring at a blank list
+		// for the entire duration of the embedding preparation (which can
+		// take 10+ minutes for large sites). The rag_source_pages chunk
+		// counts are updated later when the Pinecone upsert completes.
+		await scraperSourceService.persistSource(
+			userId,
+			sourceUrl,
+			sourceTitle,
+			pages,
+			rawContent,
+			contentHash,
+		);
+		try {
+			await personaService.autoDetectAndApplyPersona(
+				userId,
+				pages,
+			);
+		} catch (error) {
+			logger.warn(
+				"scraper: persona auto-detection failed",
+				{
+					userId,
+					sourceUrl,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+		}
+		await scraperSourceService.setMetadataReady(
+			userId,
+			sourceUrl,
+			false,
+		);
+
 		const pineconeStartedAt = Date.now();
 		await pineconeService.upsertChunks(
 			userId,
@@ -1117,37 +1155,6 @@ class ScraperService {
 		const indexedPages = new Set(
 			chunks.map((chunk) => chunk.url),
 		).size;
-		await scraperSourceService.persistSource(
-			userId,
-			sourceUrl,
-			sourceTitle,
-			pages,
-			rawContent,
-			contentHash,
-		);
-		try {
-			await personaService.autoDetectAndApplyPersona(
-				userId,
-				pages,
-			);
-		} catch (error) {
-			logger.warn(
-				"scraper: persona auto-detection failed",
-				{
-					userId,
-					sourceUrl,
-					error:
-						error instanceof Error
-							? error.message
-							: String(error),
-				},
-			);
-		}
-		await scraperSourceService.setMetadataReady(
-			userId,
-			sourceUrl,
-			false,
-		);
 		await reportProgress?.({
 			totalPages: pages.length,
 			scrapedPages: pages.length,
@@ -1157,7 +1164,7 @@ class ScraperService {
 				"scraper_primary_pinecone_upsert_completed",
 			percent: 95,
 			stageLabel:
-				"Primary Pinecone upsert completed",
+				"Training completed",
 		});
 		logger.info(
 			"scraper: background enrichment queued",

@@ -739,7 +739,7 @@ class PineconeService {
 		await onStageProgress?.({
 			stage: "pinecone_upsert_started",
 			percent: 55,
-			label: "Pinecone upsert started",
+			label: "Starting to learn from your data",
 		});
 		const pageCounts = new Map<
 			string,
@@ -897,7 +897,7 @@ class PineconeService {
 		await onStageProgress?.({
 			stage: "pinecone_embeddings_prepared",
 			percent: 70,
-			label: "Pinecone embeddings prepared",
+			label: "Understanding your content",
 		});
 
 		const vectors: PineconeRecord[] = [];
@@ -959,7 +959,7 @@ class PineconeService {
 			await onStageProgress?.({
 				stage: "pinecone_stale_chunk_cleanup_completed",
 				percent: 80,
-				label: "Pinecone stale chunk cleanup completed",
+				label: "Organizing what was learned",
 			});
 		}
 
@@ -1308,6 +1308,10 @@ class PineconeService {
 	async deleteDocumentsByUrl(
 		userId: string,
 		url: string,
+		onProgress?: (progress: {
+			percent: number;
+			label: string;
+		}) => Promise<void>,
 	): Promise<void> {
 		try {
 			const index =
@@ -1323,6 +1327,10 @@ class PineconeService {
 				logLabel = url;
 				matchFn = (recordUrl?: string) =>
 					recordUrl === url;
+				await onProgress?.({
+					percent: 15,
+					label: "Finding matching document chunks",
+				});
 				logger.info(
 					`Deleting document: ${logLabel} (user: ${userId})`,
 				);
@@ -1335,20 +1343,38 @@ class PineconeService {
 				};
 			} else {
 				let baseUrl: string;
+				let baseUrlWww: string;
+				let targetHostname: string;
 				try {
 					const urlObj = new URL(url);
-					baseUrl = `${urlObj.protocol}//${urlObj.hostname}`;
+					// Normalise: strip leading "www." so both
+					// witzo.ai and www.witzo.ai are treated as the
+					// same domain during deletion.
+					targetHostname = urlObj.hostname.replace(/^www\./, "");
+					baseUrl = `${urlObj.protocol}//${targetHostname}`;
+					baseUrlWww = `${urlObj.protocol}//www.${targetHostname}`;
 				} catch (error) {
 					throw new Error(
 						"Invalid URL provided for deletion",
 					);
 				}
 				logLabel = baseUrl;
-				matchFn = (recordUrl?: string) =>
-					Boolean(
-						recordUrl &&
-						recordUrl.startsWith(baseUrl),
+				await onProgress?.({
+					percent: 15,
+					label: "Finding website pages to remove",
+				});
+				// Match vectors from both the bare domain and the
+				// www. subdomain — the scraper follows redirects and
+				// can store pages under either origin.
+				matchFn = (recordUrl?: string) => {
+					if (!recordUrl) return false;
+					return (
+						recordUrl.startsWith(baseUrl + "/") ||
+						recordUrl === baseUrl ||
+						recordUrl.startsWith(baseUrlWww + "/") ||
+						recordUrl === baseUrlWww
 					);
+				};
 				logger.info(
 					`Deleting all documents from domain: ${logLabel} (user: ${userId})`,
 				);
@@ -1357,24 +1383,60 @@ class PineconeService {
 						`DELETE FROM rag_source_pages
 						 WHERE user_id = $1
 						   AND source_type = 'website'
-						   AND (source_root = $2 OR source_url LIKE $3)`,
-						[userId, baseUrl, `${baseUrl}%`],
+						   AND (
+						       source_root = $2 OR source_url LIKE $3
+						       OR source_root = $4 OR source_url LIKE $5
+						   )`,
+						[
+							userId,
+							baseUrl,
+							`${baseUrl}%`,
+							baseUrlWww,
+							`${baseUrlWww}%`,
+						],
 					);
 					await scraperSourceService.deleteSource(
 						userId,
 						baseUrl,
 					);
+					await scraperSourceService.deleteSource(
+						userId,
+						baseUrlWww,
+					);
 				};
 			}
 
+			// ── Guard 1: check BEFORE scanning ──────────────────────────
+			// If the scrape controller already cleared pending_delete
+			// (user re-submitted the URL), abort immediately — no scan,
+			// no deletion. The new scrape will handle everything.
+			const isWebsiteDelete =
+				!url.startsWith("document://");
+			if (isWebsiteDelete) {
+				const pendingBeforeScan =
+					await scraperSourceService.isPendingDelete(
+						userId,
+						url,
+					);
+				if (!pendingBeforeScan) {
+					logger.info(
+						`Delete aborted before scan for ${logLabel} — URL re-queued for scraping (user: ${userId})`,
+					);
+					return;
+				}
+			}
+
 			const matchingIds: string[] = [];
+			let scannedVectors = 0;
 			await this.forEachUserRecord(
 				userId,
 				async (records) => {
+					const batch = Object.entries(records);
+					scannedVectors += batch.length;
 					for (const [
 						id,
 						record,
-					] of Object.entries(records)) {
+					] of batch) {
 						const recordUrl =
 							(record.metadata?.url as
 								| string
@@ -1386,7 +1448,15 @@ class PineconeService {
 				},
 			);
 
+			logger.info(
+				`deleteDocumentsByUrl scan: ${scannedVectors} total vectors, ${matchingIds.length} matched for ${logLabel} (user: ${userId})`,
+			);
+
 			if (matchingIds.length === 0) {
+				await onProgress?.({
+					percent: 80,
+					label: "Cleaning stored source records",
+				});
 				await cleanupDbState();
 				logger.info(
 					`No documents found matching ${logLabel} (user: ${userId})`,
@@ -1394,12 +1464,35 @@ class PineconeService {
 				return;
 			}
 
-			await this.deleteVectorIds(
-				index,
-				matchingIds,
-			);
-			await cleanupDbState();
+			// ── Guard 2: check AFTER scanning ───────────────────────────
+			// A re-scrape may have started while we were scanning Pinecone.
+			// If pending_delete was cleared during the scan, abort entirely —
+			// don't touch Pinecone or DB. The re-scrape's stale-chunk
+			// cleanup will evict the old vectors page-by-page as it runs.
+			if (isWebsiteDelete) {
+				const stillPending =
+					await scraperSourceService.isPendingDelete(
+						userId,
+						url,
+					);
+				if (!stillPending) {
+					logger.info(
+						`Delete aborted after scan for ${logLabel} — URL re-queued for scraping during scan (user: ${userId})`,
+					);
+					return;
+				}
+			}
 
+			await onProgress?.({
+				percent: 55,
+				label: "Removing learned website data",
+			});
+			await this.deleteVectorIds(index, matchingIds);
+			await onProgress?.({
+				percent: 80,
+				label: "Cleaning stored source records",
+			});
+			await cleanupDbState();
 			logger.info(
 				`Deleted ${matchingIds.length} chunks from ${logLabel} (user: ${userId})`,
 			);
@@ -1419,6 +1512,10 @@ class PineconeService {
 	async deletePageByExactUrl(
 		userId: string,
 		exactUrl: string,
+		onProgress?: (progress: {
+			percent: number;
+			label: string;
+		}) => Promise<void>,
 	): Promise<void> {
 		try {
 			const namespace =
@@ -1430,6 +1527,10 @@ class PineconeService {
 			logger.info(
 				`Deleting exact page: ${exactUrl} (user: ${userId})`,
 			);
+			await onProgress?.({
+				percent: 15,
+				label: "Finding page data to remove",
+			});
 
 			const matchingIds: string[] = [];
 			await this.forEachUserRecord(
@@ -1451,6 +1552,10 @@ class PineconeService {
 			);
 
 			if (matchingIds.length === 0) {
+				await onProgress?.({
+					percent: 80,
+					label: "Cleaning stored page records",
+				});
 				await pool.query(
 					`DELETE FROM rag_source_pages
 					 WHERE user_id = $1 AND source_url = $2`,
@@ -1466,10 +1571,18 @@ class PineconeService {
 				return;
 			}
 
+			await onProgress?.({
+				percent: 55,
+				label: "Removing learned page data",
+			});
 			await this.deleteVectorIds(
 				index,
 				matchingIds,
 			);
+			await onProgress?.({
+				percent: 80,
+				label: "Cleaning stored page records",
+			});
 			await pool.query(
 				`DELETE FROM rag_source_pages
 				 WHERE user_id = $1 AND source_url = $2`,
@@ -1498,9 +1611,21 @@ class PineconeService {
 
 	async deleteAllUserDocuments(
 		userId: string,
+		onProgress?: (progress: {
+			percent: number;
+			label: string;
+		}) => Promise<void>,
 	): Promise<void> {
 		try {
+			await onProgress?.({
+				percent: 15,
+				label: "Removing all learned data",
+			});
 			await this.deleteAllUserVectors(userId);
+			await onProgress?.({
+				percent: 80,
+				label: "Cleaning stored source records",
+			});
 			await pool.query(
 				`DELETE FROM rag_source_pages WHERE user_id = $1`,
 				[userId],
@@ -2081,6 +2206,14 @@ class PineconeService {
 				await scraperSourceService.getWebsiteSources(
 					userId,
 				);
+			// Also get roots currently being deleted so we can exclude
+			// them from the rag_source_pages-derived untracked list.
+			// (getWebsiteSources already filters pending_delete=TRUE from
+			// the scraper_sources path; this covers the rag_source_pages path.)
+			const pendingDeleteRoots =
+				await scraperSourceService.getPendingDeleteRoots(
+					userId,
+				);
 			const trackedRoots = new Set(
 				trackedWebsites.map(
 					(website) => website.rootUrl,
@@ -2090,7 +2223,8 @@ class PineconeService {
 				...trackedWebsites,
 				...websites.filter(
 					(website) =>
-						!trackedRoots.has(website.rootUrl),
+						!trackedRoots.has(website.rootUrl) &&
+						!pendingDeleteRoots.has(website.rootUrl),
 				),
 			].sort(
 				(a, b) =>
