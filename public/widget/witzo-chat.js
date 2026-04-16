@@ -106,6 +106,7 @@
 			this._calendlyMessageHandler = null;
 			this._calendlyBookingActive = false;
 			this._leadFormCompleted = false;
+			this._serverLimitReached = false;
 			this._leadFormStatusChecking = false;
 			this._lastLeadFinalizeSessionId = null;
 			this._pageHideHandler = () =>
@@ -484,6 +485,32 @@
 				},
 				this.isEmbeddedPreview ? 0 : 2000,
 			);
+
+			// Check server-side monthly conversation limit and auto-show lead form
+			this._checkServerLimit();
+		}
+
+		async _checkServerLimit() {
+			if (!this.apiBaseUrl || !this.widgetKey) return;
+			try {
+				const resp = await fetch(`${this.apiBaseUrl}/api/v1/widget/config/${this.widgetKey}`);
+				if (!resp.ok) return;
+				const data = await resp.json();
+				if (data?.data?.limitReached !== true || this._leadFormCompleted) return;
+				this._serverLimitReached = true;
+				const delay = this.config.primaryText ? 700 : 200;
+				setTimeout(() => {
+					if (this._leadFormCompleted) return;
+					const wrapper = document.createElement('div');
+					wrapper.className = 'chat-message';
+					const bubble = document.createElement('div');
+					bubble.className = 'chat-bubble-ai';
+					wrapper.appendChild(bubble);
+					this.elements.messagesContainer?.appendChild(wrapper);
+					this.updateBubble(wrapper, "You've reached the conversation limit. Please use the form below to get in touch.");
+					this.showContactForm();
+				}, delay);
+			} catch (_) {}
 		}
 
 		disconnectedCallback() {
@@ -7581,25 +7608,49 @@
 					},
 				);
 				if (resp.ok) {
+					if (this._serverLimitReached) {
+						// Limit-reached flow: lock chat permanently and show one confirmation message
+						this.setLeadFormCompletedState(true);
+						this._sessionLocked = true;
+						this.elements.contactFormSlot.classList.add(“hidden”);
+						this.elements.contactFormSlot.classList.remove(“lead-form-gate”);
+						this.elements.messagesContainer?.classList.remove(“lead-form-open”);
+						this.elements.messagesContainer?.classList.remove(“hidden”);
+						if (this.elements.chatInput) this.elements.chatInput.classList.add(“hidden”);
+						if (this.elements.input) this.elements.input.disabled = true;
+						if (this.elements.sendBtn) this.elements.sendBtn.disabled = true;
+						this.updateSendButtonState();
+						const wrapper = document.createElement('div');
+						wrapper.className = 'chat-message';
+						const bubble = document.createElement('div');
+						bubble.className = 'chat-bubble-ai';
+						wrapper.appendChild(bubble);
+						this.elements.messagesContainer?.appendChild(wrapper);
+						this.updateBubble(wrapper, 'Our team will connect with you.');
+						if (this.elements.messagesContainer) {
+							this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+						}
+						return;
+					}
 					if (this.config.leadFormEnabled) {
 						this.setLeadFormCompletedState(true);
 						this.elements.contactFormSlot.classList.add(
-							"hidden",
+							“hidden”,
 						);
 						this.elements.contactFormSlot.classList.remove(
-							"lead-form-gate",
+							“lead-form-gate”,
 						);
 						this.elements.messagesContainer.classList.remove(
-							"lead-form-open",
+							“lead-form-open”,
 						);
 						this.elements.messagesContainer.classList.remove(
-							"hidden",
+							“hidden”,
 						);
 						this.updateMessagesFadeOverlays();
 						this.updateScrollBottomButton();
 						if (this.elements.chatInput) {
 							this.elements.chatInput.classList.remove(
-								"hidden",
+								“hidden”,
 							);
 						}
 						if (
@@ -7611,7 +7662,7 @@
 						return;
 					}
 					this.elements.contactFormSlot.innerHTML =
-						'<div class="contact-form-success">âœ“ Message sent! We\'ll be in touch soon.</div>';
+						'<div class=”contact-form-success”>âœ” Message sent! We\'ll be in touch soon.</div>';
 				} else {
 					if (this.elements.cfSubmit) {
 						this.elements.cfSubmit.disabled = false;

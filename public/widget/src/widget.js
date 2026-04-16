@@ -48,6 +48,7 @@ export class WitzoChatWidget extends HTMLElement {
     this._calendlyMessageHandler = null;
     this._calendlyBookingActive = false;
     this._leadFormCompleted = false;
+    this._serverLimitReached = false;
     this._leadFormStatusChecking = false;
     this._lastLeadFinalizeSessionId = null;
     this._pageHideHandler = () => this.finalizePendingLeadDraft();
@@ -198,6 +199,9 @@ export class WitzoChatWidget extends HTMLElement {
     if (session.isDailyLimitReached(this.widgetKey)) {
       setTimeout(() => this._lockSession(), this.config.primaryText ? 800 : 100);
     }
+
+    // 7c. Check server-side monthly conversation limit and auto-show lead form
+    this._checkServerLimit();
 
     // 8. Auto-open after 5 s (cancelled on first manual interaction)
     if (this.config.autoOpen) {
@@ -691,6 +695,30 @@ export class WitzoChatWidget extends HTMLElement {
         ...values,
       });
       if (resp.ok) {
+        if (this._serverLimitReached) {
+          // Limit-reached flow: lock chat permanently and show one confirmation message
+          this._leadFormCompleted = true;
+          this._sessionLocked = true;
+          this.elements.contactFormSlot.classList.add('hidden');
+          this.elements.contactFormSlot.classList.remove('lead-form-gate');
+          this.elements.messagesContainer?.classList.remove('lead-form-open');
+          this.elements.messagesContainer?.classList.remove('hidden');
+          this.elements.chatInput?.classList.add('hidden');
+          if (this.elements.input) this.elements.input.disabled = true;
+          if (this.elements.sendBtn) this.elements.sendBtn.disabled = true;
+          this.updateSendButtonState();
+          const wrapper = document.createElement('div');
+          wrapper.className = 'chat-message';
+          const bubble = document.createElement('div');
+          bubble.className = 'chat-bubble-ai';
+          wrapper.appendChild(bubble);
+          this.elements.messagesContainer?.appendChild(wrapper);
+          msg.updateBubble(wrapper, 'Our team will connect with you.', this.config.logoIcon);
+          if (this.elements.messagesContainer) {
+            this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
+          }
+          return;
+        }
         if (this.config.leadFormEnabled) {
           this._leadFormCompleted = true;
           this.elements.contactFormSlot.classList.add('hidden');
@@ -974,6 +1002,27 @@ export class WitzoChatWidget extends HTMLElement {
         referrerpolicy="strict-origin-when-cross-origin"
       ></iframe>
     `;
+  }
+
+  async _checkServerLimit() {
+    if (!this.apiBaseUrl || !this.widgetKey) return;
+    try {
+      const limitReached = await api.checkLimitStatus({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey });
+      if (!limitReached || this._leadFormCompleted) return;
+      this._serverLimitReached = true;
+      const delay = this.config.primaryText ? 700 : 200;
+      setTimeout(() => {
+        if (this._leadFormCompleted) return;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'chat-message';
+        const bubble = document.createElement('div');
+        bubble.className = 'chat-bubble-ai';
+        wrapper.appendChild(bubble);
+        this.elements.messagesContainer?.appendChild(wrapper);
+        msg.updateBubble(wrapper, "You've reached the conversation limit. Please use the form below to get in touch.", this.config.logoIcon);
+        this.showContactForm();
+      }, delay);
+    } catch (_) {}
   }
 
   _lockSession() {
