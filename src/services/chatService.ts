@@ -1458,77 +1458,6 @@ ${message}`;
 		);
 	}
 
-	private isPersonalIntroduction(
-		message: string,
-	): boolean {
-		return /^\s*(i\s+am|i['']m|my\s+name\s+is|this\s+is|call\s+me|you\s+can\s+call\s+me|hi[,!.]?\s+i['']?m|hey[,!.]?\s+i['']?m|hello[,!.]?\s+i['']?m)\s+[A-Za-z]/i.test(
-			message.trim(),
-		);
-	}
-
-	private async generateDirectResponse(
-		query: string,
-		personaContext: PersonaContext | undefined,
-		languageCode: string | undefined,
-		websiteName: string,
-		history: ChatMessage[],
-	): Promise<string> {
-		if (!config.OPENAI_API_KEY?.trim()) {
-			return "How can I help you today?";
-		}
-
-		const messages: any[] = [
-			{
-				role: "system",
-				content: `You are a friendly support assistant for ${websiteName}. Respond warmly and naturally to the user's message. Keep your reply short (1–2 sentences). If the user introduced themselves by name, acknowledge their name. Do not pitch services unless the user asks.`,
-			},
-		];
-
-		const languageInstruction =
-			this.buildLanguageInstruction(languageCode);
-		if (languageInstruction) {
-			messages.push({
-				role: "system",
-				content: languageInstruction,
-			});
-		}
-
-		const personaOverride = personaContext
-			? this.buildPersonaOverrideInstruction(
-					personaContext,
-				)
-			: null;
-		if (personaOverride) {
-			messages.push({
-				role: "system",
-				content: personaOverride,
-			});
-		}
-
-		for (const msg of history.slice(-4)) {
-			messages.push({
-				role: msg.role,
-				content: msg.content,
-			});
-		}
-		messages.push({ role: "user", content: query });
-
-		try {
-			const completion =
-				await this.openai.chat.completions.create({
-					model: CHAT_COMPLETION_MODEL,
-					messages,
-					temperature: 0.7,
-					max_tokens: 80,
-				});
-			return (
-				completion.choices[0]?.message?.content?.trim() ||
-				"How can I help you today?"
-			);
-		} catch {
-			return "How can I help you today?";
-		}
-	}
 
 	private normalizeLanguagePreference(
 		language?: string,
@@ -2076,23 +2005,6 @@ ${message}`;
 				userId,
 			);
 
-		// Layer 3 fast-path: personal introductions ("I am Vivek", "my name is...")
-		// and obvious small talk never need a knowledge base lookup. Skip the
-		// tool-call routing LLM entirely and generate a short direct reply.
-		if (
-			this.isPersonalIntroduction(query) ||
-			this.isLikelySmallTalk(query)
-		) {
-			const message = await this.generateDirectResponse(
-				query,
-				personaContext,
-				languageCode,
-				websiteName,
-				history,
-			);
-			return { mode: "respond", message };
-		}
-
 		const recentHistory = history
 			.slice(-CHAT_HISTORY_WINDOW_MESSAGES)
 			.map((message) => ({
@@ -2187,7 +2099,7 @@ ${message}`;
 									},
 								],
 								temperature: 0,
-								max_tokens: 120,
+								max_tokens: 200,
 								tools,
 								tool_choice: "required",
 							}),
@@ -2867,7 +2779,6 @@ ${message}`;
 
 			if (
 				historyMessages.length <= 2 &&
-				!this.isPersonalIntroduction(message) &&
 				!this.isLikelySmallTalk(message)
 			) {
 				const cachedAnswer =
@@ -3147,7 +3058,6 @@ ${message}`;
 
 		if (
 			historyMessages.length <= 2 &&
-			!this.isPersonalIntroduction(message) &&
 			!this.isLikelySmallTalk(message)
 		) {
 			const cachedAnswer =
