@@ -84,7 +84,7 @@ export const formsCSS = `
   .cf-input-wrap.has-value label {
     top: 0;
     transform: translateY(-50%) scale(0.85);
-    left: 10px;
+    left: 5px;
     background: #fff;
     padding: 0 6px;
     color: var(--color-primary, #fc0e3f);
@@ -194,8 +194,17 @@ export const formsCSS = `
   .cf-fixed-dropdown.hidden { display: none; }
   
   #cf-phone-dropdown { width: 230px; }
-  #cf-country-dropdown { width: 100%; min-width: 200px; }
-
+  #cf-country-dropdown { 
+    width: 100%; 
+    min-width: 200px; 
+    top: auto;
+    bottom: calc(100% + 8px);
+    animation-name: cfDropdownUp;
+  }
+  @keyframes cfDropdownUp {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
   .cf-country-search { padding: 8px; border-bottom: 1px solid #F3F4F6; }
   .cf-country-search input {
     border-radius: 0.4rem; padding: 6px 10px; font-size: 12px;
