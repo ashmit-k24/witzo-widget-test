@@ -3,6 +3,7 @@ import { config } from "../config/env";
 import { RagChunk } from "../types";
 import logger from "../utils/logger";
 import { pineconeService } from "./pineconeService";
+import { scraperSourceService } from "./scraperSourceService";
 
 const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
@@ -110,6 +111,22 @@ export async function upsertHypeAsync(
 			userId,
 			sourceUrl,
 		});
+		return;
+	}
+
+	// Guard: the source may have been deleted by the user while HyPE was
+	// generating questions (background enrichment runs after the scrape job
+	// returns, so a delete request can race with it). If the source is gone,
+	// do NOT re-insert any vectors — that would resurrect a deleted source.
+	const stillExists = await scraperSourceService.sourceExists(
+		userId,
+		sourceUrl,
+	);
+	if (!stillExists) {
+		logger.info(
+			"hypeService: source deleted during generation, skipping upsert",
+			{ userId, sourceUrl, hypeChunks: hypeChunks.length },
+		);
 		return;
 	}
 

@@ -1079,6 +1079,44 @@ class ScraperService {
 			`chat:semantic-answer:${userId}`,
 		);
 
+		// Persist to PostgreSQL BEFORE starting the Pinecone upsert.
+		// This makes the website appear immediately in the data-source list
+		// (with 0 indexed chunks) so users are not staring at a blank list
+		// for the entire duration of the embedding preparation (which can
+		// take 10+ minutes for large sites). The rag_source_pages chunk
+		// counts are updated later when the Pinecone upsert completes.
+		await scraperSourceService.persistSource(
+			userId,
+			sourceUrl,
+			sourceTitle,
+			pages,
+			rawContent,
+			contentHash,
+		);
+		try {
+			await personaService.autoDetectAndApplyPersona(
+				userId,
+				pages,
+			);
+		} catch (error) {
+			logger.warn(
+				"scraper: persona auto-detection failed",
+				{
+					userId,
+					sourceUrl,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+		}
+		await scraperSourceService.setMetadataReady(
+			userId,
+			sourceUrl,
+			false,
+		);
+
 		const pineconeStartedAt = Date.now();
 		await pineconeService.upsertChunks(
 			userId,
@@ -1117,37 +1155,6 @@ class ScraperService {
 		const indexedPages = new Set(
 			chunks.map((chunk) => chunk.url),
 		).size;
-		await scraperSourceService.persistSource(
-			userId,
-			sourceUrl,
-			sourceTitle,
-			pages,
-			rawContent,
-			contentHash,
-		);
-		try {
-			await personaService.autoDetectAndApplyPersona(
-				userId,
-				pages,
-			);
-		} catch (error) {
-			logger.warn(
-				"scraper: persona auto-detection failed",
-				{
-					userId,
-					sourceUrl,
-					error:
-						error instanceof Error
-							? error.message
-							: String(error),
-				},
-			);
-		}
-		await scraperSourceService.setMetadataReady(
-			userId,
-			sourceUrl,
-			false,
-		);
 		await reportProgress?.({
 			totalPages: pages.length,
 			scrapedPages: pages.length,
@@ -1155,12 +1162,12 @@ class ScraperService {
 			currentUrl: sourceUrl,
 			stage:
 				"scraper_primary_pinecone_upsert_completed",
-			percent: 95,
+			percent: 100,
 			stageLabel:
-				"Primary Pinecone upsert completed",
+				"Training completed",
 		});
 		logger.info(
-			"scraper: background enrichment queued",
+			"scraper: enrichment started",
 			{
 				userId,
 				sourceUrl,
@@ -1170,31 +1177,24 @@ class ScraperService {
 			},
 		);
 
-		// Let the primary scrape job finish as soon as pages are stored.
-		// Background enrichment: page metadata extraction continues independently.
+		const enrichmentStartedAt = Date.now();
 		void (async () => {
-			const enrichmentStartedAt = Date.now();
-			await reportProgress?.({
-				totalPages: pages.length,
-				scrapedPages: pages.length,
-				storedPages: indexedPages,
-				currentUrl: sourceUrl,
-				stage: "scraper_primary_pinecone_upsert_completed",
-				percent: 100,
-				stageLabel:
-					"Background metadata enrichment started",
-			});
 			try {
-				const metadataResult = await extractPageMetadataAsync(
-					pages,
-					chunks,
-					async (ownerId, vectorId, metadata) =>
-						pineconeService.updateVectorMetadata(
+				const metadataResult =
+					await extractPageMetadataAsync(
+						pages,
+						chunks,
+						async (
 							ownerId,
 							vectorId,
 							metadata,
-						),
-				);
+						) =>
+							pineconeService.updateVectorMetadata(
+								ownerId,
+								vectorId,
+								metadata,
+							),
+					);
 				if (metadataResult.completed) {
 					await scraperSourceService.setMetadataReady(
 						userId,
@@ -1204,7 +1204,7 @@ class ScraperService {
 				}
 			} catch (error) {
 				logger.warn(
-					"scraper: background enrichment task failed",
+					"scraper: enrichment task failed",
 					{
 						userId,
 						sourceUrl,
@@ -1216,11 +1216,28 @@ class ScraperService {
 					},
 				);
 			}
-			await upsertHypeAsync(
-				userId,
-				sourceUrl,
-				chunks,
-			);
+
+			try {
+				await upsertHypeAsync(
+					userId,
+					sourceUrl,
+					chunks,
+				);
+			} catch (error) {
+				logger.warn(
+					"scraper: enrichment task failed",
+					{
+						userId,
+						sourceUrl,
+						task: "hype",
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			}
+
 			logger.info(
 				"scraper: background enrichment completed",
 				{
@@ -1233,19 +1250,7 @@ class ScraperService {
 						Date.now() - enrichmentStartedAt,
 				},
 			);
-		})().catch((error) => {
-			logger.warn(
-				"scraper: background enrichment pipeline failed",
-				{
-					userId,
-					sourceUrl,
-					error:
-						error instanceof Error
-							? error.message
-							: String(error),
-				},
-			);
-		});
+		})();
 
 		logger.info(
 			"scraper: persistence pipeline finished",

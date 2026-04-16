@@ -8,7 +8,7 @@ import {
 import {
 	PLAN_CONVERSATION_DEFAULT_LIMITS,
 	PlanType,
-	SCRAPER_PAGE_LIMIT,
+	getScraperPageLimit,
 } from "../config/planConfig";
 import { config } from "../config/env";
 import pool from "../config/database";
@@ -638,8 +638,7 @@ class SubscriptionService {
 	async getWebsitePagesLimitForPlan(
 		planType: PlanType,
 	): Promise<number | null> {
-		void planType;
-		return SCRAPER_PAGE_LIMIT;
+		return getScraperPageLimit(planType);
 	}
 
 	async createPlan(input: UpsertPlanInput): Promise<BillingPlan> {

@@ -64,13 +64,12 @@ export interface UserResponse {
 }
 
 export interface UpdateProfileBody {
-	full_name: string;
-	company_name: string;
-	phone_number: string;
-	country: string;
-	job_title: string;
-	industry: string;
-	company_website: string;
+	full_name?: string;
+	company_name?: string;
+	phone_number?: string;
+	country?: string;
+	industry?: string;
+	company_website?: string;
 }
 
 // Verification Code types

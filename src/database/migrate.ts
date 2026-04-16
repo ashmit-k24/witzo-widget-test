@@ -313,6 +313,12 @@ const migrations: Migration[] = [
 			"Add draft/finalize state tracking for lead capture and CRM sync",
 		file: "20260413_049_lead_draft_finalize.sql",
 	},
+	{
+		id: "20260416_050_scraper_source_pending_delete",
+		description:
+			"Add pending_delete flag to scraper_sources for instant hide-on-delete UX",
+		file: "20260416_050_scraper_source_pending_delete.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

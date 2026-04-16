@@ -70,9 +70,10 @@ class ScraperSourceService {
 				source_title = EXCLUDED.source_title,
 				scraped_pages = EXCLUDED.scraped_pages,
 				content_hash = EXCLUDED.content_hash,
-				 raw_content = EXCLUDED.raw_content,
+				raw_content = EXCLUDED.raw_content,
 				metadata_ready = FALSE,
 				metadata_ready_at = NULL,
+				pending_delete = FALSE,
 				updated_at = CURRENT_TIMESTAMP`,
 			[
 				userId,
@@ -141,15 +142,41 @@ class ScraperSourceService {
 		userId: string,
 		sourceUrl: string,
 	): Promise<void> {
+		const normalizedRoot = sourceUrl.replace(/\/+$/, "");
+		const normalizedRootWithSlash = `${normalizedRoot}/`;
+
 		await pool.query(
 			`DELETE FROM scraped_pages
-			 WHERE user_id = $1 AND source_url = $2`,
-			[userId, sourceUrl],
+			 WHERE user_id = $1
+			   AND (
+					source_url = $2
+					OR source_url = $3
+					OR source_url LIKE $4
+					OR page_url = $2
+					OR page_url = $3
+					OR page_url LIKE $4
+			   )`,
+			[
+				userId,
+				normalizedRoot,
+				normalizedRootWithSlash,
+				`${normalizedRootWithSlash}%`,
+			],
 		);
 		await pool.query(
 			`DELETE FROM scraper_sources
-			 WHERE user_id = $1 AND source_url = $2`,
-			[userId, sourceUrl],
+			 WHERE user_id = $1
+			   AND (
+					source_url = $2
+					OR source_url = $3
+					OR source_url LIKE $4
+			   )`,
+			[
+				userId,
+				normalizedRoot,
+				normalizedRootWithSlash,
+				`${normalizedRootWithSlash}%`,
+			],
 		);
 	}
 
@@ -220,6 +247,7 @@ class ScraperSourceService {
 			  AND rag.source_type = 'website'
 			  AND rag.source_url = page.page_url
 			 WHERE source.user_id = $1
+			   AND source.pending_delete = FALSE
 			 ORDER BY source.updated_at DESC, page.created_at ASC`,
 			[userId],
 		);
@@ -273,6 +301,90 @@ class ScraperSourceService {
 		}
 
 		return Array.from(websites.values());
+	}
+
+	async markPendingDelete(
+		userId: string,
+		sourceUrl: string,
+	): Promise<void> {
+		const normalized = sourceUrl.replace(/\/+$/, "");
+		const normalizedWithSlash = `${normalized}/`;
+		await pool.query(
+			`UPDATE scraper_sources
+			 SET pending_delete = TRUE, updated_at = CURRENT_TIMESTAMP
+			 WHERE user_id = $1
+			   AND (source_url = $2 OR source_url = $3 OR source_url LIKE $4)`,
+			[userId, normalized, normalizedWithSlash, `${normalizedWithSlash}%`],
+		);
+	}
+
+	async isPendingDelete(
+		userId: string,
+		sourceUrl: string,
+	): Promise<boolean> {
+		const normalized = sourceUrl.replace(/\/+$/, "");
+		const normalizedWithSlash = `${normalized}/`;
+		const result = await pool.query<{
+			pending: boolean;
+		}>(
+			`SELECT COALESCE(bool_or(pending_delete), FALSE) AS pending
+			 FROM scraper_sources
+			 WHERE user_id = $1
+			   AND (source_url = $2 OR source_url = $3 OR source_url LIKE $4)`,
+			[userId, normalized, normalizedWithSlash, `${normalizedWithSlash}%`],
+		);
+		return result.rows[0]?.pending ?? false;
+	}
+
+	async clearPendingDelete(
+		userId: string,
+		sourceUrl: string,
+	): Promise<void> {
+		const normalized = sourceUrl.replace(/\/+$/, "");
+		const normalizedWithSlash = `${normalized}/`;
+		await pool.query(
+			`UPDATE scraper_sources
+			 SET pending_delete = FALSE, updated_at = CURRENT_TIMESTAMP
+			 WHERE user_id = $1
+			   AND (source_url = $2 OR source_url = $3 OR source_url LIKE $4)`,
+			[userId, normalized, normalizedWithSlash, `${normalizedWithSlash}%`],
+		);
+	}
+
+	async getPendingDeleteRoots(
+		userId: string,
+	): Promise<Set<string>> {
+		const result = await pool.query<{
+			source_url: string;
+		}>(
+			`SELECT source_url FROM scraper_sources
+			 WHERE user_id = $1 AND pending_delete = TRUE`,
+			[userId],
+		);
+		const roots = new Set<string>();
+		for (const row of result.rows) {
+			const normalized = row.source_url.replace(/\/+$/, "");
+			roots.add(normalized);
+			roots.add(`${normalized}/`);
+		}
+		return roots;
+	}
+
+	async sourceExists(
+		userId: string,
+		sourceUrl: string,
+	): Promise<boolean> {
+		const normalized = sourceUrl.replace(/\/+$/, "");
+		const normalizedWithSlash = `${normalized}/`;
+		const result = await pool.query<{ exists: boolean }>(
+			`SELECT EXISTS(
+				SELECT 1 FROM scraper_sources
+				WHERE user_id = $1
+				  AND (source_url = $2 OR source_url = $3)
+			) AS exists`,
+			[userId, normalized, normalizedWithSlash],
+		);
+		return result.rows[0]?.exists ?? false;
 	}
 
 	async getScrapedPageCount(userId: string): Promise<number> {
