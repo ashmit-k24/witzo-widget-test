@@ -29,7 +29,10 @@ async function scanAndDelete(pattern: string): Promise<number> {
 		cursor = nextCursor;
 
 		if (keys.length > 0) {
-			await redisCache.del(...keys);
+			// Delete one-at-a-time to avoid CROSSSLOT errors on Redis Cluster
+			for (const key of keys) {
+				await redisCache.del(key);
+			}
 			totalDeleted += keys.length;
 			logger.info(
 				`flush-chat-cache: deleted ${keys.length} keys (pattern=${pattern})`,

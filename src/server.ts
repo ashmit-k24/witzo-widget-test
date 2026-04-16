@@ -405,7 +405,10 @@ const flushChatCacheOnStartup = async (): Promise<void> => {
 			const [nextCursor, keys] = await redisCache.scan(cursor, "MATCH", pattern, "COUNT", 500);
 			cursor = nextCursor;
 			if (keys.length > 0) {
-				await redisCache.del(...keys);
+				// Delete one-at-a-time to avoid CROSSSLOT errors on Redis Cluster
+				for (const key of keys) {
+					await redisCache.del(key);
+				}
 				total += keys.length;
 			}
 		} while (cursor !== "0");
