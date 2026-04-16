@@ -47,6 +47,15 @@ export const getRatingSubmitted = (id) => sessionStorage.getItem(ratingSubmitted
 export const setRatingShown     = (id, v) => sessionStorage.setItem(ratingShownKey(id), v ? '1' : '0');
 export const setRatingSubmitted = (id, v) => sessionStorage.setItem(ratingSubmittedKey(id), v ? '1' : '0');
 
+/* --- Lead form completion state --- */
+const leadFormCompletedKey = (widgetKey, sessionId) => `witzo_chat_lead_form_completed_${widgetKey || 'default'}_${sessionId}`;
+
+export const getLeadFormCompleted = (widgetKey, sessionId) =>
+  sessionStorage.getItem(leadFormCompletedKey(widgetKey, sessionId)) === '1';
+
+export const setLeadFormCompleted = (widgetKey, sessionId, v) =>
+  sessionStorage.setItem(leadFormCompletedKey(widgetKey, sessionId), v ? '1' : '0');
+
 /* --- Language preference --- */
 export const getLanguageKey = (widgetKey) => `witzo_chat_language_${widgetKey || 'default'}`;
 
