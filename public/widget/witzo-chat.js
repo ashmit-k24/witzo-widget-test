@@ -1542,6 +1542,13 @@
 			color: var(--color-primary, #8B27FB);
 
           }
+		  .typing-row{
+		  	margin-right: 10px;
+            display: flex;
+            align-items: start;
+            justify-content: center;
+			color: var(--color-primary, #8B27FB);
+		  }
             .bot-msg-chat-icon img{
               width: 100%;
               height: 100%;
@@ -3713,7 +3720,7 @@
             .cf-input-wrap.has-value label {
               top: 0;
               transform: translateY(-50%) scale(0.85);
-              left: 10px;
+              left: 5px;
               background: #fff;
               padding: 0 6px;
               color: var(--color-primary, #fc0e3f);
@@ -3820,7 +3827,17 @@
             .cf-fixed-dropdown.hidden { display: none; }
             
             #cf-phone-dropdown { width: 230px; }
-            #cf-country-dropdown { width: 100%; min-width: 200px; }
+            #cf-country-dropdown { 
+              width: 100%; 
+              min-width: 200px; 
+              top: auto;
+              bottom: calc(100% + 8px);
+              animation-name: cfDropdownUp;
+            }
+            @keyframes cfDropdownUp {
+              from { opacity: 0; transform: translateY(4px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
 
             .cf-country-search { padding: 8px; border-bottom: 1px solid #F3F4F6; }
             .cf-country-search input {
@@ -6301,11 +6318,15 @@
 				"typing-indicator chat-bubble-ai"; // Borrow styles
 			bubble.innerHTML = `
             ${this.getTypingStatusMarkup()}
+
+			<div class="typing-row">
+			${this.getBotIconHtml()}
             <div class="typing-container">
                 <span class="typing-dots-text"></span>
                 <span class="typing-dots-text"></span>
                 <span class="typing-dots-text"></span>
             </div>
+			</div>
         `;
 
 			wrapper.appendChild(bubble);
