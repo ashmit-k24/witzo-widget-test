@@ -632,6 +632,39 @@ ${message}`;
 		return null;
 	}
 
+	private extractLeadFieldsFromHistory(
+		messages: ChatMessage[],
+	): Partial<Record<AppointmentLeadField, string>> {
+		const fields: Partial<
+			Record<AppointmentLeadField, string>
+		> = {};
+		for (const msg of messages) {
+			if (msg.role !== "user") continue;
+			const text = msg.content;
+			if (!fields.name) {
+				const name =
+					this.extractNameCandidate(text);
+				if (name) fields.name = name;
+			}
+			if (!fields.email) {
+				const email =
+					this.extractEmailCandidate(text);
+				if (email) fields.email = email;
+			}
+			if (!fields.phone) {
+				const phone =
+					this.extractPhoneCandidate(text);
+				if (phone) fields.phone = phone;
+			}
+			if (!fields.country) {
+				const country =
+					this.extractCountryCandidate(text);
+				if (country) fields.country = country;
+			}
+		}
+		return fields;
+	}
+
 	private isBasicAppointmentTextFieldValue(
 		message: string,
 	): boolean {
@@ -1419,9 +1452,81 @@ ${message}`;
 	): boolean {
 		const value = message.toLowerCase().trim();
 		if (!value) return false;
-		return /\b(hi|hello|hey|good morning|good evening|thanks|thank you|bye)\b/.test(
+		return /\b(hi|hello|hey|good morning|good afternoon|good evening|good night|thanks|thank you|bye|goodbye|see you|cheers|ok|okay|sure|great|awesome|perfect|got it|noted)\b/.test(
 			value,
 		);
+	}
+
+	private isPersonalIntroduction(
+		message: string,
+	): boolean {
+		return /^\s*(i\s+am|i['']m|my\s+name\s+is|this\s+is|call\s+me|you\s+can\s+call\s+me|hi[,!.]?\s+i['']?m|hey[,!.]?\s+i['']?m|hello[,!.]?\s+i['']?m)\s+[A-Za-z]/i.test(
+			message.trim(),
+		);
+	}
+
+	private async generateDirectResponse(
+		query: string,
+		personaContext: PersonaContext | undefined,
+		languageCode: string | undefined,
+		websiteName: string,
+		history: ChatMessage[],
+	): Promise<string> {
+		if (!config.OPENAI_API_KEY?.trim()) {
+			return "How can I help you today?";
+		}
+
+		const messages: any[] = [
+			{
+				role: "system",
+				content: `You are a friendly support assistant for ${websiteName}. Respond warmly and naturally to the user's message. Keep your reply short (1–2 sentences). If the user introduced themselves by name, acknowledge their name. Do not pitch services unless the user asks.`,
+			},
+		];
+
+		const languageInstruction =
+			this.buildLanguageInstruction(languageCode);
+		if (languageInstruction) {
+			messages.push({
+				role: "system",
+				content: languageInstruction,
+			});
+		}
+
+		const personaOverride = personaContext
+			? this.buildPersonaOverrideInstruction(
+					personaContext,
+				)
+			: null;
+		if (personaOverride) {
+			messages.push({
+				role: "system",
+				content: personaOverride,
+			});
+		}
+
+		for (const msg of history.slice(-4)) {
+			messages.push({
+				role: msg.role,
+				content: msg.content,
+			});
+		}
+		messages.push({ role: "user", content: query });
+
+		try {
+			const completion =
+				await this.openai.chat.completions.create({
+					model: CHAT_COMPLETION_MODEL,
+					messages,
+					temperature: 0.7,
+					max_tokens: 80,
+				});
+			return (
+				completion.choices[0]?.message?.content?.trim() ||
+				"How can I help you today?"
+			);
+		} catch {
+			return "How can I help you today?";
+		}
 	}
 
 	private normalizeLanguagePreference(
@@ -1968,6 +2073,24 @@ ${message}`;
 			await websiteBrandingService.resolveUserWebsiteName(
 				userId,
 			);
+
+		// Layer 3 fast-path: personal introductions ("I am Vivek", "my name is...")
+		// and obvious small talk never need a knowledge base lookup. Skip the
+		// tool-call routing LLM entirely and generate a short direct reply.
+		if (
+			this.isPersonalIntroduction(query) ||
+			this.isLikelySmallTalk(query)
+		) {
+			const message = await this.generateDirectResponse(
+				query,
+				personaContext,
+				languageCode,
+				websiteName,
+				history,
+			);
+			return { mode: "respond", message };
+		}
+
 		const recentHistory = history
 			.slice(-CHAT_HISTORY_WINDOW_MESSAGES)
 			.map((message) => ({
@@ -1982,7 +2105,7 @@ ${message}`;
 				function: {
 					name: "search_knowledge_base",
 					description:
-						"Search the website knowledge base before answering questions about the company, services, pricing, contact details, projects, policies, or website content.",
+						"Search the website knowledge base before answering questions about the company, its services, pricing, contact details, team, projects, policies, or any factual business content. Do NOT use for greetings, personal introductions, or social pleasantries.",
 					parameters: {
 						type: "object",
 						properties: {
@@ -2001,14 +2124,14 @@ ${message}`;
 				function: {
 					name: "respond_to_user",
 					description:
-						"Respond directly only for greetings, thanks, simple conversational turns, or when no website knowledge is needed.",
+						"Respond directly (without searching) for: greetings ('hi', 'hello', 'hey'), farewells, personal introductions ('I am John', 'my name is...', 'I\\'m Vivek', 'call me...'), thank-you messages, acknowledgements ('ok', 'got it', 'sure'), small talk, or any message that does not need website knowledge. When the user introduces themselves by name, warmly acknowledge their name in your reply.",
 					parameters: {
 						type: "object",
 						properties: {
 							message: {
 								type: "string",
 								description:
-									"Short direct response to the user.",
+									"Short, warm, direct response to the user.",
 							},
 						},
 						required: ["message"],
@@ -2028,8 +2151,11 @@ ${message}`;
 									{
 										role: "system",
 										content: [
-											`You are deciding whether to search ${websiteName}'s website knowledge base. Choose exactly one tool.`,
-											"If you respond directly, the direct response must strictly follow the selected widget persona instructions.",
+											`You are a routing agent for ${websiteName}'s support widget. Choose exactly one tool.`,
+											`Use respond_to_user for: greetings, farewells, personal introductions (e.g. "I am John", "my name is...", "I'm Vivek"), thank-you messages, acknowledgements, or any social exchange that doesn't need company knowledge.`,
+											`Use search_knowledge_base for questions about the company, services, pricing, contact info, team, policies, or any factual business question.`,
+											"CRITICAL: Personal introductions (user sharing their name or personal info) MUST use respond_to_user — never search the knowledge base for them.",
+											"When responding directly, be warm and natural, and follow the widget persona instructions.",
 										].join(" "),
 									},
 									...(personaContext?.prompt.trim()
@@ -2267,7 +2393,7 @@ ${message}`;
 			websiteName,
 			sources.map((s) => s.url),
 		);
-		if (shouldCallLlm) {
+		if (shouldCallLlm && decision.mode === "search") {
 			await this.setSemanticCachedAnswer(
 				userId,
 				message,
@@ -2432,7 +2558,9 @@ ${message}`;
 			existingState ?? {
 				active: true,
 				intentMessage: message.trim() || null,
-				fields: {},
+				fields: this.extractLeadFieldsFromHistory(
+					session.messages,
+				),
 				updatedAt: new Date().toISOString(),
 			};
 
@@ -2668,7 +2796,11 @@ ${message}`;
 			const historyMessages =
 				session.messages.slice(0, -1);
 
-			if (historyMessages.length <= 2) {
+			if (
+				historyMessages.length <= 2 &&
+				!this.isPersonalIntroduction(message) &&
+				!this.isLikelySmallTalk(message)
+			) {
 				const cachedAnswer =
 					await this.getSemanticCachedAnswer(
 						userId,
@@ -2818,7 +2950,7 @@ ${message}`;
 					websiteName,
 					sources.map((s) => s.url),
 				);
-			if (!usedFallback) {
+			if (!usedFallback && decision.mode === "search") {
 				await this.setSemanticCachedAnswer(
 					userId,
 					message,
@@ -2944,7 +3076,11 @@ ${message}`;
 		const historyMessages =
 			session.messages.slice(0, -1);
 
-		if (historyMessages.length <= 2) {
+		if (
+			historyMessages.length <= 2 &&
+			!this.isPersonalIntroduction(message) &&
+			!this.isLikelySmallTalk(message)
+		) {
 			const cachedAnswer =
 				await this.getSemanticCachedAnswer(
 					userId,
@@ -3148,7 +3284,7 @@ ${message}`;
 				websiteName,
 				sources.map((s) => s.url),
 			);
-		if (!usedFallback) {
+		if (!usedFallback && decision.mode === "search") {
 			await this.setSemanticCachedAnswer(
 				userId,
 				message,

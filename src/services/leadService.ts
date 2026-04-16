@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import OpenAI from "openai";
 import {
 	getPlanCapabilities,
@@ -63,6 +64,19 @@ export interface LeadRequiredFields {
 }
 
 class LeadService {
+	private isLeadFinalizeSchemaError(error: unknown): boolean {
+		if (!(error instanceof Error)) {
+			return false;
+		}
+
+		const message = error.message.toLowerCase();
+		return (
+			message.includes("capture_status") ||
+			message.includes("finalized_at") ||
+			message.includes("last_synced_signature")
+		);
+	}
+
 	private normalizeOptionalValue(
 		value: string | null | undefined,
 	): string | null {
@@ -136,7 +150,7 @@ class LeadService {
 	private buildLeadSyncSignature(
 		source: Partial<ExtractedContact>,
 	): string {
-		return JSON.stringify({
+		const normalizedPayload = JSON.stringify({
 			name: this.normalizeOptionalValue(source.name),
 			email: this.normalizeOptionalValue(source.email),
 			phone: this.normalizeOptionalValue(source.phone),
@@ -144,6 +158,13 @@ class LeadService {
 			company: this.normalizeOptionalValue(source.company),
 			summary: this.normalizeOptionalValue(source.summary),
 		});
+
+		// Persist a fixed-width signature so lead finalization cannot overflow
+		// the VARCHAR(128) column while still detecting content changes.
+		return crypto
+			.createHash("sha256")
+			.update(normalizedPayload)
+			.digest("hex");
 	}
 
 	private async getLeadBySession(
@@ -706,41 +727,79 @@ ${fullConversation}`;
 					company: existingLead.company,
 			  })
 			: 0;
-		const result = await pool.query<Lead>(
-			`INSERT INTO leads
-				(user_id, widget_key_id, session_id, name, email, phone, country, chat_summary,
-				 raw_contact, ip_address, source_url, message_count, status)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 'new')
-			 ON CONFLICT (user_id, session_id) DO UPDATE SET
-				name         = COALESCE(EXCLUDED.name, leads.name),
-				email        = COALESCE(EXCLUDED.email, leads.email),
-				phone        = COALESCE(EXCLUDED.phone, leads.phone),
-				country      = COALESCE(EXCLUDED.country, leads.country),
-				chat_summary = COALESCE(EXCLUDED.chat_summary, leads.chat_summary),
-				raw_contact  = EXCLUDED.raw_contact,
-				capture_status = 'draft',
-				updated_at   = CURRENT_TIMESTAMP
-			 RETURNING *`,
-			[
-				userId,
-				widgetKeyId,
-				sessionId,
-				data.name ?? null,
-				data.email ?? null,
-				data.phone ?? null,
-				data.country ?? null,
-				data.summary ?? null,
-				JSON.stringify({
-					name: data.name,
-					email: data.email,
-					phone: data.phone,
-					country: data.country,
-					message: data.summary,
-				}),
-				data.ipAddress ?? null,
-				data.sourceUrl ?? null,
-			],
-		);
+		const queryParams = [
+			userId,
+			widgetKeyId,
+			sessionId,
+			data.name ?? null,
+			data.email ?? null,
+			data.phone ?? null,
+			data.country ?? null,
+			data.summary ?? null,
+			JSON.stringify({
+				name: data.name,
+				email: data.email,
+				phone: data.phone,
+				country: data.country,
+				message: data.summary,
+			}),
+			data.ipAddress ?? null,
+			data.sourceUrl ?? null,
+		];
+
+		let result;
+		try {
+			result = await pool.query<Lead>(
+				`INSERT INTO leads
+					(user_id, widget_key_id, session_id, name, email, phone, country, chat_summary,
+					 raw_contact, ip_address, source_url, message_count, status)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 'new')
+				 ON CONFLICT (user_id, session_id) DO UPDATE SET
+					name           = COALESCE(EXCLUDED.name, leads.name),
+					email          = COALESCE(EXCLUDED.email, leads.email),
+					phone          = COALESCE(EXCLUDED.phone, leads.phone),
+					country        = COALESCE(EXCLUDED.country, leads.country),
+					chat_summary   = COALESCE(EXCLUDED.chat_summary, leads.chat_summary),
+					raw_contact    = EXCLUDED.raw_contact,
+					capture_status = 'draft',
+					updated_at     = CURRENT_TIMESTAMP
+				 RETURNING *`,
+				queryParams,
+			);
+		} catch (error) {
+			if (!this.isLeadFinalizeSchemaError(error)) {
+				throw error;
+			}
+
+			logger.warn(
+				"Lead draft/finalize columns unavailable; falling back to legacy contact-form save",
+				{
+					userId,
+					sessionId,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+
+			result = await pool.query<Lead>(
+				`INSERT INTO leads
+					(user_id, widget_key_id, session_id, name, email, phone, country, chat_summary,
+					 raw_contact, ip_address, source_url, message_count, status)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 'new')
+				 ON CONFLICT (user_id, session_id) DO UPDATE SET
+					name         = COALESCE(EXCLUDED.name, leads.name),
+					email        = COALESCE(EXCLUDED.email, leads.email),
+					phone        = COALESCE(EXCLUDED.phone, leads.phone),
+					country      = COALESCE(EXCLUDED.country, leads.country),
+					chat_summary = COALESCE(EXCLUDED.chat_summary, leads.chat_summary),
+					raw_contact  = EXCLUDED.raw_contact,
+					updated_at   = CURRENT_TIMESTAMP
+				 RETURNING *`,
+				queryParams,
+			);
+		}
 		logger.info("Contact form lead saved", { userId, sessionId });
 		const leadRow = result.rows[0];
 		if (!leadRow) return;
@@ -768,19 +827,44 @@ ${fullConversation}`;
 				this.hasAnyLeadIdentity(mergedContact));
 
 		if (shouldFinalize) {
-			await this.finalizeLeadIfNeeded(
-				userId,
-				leadRow,
-				widgetKeyId,
-				mergedContact,
-				{
-					ipAddress: data.ipAddress,
-					sourceUrl: data.sourceUrl,
-				},
-				leadRow.message_count || 0,
-				"lead.contact_form",
-				options?.planType,
-			);
+			try {
+				await this.finalizeLeadIfNeeded(
+					userId,
+					leadRow,
+					widgetKeyId,
+					mergedContact,
+					{
+						ipAddress: data.ipAddress,
+						sourceUrl: data.sourceUrl,
+					},
+					leadRow.message_count || 0,
+					"lead.contact_form",
+					options?.planType,
+				);
+			} catch (error) {
+				if (!this.isLeadFinalizeSchemaError(error)) {
+					throw error;
+				}
+
+				logger.warn(
+					"Lead finalize columns unavailable; continuing with legacy finalize flow",
+					{
+						userId,
+						sessionId,
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+
+				await pool.query(
+					`UPDATE leads
+					 SET updated_at = CURRENT_TIMESTAMP
+					 WHERE id = $1 AND user_id = $2`,
+					[leadRow.id, userId],
+				);
+			}
 		}
 		return;
 		const leadId = result.rows[0]?.id;

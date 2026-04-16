@@ -25,6 +25,7 @@ import {
 	WEBHOOK_PROCESS_INTERVAL_MS,
 	ZOHO_SYNC_PROCESS_INTERVAL_MS,
 } from "./constants";
+import { redisCache } from "./config/redis";
 import {
 	errorHandler,
 	notFoundHandler,
@@ -395,6 +396,27 @@ const gracefulShutdown = (server: Server) => {
 	});
 };
 
+const flushChatCacheOnStartup = async (): Promise<void> => {
+	const patterns = ["chat:semantic-answer:*", "chat:retrieval:*"];
+	let total = 0;
+	for (const pattern of patterns) {
+		let cursor = "0";
+		do {
+			const [nextCursor, keys] = await redisCache.scan(cursor, "MATCH", pattern, "COUNT", 500);
+			cursor = nextCursor;
+			if (keys.length > 0) {
+				await redisCache.del(...keys);
+				total += keys.length;
+			}
+		} while (cursor !== "0");
+	}
+	if (total === 0) {
+		logger.info("startup: chat cache was already empty — nothing cleared");
+	} else {
+		logger.info(`startup: chat cache cleared — ${total} key(s) deleted`);
+	}
+};
+
 // Start server
 const server: Server = app.listen(
 	config.PORT,
@@ -406,6 +428,7 @@ const server: Server = app.listen(
 			`🚀 Server is running on http://localhost:${config.PORT}`,
 		);
 		void adminAuthService.initializeAdminAuth();
+		void flushChatCacheOnStartup();
 	},
 );
 server.keepAliveTimeout =

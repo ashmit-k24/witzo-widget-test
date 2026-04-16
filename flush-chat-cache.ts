@@ -63,9 +63,16 @@ async function main(): Promise<void> {
 		total += await scanAndDelete(pattern);
 	}
 
-	logger.info("flush-chat-cache: done", {
-		totalKeysDeleted: total,
-	});
+	if (total === 0) {
+		logger.info(
+			"flush-chat-cache: chat cache was already empty — nothing deleted",
+		);
+	} else {
+		logger.info(
+			`flush-chat-cache: chat cache cleared — ${total} key(s) deleted`,
+			{ totalKeysDeleted: total },
+		);
+	}
 	process.exit(0);
 }
 

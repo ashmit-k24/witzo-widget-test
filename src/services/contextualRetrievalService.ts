@@ -7,9 +7,11 @@ const openai = new OpenAI({
 	apiKey: config.OPENAI_API_KEY,
 });
 
-const CONTEXT_CONCURRENCY = 10;
-const CONTEXT_TIMEOUT_MS = 12000;
-const BATCH_SIZE = 5;
+const CONTEXT_CONCURRENCY = 12;
+const CONTEXT_TIMEOUT_MS = 10000;
+const BATCH_SIZE = 8;
+const DOCUMENT_PREVIEW_CHARS = 700;
+const CHUNK_PREVIEW_CHARS = 320;
 
 
 
@@ -62,8 +64,14 @@ const generateBatchEnrichPrompt = (items: {
 }[]) => {
 	const prompt = items
 		.map((item, i) => {
-			const docPreview = truncateAtSentence(item.page.content, 1200);
-			const chunkPreview = truncateAtSentence(item.chunk.childText, 500);
+			const docPreview = truncateAtSentence(
+				item.page.content,
+				DOCUMENT_PREVIEW_CHARS,
+			);
+			const chunkPreview = truncateAtSentence(
+				item.chunk.childText,
+				CHUNK_PREVIEW_CHARS,
+			);
 
 			return `Item ${i + 1}
 <document>
@@ -127,7 +135,7 @@ ${prompt}`;
 					model: "gpt-4o-mini",
 					messages: [{ role: "user", content: fullPrompt }],
 					temperature: 0,
-					max_tokens: Math.max(512, items.length * 150),
+					max_tokens: Math.max(256, items.length * 90),
 					response_format: { type: "json_object" },
 				},
 				{ signal: controller.signal as any },

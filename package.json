@@ -7,6 +7,7 @@
 		"build": "tsc",
 		"start": "node dist/server.js",
 		"dev": "tsx watch src/server.ts",
+		"flush-chat-cache": "tsx flush-chat-cache.ts",
 		"migrate": "tsx src/database/migrate.ts",
 		"lint": "eslint . --ext .ts",
 		"format": "prettier --write \"src/**/*.ts\"",
