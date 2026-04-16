@@ -1162,12 +1162,12 @@ class ScraperService {
 			currentUrl: sourceUrl,
 			stage:
 				"scraper_primary_pinecone_upsert_completed",
-			percent: 95,
+			percent: 100,
 			stageLabel:
 				"Training completed",
 		});
 		logger.info(
-			"scraper: background enrichment queued",
+			"scraper: enrichment started",
 			{
 				userId,
 				sourceUrl,
@@ -1177,31 +1177,24 @@ class ScraperService {
 			},
 		);
 
-		// Let the primary scrape job finish as soon as pages are stored.
-		// Background enrichment: page metadata extraction continues independently.
+		const enrichmentStartedAt = Date.now();
 		void (async () => {
-			const enrichmentStartedAt = Date.now();
-			await reportProgress?.({
-				totalPages: pages.length,
-				scrapedPages: pages.length,
-				storedPages: indexedPages,
-				currentUrl: sourceUrl,
-				stage: "scraper_primary_pinecone_upsert_completed",
-				percent: 100,
-				stageLabel:
-					"Background metadata enrichment started",
-			});
 			try {
-				const metadataResult = await extractPageMetadataAsync(
-					pages,
-					chunks,
-					async (ownerId, vectorId, metadata) =>
-						pineconeService.updateVectorMetadata(
+				const metadataResult =
+					await extractPageMetadataAsync(
+						pages,
+						chunks,
+						async (
 							ownerId,
 							vectorId,
 							metadata,
-						),
-				);
+						) =>
+							pineconeService.updateVectorMetadata(
+								ownerId,
+								vectorId,
+								metadata,
+							),
+					);
 				if (metadataResult.completed) {
 					await scraperSourceService.setMetadataReady(
 						userId,
@@ -1211,7 +1204,7 @@ class ScraperService {
 				}
 			} catch (error) {
 				logger.warn(
-					"scraper: background enrichment task failed",
+					"scraper: enrichment task failed",
 					{
 						userId,
 						sourceUrl,
@@ -1223,11 +1216,28 @@ class ScraperService {
 					},
 				);
 			}
-			await upsertHypeAsync(
-				userId,
-				sourceUrl,
-				chunks,
-			);
+
+			try {
+				await upsertHypeAsync(
+					userId,
+					sourceUrl,
+					chunks,
+				);
+			} catch (error) {
+				logger.warn(
+					"scraper: enrichment task failed",
+					{
+						userId,
+						sourceUrl,
+						task: "hype",
+						error:
+							error instanceof Error
+								? error.message
+								: String(error),
+					},
+				);
+			}
+
 			logger.info(
 				"scraper: background enrichment completed",
 				{
@@ -1240,19 +1250,7 @@ class ScraperService {
 						Date.now() - enrichmentStartedAt,
 				},
 			);
-		})().catch((error) => {
-			logger.warn(
-				"scraper: background enrichment pipeline failed",
-				{
-					userId,
-					sourceUrl,
-					error:
-						error instanceof Error
-							? error.message
-							: String(error),
-				},
-			);
-		});
+		})();
 
 		logger.info(
 			"scraper: persistence pipeline finished",
