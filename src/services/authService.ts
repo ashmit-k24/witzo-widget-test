@@ -1741,109 +1741,148 @@ class AuthService {
 	async updateUserProfile(
 		userId: string,
 		payload: {
-			full_name: unknown;
-			company_name: unknown;
-			phone_number: unknown;
-			country: unknown;
-			job_title: unknown;
-			industry: unknown;
-			company_website: unknown;
+			full_name?: unknown;
+			company_name?: unknown;
+			phone_number?: unknown;
+			country?: unknown;
+			industry?: unknown;
+			company_website?: unknown;
 		},
 	): Promise<UserResponse> {
+		const userResult = await pool.query<User>(
+			"SELECT * FROM users WHERE id = $1 LIMIT 1",
+			[userId],
+		);
+		if (userResult.rows.length === 0) {
+			throw this.createHttpError("User not found", 404);
+		}
+
+		const currentUser = userResult.rows[0];
+		const nextUser: User = { ...currentUser };
+		const updates: string[] = [];
+		const values: unknown[] = [userId];
+		let parameterIndex = 2;
+
 		const fullName = this.normalizeOptionalText(
 			payload.full_name,
 		);
+		if (fullName) {
+			nextUser.full_name = fullName;
+			updates.push(`full_name = $${parameterIndex}`);
+			values.push(fullName);
+			parameterIndex += 1;
+		}
+
 		const companyName = this.normalizeOptionalText(
 			payload.company_name,
 		);
+		if (companyName) {
+			nextUser.company_name = companyName;
+			updates.push(`company_name = $${parameterIndex}`);
+			values.push(companyName);
+			parameterIndex += 1;
+		}
+
 		const phoneNumber = this.normalizeOptionalText(
 			payload.phone_number,
 		);
+		if (phoneNumber) {
+			const normalizedPhone = phoneNumber.replace(
+				/\s+/g,
+				" ",
+			);
+			if (!/^[+0-9() -]{7,20}$/.test(normalizedPhone)) {
+				throw this.createHttpError(
+					"Invalid phone number format",
+					400,
+				);
+			}
+			nextUser.phone_number = normalizedPhone;
+			updates.push(`phone_number = $${parameterIndex}`);
+			values.push(normalizedPhone);
+			parameterIndex += 1;
+		}
+
 		const country = this.normalizeOptionalText(
 			payload.country,
 		);
-		const jobTitle = this.normalizeOptionalText(
-			payload.job_title,
-		);
+		if (country) {
+			nextUser.country = country;
+			updates.push(`country = $${parameterIndex}`);
+			values.push(country);
+			parameterIndex += 1;
+		}
+
 		const industry = this.normalizeOptionalText(
 			payload.industry,
 		);
+		if (industry) {
+			nextUser.industry = industry;
+			updates.push(`industry = $${parameterIndex}`);
+			values.push(industry);
+			parameterIndex += 1;
+		}
+
 		const companyWebsite = this.normalizeOptionalText(
 			payload.company_website,
 		);
+		if (companyWebsite) {
+			let normalizedWebsite =
+				companyWebsite.toLowerCase();
+			if (
+				!normalizedWebsite.startsWith("http://") &&
+				!normalizedWebsite.startsWith("https://")
+			) {
+				normalizedWebsite = `https://${normalizedWebsite}`;
+			}
 
-		if (
-			!fullName ||
-			!companyName ||
-			!phoneNumber ||
-			!country ||
-			!jobTitle ||
-			!industry ||
-			!companyWebsite
-		) {
-			throw this.createHttpError(
-				"All profile fields are required",
-				400,
+			try {
+				new URL(normalizedWebsite);
+			} catch {
+				throw this.createHttpError(
+					"Invalid company website URL",
+					400,
+				);
+			}
+
+			nextUser.company_website = normalizedWebsite;
+			updates.push(
+				`company_website = $${parameterIndex}`,
 			);
+			values.push(normalizedWebsite);
+			parameterIndex += 1;
 		}
 
-		const normalizedPhone = phoneNumber.replace(
-			/\s+/g,
-			" ",
+		if (updates.length === 0) {
+			return this.formatUserResponse(currentUser);
+		}
+
+		const profileCompleted = Boolean(
+			nextUser.full_name &&
+				nextUser.company_name &&
+				nextUser.phone_number &&
+				nextUser.country &&
+				nextUser.industry &&
+				nextUser.company_website,
 		);
-		if (!/^[+0-9() -]{7,20}$/.test(normalizedPhone)) {
-			throw this.createHttpError(
-				"Invalid phone number format",
-				400,
-			);
-		}
+		updates.push(`profile_completed = $${parameterIndex}`);
+		values.push(profileCompleted);
+		parameterIndex += 1;
 
-		let normalizedWebsite = companyWebsite.toLowerCase();
-		if (
-			!normalizedWebsite.startsWith("http://") &&
-			!normalizedWebsite.startsWith("https://")
-		) {
-			normalizedWebsite = `https://${normalizedWebsite}`;
-		}
-
-		try {
-			new URL(normalizedWebsite);
-		} catch {
-			throw this.createHttpError(
-				"Invalid company website URL",
-				400,
+		if (profileCompleted && !currentUser.profile_completed_at) {
+			updates.push(
+				"profile_completed_at = CURRENT_TIMESTAMP",
 			);
 		}
 
 		const result = await pool.query<User>(
 			`UPDATE users
-       SET full_name = $2,
-           company_name = $3,
-           phone_number = $4,
-           country = $5,
-           job_title = $6,
-           industry = $7,
-           company_website = $8,
-           profile_completed = TRUE,
-           profile_completed_at = COALESCE(profile_completed_at, CURRENT_TIMESTAMP),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1
-       RETURNING *`,
-			[
-				userId,
-				fullName,
-				companyName,
-				normalizedPhone,
-				country,
-				jobTitle,
-				industry,
-				normalizedWebsite,
-			],
+        SET ${updates.join(", ")},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        RETURNING *`,
+			values,
 		);
-
-		if (result.rows.length === 0) {
-			throw this.createHttpError("User not found", 404);
-		}
 
 		return this.formatUserResponse(result.rows[0]);
 	}

@@ -150,30 +150,32 @@ export const validationRules: Record<
 
 	updateProfile: [
 		body("full_name")
+			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ min: 2, max: 150 })
 			.withMessage("full_name must be 2-150 characters"),
 		body("company_name")
+			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ min: 2, max: 150 })
 			.withMessage("company_name must be 2-150 characters"),
 		body("phone_number")
+			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ min: 7, max: 30 })
 			.withMessage("phone_number must be 7-30 characters"),
 		body("country")
+			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ min: 2, max: 100 })
 			.withMessage("country must be 2-100 characters"),
-		body("job_title")
-			.isString()
-			.isLength({ min: 2, max: 120 })
-			.withMessage("job_title must be 2-120 characters"),
 		body("industry")
+			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ min: 2, max: 120 })
 			.withMessage("industry must be 2-120 characters"),
 		body("company_website")
+			.optional({ values: "falsy" })
 			.isString()
 			.isLength({ min: 3, max: 255 })
 			.withMessage("company_website is required")
