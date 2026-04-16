@@ -17,26 +17,54 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
       </svg>
     </div>`).join('');
   const leadFields = (config.leadFormEnabled ? [
-    config.leadFormNameEnabled !== false ? `<input id="cf-name" type="text" placeholder="Your name" />` : '',
-    config.leadFormEmailEnabled !== false ? `<input id="cf-email" type="email" placeholder="Your email" />` : '',
-    config.leadFormPhoneEnabled !== false ? `<input id="cf-phone" type="tel" placeholder="Phone number" />` : '',
+    config.leadFormNameEnabled !== false ? `
+      <div class="cf-field-group">
+        <input id="cf-name" type="text" />
+        <label>Full name</label>
+      </div>` : '',
+    config.leadFormEmailEnabled !== false ? `
+      <div class="cf-field-group">
+        <input id="cf-email" type="email" />
+        <label>Email address</label>
+      </div>` : '',
+    config.leadFormPhoneEnabled !== false ? `
+      <div class="cf-field-group">
+        <div class="cf-phone-wrapper">
+          <div class="cf-phone-trigger" id="cf-phone-code-trigger">
+            <span id="cf-phone-code" data-code="+91">+91</span>
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div class="cf-fixed-dropdown hidden" id="cf-phone-dropdown"></div>
+          </div>
+          <div class="cf-input-wrap">
+            <input id="cf-phone" type="tel" />
+            <label>Phone number</label>
+          </div>
+        </div>
+      </div>` : '',
     config.leadFormCountryEnabled !== false ? `
-      <div class="cf-country-wrapper" id="cf-country-wrapper">
-        <div class="cf-country-trigger" id="cf-country-trigger">
-          <span class="cf-country-flag" id="cf-country-flag">🌐</span>
-          <input id="cf-country" type="text" placeholder="Country" readonly />
+      <div class="cf-field-group">
+        <div class="cf-country-wrapper" id="cf-country-trigger">
+          <span id="cf-country-value">Select country</span>
           <svg class="cf-country-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          <div class="cf-fixed-dropdown hidden" id="cf-country-dropdown">
+            <div class="cf-country-search"><input type="text" id="cf-country-search" /></div>
+            <div class="cf-country-list" id="cf-country-list"></div>
+          </div>
         </div>
-        <div class="cf-country-menu hidden" id="cf-country-menu">
-          <div class="cf-country-search"><input type="text" id="cf-country-search" placeholder="Search country..." /></div>
-          <div class="cf-country-list" id="cf-country-list"></div>
-        </div>
-      </div>
-    ` : '',
+        <input type="hidden" id="cf-country" />
+      </div>` : '',
   ] : [
-    `<input id="cf-name" type="text" placeholder="Your name" />`,
-    `<input id="cf-email" type="email" placeholder="Your email *" />`,
-  ]).filter(Boolean).join('');
+    `
+    <div class="cf-field-group">
+      <input id="cf-name" type="text" />
+      <label>Full name</label>
+    </div>`,
+    `
+    <div class="cf-field-group">
+      <input id="cf-email" type="email" />
+      <label>Email address</label>
+    </div>`
+  ]).filter(Boolean).join("");
 
   const floatingType = config.floatingType || 'small';
   const chatIconHtml = config.logoIcon
@@ -103,14 +131,21 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
         <div class="contact-form-shell">
           <div class="contact-form-card">
             <div class="contact-form-copy">
-              <h3>${config.leadFormEnabled ? "Let's stay connected" : 'What can we improve?'}</h3>
+              <h3>${config.leadFormEnabled ? "Just a few details so we can keep helping you 😊" : 'What can we improve?'}</h3>
               <p>${config.leadFormEnabled ? 'Share your details to continue the conversation with our team.' : "Thanks for helping us do better. Tell us what we can improve and we'll take it from there."}</p>
             </div>
             <div class="contact-form-fields">
               ${leadFields}
               ${config.leadFormEnabled ? '' : '<textarea id="cf-message" placeholder="Type your feedback..."></textarea>'}
             </div>
-            <button id="cf-submit" class="contact-form-submit">${config.leadFormEnabled ? config.leadFormButtonText || 'Continue' : 'Continue'}</button>
+            <div class="cf-agreement">
+              <label class="cf-checkbox-wrapper">
+                <input type="checkbox" id="cf-agree" />
+                <span class="cf-checkbox-custom"></span>
+                <span class="cf-agreement-text">I agree to the <a href="#">Privacy Policy</a> and <a href="#">Terms & Conditions</a></span>
+              </label>
+            </div>
+            <button id="cf-submit" class="contact-form-submit" disabled>${config.leadFormEnabled ? config.leadFormButtonText || 'Continue' : 'Continue'}</button>
             <div class="contact-form-note">${config.leadFormEnabled ? "We'll only use these details to follow up on your request." : 'Your feedback helps us refine the experience.'}</div>
           </div>
         </div>
