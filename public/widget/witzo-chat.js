@@ -1895,7 +1895,7 @@
           }
           
           .chat-input-container.is-glowing {
-            box-shadow: 1px 0px 18px -11px #800CF4;
+            box-shadow: 1px 0px 18px -11px var(--color-primary, #fc0e3f);
           }
           
           /* Beam Implementaton */
@@ -2826,7 +2826,7 @@
             z-index: 1;
           }
           .floating-prompt-input-wrapper.is-glowing {
-            box-shadow: 1px 0px 18px -11px #800CF4;
+            box-shadow: 1px 0px 18px -11px var(--color-primary, #fc0e3f);
           }
           .floating-prompt-input-wrapper.is-glowing .chat-input-beam {
             opacity: 1;
