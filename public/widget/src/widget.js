@@ -360,7 +360,7 @@ export class WitzoChatWidget extends HTMLElement {
       // — Error response —
       try {
         const err = JSON.parse(rawText);
-        if (err.limitReached && err.data?.planType !== 'free') {
+        if (err.limitReached) {
           msg.updateBubble(typingEl, "You've reached the conversation limit. Please use the form below to get in touch.", this.config.logoIcon);
           this.pendingEndIntentRating = false;
           this.showContactForm();

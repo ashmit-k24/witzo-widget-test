@@ -6184,10 +6184,7 @@
 				} else {
 					try {
 						const err = JSON.parse(rawText);
-						if (
-							err.limitReached &&
-							err.data?.planType === "basic"
-						) {
+						if (err.limitReached) {
 							this.updateTypingToMessage(
 								typingWrapper,
 								"You've reached the conversation limit. Please use the form below to get in touch.",
