@@ -1,11 +1,11 @@
 import { DEFAULT_CONFIG, SUPPORTED_LANGUAGES, ATTR_LIST } from './config.js';
-import * as session  from './session.js';
-import * as api      from './api.js';
-import * as stream   from './stream.js';
-import * as msg      from './messages.js';
-import * as events   from './events.js';
+import * as session from './session.js';
+import * as api from './api.js';
+import * as stream from './stream.js';
+import * as msg from './messages.js';
+import * as events from './events.js';
 import { buildTemplate } from './template.js';
-import { buildCSS }      from '../styles/index.js';
+import { buildCSS } from '../styles/index.js';
 
 function normalizeFloatingType(value) {
   const normalized = String(value || 'small').trim().toLowerCase();
@@ -20,28 +20,28 @@ export class WitzoChatWidget extends HTMLElement {
     this.attachShadow({ mode: 'open' });
 
     // Instance state
-    this.apiUrl        = '';
-    this.apiBaseUrl    = '';
-    this.widgetKey     = '';
-    this.sessionId     = '';
-    this.isOpen        = false;
-    this.date          = new Date();
-    this._cfBound      = false;
-    this.elements      = {};
+    this.apiUrl = '';
+    this.apiBaseUrl = '';
+    this.widgetKey = '';
+    this.sessionId = '';
+    this.isOpen = false;
+    this.date = new Date();
+    this._cfBound = false;
+    this.elements = {};
 
     // Counters
-    this.successfulChatCount  = 0;
-    this.userMessageCount     = 0;
-    this.botMessageCount      = 0;
+    this.successfulChatCount = 0;
+    this.userMessageCount = 0;
+    this.botMessageCount = 0;
 
     // Rating state
     this.pendingEndIntentRating = false;
-    this.ratingShown            = false;
-    this.ratingSubmitted        = false;
+    this.ratingShown = false;
+    this.ratingSubmitted = false;
 
     // Hope banner state
     this._wasEndIntent = false;
-    this._idleTimer    = null;
+    this._idleTimer = null;
     this._pendingHopeBanner = false;
     this._ratingToastTimer = null;
     this._calendlyAssetPromise = null;
@@ -66,7 +66,7 @@ export class WitzoChatWidget extends HTMLElement {
     this._queuedSendAfterResponse = false;
 
     this.selectedLanguage = 'en';
-    this.config           = { ...DEFAULT_CONFIG };
+    this.config = { ...DEFAULT_CONFIG };
   }
 
   _hasPaidFeatures() {
@@ -75,9 +75,9 @@ export class WitzoChatWidget extends HTMLElement {
 
   connectedCallback() {
     // 1. Read HTML attributes into config
-    this.apiUrl     = this.getAttribute('api-url')      || '';
+    this.apiUrl = this.getAttribute('api-url') || '';
     this.apiBaseUrl = this.getAttribute('api-base-url') || this.apiUrl.replace('/api/v1/webhook', '');
-    this.widgetKey  = this.getAttribute('widget-key')   || '';
+    this.widgetKey = this.getAttribute('widget-key') || '';
     window.addEventListener('pagehide', this._pageHideHandler);
     document.addEventListener('visibilitychange', this._visibilityHandler);
 
@@ -91,17 +91,17 @@ export class WitzoChatWidget extends HTMLElement {
 
     // 2. Init session
     const sess = session.initSession();
-    this.date                 = sess.date;
-    this.successfulChatCount  = sess.count;
-    this.sessionId            = sess.sessionId;
-    this.ratingShown          = session.getRatingShown(this.sessionId);
-    this.ratingSubmitted      = session.getRatingSubmitted(this.sessionId);
+    this.date = sess.date;
+    this.successfulChatCount = sess.count;
+    this.sessionId = sess.sessionId;
+    this.ratingShown = session.getRatingShown(this.sessionId);
+    this.ratingSubmitted = session.getRatingSubmitted(this.sessionId);
 
     // 3. Init language preference
-    const langKey        = session.getLanguageKey(this.widgetKey);
+    const langKey = session.getLanguageKey(this.widgetKey);
     const configuredLang = session.normalizeLanguage(this.config.defaultLanguage, SUPPORTED_LANGUAGES) || 'en';
-    const storedLang     = session.normalizeLanguage(sessionStorage.getItem(langKey), SUPPORTED_LANGUAGES);
-    this.selectedLanguage       = this.getAttribute('default-language') !== null ? configuredLang : (storedLang || configuredLang);
+    const storedLang = session.normalizeLanguage(sessionStorage.getItem(langKey), SUPPORTED_LANGUAGES);
+    this.selectedLanguage = this.getAttribute('default-language') !== null ? configuredLang : (storedLang || configuredLang);
     this.config.defaultLanguage = this.selectedLanguage;
     sessionStorage.setItem(langKey, this.selectedLanguage);
 
@@ -114,7 +114,7 @@ export class WitzoChatWidget extends HTMLElement {
     this._logoReady = !this.config.logoIcon; // instantly ready when using the default SVG
     if (this.config.logoIcon) {
       const _preload = new Image();
-      _preload.onload  = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
+      _preload.onload = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
       _preload.onerror = () => { this._logoReady = true; this._maybeRevealFloatingBtn(); };
       _preload.src = this.config.logoIcon;
     }
@@ -137,8 +137,8 @@ export class WitzoChatWidget extends HTMLElement {
     }
     if (!document.getElementById('witzo-font-inter')) {
       const link = document.createElement('link');
-      link.id   = 'witzo-font-inter';
-      link.rel  = 'stylesheet';
+      link.id = 'witzo-font-inter';
+      link.rel = 'stylesheet';
       link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap';
       document.head.appendChild(link);
     }
@@ -151,33 +151,34 @@ export class WitzoChatWidget extends HTMLElement {
 
     // 6. Cache DOM references
     this.elements = {
-      widget:                  this.shadowRoot.getElementById('textChatWidget'),
-      floatingBtn:             this.shadowRoot.getElementById('floating-btn'),
-      closeBtn:                this.shadowRoot.getElementById('closeTextChat'),
-      messagesContainer:       this.shadowRoot.getElementById('textMessagesArea'),
-      input:                   this.shadowRoot.getElementById('textMessageInput'),
-      sendBtn:                 this.shadowRoot.getElementById('textSendButton'),
-      contactFormSlot:         this.shadowRoot.getElementById('contactFormSlot'),
-      calendlySlot:            this.shadowRoot.getElementById('calendlySlot'),
-      cfName:                  this.shadowRoot.getElementById('cf-name'),
-      cfEmail:                 this.shadowRoot.getElementById('cf-email'),
-      cfPhone:                 this.shadowRoot.getElementById('cf-phone'),
-      cfCountry:               this.shadowRoot.getElementById('cf-country'),
-      cfCountryTrigger:        this.shadowRoot.getElementById('cf-country-trigger'),
-      cfCountryMenu:           this.shadowRoot.getElementById('cf-country-menu'),
-      cfCountrySearch:         this.shadowRoot.getElementById('cf-country-search'),
-      cfCountryList:           this.shadowRoot.getElementById('cf-country-list'),
-      cfCountryFlag:           this.shadowRoot.getElementById('cf-country-flag'),
-      cfMessage:               this.shadowRoot.getElementById('cf-message'),
-      cfSubmit:                this.shadowRoot.getElementById('cf-submit'),
-      chatInput:               this.shadowRoot.querySelector('.chat-input'),
-      conversationRatingSlot:  this.shadowRoot.getElementById('conversationRatingSlot'),
-      hopeBanner:              this.shadowRoot.getElementById('hopeBanner'),
-      hopeBannerUp:            this.shadowRoot.getElementById('hopeBannerUp'),
-      hopeBannerDown:          this.shadowRoot.getElementById('hopeBannerDown'),
-      langPillBtn:             this.shadowRoot.getElementById('langPillBtn'),
-      langDropdown:            this.shadowRoot.getElementById('langDropdown'),
-      langItems:               this.shadowRoot.querySelectorAll('.lang-dropdown-item'),
+      widget: this.shadowRoot.getElementById('textChatWidget'),
+      floatingBtn: this.shadowRoot.getElementById('floating-btn'),
+      closeBtn: this.shadowRoot.getElementById('closeTextChat'),
+      messagesContainer: this.shadowRoot.getElementById('textMessagesArea'),
+      input: this.shadowRoot.getElementById('textMessageInput'),
+      sendBtn: this.shadowRoot.getElementById('textSendButton'),
+      contactFormSlot: this.shadowRoot.getElementById('contactFormSlot'),
+      calendlySlot: this.shadowRoot.getElementById('calendlySlot'),
+      cfName: this.shadowRoot.getElementById('cf-name'),
+      cfEmail: this.shadowRoot.getElementById('cf-email'),
+      cfPhone: this.shadowRoot.getElementById('cf-phone'),
+      cfPhoneDropdown: this.shadowRoot.getElementById('cf-phone-dropdown'),
+      cfCountry: this.shadowRoot.getElementById('cf-country'),
+      cfCountryTrigger: this.shadowRoot.getElementById('cf-country-trigger'),
+      cfCountryValue: this.shadowRoot.getElementById('cf-country-value'),
+      cfCountryDropdown: this.shadowRoot.getElementById('cf-country-dropdown'),
+      cfCountrySearch: this.shadowRoot.getElementById('cf-country-search'),
+      cfCountryList: this.shadowRoot.getElementById('cf-country-list'),
+      cfSubmit: this.shadowRoot.getElementById('cf-submit'),
+      cfMessage: this.shadowRoot.getElementById('cf-message'),
+      chatInput: this.shadowRoot.querySelector('.chat-input'),
+      conversationRatingSlot: this.shadowRoot.getElementById('conversationRatingSlot'),
+      hopeBanner: this.shadowRoot.getElementById('hopeBanner'),
+      hopeBannerUp: this.shadowRoot.getElementById('hopeBannerUp'),
+      hopeBannerDown: this.shadowRoot.getElementById('hopeBannerDown'),
+      langPillBtn: this.shadowRoot.getElementById('langPillBtn'),
+      langDropdown: this.shadowRoot.getElementById('langDropdown'),
+      langItems: this.shadowRoot.querySelectorAll('.lang-dropdown-item'),
     };
 
     // 6. Wire events
@@ -221,9 +222,9 @@ export class WitzoChatWidget extends HTMLElement {
   }
 
   // ── Delegated to events.js ──────────────────────────────────────
-  toggleChat()                     { events.toggleChat(this); }
-  handleLanguageSelect(code)       { events.handleLanguageSelect(this, code); }
-  setAwaitingResponse(isAwaiting)  {
+  toggleChat() { events.toggleChat(this); }
+  handleLanguageSelect(code) { events.handleLanguageSelect(this, code); }
+  setAwaitingResponse(isAwaiting) {
     if (isAwaiting) {
       this._activeResponseCount = (this._activeResponseCount || 0) + 1;
       this._hasVisibleStreamingResponse = false;
@@ -273,7 +274,7 @@ export class WitzoChatWidget extends HTMLElement {
       this.successfulChatCount = 0;
       this.date = new Date();
       this.userMessageCount = 0;
-      this.botMessageCount  = 0;
+      this.botMessageCount = 0;
       this._resetRatingState();
     }
 
@@ -283,7 +284,7 @@ export class WitzoChatWidget extends HTMLElement {
 
     msg.appendMessage(text, 'user', this.elements.messagesContainer);
     this.userMessageCount++;
-    this._wasEndIntent          = msg.isConversationEndMessage(text);
+    this._wasEndIntent = msg.isConversationEndMessage(text);
     this.pendingEndIntentRating = this._wasEndIntent
       && !this.ratingShown && !this.ratingSubmitted;
     this.elements.input.value = '';
@@ -330,7 +331,7 @@ export class WitzoChatWidget extends HTMLElement {
 
       // — JSON path —
       const rawText = await response.text();
-      let content   = "Sorry, didn't get that.";
+      let content = "Sorry, didn't get that.";
       let jsonSources = [];
       let assistantMessageId = undefined;
 
@@ -349,7 +350,7 @@ export class WitzoChatWidget extends HTMLElement {
             this.showCalendlyEmbed(result.calendlyBooking);
             return;
           }
-        } catch (_) {}
+        } catch (_) { }
         this.successfulChatCount = session.incrementChatCount(this.successfulChatCount);
         this.appendBotReply(typingEl, content, assistantMessageId);
         msg.appendSources(typingEl, jsonSources);
@@ -366,7 +367,7 @@ export class WitzoChatWidget extends HTMLElement {
           return;
         }
         content = err.message || content;
-      } catch (_) {}
+      } catch (_) { }
 
       msg.updateBubble(typingEl, content, this.config.logoIcon);
       this.pendingEndIntentRating = false;
@@ -442,13 +443,13 @@ export class WitzoChatWidget extends HTMLElement {
     try {
       await api.submitRating({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId, rating });
       this.elements.conversationRatingSlot?.classList.add('hidden');
-    } catch (_) {}
+    } catch (_) { }
   }
 
   finalizePendingLeadDraft() {
     if (!this.apiBaseUrl || !this.widgetKey || !this.sessionId || this._lastLeadFinalizeSessionId === this.sessionId) return;
     this._lastLeadFinalizeSessionId = this.sessionId;
-    api.finalizeLead({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId }).catch(() => {});
+    api.finalizeLead({ apiBaseUrl: this.apiBaseUrl, widgetKey: this.widgetKey, sessionId: this.sessionId }).catch(() => { });
   }
 
   showRatingAcknowledgement(rating) {
@@ -612,31 +613,73 @@ export class WitzoChatWidget extends HTMLElement {
     }
     this.elements.chatInput?.classList.add('hidden');
     this.elements.contactFormSlot.classList.remove('hidden');
+
     if (!this._cfBound) {
       this._cfBound = true;
       this.elements.cfSubmit.addEventListener('click', () => this.submitContactForm());
+
+      const inputs = [this.elements.cfName, this.elements.cfEmail, this.elements.cfPhone];
+      inputs.forEach(input => {
+        if (input) {
+          input.addEventListener('input', () => {
+            input.parentElement.classList.toggle('has-value', input.value.trim().length > 0);
+            input.style.borderColor = "";
+            this.updateCfSubmitState();
+          });
+          input.addEventListener('blur', () => {
+            input.parentElement.classList.toggle('has-value', input.value.trim().length > 0);
+          });
+        }
+      });
+
+      if (this.elements.cfAgree) {
+        this.elements.cfAgree.addEventListener('change', () => this.updateCfSubmitState());
+      }
+    }
+    this.updateCfSubmitState();
+  }
+
+  updateCfSubmitState() {
+    const name = this.elements.cfName?.value.trim();
+    const email = this.elements.cfEmail?.value.trim();
+    const phone = this.elements.cfPhone?.value.trim();
+    const country = this.elements.cfCountry?.value.trim();
+
+    let isValid = name && email;
+    if (this.config.leadFormPhoneEnabled) {
+      if (!phone) isValid = false;
+    }
+    if (this.config.leadFormCountryEnabled) {
+      if (!country) isValid = false;
+    }
+
+    if (this.elements.cfSubmit) {
+      this.elements.cfSubmit.disabled = !isValid;
     }
   }
 
   async submitContactForm() {
+    const phoneCode = this.elements.cfPhoneCode?.getAttribute('data-code') || this.elements.cfPhoneCode?.textContent || '';
     const values = {
       name: this.elements.cfName?.value.trim() || null,
       email: this.elements.cfEmail?.value.trim() || null,
-      phone: this.elements.cfPhone?.value.trim() || null,
+      phone: this.elements.cfPhone ? (phoneCode + " " + this.elements.cfPhone.value.trim()) : null,
       country: this.elements.cfCountry?.value.trim() || null,
       message: this.elements.cfMessage?.value.trim() || null,
     };
-    const requiredFields = this.config.leadFormEnabled
-      ? [
-          this.config.leadFormNameEnabled !== false ? this.elements.cfName : null,
-          this.config.leadFormEmailEnabled !== false ? this.elements.cfEmail : null,
-          this.config.leadFormPhoneEnabled !== false ? this.elements.cfPhone : null,
-          this.config.leadFormCountryEnabled !== false ? this.elements.cfCountry : null,
-        ].filter(Boolean)
-      : [this.elements.cfEmail].filter(Boolean);
+
+    const requiredFields = [
+      this.elements.cfName,
+      this.elements.cfEmail,
+      this.elements.cfPhone,
+      this.elements.cfCountry
+    ].filter(Boolean);
+
     const missing = requiredFields.filter((field) => !field.value.trim());
     if (missing.length > 0) {
-      missing.forEach((field) => { field.style.borderColor = '#ef4444'; });
+      requiredFields.forEach((field) => {
+        if (!field.value.trim()) field.style.borderColor = '#ef4444';
+      });
       return;
     }
 
@@ -683,15 +726,15 @@ export class WitzoChatWidget extends HTMLElement {
   _updateSession(id) {
     this.sessionId = id;
     session.updateSessionId(id);
-    this.ratingShown     = session.getRatingShown(id);
+    this.ratingShown = session.getRatingShown(id);
     this.ratingSubmitted = session.getRatingSubmitted(id);
   }
 
   _resetRatingState() {
     this.pendingEndIntentRating = false;
-    this.ratingShown            = false;
-    this.ratingSubmitted        = false;
-    this._pendingHopeBanner     = false;
+    this.ratingShown = false;
+    this.ratingSubmitted = false;
+    this._pendingHopeBanner = false;
     this._clearHopeBannerTimer();
     session.setRatingShown(this.sessionId, false);
     session.setRatingSubmitted(this.sessionId, false);
@@ -706,7 +749,7 @@ export class WitzoChatWidget extends HTMLElement {
     if (this.elements.cfSubmit) {
       this.elements.cfSubmit.disabled = false;
       this.elements.cfSubmit.textContent = this.config.leadFormEnabled
-        ? this.config.leadFormButtonText || 'Fill the form to continue chat'
+        ? this.config.leadFormButtonText || 'Continue'
         : 'Send Message';
     }
   }
@@ -920,7 +963,7 @@ export class WitzoChatWidget extends HTMLElement {
         });
         return;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     container.innerHTML = `
       <iframe
@@ -939,7 +982,7 @@ export class WitzoChatWidget extends HTMLElement {
     this._sessionLocked = true;
 
     // Disable input and send button
-    if (this.elements.input)   this.elements.input.disabled   = true;
+    if (this.elements.input) this.elements.input.disabled = true;
     if (this.elements.sendBtn) this.elements.sendBtn.disabled = true;
     this.updateSendButtonState();
 

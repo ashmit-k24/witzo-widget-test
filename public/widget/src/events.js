@@ -10,6 +10,29 @@ export function bindEvents(widget) {
   if (elements.cfCountryTrigger) {
     bindCountryDropdown(widget);
   }
+  
+  if (elements.cfPhoneDropdown) {
+    elements.cfPhoneDropdown.innerHTML = `<div class="cf-phone-list">${COUNTRIES.map(c => `<div class="cf-phone-item" data-code="${c.p}" data-name="${c.n}">${c.n} (${c.p})</div>`).join('')}</div>`;
+    
+    // Set initial custom data attribute if needed, but textContent handles the display
+    // elements.cfPhoneCode.textContent will be updated on click
+
+    elements.cfPhoneDropdown.querySelectorAll('.cf-phone-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        elements.cfPhoneCode.textContent = item.getAttribute('data-code');
+        elements.cfPhoneCode.setAttribute('data-code', item.getAttribute('data-code'));
+        elements.cfPhoneDropdown.classList.add('hidden');
+        widget.updateCfSubmitState();
+      });
+    });
+
+    elements.cfPhoneCodeTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      elements.cfPhoneDropdown.classList.toggle('hidden');
+      elements.cfCountryDropdown?.classList.add('hidden');
+    });
+  }
 
   // Open / close
   elements.floatingBtn.addEventListener('click', () => toggleChat(widget));
@@ -109,8 +132,8 @@ export function handleLanguageSelect(widget, code) {
 
 /** Initialize and bind country dropdown logic */
 export function bindCountryDropdown(widget) {
-  const { cfCountryTrigger, cfCountryMenu, cfCountrySearch, cfCountryList, cfCountry, cfCountryFlag } = widget.elements;
-  if (!cfCountryTrigger || !cfCountryMenu) return;
+  const { cfCountryTrigger, cfCountryDropdown, cfCountrySearch, cfCountryList, cfCountry, cfCountryValue, cfPhoneDropdown } = widget.elements;
+  if (!cfCountryTrigger || !cfCountryDropdown) return;
 
   function renderCountries(filterText = '') {
     const list = cfCountryList;
@@ -124,12 +147,19 @@ export function bindCountryDropdown(widget) {
     filtered.forEach(country => {
       const el = document.createElement('div');
       el.className = 'cf-country-item';
-      el.innerHTML = `<span class="cf-country-list-flag">${country.f}</span><span class="cf-country-name">${country.n}</span>`;
+      el.innerHTML = `<span class="cf-country-name">${country.n}</span>`;
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (cfCountry) cfCountry.value = country.n;
-        if (cfCountryFlag) cfCountryFlag.textContent = country.f;
-        cfCountryMenu.classList.add('hidden');
+        if (cfCountry) {
+          cfCountry.value = country.n;
+          cfCountry.parentElement.classList.add('has-value');
+        }
+        if (cfCountryValue) {
+          cfCountryValue.textContent = country.n;
+          cfCountryTrigger.classList.add('has-value');
+        }
+        cfCountryDropdown.classList.add('hidden');
+        widget.updateCfSubmitState();
       });
       list.appendChild(el);
     });
@@ -137,13 +167,16 @@ export function bindCountryDropdown(widget) {
 
   cfCountryTrigger.addEventListener('click', (e) => {
     e.stopPropagation();
-    const isHidden = cfCountryMenu.classList.contains('hidden');
-    cfCountryMenu.classList.toggle('hidden');
+    const isHidden = cfCountryDropdown.classList.contains('hidden');
+    cfCountryDropdown.classList.toggle('hidden');
+    cfPhoneDropdown?.classList.add('hidden');
 
     if (isHidden) {
-      if (cfCountrySearch) cfCountrySearch.value = '';
+      if (cfCountrySearch) {
+        cfCountrySearch.value = '';
+        setTimeout(() => cfCountrySearch.focus(), 50);
+      }
       renderCountries('');
-      if (cfCountrySearch) setTimeout(() => cfCountrySearch.focus(), 50);
     }
   });
 
@@ -156,6 +189,7 @@ export function bindCountryDropdown(widget) {
 
   // Close when clicking outside
   widget.shadowRoot.addEventListener('click', () => {
-    cfCountryMenu.classList.add('hidden');
+    cfCountryDropdown.classList.add('hidden');
+    cfPhoneDropdown?.classList.add('hidden');
   });
 }
