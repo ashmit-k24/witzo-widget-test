@@ -68,7 +68,6 @@ export const notFoundHandler = (
 ): void => {
 	res.status(404).json({
 		success: false,
-		message:
-			"This is a Customize widget Section. Please add your widget in website to test live preview.",
+		message: "Resource not found",
 	});
 };
