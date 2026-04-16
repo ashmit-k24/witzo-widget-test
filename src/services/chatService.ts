@@ -27,6 +27,7 @@ import {
 	calendlyIntegrationService,
 	CalendlyWidgetBookingAction,
 } from "./calendlyIntegrationService";
+import { leadService } from "./leadService";
 import { pineconeService } from "./pineconeService";
 import {
 	getTopKForQuery,
@@ -1686,6 +1687,7 @@ ${message}`;
 		const session: ChatSession = {
 			sessionId: conversation.id,
 			userId: conversation.user_id,
+			widgetKeyId: conversation.widget_key_id,
 			messages,
 			createdAt: conversation.created_at,
 			updatedAt: conversation.updated_at,
@@ -2624,6 +2626,43 @@ ${message}`;
 			};
 		}
 
+		// If the visitor already submitted the lead-capture form, skip the
+		// conversational field collection entirely and confirm the request.
+		const existingFormLead = await leadService.getLeadFormStatus(
+			userId,
+			session.sessionId,
+			{ name: true, email: true, phone: true, country: true },
+		);
+		if (existingFormLead.completed && existingFormLead.lead) {
+			const lead = existingFormLead.lead;
+			const namePart = lead.name ? `, ${lead.name}` : "";
+			const contactPart = lead.email || lead.phone
+				? ` We'll reach out to you at ${lead.email || lead.phone}.`
+				: "";
+			const response = `Thank you${namePart}! Our team will connect with you shortly.${contactPart}`;
+			await this.clearAppointmentLeadState(session.sessionId);
+			const assistantTimestamp = await this.persistMessage(
+				session.sessionId,
+				userId,
+				"assistant",
+				response,
+				{ language: resolvedLanguage, appointmentLeadCapture: true, leadCaptureCompleted: true },
+			);
+			session.messages.push({ role: "assistant", content: response, timestamp: assistantTimestamp });
+			session.updatedAt = assistantTimestamp;
+			await this.saveCachedSession(session);
+			input.onToken?.(response);
+			timing.saveMs = Date.now() - saveStart;
+			timing.totalMs = Date.now() - startedAt;
+			return {
+				sessionId: session.sessionId,
+				response,
+				language: resolvedLanguage,
+				sources: [],
+				timing,
+			};
+		}
+
 		let response = "";
 		if (existingState?.active) {
 			const expectedField =
@@ -2684,6 +2723,36 @@ ${message}`;
 			await this.clearAppointmentLeadState(
 				session.sessionId,
 			);
+		}
+
+		// Persist conversationally-collected fields to the leads table so the
+		// UI lead-capture form does not pop up for data already given in chat.
+		if (session.widgetKeyId != null) {
+			const f = state.fields;
+			if (f.name || f.email || f.phone || f.country) {
+				leadService
+					.saveContactFormLead(
+						userId,
+						session.sessionId,
+						session.widgetKeyId,
+						{
+							name: f.name ?? null,
+							email: f.email ?? null,
+							phone: f.phone ?? null,
+							country: f.country ?? null,
+						},
+					)
+					.catch((err: Error) => {
+						logger.warn(
+							"Failed to persist appointment lead fields to leads table",
+							{
+								userId,
+								sessionId: session.sessionId,
+								error: err.message,
+							},
+						);
+					});
+			}
 		}
 
 		const assistantTimestamp =
@@ -3382,6 +3451,7 @@ ${message}`;
 		const session: ChatSession = {
 			sessionId: conversation.id,
 			userId: conversation.user_id,
+			widgetKeyId: conversation.widget_key_id,
 			messages,
 			createdAt: conversation.created_at,
 			updatedAt:
@@ -3504,6 +3574,16 @@ ${message}`;
 				visitorId,
 			],
 		);
+
+		// Keep Redis session cache in sync so subsequent requests within the
+		// same session can read widgetKeyId without a DB round-trip.
+		if (widgetKeyId != null) {
+			const cached = await this.getCachedSession(normalized);
+			if (cached && cached.widgetKeyId == null) {
+				cached.widgetKeyId = widgetKeyId;
+				await this.saveCachedSession(cached);
+			}
+		}
 	}
 
 	async clearSession(
