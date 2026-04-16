@@ -164,29 +164,18 @@ class WidgetIconStorageService {
 		const now = new Date();
 		const { amzDate, dateStamp } = formatAmzDate(now);
 		const credentialScope = `${dateStamp}/${settings.region}/${S3_SERVICE_NAME}/aws4_request`;
-		const canonicalHeadersParts = [
-			`host:${endpointUrl.host}`,
-			`x-amz-content-sha256:${payloadHash}`,
-			`x-amz-date:${amzDate}`,
-		];
-		const signedHeadersParts = [
-			"host",
-			"x-amz-content-sha256",
-			"x-amz-date",
-		];
+		const rawHeaders: Record<string, string> = {
+			host: endpointUrl.host,
+			"x-amz-content-sha256": payloadHash,
+			"x-amz-date": amzDate,
+		};
+		if (contentType) rawHeaders["content-type"] = contentType;
+		if (settings.sessionToken) rawHeaders["x-amz-security-token"] = settings.sessionToken;
 
-		if (settings.sessionToken) {
-			canonicalHeadersParts.push(`x-amz-security-token:${settings.sessionToken}`);
-			signedHeadersParts.push("x-amz-security-token");
-		}
-
-		if (contentType) {
-			canonicalHeadersParts.push(`content-type:${contentType}`);
-			signedHeadersParts.push("content-type");
-		}
-
-		const canonicalHeaders = `${canonicalHeadersParts.join("\n")}\n`;
-		const signedHeaders = signedHeadersParts.join(";");
+		// AWS Signature V4 requires headers sorted alphabetically by name
+		const sortedHeaderNames = Object.keys(rawHeaders).sort();
+		const canonicalHeaders = sortedHeaderNames.map((k) => `${k}:${rawHeaders[k]}`).join("\n") + "\n";
+		const signedHeaders = sortedHeaderNames.join(";");
 		const canonicalRequest = [
 			method,
 			canonicalUri,

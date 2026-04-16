@@ -740,6 +740,13 @@ export const webhookChat = async (
 				writeEvent({
 					type: "done",
 					sessionId: result.sessionId,
+					assistantMessageId:
+						(
+							await chatService.getLatestAssistantMessageMeta(
+								result.sessionId,
+								userId,
+							)
+						)?.messageId,
 					language: result.language,
 					calendlyBooking:
 						"calendlyBooking" in result
@@ -806,6 +813,13 @@ export const webhookChat = async (
 			success: true,
 			sessionId: result.sessionId,
 			response: result.response,
+			assistantMessageId:
+				(
+					await chatService.getLatestAssistantMessageMeta(
+						result.sessionId,
+						userId,
+					)
+				)?.messageId,
 			language: result.language,
 			calendlyBooking:
 				"calendlyBooking" in result

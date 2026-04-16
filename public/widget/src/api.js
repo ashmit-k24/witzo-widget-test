@@ -38,6 +38,16 @@ export async function getLeadStatus({ apiBaseUrl, widgetKey, sessionId }) {
   });
 }
 
+/** Finalize a pending lead draft for the current session */
+export async function finalizeLead({ apiBaseUrl, widgetKey, sessionId }) {
+  return fetch(`${apiBaseUrl}/api/v1/widget/lead-finalize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ widgetKey, sessionId }),
+    keepalive: true,
+  });
+}
+
 /** Track the current page as viewed by this session (fire-and-forget) */
 export function trackPageView({ apiBaseUrl, widgetKey, sessionId }) {
   if (!apiBaseUrl || !widgetKey || !sessionId) return;

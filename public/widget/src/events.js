@@ -61,8 +61,14 @@ export function bindEvents(widget) {
     });
   });
 
-  // Close dropdown on outside click
-  widget.shadowRoot.addEventListener('click', () => {
+  // Shared delegated click handling for feedback menus and dropdown dismissal.
+  widget.shadowRoot.addEventListener('click', (e) => {
+    if (e.target.closest('.message-feedback')) {
+      widget.handleMessageFeedbackClick?.(e);
+    } else {
+      widget.closeAllMessageFeedbackMenus?.();
+    }
+
     elements.langDropdown?.classList.remove('show');
   });
 

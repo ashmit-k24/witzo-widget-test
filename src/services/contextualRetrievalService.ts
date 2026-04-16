@@ -127,7 +127,7 @@ ${prompt}`;
 					model: "gpt-4o-mini",
 					messages: [{ role: "user", content: fullPrompt }],
 					temperature: 0,
-					max_tokens: 300,
+					max_tokens: Math.max(512, items.length * 150),
 					response_format: { type: "json_object" },
 				},
 				{ signal: controller.signal as any },

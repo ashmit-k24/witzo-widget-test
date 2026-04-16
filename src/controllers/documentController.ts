@@ -69,7 +69,7 @@ export const uploadDocument = async (
 		// Check if document has already been uploaded for this user
 		const documentUrl = `document://${originalname}`;
 		const existingSource =
-			await pineconeService.checkSourceExists(
+			await pineconeService.checkTrackedSourceExists(
 				userId,
 				documentUrl,
 			);
@@ -268,7 +268,7 @@ export const uploadMultipleDocuments = async (
 				// Check if document has already been uploaded for this user
 				const documentUrl = `document://${file.originalname}`;
 				const existingSource =
-					await pineconeService.checkSourceExists(
+					await pineconeService.checkTrackedSourceExists(
 						userId,
 						documentUrl,
 					);

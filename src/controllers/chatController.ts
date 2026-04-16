@@ -94,6 +94,13 @@ export const chat = async (
 				writeEvent({
 					type: "done",
 					sessionId: result.sessionId,
+					assistantMessageId:
+						(
+							await chatService.getLatestAssistantMessageMeta(
+								result.sessionId,
+								userId,
+							)
+						)?.messageId,
 					language: result.language,
 					usage: usage
 						? {
@@ -139,6 +146,13 @@ export const chat = async (
 			success: true,
 			sessionId: result.sessionId,
 			response: result.response,
+			assistantMessageId:
+				(
+					await chatService.getLatestAssistantMessageMeta(
+						result.sessionId,
+						userId,
+					)
+				)?.messageId,
 			language: result.language,
 			// sources: result.sources,
 		};
@@ -287,8 +301,8 @@ export const getChatSession = async (
 			isGated = rank >= maxVisible;
 		}
 
-		// Fetch lead info and viewed pages in parallel
-		const [leadResult, pageViewsResult] = await Promise.all([
+		// Fetch lead info, page views, and message-level feedback details in parallel.
+		const [leadResult, pageViewsResult, detailedMessagesResult] = await Promise.all([
 			pool.query<{ name: string | null; email: string | null; phone: string | null; country: string | null }>(
 				`SELECT name, email, phone, country FROM leads WHERE session_id = $1 AND user_id = $2 LIMIT 1`,
 				[session.sessionId, userId],
@@ -299,12 +313,69 @@ export const getChatSession = async (
 				 ORDER BY viewed_at ASC`,
 				[session.sessionId, userId],
 			).catch(() => ({ rows: [] as { url: string; viewed_at: string }[] })),
+			isGated
+				? Promise.resolve({
+						rows: [] as Array<{
+							message_id: string;
+							role: "user" | "assistant" | "system";
+							content: string;
+							timestamp: string;
+							feedback_type: "up" | "down" | null;
+							feedback_reason: string | null;
+							feedback_created_at: string | null;
+						}>,
+				  })
+				: pool.query<{
+						message_id: string;
+						role: "user" | "assistant" | "system";
+						content: string;
+						timestamp: string;
+						feedback_type: "up" | "down" | null;
+						feedback_reason: string | null;
+						feedback_created_at: string | null;
+				  }>(
+						`SELECT
+							m.id::text AS message_id,
+							m.role,
+							m.content,
+							m.created_at::text AS timestamp,
+							f.feedback_type,
+							f.feedback_reason,
+							f.created_at::text AS feedback_created_at
+						 FROM chat_messages m
+						 LEFT JOIN chat_message_feedback f
+						   ON f.user_id = m.user_id
+						  AND f.session_id = m.conversation_id
+						  AND f.message_id = m.id
+						 WHERE m.conversation_id = $1
+						   AND m.user_id = $2
+						 ORDER BY m.created_at ASC, m.id ASC
+						 LIMIT 200`,
+						[session.sessionId, userId],
+				  ),
 		]);
 		const lead = leadResult.rows[0] ?? null;
 		const viewedPages = pageViewsResult.rows.map((r) => ({
 			url: r.url,
 			timestamp: r.viewed_at,
 		}));
+		const detailedMessages = detailedMessagesResult.rows.map((row) => ({
+			messageId: Number(row.message_id),
+			role: row.role,
+			content: row.content,
+			timestamp: row.timestamp,
+			feedbackType: row.feedback_type,
+			feedbackReason: row.feedback_reason,
+			feedbackCreatedAt: row.feedback_created_at,
+		}));
+		const sessionRatings = detailedMessages.reduce(
+			(acc, message) => {
+				if (message.feedbackType === "up") acc.thumbsUp += 1;
+				if (message.feedbackType === "down") acc.thumbsDown += 1;
+				return acc;
+			},
+			{ thumbsUp: 0, thumbsDown: 0 },
+		);
 
 		res.status(200).json({
 			success: true,
@@ -314,7 +385,8 @@ export const getChatSession = async (
 				createdAt: session.createdAt,
 				updatedAt: session.updatedAt,
 				// Strip messages server-side for gated sessions
-				messages: isGated ? [] : session.messages,
+				messages: isGated ? [] : detailedMessages,
+				ratings: isGated ? { thumbsUp: 0, thumbsDown: 0 } : sessionRatings,
 				isGated,
 				customerName: lead?.name ?? null,
 				customerEmail: lead?.email ?? null,

@@ -301,6 +301,18 @@ const migrations: Migration[] = [
 			"Mark pre-existing users as having completed the dashboard tour",
 		file: "20260409_047_backfill_dashboard_tour_for_existing_users.sql",
 	},
+	{
+		id: "20260413_048_chat_message_feedback",
+		description:
+			"Create per-message feedback storage for widget chat responses",
+		file: "20260413_048_chat_message_feedback.sql",
+	},
+	{
+		id: "20260413_049_lead_draft_finalize",
+		description:
+			"Add draft/finalize state tracking for lead capture and CRM sync",
+		file: "20260413_049_lead_draft_finalize.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

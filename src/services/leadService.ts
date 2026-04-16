@@ -32,6 +32,9 @@ export interface Lead {
 	ip_address: string | null;
 	message_count: number;
 	follow_up_sent_at: Date | null;
+	capture_status?: "draft" | "finalized";
+	finalized_at?: Date | null;
+	last_synced_signature?: string | null;
 	created_at: Date;
 	updated_at: Date;
 }
@@ -81,6 +84,203 @@ class LeadService {
 		);
 
 		return Boolean(email || phone);
+	}
+
+	private hasAnyLeadIdentity(
+		extracted: Partial<ExtractedContact>,
+	): boolean {
+		return Boolean(
+			this.normalizeOptionalValue(extracted.name) ||
+				this.normalizeOptionalValue(extracted.email) ||
+				this.normalizeOptionalValue(extracted.phone) ||
+				this.normalizeOptionalValue(extracted.country) ||
+				this.normalizeOptionalValue(extracted.company),
+		);
+	}
+
+	private countCapturedLeadFields(
+		source: Partial<ExtractedContact>,
+	): number {
+		return [
+			source.name,
+			source.email,
+			source.phone,
+			source.country,
+			source.company,
+		].filter((value) => this.normalizeOptionalValue(value) !== null).length;
+	}
+
+	private areRequiredFieldsComplete(
+		source: Partial<ExtractedContact>,
+		requiredFields?: LeadRequiredFields,
+	): boolean {
+		if (!requiredFields) {
+			return this.hasConnectableChannel({
+				name: source.name ?? null,
+				email: source.email ?? null,
+				phone: source.phone ?? null,
+				country: source.country ?? null,
+				company: source.company ?? null,
+				summary: source.summary ?? null,
+			});
+		}
+
+		return (
+			(["name", "email", "phone", "country"] as Array<keyof LeadRequiredFields>).every((field) => {
+				if (!requiredFields[field]) return true;
+				return this.normalizeOptionalValue(source[field] as string | null | undefined) !== null;
+			})
+		);
+	}
+
+	private buildLeadSyncSignature(
+		source: Partial<ExtractedContact>,
+	): string {
+		return JSON.stringify({
+			name: this.normalizeOptionalValue(source.name),
+			email: this.normalizeOptionalValue(source.email),
+			phone: this.normalizeOptionalValue(source.phone),
+			country: this.normalizeOptionalValue(source.country),
+			company: this.normalizeOptionalValue(source.company),
+			summary: this.normalizeOptionalValue(source.summary),
+		});
+	}
+
+	private async getLeadBySession(
+		userId: string,
+		sessionId: string,
+	): Promise<Lead | null> {
+		const result = await pool.query<Lead>(
+			`SELECT *
+			 FROM leads
+			 WHERE user_id = $1 AND session_id = $2
+			 LIMIT 1`,
+			[userId, sessionId],
+		);
+		return result.rows[0] || null;
+	}
+
+	private async queueLeadDestinations(
+		userId: string,
+		eventType: string,
+		payload: Record<string, unknown>,
+		leadId: string,
+	): Promise<void> {
+		void leadWebhookService.queueLeadEvent(userId, eventType, payload, leadId).catch((error) => {
+			logger.error("Failed to queue webhook lead event", { error, userId, leadId, eventType });
+		});
+		void hubspotIntegrationService.queueLeadEvent(userId, eventType, payload, leadId).catch((error) => {
+			logger.error("Failed to queue HubSpot lead event", { error, userId, leadId, eventType });
+		});
+		void zohoIntegrationService.queueLeadEvent(userId, eventType, payload, leadId).catch((error) => {
+			logger.error("Failed to queue Zoho lead event", { error, userId, leadId, eventType });
+		});
+		void salesforceIntegrationService.queueLeadEvent(userId, eventType, payload, leadId).catch((error) => {
+			logger.error("Failed to queue Salesforce lead event", { error, userId, leadId, eventType });
+		});
+	}
+
+	private async maybeSendFollowUpEmail(
+		userId: string,
+		sessionId: string,
+		email: string | null | undefined,
+		name: string | null | undefined,
+		planType?: PlanType,
+	): Promise<void> {
+		const normalizedEmail = this.normalizeOptionalValue(email);
+		if (!normalizedEmail) return;
+
+		const capabilities = getPlanCapabilities(planType || "free");
+		if (!capabilities.autoFollowUpEmail) return;
+
+		try {
+			const checkResult = await pool.query(
+				`SELECT follow_up_sent_at FROM leads
+				 WHERE user_id = $1 AND session_id = $2`,
+				[userId, sessionId],
+			);
+			const leadRow = checkResult.rows[0];
+			if (leadRow && leadRow.follow_up_sent_at === null) {
+				const ownerResult = await pool.query(
+					`SELECT full_name, email FROM users WHERE id = $1`,
+					[userId],
+				);
+				const ownerDisplayName: string | null =
+					ownerResult.rows[0]?.full_name?.trim() ||
+					ownerResult.rows[0]?.email?.trim() ||
+					null;
+
+				await emailService.sendFollowUpEmail(
+					normalizedEmail,
+					this.normalizeOptionalValue(name),
+					ownerDisplayName,
+				);
+
+				await pool.query(
+					`UPDATE leads SET follow_up_sent_at = NOW()
+					 WHERE user_id = $1 AND session_id = $2`,
+					[userId, sessionId],
+				);
+
+				logger.info("Follow-up email sent for lead", {
+					userId,
+					sessionId,
+				});
+			}
+		} catch (emailErr) {
+			logger.error("Failed to send follow-up email for lead", {
+				userId,
+				sessionId,
+				error: emailErr,
+			});
+		}
+	}
+
+	private async finalizeLeadIfNeeded(
+		userId: string,
+		lead: Lead,
+		widgetKeyId: number,
+		contact: ExtractedContact,
+		metadata: {
+			ipAddress?: string;
+			sourceUrl?: string;
+		},
+		messageCount: number,
+		eventType: string,
+		planType?: PlanType,
+	): Promise<void> {
+		const signature = this.buildLeadSyncSignature(contact);
+		const shouldSyncToDestinations = this.hasConnectableChannel(contact);
+		const alreadySynced = lead.last_synced_signature === signature;
+
+		await pool.query(
+			`UPDATE leads
+			 SET capture_status = 'finalized',
+			     finalized_at = COALESCE(finalized_at, CURRENT_TIMESTAMP),
+			     last_synced_signature = CASE WHEN $3::boolean THEN $4 ELSE last_synced_signature END,
+			     updated_at = CURRENT_TIMESTAMP
+			 WHERE id = $1 AND user_id = $2`,
+			[lead.id, userId, shouldSyncToDestinations && !alreadySynced, signature],
+		);
+
+		if (!shouldSyncToDestinations || alreadySynced) {
+			return;
+		}
+
+		const payload = {
+			leadId: lead.id,
+			sessionId: lead.session_id,
+			widgetKeyId,
+			status: lead.status ?? "new",
+			contact,
+			metadata: {
+				ipAddress: metadata.ipAddress ?? null,
+				sourceUrl: metadata.sourceUrl ?? null,
+			},
+			messageCount,
+		};
+		await this.queueLeadDestinations(userId, eventType, payload, lead.id);
+		await this.maybeSendFollowUpEmail(userId, lead.session_id, contact.email, contact.name, planType);
 	}
 
 	private async extractContactFromMessages(
@@ -176,6 +376,17 @@ ${fullConversation}`;
 				(m) => m.role === "user",
 			);
 			if (userMessages.length < 1) return;
+			const existingLead =
+				await this.getLeadBySession(userId, sessionId);
+			const previousCapturedCount = existingLead
+				? this.countCapturedLeadFields({
+						name: existingLead.name,
+						email: existingLead.email,
+						phone: existingLead.phone,
+						country: existingLead.country,
+						company: existingLead.company,
+				  })
+				: 0;
 
 			const extracted =
 				await this.extractContactFromMessages(
@@ -198,6 +409,14 @@ ${fullConversation}`;
 			const leadResult = await pool.query<{
 				id: string;
 				status: "new" | "contacted" | "qualified" | "converted";
+				session_id: string;
+				name: string | null;
+				email: string | null;
+				phone: string | null;
+				country: string | null;
+				company: string | null;
+				chat_summary: string | null;
+				last_synced_signature: string | null;
 			}>(
 				`INSERT INTO leads
 					(user_id, widget_key_id, session_id, name, email, phone, country, company,
@@ -212,8 +431,9 @@ ${fullConversation}`;
 					chat_summary  = EXCLUDED.chat_summary,
 					raw_contact   = EXCLUDED.raw_contact,
 					message_count = EXCLUDED.message_count,
+					capture_status = 'draft',
 					updated_at    = CURRENT_TIMESTAMP
-				 RETURNING id, status`,
+				 RETURNING id, status, session_id, name, email, phone, country, company, chat_summary, last_synced_signature`,
 				[
 					userId,
 					widgetKeyId,
@@ -235,6 +455,41 @@ ${fullConversation}`;
 				userId,
 				sessionId,
 			});
+			const leadRow = leadResult.rows[0];
+			if (!leadRow) return;
+
+			const mergedContact: ExtractedContact = {
+				name: leadRow.name ?? extracted.name,
+				email: leadRow.email ?? extracted.email,
+				phone: leadRow.phone ?? extracted.phone,
+				country: leadRow.country ?? extracted.country,
+				company: leadRow.company ?? extracted.company,
+				summary: leadRow.chat_summary ?? extracted.summary,
+			};
+			const capturedCount =
+				this.countCapturedLeadFields(mergedContact);
+			const shouldFinalize =
+				this.hasConnectableChannel(mergedContact) &&
+				previousCapturedCount > 0 &&
+				capturedCount <= previousCapturedCount;
+
+			if (shouldFinalize) {
+				await this.finalizeLeadIfNeeded(
+					userId,
+					{
+						...(leadRow as unknown as Lead),
+						capture_status: "draft",
+						finalized_at: null,
+					},
+					widgetKeyId,
+					mergedContact,
+					metadata || {},
+					messages.length,
+					"lead.upserted",
+					planType,
+				);
+			}
+			return;
 			const leadId = leadResult.rows[0]?.id;
 			if (leadId) {
 				void leadWebhookService
@@ -389,7 +644,7 @@ ${fullConversation}`;
 							null;
 
 						await emailService.sendFollowUpEmail(
-							extracted.email,
+							extracted.email as string,
 							extracted.name ?? null,
 							ownerDisplayName,
 						);
@@ -434,11 +689,24 @@ ${fullConversation}`;
 			ipAddress?: string;
 			sourceUrl?: string;
 		},
+		options?: {
+			requiredFields?: LeadRequiredFields;
+			finalize?: boolean;
+			planType?: PlanType;
+		},
 	): Promise<void> {
-		const result = await pool.query<{
-			id: string;
-			status: "new" | "contacted" | "qualified" | "converted";
-		}>(
+		const existingLead =
+			await this.getLeadBySession(userId, sessionId);
+		const previousCapturedCount = existingLead
+			? this.countCapturedLeadFields({
+					name: existingLead.name,
+					email: existingLead.email,
+					phone: existingLead.phone,
+					country: existingLead.country,
+					company: existingLead.company,
+			  })
+			: 0;
+		const result = await pool.query<Lead>(
 			`INSERT INTO leads
 				(user_id, widget_key_id, session_id, name, email, phone, country, chat_summary,
 				 raw_contact, ip_address, source_url, message_count, status)
@@ -450,8 +718,9 @@ ${fullConversation}`;
 				country      = COALESCE(EXCLUDED.country, leads.country),
 				chat_summary = COALESCE(EXCLUDED.chat_summary, leads.chat_summary),
 				raw_contact  = EXCLUDED.raw_contact,
+				capture_status = 'draft',
 				updated_at   = CURRENT_TIMESTAMP
-			 RETURNING id, status`,
+			 RETURNING *`,
 			[
 				userId,
 				widgetKeyId,
@@ -473,6 +742,47 @@ ${fullConversation}`;
 			],
 		);
 		logger.info("Contact form lead saved", { userId, sessionId });
+		const leadRow = result.rows[0];
+		if (!leadRow) return;
+
+		const mergedContact: ExtractedContact = {
+			name: leadRow.name,
+			email: leadRow.email,
+			phone: leadRow.phone,
+			country: leadRow.country,
+			company: leadRow.company,
+			summary: leadRow.chat_summary,
+		};
+		const capturedCount =
+			this.countCapturedLeadFields(mergedContact);
+		const isComplete =
+			this.areRequiredFieldsComplete(
+				mergedContact,
+				options?.requiredFields,
+			);
+		const shouldFinalize =
+			Boolean(options?.finalize) ||
+			isComplete ||
+			(previousCapturedCount > 0 &&
+				capturedCount <= previousCapturedCount &&
+				this.hasAnyLeadIdentity(mergedContact));
+
+		if (shouldFinalize) {
+			await this.finalizeLeadIfNeeded(
+				userId,
+				leadRow,
+				widgetKeyId,
+				mergedContact,
+				{
+					ipAddress: data.ipAddress,
+					sourceUrl: data.sourceUrl,
+				},
+				leadRow.message_count || 0,
+				"lead.contact_form",
+				options?.planType,
+			);
+		}
+		return;
 		const leadId = result.rows[0]?.id;
 		if (leadId) {
 			void leadWebhookService
@@ -668,6 +978,9 @@ ${fullConversation}`;
 				ipAddress: metadata?.ipAddress,
 				sourceUrl: metadata?.sourceUrl,
 			},
+			{
+				requiredFields,
+			},
 		);
 	}
 
@@ -708,6 +1021,67 @@ ${fullConversation}`;
 			missingFields,
 			lead,
 		};
+	}
+
+	async finalizeLeadCapture(
+		userId: string,
+		sessionId: string,
+		widgetKeyId: number,
+		requiredFields?: LeadRequiredFields,
+		metadata?: {
+			ipAddress?: string;
+			sourceUrl?: string;
+		},
+		planType?: PlanType,
+	): Promise<boolean> {
+		const lead = await this.getLeadBySession(
+			userId,
+			sessionId,
+		);
+		if (!lead) return false;
+
+		const contact: ExtractedContact = {
+			name: lead.name,
+			email: lead.email,
+			phone: lead.phone,
+			country: lead.country,
+			company: lead.company,
+			summary: lead.chat_summary,
+		};
+
+		if (!this.hasAnyLeadIdentity(contact)) {
+			return false;
+		}
+
+		const shouldFinalize =
+			this.areRequiredFieldsComplete(
+				contact,
+				requiredFields,
+			) || this.hasConnectableChannel(contact);
+
+		if (!shouldFinalize) {
+			await pool.query(
+				`UPDATE leads
+				 SET capture_status = 'finalized',
+				     finalized_at = COALESCE(finalized_at, CURRENT_TIMESTAMP),
+				     updated_at = CURRENT_TIMESTAMP
+				 WHERE id = $1 AND user_id = $2`,
+				[lead.id, userId],
+			);
+			return true;
+		}
+
+		await this.finalizeLeadIfNeeded(
+			userId,
+			lead,
+			widgetKeyId,
+			contact,
+			metadata || {},
+			lead.message_count || 0,
+			"lead.contact_form",
+			planType,
+		);
+		return true;
 	}
 
 	async getLeads(

@@ -125,6 +125,10 @@ export async function submitContactForm(req: Request, res: Response): Promise<vo
 			summary: message || null,
 			ipAddress: req.ip,
 			sourceUrl: referer,
+		}, {
+			requiredFields: leadFormEnabled ? getRequiredLeadFields(widget.widget_config) : undefined,
+			finalize: true,
+			planType,
 		});
 
 		res.status(200).json({ success: true, message: "Message received. We will be in touch!" });
@@ -257,6 +261,131 @@ export async function submitChatRating(req: Request, res: Response): Promise<voi
 	} catch (err) {
 		logger.error("Error saving chat rating", { err });
 		res.status(500).json({ success: false, message: "Failed to save rating" });
+	}
+}
+
+export async function finalizeLeadCapture(req: Request, res: Response): Promise<void> {
+	try {
+		const { widgetKey, sessionId } = req.body as {
+			widgetKey: string;
+			sessionId: string;
+		};
+		const resolved = await resolveWidget(req, res, widgetKey);
+		if (!resolved) return;
+
+		const { userId, referer } = resolved;
+		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
+		if (!widget) {
+			res.status(404).json({ success: false, message: "Widget not found" });
+			return;
+		}
+
+		const { rows } = await pool.query<{ plan_type: string }>(
+			`SELECT plan_type FROM users WHERE id = $1`,
+			[userId],
+		);
+		const planType = coercePlanType(rows[0]?.plan_type);
+
+		const sessionContext = await chatService.getConversationContext(sessionId, userId);
+		if (!sessionContext || sessionContext.widgetKeyId !== widget.id) {
+			res.status(403).json({
+				success: false,
+				message: "Invalid widget session",
+			});
+			return;
+		}
+
+		const finalized = await leadService.finalizeLeadCapture(
+			userId,
+			sessionId,
+			widget.id,
+			widget.widget_config?.leadFormEnabled ? getRequiredLeadFields(widget.widget_config) : undefined,
+			{
+				ipAddress: req.ip,
+				sourceUrl: referer,
+			},
+			planType,
+		);
+
+		res.status(200).json({
+			success: true,
+			data: {
+				finalized,
+			},
+		});
+	} catch (err) {
+		logger.error("Error finalizing lead capture", { err });
+		res.status(500).json({ success: false, message: "Failed to finalize lead capture" });
+	}
+}
+
+export async function submitMessageFeedback(req: Request, res: Response): Promise<void> {
+	try {
+		const {
+			widgetKey,
+			sessionId,
+			messageId,
+			feedbackType,
+			feedbackReason,
+		} = req.body as {
+			widgetKey: string;
+			sessionId: string;
+			messageId: number;
+			feedbackType: "up" | "down";
+			feedbackReason?: string | null;
+		};
+
+		const resolved = await resolveWidget(req, res, widgetKey);
+		if (!resolved) return;
+
+		const { userId } = resolved;
+		const widget = await widgetService.getWidgetKeyByKey(widgetKey);
+		if (!widget) {
+			res.status(404).json({ success: false, message: "Widget not found" });
+			return;
+		}
+
+		const sessionContext = await chatService.getConversationContext(sessionId, userId);
+		if (!sessionContext || sessionContext.widgetKeyId !== widget.id) {
+			res.status(403).json({
+				success: false,
+				message: "Invalid widget session",
+			});
+			return;
+		}
+
+		const messageResult = await pool.query<{ role: "user" | "assistant" | "system" }>(
+			`SELECT role
+			 FROM chat_messages
+			 WHERE conversation_id = $1
+			   AND user_id = $2
+			   AND id = $3
+			 LIMIT 1`,
+			[sessionId, userId, messageId],
+		);
+		const message = messageResult.rows[0];
+		if (!message) {
+			res.status(404).json({ success: false, message: "Message not found" });
+			return;
+		}
+		if (message.role !== "assistant") {
+			res.status(400).json({ success: false, message: "Feedback can only be saved for assistant messages" });
+			return;
+		}
+
+		await chatRatingService.upsertMessageFeedback(
+			userId,
+			sessionId,
+			messageId,
+			widget.id,
+			feedbackType,
+			feedbackReason,
+		);
+
+		res.status(200).json({ success: true, message: "Message feedback recorded" });
+	} catch (err) {
+		logger.error("Error saving chat message feedback", { err });
+		res.status(500).json({ success: false, message: "Failed to save message feedback" });
 	}
 }
 

@@ -99,15 +99,27 @@
 			this._introAnimResetTimer = null;
 			this.isEmbeddedPreview = false;
 			this.isAwaitingResponse = false;
+			this._activeResponseCount = 0;
+			this._hasVisibleStreamingResponse = false;
+			this._queuedSendAfterResponse = false;
 			this._calendlyAssetPromise = null;
 			this._calendlyMessageHandler = null;
 			this._calendlyBookingActive = false;
 			this._leadFormCompleted = false;
 			this._leadFormStatusChecking = false;
+			this._lastLeadFinalizeSessionId = null;
+			this._pageHideHandler = () =>
+				this.finalizePendingLeadDraft();
+			this._visibilityHandler = () => {
+				if (
+					document.visibilityState === "hidden"
+				) {
+					this.finalizePendingLeadDraft();
+				}
+			};
 			this._messageFeedbackReasons = [
 				"Incorrect",
 				"Not helpful",
-
 			];
 
 			this.elements = {};
@@ -175,6 +187,14 @@
 				);
 			this.widgetKey =
 				this.getAttribute("widget-key") || "";
+			window.addEventListener(
+				"pagehide",
+				this._pageHideHandler,
+			);
+			document.addEventListener(
+				"visibilitychange",
+				this._visibilityHandler,
+			);
 			this._leadFormCompleted =
 				sessionStorage.getItem(
 					this.getLeadFormCompletedKey(),
@@ -272,13 +292,34 @@
 				],
 				["show-intro-screen", "showIntroScreen"],
 				["lead-form-enabled", "leadFormEnabled"],
-				["lead-form-button-text", "leadFormButtonText"],
-				["lead-form-name-enabled", "leadFormNameEnabled"],
-				["lead-form-email-enabled", "leadFormEmailEnabled"],
-				["lead-form-phone-enabled", "leadFormPhoneEnabled"],
-				["lead-form-country-enabled", "leadFormCountryEnabled"],
-				["lead-form-trigger-message-count", "leadFormTriggerMessageCount"],
-				["close-prompt-frequency", "closePromptFrequency"],
+				[
+					"lead-form-button-text",
+					"leadFormButtonText",
+				],
+				[
+					"lead-form-name-enabled",
+					"leadFormNameEnabled",
+				],
+				[
+					"lead-form-email-enabled",
+					"leadFormEmailEnabled",
+				],
+				[
+					"lead-form-phone-enabled",
+					"leadFormPhoneEnabled",
+				],
+				[
+					"lead-form-country-enabled",
+					"leadFormCountryEnabled",
+				],
+				[
+					"lead-form-trigger-message-count",
+					"leadFormTriggerMessageCount",
+				],
+				[
+					"close-prompt-frequency",
+					"closePromptFrequency",
+				],
 			];
 
 			ATTR_TO_CONFIG_KEY.forEach(
@@ -326,8 +367,7 @@
 			) {
 				const preconnect =
 					document.createElement("link");
-				preconnect.id =
-					"witzo-fonts-preconnect";
+				preconnect.id = "witzo-fonts-preconnect";
 				preconnect.rel = "preconnect";
 				preconnect.href =
 					"https://fonts.googleapis.com";
@@ -352,9 +392,7 @@
 				);
 			}
 			if (
-				!document.getElementById(
-					"witzo-fonts",
-				)
+				!document.getElementById("witzo-fonts")
 			) {
 				const link =
 					document.createElement("link");
@@ -393,7 +431,6 @@
 			this._bindMessagesFadeResizeObservers?.();
 			this.updateMessagesFadeOverlays();
 			this.updateScrollBottomButton();
-
 
 			this.hasStartedChat = true;
 			this.showIntroScreen(false);
@@ -450,6 +487,14 @@
 		}
 
 		disconnectedCallback() {
+			window.removeEventListener(
+				"pagehide",
+				this._pageHideHandler,
+			);
+			document.removeEventListener(
+				"visibilitychange",
+				this._visibilityHandler,
+			);
 			if (this._calendlyMessageHandler) {
 				window.removeEventListener(
 					"message",
@@ -486,29 +531,44 @@
 			}
 
 			const targets = [];
-			if (this.elements?.widget) targets.push(this.elements.widget);
-			if (this.elements?.messagesContainer) targets.push(this.elements.messagesContainer);
-			if (this.elements?.chatInputContainer) targets.push(this.elements.chatInputContainer);
-			if (this.elements?.textMessageInput) targets.push(this.elements.textMessageInput);
+			if (this.elements?.widget)
+				targets.push(this.elements.widget);
+			if (this.elements?.messagesContainer)
+				targets.push(
+					this.elements.messagesContainer,
+				);
+			if (this.elements?.chatInputContainer)
+				targets.push(
+					this.elements.chatInputContainer,
+				);
+			if (this.elements?.textMessageInput)
+				targets.push(
+					this.elements.textMessageInput,
+				);
 
 			if (!targets.length) {
 				return;
 			}
 
 			this._messagesFadeResizeQueued = false;
-			this._messagesFadeResizeObserverTargets = targets;
-			this._messagesFadeResizeObserver = new ResizeObserver(() => {
-				if (this._messagesFadeResizeQueued) return;
-				this._messagesFadeResizeQueued = true;
-				requestAnimationFrame(() => {
-					this._messagesFadeResizeQueued = false;
-					this.updateMessagesFadeOverlays?.();
-					this.updateScrollBottomButton?.();
+			this._messagesFadeResizeObserverTargets =
+				targets;
+			this._messagesFadeResizeObserver =
+				new ResizeObserver(() => {
+					if (this._messagesFadeResizeQueued)
+						return;
+					this._messagesFadeResizeQueued = true;
+					requestAnimationFrame(() => {
+						this._messagesFadeResizeQueued = false;
+						this.updateMessagesFadeOverlays?.();
+						this.updateScrollBottomButton?.();
+					});
 				});
-			});
 			for (const el of targets) {
 				try {
-					this._messagesFadeResizeObserver.observe(el);
+					this._messagesFadeResizeObserver.observe(
+						el,
+					);
 				} catch (_) {
 					// ignore
 				}
@@ -524,7 +584,8 @@
 				}
 			}
 			this._messagesFadeResizeObserver = null;
-			this._messagesFadeResizeObserverTargets = null;
+			this._messagesFadeResizeObserverTargets =
+				null;
 			this._messagesFadeResizeQueued = false;
 		}
 
@@ -825,6 +886,137 @@
 			this.elements.floatingBtn.classList.remove(
 				"hidden",
 			);
+
+			// Refresh floatingInputShell ref — it's inside the rebuilt innerHTML
+			this.elements.floatingInputShell =
+				this.shadowRoot.querySelector(
+					".floating-input-shell",
+				);
+
+			// Re-bind floating launcher events to the new DOM nodes.
+			// updateFloatingType() replaces innerHTML so all previous listeners are gone.
+			var _self = this;
+			if (this.elements.floatingCloseBtn) {
+				this.elements.floatingCloseBtn.addEventListener(
+					"click",
+					function (e) {
+						e.preventDefault();
+						e.stopPropagation();
+						_self.requestFloatingLauncherDismiss();
+					},
+				);
+			}
+			if (this.elements.floatingHelpBtn) {
+				this.elements.floatingHelpBtn.addEventListener(
+					"click",
+					function () {
+						_self.hideFloatingExitPrompt();
+						_self.openFromFloatingLauncher();
+					},
+				);
+			}
+			if (this.elements.floatingPromptSend) {
+				this.elements.floatingPromptSend.addEventListener(
+					"click",
+					function () {
+						if (_self.isOpen) {
+							_self.requestWidgetClose();
+							return;
+						}
+						_self.hideFloatingExitPrompt();
+						_self.handleFloatingLauncherSend();
+					},
+				);
+			}
+			if (this.elements.floatingExitPromptClose) {
+				this.elements.floatingExitPromptClose.addEventListener(
+					"click",
+					function (e) {
+						e.preventDefault();
+						e.stopPropagation();
+						_self.resolveFloatingExitPrompt(
+							"dismiss",
+						);
+					},
+				);
+			}
+			if (this.elements.floatingExitPromptHelp) {
+				this.elements.floatingExitPromptHelp.addEventListener(
+					"click",
+					function (e) {
+						e.preventDefault();
+						e.stopPropagation();
+						_self.resolveFloatingExitPrompt(
+							"help",
+						);
+					},
+				);
+			}
+			if (
+				this.elements.floatingExitPromptDismiss
+			) {
+				this.elements.floatingExitPromptDismiss.addEventListener(
+					"click",
+					function (e) {
+						e.preventDefault();
+						e.stopPropagation();
+						_self.resolveFloatingExitPrompt(
+							"dismiss",
+						);
+					},
+				);
+			}
+			if (this.elements.floatingPromptInput) {
+				this.elements.floatingPromptInput.addEventListener(
+					"input",
+					function () {
+						_self.updateFloatingLauncherState();
+					},
+				);
+				this.elements.floatingPromptInput.addEventListener(
+					"keydown",
+					function (e) {
+						if (e.key === "Enter") {
+							e.preventDefault();
+							_self.handleFloatingLauncherSend();
+						}
+					},
+				);
+				this.elements.floatingPromptInput.addEventListener(
+					"focus",
+					function () {
+						var wrapper =
+							_self.shadowRoot.getElementById(
+								"floatingPromptInputWrapper",
+							);
+						_self.elements.floatingInputShell?.classList.add(
+							"input-focused",
+						);
+						if (wrapper)
+							wrapper.classList.remove(
+								"is-glowing",
+							);
+					},
+				);
+				this.elements.floatingPromptInput.addEventListener(
+					"blur",
+					function () {
+						var wrapper =
+							_self.shadowRoot.getElementById(
+								"floatingPromptInputWrapper",
+							);
+						_self.elements.floatingInputShell?.classList.remove(
+							"input-focused",
+						);
+						if (
+							wrapper &&
+							!_self.elements.floatingPromptInput.value.trim()
+						) {
+							wrapper.classList.add("is-glowing");
+						}
+					},
+				);
+			}
 		}
 
 		getLanguageStorageKey() {
@@ -856,11 +1048,6 @@
 			sessionStorage.setItem(
 				storageKey,
 				this.selectedLanguage,
-			);
-
-			console.log(
-				this.selectedLanguage,
-				"this.selectedLanguage",
 			);
 		}
 
@@ -1583,7 +1770,7 @@
             gap: 1rem;
             scrollbar-width: none;
             -ms-overflow-style: none;
-            transition: all 0.6s ease-in-out;
+            overflow-anchor: none;
 			border-radius:20px 20px 0 0;
           }
 			
@@ -1614,7 +1801,6 @@
           .chat-message { display: flex; align-items: flex-start; gap: 0.75rem; }
           .chat-message.mt-space {
             margin-top: 46px;
-            transition: all 0.7s ease-in 0.3s;
           }
           .chat-message.has-feedback {
             position: relative;
@@ -3239,7 +3425,6 @@
               display: flex;
               flex-direction: column;
               align-items: flex-start;
-              gap: 6px;
               position: relative;
             }
             .bot-message-row .bot-msg-chat-icon {
@@ -3893,7 +4078,7 @@
 							</defs>
 						</svg>
 
-						<span class="sub-title-text">Instant Responds</span>
+						<span class="sub-title-text">Instant Response</span>
 						</span>
                         </div>
                       </div>
@@ -4231,9 +4416,18 @@
 					this.shadowRoot.getElementById(
 						"messagesFadeBottom",
 					),
-				textMessageInput: this.shadowRoot.getElementById("textMessageInput"),
-				emojiPickerBtn: this.shadowRoot.getElementById("emojiPickerBtn"),
-				chatEmojiPicker: this.shadowRoot.getElementById("chatEmojiPicker"),
+				textMessageInput:
+					this.shadowRoot.getElementById(
+						"textMessageInput",
+					),
+				emojiPickerBtn:
+					this.shadowRoot.getElementById(
+						"emojiPickerBtn",
+					),
+				chatEmojiPicker:
+					this.shadowRoot.getElementById(
+						"chatEmojiPicker",
+					),
 				input: this.shadowRoot.getElementById(
 					"textMessageInput",
 				),
@@ -4288,13 +4482,28 @@
 		}
 
 		trackPageView() {
-			if (!this.apiBaseUrl || !this.widgetKey || !this.sessionId) return;
+			if (
+				!this.apiBaseUrl ||
+				!this.widgetKey ||
+				!this.sessionId
+			)
+				return;
 			const url = window.location.href;
-			fetch(this.apiBaseUrl.replace(/\/+$/, '') + '/api/v1/widget/page-view', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ widgetKey: this.widgetKey, sessionId: this.sessionId, url }),
-			}).catch(() => { });
+			fetch(
+				this.apiBaseUrl.replace(/\/+$/, "") +
+				"/api/v1/widget/page-view",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						widgetKey: this.widgetKey,
+						sessionId: this.sessionId,
+						url,
+					}),
+				},
+			).catch(() => { });
 		}
 
 		bindEvents() {
@@ -4336,7 +4545,9 @@
 					(e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						this.resolveFloatingExitPrompt("dismiss");
+						this.resolveFloatingExitPrompt(
+							"dismiss",
+						);
 					},
 				);
 			}
@@ -4346,17 +4557,23 @@
 					(e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						this.resolveFloatingExitPrompt("help");
+						this.resolveFloatingExitPrompt(
+							"help",
+						);
 					},
 				);
 			}
-			if (this.elements.floatingExitPromptDismiss) {
+			if (
+				this.elements.floatingExitPromptDismiss
+			) {
 				this.elements.floatingExitPromptDismiss.addEventListener(
 					"click",
 					(e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						this.resolveFloatingExitPrompt("dismiss");
+						this.resolveFloatingExitPrompt(
+							"dismiss",
+						);
 					},
 				);
 			}
@@ -4378,26 +4595,37 @@
 				this.elements.floatingPromptInput.addEventListener(
 					"focus",
 					() => {
-						const wrapper = this.shadowRoot.getElementById("floatingPromptInputWrapper");
+						const wrapper =
+							this.shadowRoot.getElementById(
+								"floatingPromptInputWrapper",
+							);
 						this.elements.floatingInputShell?.classList.add(
 							"input-focused",
 						);
 						if (wrapper) {
-							wrapper.classList.remove("is-glowing");
+							wrapper.classList.remove(
+								"is-glowing",
+							);
 						}
-					}
+					},
 				);
 				this.elements.floatingPromptInput.addEventListener(
 					"blur",
 					() => {
-						const wrapper = this.shadowRoot.getElementById("floatingPromptInputWrapper");
+						const wrapper =
+							this.shadowRoot.getElementById(
+								"floatingPromptInputWrapper",
+							);
 						this.elements.floatingInputShell?.classList.remove(
 							"input-focused",
 						);
-						if (wrapper && !this.elements.floatingPromptInput.value.trim()) {
+						if (
+							wrapper &&
+							!this.elements.floatingPromptInput.value.trim()
+						) {
 							wrapper.classList.add("is-glowing");
 						}
-					}
+					},
 				);
 			}
 			if (this.elements.backBtn) {
@@ -4459,19 +4687,23 @@
 					}
 				},
 			);
-			this.elements.input.addEventListener("focus", () => {
-				if (this.elements.chatInputContainer) {
-					if (this.glowTimeout) clearTimeout(this.glowTimeout);
-					this.elements.chatInputContainer.classList.add(
-						"is-glowing",
-					);
-					this.glowTimeout = setTimeout(() => {
-						this.elements.chatInputContainer.classList.remove(
+			this.elements.input.addEventListener(
+				"focus",
+				() => {
+					if (this.elements.chatInputContainer) {
+						if (this.glowTimeout)
+							clearTimeout(this.glowTimeout);
+						this.elements.chatInputContainer.classList.add(
 							"is-glowing",
 						);
-					}, 5000);
-				}
-			});
+						this.glowTimeout = setTimeout(() => {
+							this.elements.chatInputContainer.classList.remove(
+								"is-glowing",
+							);
+						}, 5000);
+					}
+				},
+			);
 			this.resizeChatInput(true);
 			this.updateFloatingLauncherState();
 
@@ -4503,17 +4735,23 @@
 				const renderCountries = (filterText = '') => {
 					const list = this.elements.cfCountryList;
 					if (!list) return;
-					list.innerHTML = '';
-					const filtered = COUNTRIES.filter(c => c.n.toLowerCase().includes(filterText.toLowerCase()));
+					list.innerHTML = "";
+					const filtered = COUNTRIES.filter((c) =>
+						c.n
+							.toLowerCase()
+							.includes(filterText.toLowerCase()),
+					);
 					if (filtered.length === 0) {
-						list.innerHTML = '<div class="cf-country-item" style="pointer-events:none;color:#666;">No results</div>';
+						list.innerHTML =
+							'<div class="cf-country-item" style="pointer-events:none;color:#666;">No results</div>';
 						return;
 					}
-					filtered.forEach(country => {
-						const el = document.createElement('div');
-						el.className = 'cf-country-item';
+					filtered.forEach((country) => {
+						const el =
+							document.createElement("div");
+						el.className = "cf-country-item";
 						el.innerHTML = `<span class="cf-country-name">${country.n}</span>`;
-						el.addEventListener('click', (e) => {
+						el.addEventListener("click", (e) => {
 							e.stopPropagation();
 							if (this.elements.cfCountry) {
 								this.elements.cfCountry.value = country.n;
@@ -4543,8 +4781,15 @@
 				});
 
 				if (this.elements.cfCountrySearch) {
-					this.elements.cfCountrySearch.addEventListener('input', (e) => renderCountries(e.target.value));
-					this.elements.cfCountrySearch.addEventListener('click', e => e.stopPropagation());
+					this.elements.cfCountrySearch.addEventListener(
+						"input",
+						(e) =>
+							renderCountries(e.target.value),
+					);
+					this.elements.cfCountrySearch.addEventListener(
+						"click",
+						(e) => e.stopPropagation(),
+					);
 				}
 
 				this.shadowRoot.addEventListener('click', () => {
@@ -4566,22 +4811,32 @@
 				);
 			}
 			if (this.elements.emojiPickerBtn) {
-				this.elements.emojiPickerBtn.addEventListener("click", (e) => {
-					e.stopPropagation();
-					this.elements.chatEmojiPicker.classList.toggle("show");
-				});
+				this.elements.emojiPickerBtn.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						this.elements.chatEmojiPicker.classList.toggle(
+							"show",
+						);
+					},
+				);
 			}
-			this.shadowRoot.querySelectorAll(".chat-emoji-btn").forEach(btn => {
-				btn.addEventListener("click", (e) => {
-					e.stopPropagation();
-					const emoji = btn.textContent;
-					this.elements.textMessageInput.value += emoji;
-					this.resizeChatInput();
-					this.updateSendButtonState();
-					this.elements.chatEmojiPicker.classList.remove("show");
-					this.elements.textMessageInput.focus();
+			this.shadowRoot
+				.querySelectorAll(".chat-emoji-btn")
+				.forEach((btn) => {
+					btn.addEventListener("click", (e) => {
+						e.stopPropagation();
+						const emoji = btn.textContent;
+						this.elements.textMessageInput.value +=
+							emoji;
+						this.resizeChatInput();
+						this.updateSendButtonState();
+						this.elements.chatEmojiPicker.classList.remove(
+							"show",
+						);
+						this.elements.textMessageInput.focus();
+					});
 				});
-			});
 			if (this.elements.expandChatBtn) {
 				this.elements.expandChatBtn.addEventListener(
 					"click",
@@ -4662,7 +4917,8 @@
 					() => {
 						const helpUrl = sanitizeURL(
 							this.config.introHelpOptionOneUrl ||
-							this.config.introHelpOptionTwoUrl ||
+							this.config
+								.introHelpOptionTwoUrl ||
 							"",
 						);
 						this.elements.headerMenuDropdown?.classList.add(
@@ -4713,32 +4969,39 @@
 					this.handleLanguageSelect(code);
 				});
 			});
-			this.elements.headerLanguageItems.forEach((item) => {
-				item.addEventListener("click", (e) => {
-					e.stopPropagation();
-					const code =
-						item.getAttribute("data-code");
-					this.handleLanguageSelect(code);
-					this.elements.headerLanguageMenu?.classList.remove(
-						"show",
-					);
-					this.elements.headerLanguageBtn?.classList.remove(
-						"is-open",
-					);
-					this.elements.headerMenuDropdown?.classList.add(
-						"hidden",
-					);
-				});
-			});
+			this.elements.headerLanguageItems.forEach(
+				(item) => {
+					item.addEventListener("click", (e) => {
+						e.stopPropagation();
+						const code =
+							item.getAttribute("data-code");
+						this.handleLanguageSelect(code);
+						this.elements.headerLanguageMenu?.classList.remove(
+							"show",
+						);
+						this.elements.headerLanguageBtn?.classList.remove(
+							"is-open",
+						);
+						this.elements.headerMenuDropdown?.classList.add(
+							"hidden",
+						);
+					});
+				},
+			);
 
 			// Close dropdown when clicking outside
 			this.shadowRoot.addEventListener(
 				"click",
 				(e) => {
 					if (
-						!e.target.closest(
-							".message-feedback",
-						)
+						e.target.closest(".message-feedback")
+					) {
+						this.handleMessageFeedbackClick(
+							e,
+						);
+					}
+					if (
+						!e.target.closest(".message-feedback")
 					) {
 						this.closeAllMessageFeedbackMenus();
 					}
@@ -4758,7 +5021,9 @@
 						);
 					}
 					if (this.elements.chatEmojiPicker) {
-						this.elements.chatEmojiPicker.classList.remove("show");
+						this.elements.chatEmojiPicker.classList.remove(
+							"show",
+						);
 					}
 					if (this.elements.headerMenuDropdown) {
 						this.elements.headerMenuDropdown.classList.add(
@@ -4766,11 +5031,6 @@
 						);
 					}
 				},
-			);
-			this.elements.messagesContainer?.addEventListener(
-				"click",
-				(e) =>
-					this.handleMessageFeedbackClick(e),
 			);
 			if (this.elements.scrollBottomBtn) {
 				this.elements.scrollBottomBtn.addEventListener(
@@ -4798,10 +5058,6 @@
 
 		handleLanguageSelect(code) {
 			const nextLanguage = code || "en";
-			console.log(
-				"Language changed to:",
-				nextLanguage,
-			);
 			this.selectedLanguage = nextLanguage;
 			this.config.defaultLanguage = nextLanguage;
 			sessionStorage.setItem(
@@ -4830,16 +5086,18 @@
 					item.classList.remove("active");
 				}
 			});
-			this.elements.headerLanguageItems.forEach((item) => {
-				if (
-					item.getAttribute("data-code") ===
-					nextLanguage
-				) {
-					item.classList.add("active");
-				} else {
-					item.classList.remove("active");
-				}
-			});
+			this.elements.headerLanguageItems.forEach(
+				(item) => {
+					if (
+						item.getAttribute("data-code") ===
+						nextLanguage
+					) {
+						item.classList.add("active");
+					} else {
+						item.classList.remove("active");
+					}
+				},
+			);
 
 			// Close dropdown
 			if (this.elements.langDropdown) {
@@ -4856,9 +5114,35 @@
 		}
 
 		setAwaitingResponse(isAwaiting) {
+			if (isAwaiting) {
+				this._activeResponseCount =
+					(this._activeResponseCount || 0) + 1;
+				this._hasVisibleStreamingResponse = false;
+			} else {
+				this._activeResponseCount = Math.max(
+					0,
+					(this._activeResponseCount || 0) - 1,
+				);
+				if (this._activeResponseCount === 0) {
+					this._hasVisibleStreamingResponse = false;
+				}
+			}
 			this.isAwaitingResponse =
-				Boolean(isAwaiting);
+				this._activeResponseCount > 0;
 			this.updateSendButtonState();
+			if (!this.isAwaitingResponse) {
+				this._flushQueuedSend();
+			}
+		}
+
+		_flushQueuedSend() {
+			if (!this._queuedSendAfterResponse) return;
+			this._queuedSendAfterResponse = false;
+			if (!this.elements?.input?.value.trim())
+				return;
+			requestAnimationFrame(() =>
+				this.handleSend(),
+			);
 		}
 
 		updateBackButtonVisibility(
@@ -5074,7 +5358,9 @@
 				0,
 				Math.min(
 					1,
-					Number(this.config.closePromptFrequency) || 0,
+					Number(
+						this.config.closePromptFrequency,
+					) || 0,
 				),
 			);
 			return (
@@ -5087,7 +5373,8 @@
 		}
 
 		showFloatingExitPrompt(handlers = {}) {
-			const prompt = this.elements.floatingExitPrompt;
+			const prompt =
+				this.elements.floatingExitPrompt;
 			if (!prompt) return;
 			this._floatingExitPromptHandlers = {
 				onHelp:
@@ -5110,7 +5397,8 @@
 		}
 
 		hideFloatingExitPrompt() {
-			const prompt = this.elements.floatingExitPrompt;
+			const prompt =
+				this.elements.floatingExitPrompt;
 			if (!prompt) return;
 			prompt.classList.remove("show");
 			setTimeout(() => {
@@ -5131,7 +5419,8 @@
 		}
 
 		triggerFloatingCloseButton() {
-			const closeBtn = this.elements.floatingCloseBtn;
+			const closeBtn =
+				this.elements.floatingCloseBtn;
 			if (!closeBtn) {
 				this.performFloatingLauncherDismiss();
 				return;
@@ -5146,14 +5435,17 @@
 
 		performFloatingLauncherDismiss() {
 			this.hideFloatingExitPrompt();
-			const closeBtn = this.elements.floatingCloseBtn;
-			const helpBtn = this.elements.floatingHelpBtn;
+			const closeBtn =
+				this.elements.floatingCloseBtn;
+			const helpBtn =
+				this.elements.floatingHelpBtn;
 			const inputWrapper =
 				this.shadowRoot.getElementById(
 					"floatingPromptInputWrapper",
 				);
-			const inputShell =
-				closeBtn?.closest(".floating-input-shell");
+			const inputShell = closeBtn?.closest(
+				".floating-input-shell",
+			);
 			if (closeBtn)
 				closeBtn.classList.add("fade-out-float");
 			if (helpBtn)
@@ -5163,13 +5455,18 @@
 					"fade-out-float",
 				);
 			if (inputShell) {
-				inputShell.classList.add("fade-out-float");
+				inputShell.classList.add(
+					"fade-out-float",
+				);
 				inputShell.classList.add("hide-before");
 			}
-			if (inputWrapper) inputWrapper.style.display = "none";
+			if (inputWrapper)
+				inputWrapper.style.display = "none";
 			setTimeout(() => {
-				if (closeBtn) closeBtn.style.display = "none";
-				if (helpBtn) helpBtn.style.display = "none";
+				if (closeBtn)
+					closeBtn.style.display = "none";
+				if (helpBtn)
+					helpBtn.style.display = "none";
 				if (inputWrapper)
 					inputWrapper.style.display = "none";
 				if (inputShell)
@@ -5250,7 +5547,8 @@
 				this.elements.input.value = prompt;
 			}
 			if (this.elements.floatingPromptInput) {
-				this.elements.floatingPromptInput.value = "";
+				this.elements.floatingPromptInput.value =
+					"";
 			}
 			this.updateFloatingLauncherState();
 			this.resizeChatInput();
@@ -5273,7 +5571,8 @@
 
 		setMessagesFadeOverlaysVisible(visible) {
 			const top = this.elements.messagesFadeTop;
-			const bottom = this.elements.messagesFadeBottom;
+			const bottom =
+				this.elements.messagesFadeBottom;
 			if (!top || !bottom) return;
 			top.classList.toggle("hidden", !visible);
 			bottom.classList.toggle("hidden", !visible);
@@ -5286,9 +5585,11 @@
 		}
 
 		updateMessagesFadeOverlays() {
-			const container = this.elements.messagesContainer;
+			const container =
+				this.elements.messagesContainer;
 			const top = this.elements.messagesFadeTop;
-			const bottom = this.elements.messagesFadeBottom;
+			const bottom =
+				this.elements.messagesFadeBottom;
 			if (!container || !top || !bottom) return;
 			const shouldShow =
 				this.isOpen &&
@@ -5298,15 +5599,23 @@
 					"hidden",
 				);
 			if (!shouldShow) {
-				this.setMessagesFadeOverlaysVisible(false);
+				this.setMessagesFadeOverlaysVisible(
+					false,
+				);
 				return;
 			}
-			const rect = container.getBoundingClientRect();
+			const rect =
+				container.getBoundingClientRect();
 			if (rect.width <= 0 || rect.height <= 0) {
-				this.setMessagesFadeOverlaysVisible(false);
+				this.setMessagesFadeOverlaysVisible(
+					false,
+				);
 				return;
 			}
-			const overlayHeight = Math.min(28, rect.height / 4);
+			const overlayHeight = Math.min(
+				28,
+				rect.height / 4,
+			);
 			this.setMessagesFadeOverlaysVisible(true);
 			top.style.left = `${container.offsetLeft}px`;
 			top.style.top = `${container.offsetTop}px`;
@@ -5319,21 +5628,35 @@
 		}
 
 		updateScrollBottomButton() {
-			const container = this.elements.messagesContainer;
-			const button = this.elements.scrollBottomBtn;
+			const container =
+				this.elements.messagesContainer;
+			const button =
+				this.elements.scrollBottomBtn;
 			if (!container || !button) return;
 			const shouldShow =
 				this.isOpen &&
 				!container.classList.contains("hidden") &&
-				container.scrollHeight - container.scrollTop - container.clientHeight >
-				Math.max(container.clientHeight * 0.6, 180);
-			button.classList.toggle("hidden", !shouldShow);
+				container.scrollHeight -
+				container.scrollTop -
+				container.clientHeight >
+				Math.max(
+					container.clientHeight * 0.6,
+					180,
+				);
+			button.classList.toggle(
+				"hidden",
+				!shouldShow,
+			);
 			button.classList.toggle("show", shouldShow);
 		}
 
-		scheduleMessagesFadeOverlaySync(duration = 520) {
+		scheduleMessagesFadeOverlaySync(
+			duration = 520,
+		) {
 			if (this._messagesFadeRaf) {
-				cancelAnimationFrame(this._messagesFadeRaf);
+				cancelAnimationFrame(
+					this._messagesFadeRaf,
+				);
 				this._messagesFadeRaf = null;
 			}
 			const startedAt = performance.now();
@@ -5346,9 +5669,8 @@
 				}
 				this._messagesFadeRaf = null;
 			};
-			this._messagesFadeRaf = requestAnimationFrame(
-				tick,
-			);
+			this._messagesFadeRaf =
+				requestAnimationFrame(tick);
 		}
 
 		dismissFloatingLauncher() {
@@ -5358,7 +5680,8 @@
 				return;
 			}
 			if (this.elements.floatingPromptInput) {
-				this.elements.floatingPromptInput.value = "";
+				this.elements.floatingPromptInput.value =
+					"";
 			}
 			this.updateFloatingLauncherState();
 			this.elements.floatingBtn?.classList.add(
@@ -5372,7 +5695,8 @@
 				this.toggleChat();
 			}
 			if (this.elements.floatingPromptInput) {
-				this.elements.floatingPromptInput.value = "";
+				this.elements.floatingPromptInput.value =
+					"";
 			}
 			this.updateFloatingLauncherState();
 			this.shadowRoot
@@ -5394,24 +5718,51 @@
 			}
 
 			// Measure current rendered size (start)
-			const startW = widget.getBoundingClientRect().width;
-			const startH = widget.getBoundingClientRect().height;
+			const startW =
+				widget.getBoundingClientRect().width;
+			const startH =
+				widget.getBoundingClientRect().height;
 
 			// Determine target (end) — toggle class off-screen, measure, restore
 			this.isExpanded = !this.isExpanded;
-			widget.style.setProperty("width", `${startW}px`, "important");
-			widget.style.setProperty("height", `${startH}px`, "important");
-			widget.style.setProperty("min-height", `${startH}px`, "important");
-			widget.style.setProperty("max-height", `${startH}px`, "important");
-			widget.classList.toggle("expanded", this.isExpanded);
+			widget.style.setProperty(
+				"width",
+				`${startW}px`,
+				"important",
+			);
+			widget.style.setProperty(
+				"height",
+				`${startH}px`,
+				"important",
+			);
+			widget.style.setProperty(
+				"min-height",
+				`${startH}px`,
+				"important",
+			);
+			widget.style.setProperty(
+				"max-height",
+				`${startH}px`,
+				"important",
+			);
+			widget.classList.toggle(
+				"expanded",
+				this.isExpanded,
+			);
 			// getBCR after class set but inline pins size, so read computed target
 			const cs = window.getComputedStyle(widget);
-			const endW = parseFloat(cs.getPropertyValue("--_ew") || 0) ||
+			const endW =
+				parseFloat(
+					cs.getPropertyValue("--_ew") || 0,
+				) ||
 				(this.isExpanded
-					? Math.min(window.innerWidth * 0.96, 555)
+					? Math.min(
+						window.innerWidth * 0.96,
+						555,
+					)
 					: 400);
 			const endH = this.isExpanded
-				? window.innerHeight * 0.80
+				? window.innerHeight * 0.8
 				: 570;
 
 			const DURATION = 620; // ms
@@ -5425,19 +5776,39 @@
 			const startTime = performance.now();
 			const animate = (now) => {
 				const elapsed = now - startTime;
-				const progress = Math.min(elapsed / DURATION, 1);
+				const progress = Math.min(
+					elapsed / DURATION,
+					1,
+				);
 				const t = ease(progress);
 
 				const w = startW + (endW - startW) * t;
 				const h = startH + (endH - startH) * t;
 
-				widget.style.setProperty("width", `${w}px`, "important");
-				widget.style.setProperty("height", `${h}px`, "important");
-				widget.style.setProperty("min-height", `${h}px`, "important");
-				widget.style.setProperty("max-height", `${h}px`, "important");
+				widget.style.setProperty(
+					"width",
+					`${w}px`,
+					"important",
+				);
+				widget.style.setProperty(
+					"height",
+					`${h}px`,
+					"important",
+				);
+				widget.style.setProperty(
+					"min-height",
+					`${h}px`,
+					"important",
+				);
+				widget.style.setProperty(
+					"max-height",
+					`${h}px`,
+					"important",
+				);
 
 				if (progress < 1) {
-					this._expandRaf = requestAnimationFrame(animate);
+					this._expandRaf =
+						requestAnimationFrame(animate);
 				} else {
 					// Done — clear inline overrides, let CSS hold final state
 					widget.style.width = "";
@@ -5447,7 +5818,8 @@
 					this._expandRaf = null;
 				}
 			};
-			this._expandRaf = requestAnimationFrame(animate);
+			this._expandRaf =
+				requestAnimationFrame(animate);
 
 			if (this.elements.expandChatBtn) {
 				this.elements.expandChatBtn.setAttribute(
@@ -5603,7 +5975,9 @@
 				this.isOpen = false;
 				this.elements.floatingPromptInput?.blur();
 				this.elements.input?.blur();
-				this.setMessagesFadeOverlaysVisible(false);
+				this.setMessagesFadeOverlaysVisible(
+					false,
+				);
 				this.elements.widget.classList.add(
 					"minimizing",
 				);
@@ -5629,7 +6003,13 @@
 		}
 
 		async handleSend() {
-			if (this.isAwaitingResponse) {
+			if (
+				this.isAwaitingResponse &&
+				!this._hasVisibleStreamingResponse
+			) {
+				if (this.elements?.input?.value.trim()) {
+					this._queuedSendAfterResponse = true;
+				}
 				return;
 			}
 
@@ -5766,11 +6146,16 @@
 					this.appendBotReply(
 						typingWrapper,
 						content,
+						typeof result.assistantMessageId ===
+							"number"
+							? result.assistantMessageId
+							: undefined,
 					);
 					appendSources(
 						typingWrapper,
 						this._jsonSources || [],
 					);
+					this.smoothScrollToBottom();
 					if (this._jsonCalendlyBooking) {
 						this.showCalendlyEmbed(
 							this._jsonCalendlyBooking,
@@ -5837,7 +6222,8 @@
 			);
 			const disabled =
 				inputDisabled ||
-				this.isAwaitingResponse ||
+				(this.isAwaitingResponse &&
+					!this._hasVisibleStreamingResponse) ||
 				!hasValue;
 			this.elements.sendBtn.disabled = disabled;
 			this.elements.sendBtn.setAttribute(
@@ -5896,8 +6282,6 @@
 			bubble.innerHTML = `<div class="md-content">${this.parseMarkdown(text)}</div>`;
 
 			wrapper.appendChild(bubble);
-
-
 
 			this.elements.messagesContainer.appendChild(
 				wrapper,
@@ -5998,7 +6382,7 @@
 			return icons[type] || "";
 		}
 
-		getMessageFeedbackMarkup() {
+		getMessageFeedbackMarkup(messageId) {
 			const items = this._messageFeedbackReasons
 				.map(
 					(reason) => `
@@ -6008,8 +6392,13 @@
               </button>`,
 				)
 				.join("");
+			const messageIdAttr =
+				typeof messageId === "number" &&
+					Number.isFinite(messageId)
+					? ` data-message-id="${String(messageId)}"`
+					: "";
 			return `
-            <div class="message-feedback">
+            <div class="message-feedback"${messageIdAttr}>
               <div class="message-feedback-row">
                 <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
                   ${this.getMessageFeedbackIcon("up")}
@@ -6026,8 +6415,15 @@
             </div>`;
 		}
 
-		getBotMessageMarkup(text) {
-			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${this.getMessageFeedbackMarkup()}</div>`;
+		getBotMessageMarkup(text, messageId) {
+			const feedbackMarkup =
+				typeof messageId === "number" &&
+					Number.isFinite(messageId)
+					? this.getMessageFeedbackMarkup(
+						messageId,
+					)
+					: "";
+			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${feedbackMarkup}</div>`;
 		}
 
 		getTypingStatusMarkup(
@@ -6047,7 +6443,9 @@
 
 		closeAllMessageFeedbackMenus() {
 			this.shadowRoot
-				.querySelectorAll(".message-feedback-menu.show")
+				.querySelectorAll(
+					".message-feedback-menu.show",
+				)
 				.forEach((menu) => {
 					menu.classList.remove("show");
 					menu
@@ -6075,10 +6473,9 @@
 					button.classList.remove("active"),
 				);
 				feedbackButton.classList.add("active");
-				const menu =
-					feedbackRoot.querySelector(
-						".message-feedback-menu",
-					);
+				const menu = feedbackRoot.querySelector(
+					".message-feedback-menu",
+				);
 				if (
 					feedbackButton.dataset.feedback ===
 					"down"
@@ -6105,6 +6502,15 @@
 					.forEach((item) =>
 						item.classList.remove("active"),
 					);
+				const messageId = Number(
+					feedbackRoot.dataset.messageId,
+				);
+				if (Number.isFinite(messageId)) {
+					void this.submitMessageFeedback(
+						messageId,
+						"up",
+					);
+				}
 				return;
 			}
 
@@ -6134,6 +6540,18 @@
 				.querySelector(".message-feedback-menu")
 				?.classList.remove("show");
 			feedbackRoot.classList.remove("menu-open");
+			const messageId = Number(
+				feedbackRoot.dataset.messageId,
+			);
+			const feedbackReason =
+				feedbackItem.dataset.feedbackReason || "";
+			if (Number.isFinite(messageId)) {
+				void this.submitMessageFeedback(
+					messageId,
+					"down",
+					feedbackReason || null,
+				);
+			}
 		}
 
 		queueScrollToBottom() {
@@ -6146,6 +6564,46 @@
 				}
 				this.updateScrollBottomButton();
 				this._scrollFrameQueued = false;
+			});
+		}
+
+		smoothScrollToBottom() {
+			if (this._smoothScrollFrameQueued) return;
+			this._smoothScrollFrameQueued = true;
+			requestAnimationFrame(() => {
+				this.elements?.messagesContainer?.scrollTo(
+					{
+						top: this.elements.messagesContainer
+							.scrollHeight,
+						behavior: "smooth",
+					},
+				);
+				this.updateScrollBottomButton();
+				this._smoothScrollFrameQueued = false;
+			});
+		}
+
+		keepStreamingReplyVisible(wrapper) {
+			const container =
+				this.elements?.messagesContainer;
+			if (!container || !wrapper) return;
+			if (wrapper.__streamScrollQueued) return;
+			wrapper.__streamScrollQueued = true;
+
+			requestAnimationFrame(() => {
+				wrapper.__streamScrollQueued = false;
+				const containerRect =
+					container.getBoundingClientRect();
+				const wrapperRect =
+					wrapper.getBoundingClientRect();
+				const overflow =
+					wrapperRect.bottom -
+					(containerRect.bottom - 12);
+
+				if (overflow > 0) {
+					container.scrollTop += overflow;
+					this.updateScrollBottomButton();
+				}
 			});
 		}
 
@@ -6173,8 +6631,15 @@
 					);
 				streamingTextNode.innerHTML =
 					this.parseMarkdown(normalizedText);
+				if (
+					!this._hasVisibleStreamingResponse &&
+					normalizedText.trim()
+				) {
+					this._hasVisibleStreamingResponse = true;
+					this.updateSendButtonState();
+				}
 			}
-			this.queueScrollToBottom();
+			this.keepStreamingReplyVisible(wrapper);
 		}
 
 		normalizeStreamingMarkdown(text) {
@@ -6200,27 +6665,37 @@
 			return normalized;
 		}
 
-		updateTypingToMessage(wrapper, text) {
+		updateTypingToMessage(
+			wrapper,
+			text,
+			messageId,
+		) {
 			const bubble = wrapper.querySelector(
 				".typing-indicator",
 			);
-			wrapper.classList.add("has-feedback");
+			wrapper.classList.remove("has-feedback");
 			if (bubble) {
 				bubble.classList.remove(
 					"typing-indicator",
 				);
 				bubble.innerHTML =
-					this.getBotMessageMarkup(text);
+					this.getBotMessageMarkup(
+						text,
+						messageId,
+					);
 			} else {
 				const bubbleNode = wrapper.querySelector(
 					".chat-bubble-ai",
 				);
 				if (bubbleNode) {
 					bubbleNode.innerHTML =
-						this.getBotMessageMarkup(text);
+						this.getBotMessageMarkup(
+							text,
+							messageId,
+						);
 				}
 			}
-			this.queueScrollToBottom();
+			this.smoothScrollToBottom();
 		}
 
 		async consumeStreamedResponse(
@@ -6374,12 +6849,18 @@
 			this.appendBotReply(
 				typingWrapper,
 				assembled,
+				donePayload &&
+					typeof donePayload.assistantMessageId ===
+					"number"
+					? donePayload.assistantMessageId
+					: undefined,
 			);
 			appendSources(
 				typingWrapper,
 				(donePayload && donePayload.sources) ||
 				[],
 			);
+			this.smoothScrollToBottom();
 			if (
 				donePayload &&
 				donePayload.calendlyBooking
@@ -6391,10 +6872,15 @@
 			return { completed: true };
 		}
 
-		appendBotReply(typingWrapper, text) {
+		appendBotReply(
+			typingWrapper,
+			text,
+			messageId,
+		) {
 			this.updateTypingToMessage(
 				typingWrapper,
 				text,
+				messageId,
 			);
 			this.botMessageCount += 1;
 			this.maybeShowLeadForm();
@@ -6534,13 +7020,6 @@
 				this.elements.hopeBanner.classList.remove(
 					"hidden",
 				);
-				const firstMessage =
-					this.elements.messagesContainer?.querySelector(
-						".chat-message",
-					);
-				if (firstMessage) {
-					firstMessage.classList.add("mt-space");
-				}
 			}
 		}
 
@@ -6578,6 +7057,80 @@
 			}
 		}
 
+		async submitMessageFeedback(
+			messageId,
+			feedbackType,
+			feedbackReason = null,
+		) {
+			if (
+				!this.apiBaseUrl ||
+				!this.widgetKey ||
+				!this.sessionId ||
+				!Number.isFinite(messageId)
+			) {
+				return;
+			}
+			try {
+				const response = await fetch(
+					this.apiBaseUrl +
+					"/api/v1/widget/message-feedback",
+					{
+						method: "POST",
+						headers: this.getRequestHeaders({
+							"Content-Type": "application/json",
+						}),
+						body: JSON.stringify({
+							widgetKey: this.widgetKey,
+							sessionId: this.sessionId,
+							messageId,
+							feedbackType,
+							feedbackReason,
+						}),
+					},
+				);
+				if (!response.ok) return;
+				this.upsertMessageFeedbackAcknowledgement(
+					messageId,
+					feedbackType,
+					feedbackReason,
+				);
+			} catch (e) {
+				console.error(
+					"Failed to submit message feedback",
+					e,
+				);
+			}
+		}
+
+		finalizePendingLeadDraft() {
+			if (
+				!this.apiBaseUrl ||
+				!this.widgetKey ||
+				!this.sessionId ||
+				this._lastLeadFinalizeSessionId ===
+				this.sessionId
+			) {
+				return;
+			}
+			this._lastLeadFinalizeSessionId =
+				this.sessionId;
+			fetch(
+				this.apiBaseUrl +
+				"/api/v1/widget/lead-finalize",
+				{
+					method: "POST",
+					headers: this.getRequestHeaders({
+						"Content-Type": "application/json",
+					}),
+					body: JSON.stringify({
+						widgetKey: this.widgetKey,
+						sessionId: this.sessionId,
+					}),
+					keepalive: true,
+				},
+			).catch(() => { });
+		}
+
 		showRatingAcknowledgement(rating) {
 			if (!this.elements.messagesContainer)
 				return;
@@ -6610,12 +7163,66 @@
 			}, 2400);
 		}
 
+		getMessageFeedbackAcknowledgement(
+			feedbackType,
+			feedbackReason = null,
+		) {
+			if (feedbackType === "down") {
+				if (feedbackReason === "Incorrect") {
+					return "Thanks for flagging that as incorrect. We will use your feedback to improve future replies.";
+				}
+				return "Thanks for the feedback. We will use it to improve future replies.";
+			}
+
+			return "Thanks for your feedback. Glad that reply was helpful.";
+		}
+
+		upsertMessageFeedbackAcknowledgement(
+			messageId,
+			feedbackType,
+			feedbackReason = null,
+		) {
+			if (
+				!this.elements.messagesContainer ||
+				!Number.isFinite(messageId)
+			) {
+				return;
+			}
+
+			const selector = `.chat-message[data-feedback-ack-for="${String(messageId)}"]`;
+			let wrapper =
+				this.elements.messagesContainer.querySelector(
+					selector,
+				);
+
+			if (!wrapper) {
+				wrapper = document.createElement("div");
+				wrapper.className = "chat-message";
+				wrapper.dataset.feedbackAckFor =
+					String(messageId);
+
+				const bubble =
+					document.createElement("div");
+				bubble.className = "chat-bubble-ai";
+				wrapper.appendChild(bubble);
+				this.elements.messagesContainer.appendChild(
+					wrapper,
+				);
+			}
+
+			this.updateBubble(
+				wrapper,
+				this.getMessageFeedbackAcknowledgement(
+					feedbackType,
+					feedbackReason,
+				),
+			);
+		}
+
 		_bindCalendlyMessageListener() {
 			if (this._calendlyMessageHandler) return;
 			this._calendlyMessageHandler = (event) => {
-				const origin = String(
-					event.origin || "",
-				);
+				const origin = String(event.origin || "");
 				if (!origin.includes("calendly.com"))
 					return;
 				const eventName =
@@ -6810,9 +7417,8 @@
 					"#calendlyBackBtn",
 				);
 			if (backButton) {
-				backButton.addEventListener(
-					"click",
-					() => this.hideCalendlyEmbed(),
+				backButton.addEventListener("click", () =>
+					this.hideCalendlyEmbed(),
 				);
 			}
 
@@ -6865,7 +7471,9 @@
 				this.elements.messagesContainer.classList.add(
 					"hidden",
 				);
-				this.setMessagesFadeOverlaysVisible(false);
+				this.setMessagesFadeOverlaysVisible(
+					false,
+				);
 				this.updateScrollBottomButton();
 			}
 			if (this.elements.chatInput)
@@ -7090,13 +7698,13 @@
 		displayDefaultMessage() {
 			const wrapper =
 				document.createElement("div");
-			wrapper.className =
-				"chat-message has-feedback";
+			wrapper.className = "chat-message";
 			const bubble =
 				document.createElement("div");
 			bubble.className = "chat-bubble-ai";
 			bubble.innerHTML = this.getBotMessageMarkup(
 				this.config.primaryText,
+				undefined,
 			);
 			wrapper.appendChild(bubble);
 			this.elements.messagesContainer.appendChild(

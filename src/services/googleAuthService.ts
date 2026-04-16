@@ -1,6 +1,5 @@
 import { PoolClient } from "pg";
 import pool from "../config/database";
-import { PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD } from "../constants";
 import { config } from "../config/env";
 import { User, UserResponse } from "../types";
 import logger from "../utils/logger";
@@ -34,11 +33,6 @@ class GoogleAuthService {
 		user: User,
 		sessionId?: number,
 	): UserResponse {
-		const requiresProfileCompletion =
-			!user.profile_completed &&
-			user.login_count >
-				PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD;
-
 		return {
 			id: user.id,
 			email: user.email,
@@ -54,9 +48,6 @@ class GoogleAuthService {
 			industry: user.industry,
 			companyWebsite: user.company_website,
 			profileCompleted: user.profile_completed,
-			requiresProfileCompletion,
-			profilePromptRequiredAt:
-				user.profile_prompt_required_at,
 			profileCompletedAt:
 				user.profile_completed_at,
 			onboardingStep: user.onboarding_step,
@@ -148,23 +139,15 @@ class GoogleAuthService {
 				);
 			}
 
-			// Update last login and increment login counter
+			// Update last login and increment login counter. Profile editing remains optional in Settings.
 			const updatedUserResult =
 				await client.query<User>(
 					`UPDATE users
 					 SET last_login = CURRENT_TIMESTAMP,
-					     login_count = login_count + 1,
-					     profile_prompt_required_at = CASE
-					       WHEN (login_count + 1) > $2 AND profile_completed = FALSE
-					         THEN COALESCE(profile_prompt_required_at, CURRENT_TIMESTAMP)
-					       ELSE profile_prompt_required_at
-					     END
+					     login_count = login_count + 1
 					 WHERE id = $1
 					 RETURNING *`,
-					[
-						userId,
-						PROFILE_COMPLETION_PROMPT_LOGIN_THRESHOLD,
-					],
+					[userId],
 				);
 			const updatedUser =
 				updatedUserResult.rows[0] ??
