@@ -6999,28 +6999,36 @@
 		}
 		
 		getMessageFeedbackMenuItems() {
-			
-			const messageIdAttr =
-				typeof messageId === "number" &&
-				Number.isFinite(messageId)
-					? ` data-message-id="${String(messageId)}"`
-					: "";
-			return `
-            <div class="message-feedback"${messageIdAttr}>
-              <div class="message-feedback-row">
-                <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
-                  ${this.getMessageFeedbackIcon("up")}
-                  <span class="message-feedback-tooltip">Helpful</span>
-                </button>
-                <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
-                  ${this.getMessageFeedbackIcon("down")}
-                  <span class="message-feedback-tooltip">Not helpful</span>
-                </button>
-              </div>
-              <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?">
-                ${items}
-              </div>
-            </div>`;
+			return this._messageFeedbackReasons
+				.map(
+					(reason) => `
+              <button type="button" class="message-feedback-item" data-feedback-reason="${this.escapeHtml(reason)}">
+                <span>${this.escapeHtml(reason)}</span>
+                <span class="message-feedback-item-icon">${this.getMessageFeedbackIcon(reason)}</span>
+              </button>`,
+				)
+				.join("");
+			// const messageIdAttr =
+			// 	typeof messageId === "number" &&
+			// 	Number.isFinite(messageId)
+			// 		? ` data-message-id="${String(messageId)}"`
+			// 		: "";
+			// return `
+            // <div class="message-feedback"${messageIdAttr}>
+            //   <div class="message-feedback-row">
+            //     <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
+            //       ${this.getMessageFeedbackIcon("up")}
+            //       <span class="message-feedback-tooltip">Helpful</span>
+            //     </button>
+            //     <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
+            //       ${this.getMessageFeedbackIcon("down")}
+            //       <span class="message-feedback-tooltip">Not helpful</span>
+            //     </button>
+            //   </div>
+            //   <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?">
+            //     ${items}
+            //   </div>
+            // </div>`;
 		}
 
 		getBotMessageMarkup(text, messageId) {
