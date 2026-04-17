@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -3519,7 +3519,7 @@
               pointer-events: none;
               transition: opacity 0.18s ease, transform 0.18s ease;
               box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-              z-index: 3;
+              z-index: 9999;
             }
             .message-feedback-btn:hover .message-feedback-tooltip,
             .message-feedback-btn:focus-visible .message-feedback-tooltip {
@@ -3531,6 +3531,16 @@
               opacity: 0;
               transform: translateX(-50%) translateY(-4px);
             }
+            .bot-response-block.current-response .message-feedback-tooltip {
+              display: none !important;
+            }
+            .bot-response-block.no-tooltip .message-feedback-tooltip,
+            .bot-response-block.no-tooltip .message-feedback-btn:hover .message-feedback-tooltip,
+            .bot-response-block.no-tooltip .message-feedback-btn:focus-visible .message-feedback-tooltip {
+              display: none !important;
+              opacity: 0 !important;
+              pointer-events: none !important;
+            }
             .message-feedback-menu {
               position: absolute;
               top: calc(100% + 10px);
@@ -3540,17 +3550,28 @@
               border-radius: 16px;
               box-shadow: 0px 4px 20px 0px #00000024;
               padding: 6px;
+              display: none;
               opacity: 0;
               transform: translateY(8px) scale(0.96);
               transform-origin: top left;
               pointer-events: none;
               transition: opacity 0.22s ease, transform 0.22s ease;
-              z-index: 4;
+              z-index: 999;
             }
             .message-feedback-menu.show {
+              display: block;
               opacity: 1;
               transform: translateY(0) scale(1);
               pointer-events: auto;
+            }
+            .message-feedback-menu.open-up {
+              top: auto;
+              bottom: calc(100% + 10px);
+              transform-origin: bottom left;
+              transform: translateY(-8px) scale(0.96);
+            }
+            .message-feedback-menu.open-up.show {
+              transform: translateY(0) scale(1);
             }
             .message-feedback-item {
               width: 100%;
@@ -5049,6 +5070,36 @@
 					}
 				},
 			);
+			
+			// Populate feedback buttons on hover
+			this.shadowRoot.addEventListener(
+				"mouseover",
+				(e) => {
+					const mdContent = e.target.closest(".md-content");
+					const messageFeedback = e.target.closest(".message-feedback");
+					const botResponseBlock = e.target.closest(".bot-response-block");
+					
+					if (mdContent || messageFeedback || botResponseBlock) {
+						const feedbackContainer = botResponseBlock?.querySelector(".message-feedback") || 
+							messageFeedback?.closest(".message-feedback");
+						
+						if (feedbackContainer) {
+							const feedbackRow = feedbackContainer.querySelector(".message-feedback-row");
+							const feedbackMenu = feedbackContainer.querySelector(".message-feedback-menu");
+							
+							// Populate feedback row if empty
+							if (feedbackRow && feedbackRow.innerHTML.trim() === "") {
+								feedbackRow.innerHTML = this.getMessageFeedbackRowMarkup();
+							}
+							
+							// Populate feedback menu if empty
+							if (feedbackMenu && feedbackMenu.innerHTML.trim() === "") {
+								feedbackMenu.innerHTML = this.getMessageFeedbackMenuItems();
+							}
+						}
+					}
+				},
+			);
 			if (this.elements.scrollBottomBtn) {
 				this.elements.scrollBottomBtn.addEventListener(
 					"click",
@@ -6404,7 +6455,32 @@
 		}
 
 		getMessageFeedbackMarkup(messageId) {
-			const items = this._messageFeedbackReasons
+			const messageIdAttr =
+				typeof messageId === "number" &&
+						Number.isFinite(messageId)
+					? ` data-message-id="${String(messageId)}"`
+					: "";
+			return `
+            <div class="message-feedback"${messageIdAttr}>
+              <div class="message-feedback-row"></div>
+              <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?"></div>
+            </div>`;
+		}
+		
+		getMessageFeedbackRowMarkup() {
+			return `
+                <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
+                  ${this.getMessageFeedbackIcon("up")}
+                  <span class="message-feedback-tooltip">Helpful</span>
+                </button>
+                <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
+                  ${this.getMessageFeedbackIcon("down")}
+                  <span class="message-feedback-tooltip">Not helpful</span>
+                </button>`;
+		}
+		
+		getMessageFeedbackMenuItems() {
+			return this._messageFeedbackReasons
 				.map(
 					(reason) => `
               <button type="button" class="message-feedback-item" data-feedback-reason="${this.escapeHtml(reason)}">
@@ -6413,27 +6489,6 @@
               </button>`,
 				)
 				.join("");
-			const messageIdAttr =
-				typeof messageId === "number" &&
-					Number.isFinite(messageId)
-					? ` data-message-id="${String(messageId)}"`
-					: "";
-			return `
-            <div class="message-feedback"${messageIdAttr}>
-              <div class="message-feedback-row">
-                <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
-                  ${this.getMessageFeedbackIcon("up")}
-                  <span class="message-feedback-tooltip">Helpful</span>
-                </button>
-                <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
-                  ${this.getMessageFeedbackIcon("down")}
-                  <span class="message-feedback-tooltip">Not helpful</span>
-                </button>
-              </div>
-              <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?">
-                ${items}
-              </div>
-            </div>`;
 		}
 
 		getBotMessageMarkup(text, messageId) {
@@ -6464,14 +6519,10 @@
 
 		closeAllMessageFeedbackMenus() {
 			this.shadowRoot
-				.querySelectorAll(
-					".message-feedback-menu.show",
-				)
+				.querySelectorAll('.message-feedback-menu.show')
 				.forEach((menu) => {
-					menu.classList.remove("show");
-					menu
-						.closest(".message-feedback")
-						?.classList.remove("menu-open");
+					menu.classList.remove('show');
+					menu.closest('.message-feedback')?.classList.remove('menu-open');
 				});
 		}
 
@@ -6695,6 +6746,17 @@
 				".typing-indicator",
 			);
 			wrapper.classList.remove("has-feedback");
+			
+			// Remove open-up class from all previous messages
+			this.shadowRoot
+				.querySelectorAll(".message-feedback-menu.open-up")
+				.forEach((menu) => menu.classList.remove("open-up"));
+			
+			// Remove no-tooltip class from all previous bot responses when they are no longer last
+			this.shadowRoot
+				.querySelectorAll(".bot-response-block.no-tooltip")
+				.forEach((block) => block.classList.remove("no-tooltip"));
+			
 			if (bubble) {
 				bubble.classList.remove(
 					"typing-indicator",
@@ -6716,6 +6778,24 @@
 						);
 				}
 			}
+			
+			// Apply open-up class to dropdown menu for 2nd+ bot responses
+			if (this.botMessageCount >= 1) {
+				const menu = bubble?.querySelector(".message-feedback-menu") || 
+					wrapper.querySelector(".message-feedback-menu");
+				if (menu) {
+					menu.classList.add("open-up");
+				}
+			}
+			
+			// Hide tooltip for 2nd+ bot responses (only show for 1st response)
+			if (this.botMessageCount >= 1) {
+				const botResponseBlock = wrapper.querySelector(".bot-response-block");
+				if (botResponseBlock) {
+					botResponseBlock.classList.add("no-tooltip");
+				}
+			}
+			
 			this.smoothScrollToBottom();
 		}
 
