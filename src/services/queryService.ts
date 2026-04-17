@@ -13,8 +13,235 @@ export type QueryClass =
 	| "people"
 	| "general";
 
+export type CtaIntent =
+	| "contact"
+	| "case_study"
+	| "blog";
+
+export type CtaQueryMode =
+	| "general"
+	| "specific";
+
+const CTA_STOP_WORDS = new Set([
+	"a",
+	"all",
+	"an",
+	"and",
+	"any",
+	"are",
+	"about",
+	"browse",
+	"can",
+	"do",
+	"for",
+	"have",
+	"i",
+	"know",
+	"let",
+	"list",
+	"me",
+	"of",
+	"old",
+	"older",
+	"on",
+	"our",
+	"please",
+	"previous",
+	"past",
+	"recent",
+	"related",
+	"see",
+	"show",
+	"specific",
+	"tell",
+	"the",
+	"their",
+	"to",
+	"us",
+	"view",
+	"want",
+	"wanted",
+	"with",
+	"work",
+	"your",
+	"latest",
+	"new",
+	"newer",
+]);
+
+const CASE_STUDY_GENERIC_TERMS = new Set([
+	"case",
+	"cases",
+	"client",
+	"clients",
+	"example",
+	"examples",
+	"portfolio",
+	"project",
+	"projects",
+	"sample",
+	"samples",
+	"stories",
+	"story",
+	"study",
+	"studies",
+	"success",
+	"work",
+]);
+
+const BLOG_GENERIC_TERMS = new Set([
+	"article",
+	"articles",
+	"blog",
+	"blogs",
+	"guide",
+	"guides",
+	"insight",
+	"insights",
+	"news",
+	"post",
+	"posts",
+	"resource",
+	"resources",
+]);
+
+const CASE_STUDY_SIGNAL =
+	/\b(case stud(?:y|ies)|portfolio|our work|client work|projects?|previous work|past work|success stor(?:y|ies)|work samples?|examples?)\b/;
+const BLOG_SIGNAL =
+	/\b(blog(?:s| posts?)?|articles?|guides?|insights?|resources?|news)\b/;
+const CONTACT_SIGNAL =
+	/\b(contact|reach(?: out)?|get in touch|talk to|speak to|connect with|sales|quote|proposal|consultation|custom solution|custom project|discuss(?: my)? project|email|phone|call)\b/;
+const GENERIC_BROWSE_SIGNAL =
+	/\b(list|show|browse|explore|view|see|share|any|all|overview)\b/;
+const GENERAL_QUANTITY_SIGNAL =
+	/\b(all|many|multiple|several|some|few|more)\b/;
+
 export function normalizeWidgetQuery(q: string): string {
 	return q.toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+function tokenizeQuery(q: string): string[] {
+	return normalizeWidgetQuery(q)
+		.replace(/[^a-z0-9\s-]/g, " ")
+		.split(/[\s-]+/)
+		.map((token) => token.trim())
+		.filter(Boolean);
+}
+
+function uniqueTerms(terms: string[]): string[] {
+	return Array.from(new Set(terms));
+}
+
+function hasSpecificSubjectTerms(
+	query: string,
+	intent: Exclude<CtaIntent, "contact">,
+): boolean {
+	return getCtaTopicTerms(query, intent).length > 0;
+}
+
+function hasPluralBrowseSignal(
+	query: string,
+	intent: Exclude<CtaIntent, "contact">,
+): boolean {
+	const q = normalizeWidgetQuery(query);
+	if (GENERAL_QUANTITY_SIGNAL.test(q)) {
+		return true;
+	}
+
+	if (intent === "case_study") {
+		return /\b(case studies|projects|examples|success stories|work samples|clients)\b/.test(
+			q,
+		);
+	}
+
+	return /\b(blogs|blog posts|articles|guides|insights|resources|posts)\b/.test(
+		q,
+	);
+}
+
+export function getCtaTopicTerms(
+	query: string,
+	intent: Exclude<CtaIntent, "contact">,
+): string[] {
+	const genericTerms =
+		intent === "case_study"
+			? CASE_STUDY_GENERIC_TERMS
+			: BLOG_GENERIC_TERMS;
+
+	return uniqueTerms(
+		tokenizeQuery(query).filter(
+			(token) =>
+				token.length > 1 &&
+				!CTA_STOP_WORDS.has(token) &&
+				!genericTerms.has(token),
+		),
+	);
+}
+
+export function getCtaQueryMode(
+	query: string,
+	intent: Exclude<CtaIntent, "contact">,
+): CtaQueryMode {
+	const q = normalizeWidgetQuery(query);
+	if (hasPluralBrowseSignal(query, intent)) {
+		return "general";
+	}
+
+	if (hasSpecificSubjectTerms(query, intent)) {
+		return "specific";
+	}
+
+	if (GENERIC_BROWSE_SIGNAL.test(q)) {
+		return "general";
+	}
+
+	return "general";
+}
+
+export function classifyCtaIntent(
+	query: string,
+): CtaIntent | null {
+	const q = normalizeWidgetQuery(query);
+	if (!q) {
+		return null;
+	}
+
+	if (BLOG_SIGNAL.test(q)) {
+		return "blog";
+	}
+
+	if (CASE_STUDY_SIGNAL.test(q)) {
+		return "case_study";
+	}
+
+	if (CONTACT_SIGNAL.test(q)) {
+		return "contact";
+	}
+
+	return null;
+}
+
+export function buildCtaTargetedQuery(
+	query: string,
+	intent: CtaIntent,
+): string {
+	const trimmed = query.trim();
+	switch (intent) {
+		case "contact":
+			return trimmed.length > 0
+				? `${trimmed} contact get in touch talk to our team`
+				: "contact get in touch talk to our team";
+		case "case_study":
+			return getCtaQueryMode(query, "case_study") ===
+				"general"
+				? "case studies portfolio our work projects client work"
+				: `${trimmed} case study portfolio project client work`;
+		case "blog":
+			return getCtaQueryMode(query, "blog") ===
+				"general"
+				? "blog articles guides resources insights"
+				: `${trimmed} blog article guide insight resource`;
+	}
 }
 
 export function isAppointmentBookingIntent(
