@@ -4,7 +4,7 @@ export const floatingCSS = `
     position: fixed;
     bottom: 20px;
     right: 24px;
-    z-index: 1;
+    z-index: 0;
   }
 
   .floating-launcher {

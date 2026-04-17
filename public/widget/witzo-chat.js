@@ -2630,7 +2630,7 @@
             bottom: 20px;
             position: fixed;
             right: 24px;
-            z-index: 1;
+            z-index: 0;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
@@ -3337,7 +3337,7 @@
             #floatingBtn {
               right: 14px;
               bottom: 14px;
-			  z-index: 1
+			  z-index: 0
             }
 
 			.contact-form-shell {
