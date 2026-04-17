@@ -117,17 +117,6 @@ type AgenticDecision =
 			message: string;
 	  };
 
-type SemanticAnswerCacheEntry = {
-	query: string;
-	embedding: number[];
-	response: string;
-	sources: ContextResult["sources"];
-	language?: string;
-	personaKey?: WidgetPersonaKey;
-	personaPromptHash?: string;
-	createdAt: string;
-};
-
 type PersonaContext = {
 	key: WidgetPersonaKey;
 	prompt: string;
@@ -169,12 +158,6 @@ class ChatService {
 		sessionId: string,
 	): string {
 		return `chat:appointment-lead:${sessionId}`;
-	}
-
-	private getSemanticAnswerCacheKey(
-		userId: string,
-	): string {
-		return `chat:semantic-answer:${userId}`;
 	}
 
 	private hashPersonaPrompt(prompt: string): string {
@@ -230,167 +213,6 @@ class ChatService {
 				promptHash:
 					this.hashPersonaPrompt(""),
 			};
-		}
-	}
-
-	private cosineSimilarity(
-		a: number[],
-		b: number[],
-	): number {
-		if (a.length === 0 || a.length !== b.length) {
-			return 0;
-		}
-		let dot = 0;
-		let normA = 0;
-		let normB = 0;
-		for (let i = 0; i < a.length; i += 1) {
-			dot += a[i] * b[i];
-			normA += a[i] * a[i];
-			normB += b[i] * b[i];
-		}
-		return normA > 0 && normB > 0
-			? dot / (Math.sqrt(normA) * Math.sqrt(normB))
-			: 0;
-	}
-
-	private async getSemanticCachedAnswer(
-		userId: string,
-		query: string,
-		language?: string,
-		personaKey?: WidgetPersonaKey,
-		personaPromptHash?: string,
-	): Promise<{
-		response: string;
-		sources: ContextResult["sources"];
-	} | null> {
-		if (!config.SEMANTIC_ANSWER_CACHE_ENABLED) {
-			return null;
-		}
-		try {
-			const cached = await redisCache.get(
-				this.getSemanticAnswerCacheKey(userId),
-			);
-			if (!cached) return null;
-			const entries = JSON.parse(
-				cached,
-			) as SemanticAnswerCacheEntry[];
-			if (entries.length === 0) return null;
-			const queryEmbedding =
-				await pineconeService.generateEmbedding(query);
-			let best:
-				| {
-						score: number;
-						entry: SemanticAnswerCacheEntry;
-				  }
-				| undefined;
-			const normalizedPersonaKey =
-				personaKey || "general_information";
-			const normalizedPersonaPromptHash =
-				personaPromptHash || "";
-			for (const entry of entries) {
-				if ((entry.language || "") !== (language || "")) {
-					continue;
-				}
-				if (
-					(entry.personaKey || "general_information") !==
-					normalizedPersonaKey
-				) {
-					continue;
-				}
-				if (
-					(entry.personaPromptHash || "") !==
-					normalizedPersonaPromptHash
-				) {
-					continue;
-				}
-				const score = this.cosineSimilarity(
-					queryEmbedding,
-					entry.embedding,
-				);
-				if (!best || score > best.score) {
-					best = { score, entry };
-				}
-			}
-			if (
-				!best ||
-				best.score < config.SEMANTIC_ANSWER_CACHE_THRESHOLD
-			) {
-				return null;
-			}
-			logger.info("Chat semantic answer cache hit", {
-				userId,
-				score: best.score,
-				personaKey: normalizedPersonaKey,
-				personaPromptHash:
-					normalizedPersonaPromptHash,
-			});
-			return {
-				response: best.entry.response,
-				sources: best.entry.sources,
-			};
-		} catch (error) {
-			logger.warn("Chat semantic answer cache read failed", {
-				userId,
-				error:
-					error instanceof Error
-						? error.message
-						: String(error),
-			});
-			return null;
-		}
-	}
-
-	private async setSemanticCachedAnswer(
-		userId: string,
-		query: string,
-		response: string,
-		sources: ContextResult["sources"],
-		language?: string,
-		personaKey?: WidgetPersonaKey,
-		personaPromptHash?: string,
-	): Promise<void> {
-		if (!config.SEMANTIC_ANSWER_CACHE_ENABLED) {
-			return;
-		}
-		if (!response.trim()) return;
-		try {
-			const key = this.getSemanticAnswerCacheKey(userId);
-			const cached = await redisCache.get(key);
-			const entries = cached
-				? (JSON.parse(cached) as SemanticAnswerCacheEntry[])
-				: [];
-			const embedding =
-				await pineconeService.generateEmbedding(query);
-			entries.unshift({
-				query,
-				embedding,
-				response,
-				sources,
-				language,
-				personaKey:
-					personaKey || "general_information",
-				personaPromptHash:
-					personaPromptHash || "",
-				createdAt: new Date().toISOString(),
-			});
-			await redisCache.setex(
-				key,
-				60 * 60 * 12,
-				JSON.stringify(
-					entries.slice(
-						0,
-						config.SEMANTIC_ANSWER_CACHE_MAX_ENTRIES,
-					),
-				),
-			);
-		} catch (error) {
-			logger.warn("Chat semantic answer cache write failed", {
-				userId,
-				error:
-					error instanceof Error
-						? error.message
-						: String(error),
-			});
 		}
 	}
 
@@ -2212,22 +2034,6 @@ ${message}`;
 			.createHash("sha1")
 			.update(`${userId}:${message}`)
 			.digest("hex")}`;
-		const cachedAnswer =
-			await this.getSemanticCachedAnswer(
-				userId,
-				message,
-				resolvedLanguage,
-				personaContext.key,
-				personaContext.promptHash,
-			);
-		if (cachedAnswer) {
-			return {
-				answer: cachedAnswer.response,
-				language: resolvedLanguage,
-				sources: cachedAnswer.sources,
-				matches: [],
-			};
-		}
 		const decision =
 			await this.resolveAgenticDecision(
 				userId,
@@ -2307,18 +2113,6 @@ ${message}`;
 			websiteName,
 			sources.map((s) => s.url),
 		);
-		if (shouldCallLlm && decision.mode === "search") {
-			await this.setSemanticCachedAnswer(
-				userId,
-				message,
-				answer,
-				sources,
-				resolvedLanguage,
-				personaContext.key,
-				personaContext.promptHash,
-			);
-		}
-
 		return {
 			answer,
 			language: resolvedLanguage,
@@ -2777,49 +2571,6 @@ ${message}`;
 			const historyMessages =
 				session.messages.slice(0, -1);
 
-			if (
-				historyMessages.length <= 2 &&
-				!this.isLikelySmallTalk(message)
-			) {
-				const cachedAnswer =
-					await this.getSemanticCachedAnswer(
-						userId,
-						message,
-						resolvedLanguage,
-						personaContext.key,
-						personaContext.promptHash,
-					);
-				if (cachedAnswer) {
-					const assistantTimestamp =
-						await this.persistMessage(
-							session.sessionId,
-							userId,
-							"assistant",
-							cachedAnswer.response,
-							{
-								sourcesCount:
-									cachedAnswer.sources.length,
-								language: resolvedLanguage,
-								isCacheHit: true,
-							},
-						);
-					session.messages.push({
-						role: "assistant",
-						content: cachedAnswer.response,
-						timestamp: assistantTimestamp,
-					});
-					session.updatedAt =
-						assistantTimestamp;
-					await this.saveCachedSession(session);
-					return {
-						sessionId: session.sessionId,
-						response: cachedAnswer.response,
-						language: resolvedLanguage,
-						sources: cachedAnswer.sources,
-					};
-				}
-			}
-
 			const retrievalStart = Date.now();
 			const decision =
 				await this.resolveAgenticDecision(
@@ -2930,17 +2681,6 @@ ${message}`;
 					websiteName,
 					sources.map((s) => s.url),
 				);
-			if (!usedFallback && decision.mode === "search") {
-				await this.setSemanticCachedAnswer(
-					userId,
-					message,
-					assistantResponse,
-					sources,
-					resolvedLanguage,
-					personaContext.key,
-					personaContext.promptHash,
-				);
-			}
 			timing.llmMs = Date.now() - llmStart;
 
 			const usageMeta =
@@ -3055,52 +2795,6 @@ ${message}`;
 		});
 		const historyMessages =
 			session.messages.slice(0, -1);
-
-		if (
-			historyMessages.length <= 2 &&
-			!this.isLikelySmallTalk(message)
-		) {
-			const cachedAnswer =
-				await this.getSemanticCachedAnswer(
-					userId,
-					message,
-					resolvedLanguage,
-					personaContext.key,
-					personaContext.promptHash,
-				);
-			if (cachedAnswer) {
-				options?.onToken?.(cachedAnswer.response);
-				const assistantTimestamp =
-					await this.persistMessage(
-						session.sessionId,
-						userId,
-						"assistant",
-						cachedAnswer.response,
-						{
-							sourcesCount:
-								cachedAnswer.sources.length,
-							language: resolvedLanguage,
-							isCacheHit: true,
-						},
-					);
-				session.messages.push({
-					role: "assistant",
-					content: cachedAnswer.response,
-					timestamp: assistantTimestamp,
-				});
-				session.updatedAt = assistantTimestamp;
-				await this.saveCachedSession(session);
-				timing.saveMs = Date.now() - saveStart;
-				timing.totalMs = Date.now() - startedAt;
-				return {
-					sessionId: session.sessionId,
-					response: cachedAnswer.response,
-					language: resolvedLanguage,
-					sources: cachedAnswer.sources,
-					timing,
-				};
-			}
-		}
 
 		const retrievalStart = Date.now();
 		const decision =
@@ -3263,18 +2957,6 @@ ${message}`;
 				websiteName,
 				sources.map((s) => s.url),
 			);
-		if (!usedFallback && decision.mode === "search") {
-			await this.setSemanticCachedAnswer(
-				userId,
-				message,
-				assistantResponse,
-				sources,
-				resolvedLanguage,
-				personaContext.key,
-				personaContext.promptHash,
-			);
-		}
-
 		const usageMeta =
 			this.buildUsageMetadata(usage);
 		const assistantTimestamp =

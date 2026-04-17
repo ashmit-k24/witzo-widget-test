@@ -1075,10 +1075,6 @@ class ScraperService {
 				contentHash,
 			},
 		);
-		await redisCache.del(
-			`chat:semantic-answer:${userId}`,
-		);
-
 		// Persist to PostgreSQL BEFORE starting the Pinecone upsert.
 		// This makes the website appear immediately in the data-source list
 		// (with 0 indexed chunks) so users are not staring at a blank list

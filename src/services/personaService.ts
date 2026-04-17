@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 import pool from "../config/database";
 import { config } from "../config/env";
-import { redisCache } from "../config/redis";
 import logger from "../utils/logger";
 import widgetService from "./widgetService";
 
@@ -199,7 +198,6 @@ class PersonaService {
 				isActive,
 			],
 		);
-		await this.clearAllSemanticAnswerCaches();
 		return mapRow(result.rows[0]);
 	}
 
@@ -265,7 +263,6 @@ class PersonaService {
 		await widgetService.updateWidgetKey(userId, {
 			widgetConfig: nextConfig,
 		});
-		await redisCache.del(`chat:semantic-answer:${userId}`);
 	}
 
 	private async getDefaultActivePrompt(): Promise<string> {
@@ -287,30 +284,7 @@ class PersonaService {
 		return DEFAULT_PERSONAS.general_information.systemPrompt;
 	}
 
-	private async clearAllSemanticAnswerCaches(): Promise<void> {
-		try {
-			let cursor = "0";
-			do {
-				const [nextCursor, keys] =
-					await redisCache.scan(
-						cursor,
-						"MATCH",
-						"chat:semantic-answer:*",
-						"COUNT",
-						100,
-					);
-				cursor = nextCursor;
-				if (keys.length > 0) {
-					await redisCache.del(...keys);
-				}
-			} while (cursor !== "0");
-		} catch (error) {
-			logger.warn(
-				"persona: failed to clear semantic answer caches",
-				{ error },
-			);
-		}
-	}
+
 
 	async autoDetectAndApplyPersona(
 		userId: string,

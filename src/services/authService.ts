@@ -275,7 +275,6 @@ class AuthService {
 		chatSessionIds: string[],
 	): Promise<void> {
 		const directKeys = [
-			`chat:semantic-answer:${userId}`,
 			`scraper:user:${userId}:latest`,
 			`usage:stats:${userId}`,
 		];
