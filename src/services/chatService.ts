@@ -53,6 +53,7 @@ type AppointmentLeadState = {
 	fields: Partial<
 		Record<AppointmentLeadField, string>
 	>;
+	declinedFields?: AppointmentLeadField[];
 	updatedAt: string;
 };
 
@@ -65,6 +66,7 @@ type AppointmentLeadTurnClassification = {
 	action:
 		| "requested_field"
 		| "normal_chat"
+		| "declined_field"
 		| "unclear";
 	confidence: "high" | "medium" | "low";
 };
@@ -158,6 +160,29 @@ class ChatService {
 		sessionId: string,
 	): string {
 		return `chat:appointment-lead:${sessionId}`;
+	}
+
+	private getLastAssistantMessage(
+		messages: ChatMessage[],
+	): string | null {
+		return (
+			[...messages]
+				.reverse()
+				.find((m) => m.role === "assistant")
+				?.content ?? null
+		);
+	}
+
+	private buildLeadCaptureGuardrail(): string {
+		return `[BEHAVIORAL RULES — always apply, non-negotiable]:
+
+1. OPTIONAL FIELD DECLINE: If the visitor declines to share an optional field (phone, company, timeline) — accept it immediately with one short acknowledgement, skip the field, and deliver the closing confirmation using the name and email already collected. Never re-ask a declined field.
+
+2. CTA AFFIRMATION: If the visitor responds "yes", "sure", "ok", "please", or any affirmation directly after you offered a demo or booking link — respond ONLY with: "Great! Here's your booking link: [use the exact Book a Demo link from your instructions above]". No new questions, no re-explaining.
+
+3. NO RE-ASKING: Before asking for name, email, phone, or company — check the conversation history above. If the visitor already provided that detail earlier in this conversation, DO NOT ask for it again. Use it and move to the next uncollected field or the closing message.
+
+4. ALWAYS CLOSE: Every response ends with exactly one clear next action — never leave the visitor without a next step.`;
 	}
 
 	private hashPersonaPrompt(prompt: string): string {
@@ -254,11 +279,74 @@ class ChatService {
 		);
 	}
 
+	// ─── Session Lead Profile ──────────────────────────────────────────────────
+	// Tracks contact fields already collected in this session so the bot never
+	// re-asks for information the user has already provided, even if a new
+	// appointment intent fires later in the same conversation.
+
+	private getSessionLeadProfileKey(sessionId: string): string {
+		return `chat:session-lead:${sessionId}`;
+	}
+
+	private async getSessionLeadProfile(
+		sessionId: string,
+	): Promise<Partial<Record<AppointmentLeadField, string>> | null> {
+		const cached = await redisCache.get(
+			this.getSessionLeadProfileKey(sessionId),
+		);
+		if (!cached) return null;
+		try {
+			return JSON.parse(cached) as Partial<
+				Record<AppointmentLeadField, string>
+			>;
+		} catch {
+			return null;
+		}
+	}
+
+	async saveSessionLeadProfile(
+		sessionId: string,
+		fields: Partial<Record<AppointmentLeadField, string>>,
+	): Promise<void> {
+		const existing =
+			(await this.getSessionLeadProfile(sessionId)) ?? {};
+		const merged: Partial<Record<AppointmentLeadField, string>> = {
+			...existing,
+		};
+		for (const key of ["name", "email", "phone", "country"] as AppointmentLeadField[]) {
+			if (fields[key]?.trim()) {
+				merged[key] = fields[key];
+			}
+		}
+		await redisCache.setex(
+			this.getSessionLeadProfileKey(sessionId),
+			60 * 60 * 24,
+			JSON.stringify(merged),
+		);
+	}
+
+	private hasMinimumLeadData(
+		profile: Partial<Record<AppointmentLeadField, string>>,
+	): boolean {
+		return !!(profile.email?.trim() || profile.phone?.trim());
+	}
+	// ──────────────────────────────────────────────────────────────────────────
+
 	private shouldRunAppointmentIntentClassifier(
 		normalizedMessage: string,
+		lastAssistantMessage?: string | null,
 	): boolean {
 		if (!normalizedMessage) {
 			return false;
+		}
+
+		if (
+			lastAssistantMessage &&
+			/book\s*a?\s*demo|book\s*a?\s*slot|book\s*a?\s*meeting|schedule\s*a?\s*call|calendly/i.test(
+				lastAssistantMessage,
+			)
+		) {
+			return true;
 		}
 
 		return (
@@ -275,11 +363,13 @@ class ChatService {
 	private async classifyAppointmentIntent(
 		message: string,
 		recentMessages: ChatMessage[],
+		lastAssistantMessage?: string | null,
 	): Promise<AppointmentIntentClassification> {
 		if (
 			!config.OPENAI_API_KEY?.trim() ||
 			!this.shouldRunAppointmentIntentClassifier(
 				normalizeWidgetQuery(message),
+				lastAssistantMessage,
 			)
 		) {
 			return {
@@ -297,9 +387,15 @@ class ChatService {
 			)
 			.join("\n");
 
+		const lastAssistantContext = lastAssistantMessage
+			? `Last assistant message: ${lastAssistantMessage}\n\n`
+			: "";
+
 		const prompt = `Classify whether the latest visitor message is asking to book or arrange a human follow-up such as an appointment, meeting, demo, consultation, callback, sales conversation, or team call.
 
 Be tolerant of typos, short phrases, and poor grammar.
+
+IMPORTANT: If the last assistant message offered a demo booking link or asked the visitor to schedule a call, and the visitor responds with a short affirmation ("yes", "sure", "ok", "please", etc.), classify this as a positive booking intent with high confidence.
 
 Return only valid JSON with this exact shape:
 {
@@ -317,6 +413,8 @@ Treat these as positive examples:
 - "i need a demo"
 - "want to discuss my project with sales"
 - "can we schedule a meeting"
+- "yes" (when last assistant message offered a demo/booking link)
+- "sure" (when last assistant message offered a demo/booking link)
 
 Treat these as negative examples:
 - asking for office address, phone number, or email only
@@ -324,7 +422,7 @@ Treat these as negative examples:
 - asking for pricing or plans
 - general support questions without asking for a meeting/call
 
-Recent conversation:
+${lastAssistantContext}Recent conversation:
 ${recentConversation || "None"}
 
 Latest visitor message:
@@ -533,6 +631,11 @@ ${message}`;
 		return null;
 	}
 
+	private isDeclinationMessage(message: string): boolean {
+		const t = message.trim().toLowerCase();
+		return /^(no|nope|nah|skip|not now|dont want|don't want|prefer not|no thanks|no thank you|n\/a|none|pass|later|not interested|no need|ignore|leave it|not required|not necessary)\b/.test(t);
+	}
+
 	private async classifyAppointmentLeadTurn(
 		message: string,
 		expectedField: AppointmentLeadField,
@@ -545,6 +648,15 @@ ${message}`;
 				action: "unclear",
 				confidence: "low",
 			};
+		}
+
+		// Fast-path: clear declination for optional fields — no LLM call needed
+		const optionalFields: AppointmentLeadField[] = ["phone", "country"];
+		if (
+			optionalFields.includes(expectedField) &&
+			this.isDeclinationMessage(trimmed)
+		) {
+			return { action: "declined_field", confidence: "high" };
 		}
 
 		if (trimmed.includes("?")) {
@@ -647,6 +759,7 @@ ${message}`;
 				const action =
 					parsed.action === "requested_field" ||
 					parsed.action === "normal_chat" ||
+					parsed.action === "declined_field" ||
 					parsed.action === "unclear"
 						? parsed.action
 						: "unclear";
@@ -686,8 +799,10 @@ ${message}`;
 	): AppointmentLeadField | null {
 		const orderedFields: AppointmentLeadField[] =
 			["name", "email", "phone", "country"];
+		const declined = state.declinedFields ?? [];
 
 		for (const field of orderedFields) {
+			if (declined.includes(field)) continue;
 			if (!state.fields[field]?.trim()) {
 				return field;
 			}
@@ -819,7 +934,12 @@ ${message}`;
 			case "name": {
 				const extractedName =
 					nextState.fields.name ||
-					this.extractNameCandidate(trimmed);
+					this.extractNameCandidate(trimmed) ||
+					// Accept bare names (e.g. "arjun", "John Smith") without
+					// requiring a "my name is X" prefix pattern.
+					(this.isBasicAppointmentTextFieldValue(trimmed)
+						? trimmed
+						: null);
 				if (extractedName) {
 					nextState.fields.name = extractedName;
 					return {
@@ -832,7 +952,12 @@ ${message}`;
 			case "country": {
 				const extractedCountry =
 					nextState.fields.country ||
-					this.extractCountryCandidate(trimmed);
+					this.extractCountryCandidate(trimmed) ||
+					// Accept bare country names (e.g. "india", "USA") without
+					// requiring a pattern prefix like "i am from X".
+					(this.isBasicAppointmentTextFieldValue(trimmed)
+						? trimmed
+						: null);
 				if (extractedCountry) {
 					nextState.fields.country =
 						extractedCountry;
@@ -1611,9 +1736,13 @@ ${message}`;
 			);
 		}
 
-		const systemPrompt =
+		const baseSystemPrompt =
 			effectiveSystemMessage.trim() ||
 			this.defaultGeneratedSystemPrompt();
+		const systemPrompt = [
+			baseSystemPrompt,
+			this.buildLeadCaptureGuardrail(),
+		].join("\n\n");
 		const languageInstruction =
 			this.buildLanguageInstruction(
 				_languageCode,
@@ -1822,10 +1951,15 @@ ${message}`;
 			return { mode: "search", query };
 		}
 
-		const websiteName =
-			await websiteBrandingService.resolveUserWebsiteName(
-				userId,
-			);
+		const [websiteName, effectiveSystemMessage] =
+			await Promise.all([
+				websiteBrandingService.resolveUserWebsiteName(
+					userId,
+				),
+				systemMessageService.resolveEffectiveSystemMessage(
+					userId,
+				),
+			]);
 
 		const recentHistory = history
 			.slice(-CHAT_HISTORY_WINDOW_MESSAGES)
@@ -1891,9 +2025,19 @@ ${message}`;
 											`Use respond_to_user for: greetings, farewells, personal introductions (e.g. "I am John", "my name is...", "I'm Vivek"), thank-you messages, acknowledgements, or any social exchange that doesn't need company knowledge.`,
 											`Use search_knowledge_base for questions about the company, services, pricing, contact info, team, policies, or any factual business question.`,
 											"CRITICAL: Personal introductions (user sharing their name or personal info) MUST use respond_to_user — never search the knowledge base for them.",
+											"CRITICAL: Email addresses and phone numbers are personal contact information — even if an email contains a company domain (e.g. john@company.com), treat it as personal info and use respond_to_user, never search_knowledge_base.",
+											"CRITICAL: If the previous assistant message was asking the user for their name, email, phone number, or other personal details, and the user's message is providing that information, ALWAYS use respond_to_user.",
 											"When responding directly, be warm and natural, and follow the widget persona instructions.",
 										].join(" "),
 									},
+									...(effectiveSystemMessage?.trim()
+										? [
+												{
+													role: "system" as const,
+													content: `Widget persona and behavioral rules (apply these when generating a direct response):\n${effectiveSystemMessage.trim()}\n\n${this.buildLeadCaptureGuardrail()}`,
+												},
+											]
+										: []),
 									...(personaContext?.prompt.trim()
 										? [
 												{
@@ -2121,6 +2265,39 @@ ${message}`;
 		};
 	}
 
+	private isLastMessageAskingForLeadField(
+		lastMessage: string,
+	): AppointmentLeadField | null {
+		const lower = lastMessage.toLowerCase();
+		if (
+			lower.includes("email") ||
+			lower.includes("e-mail")
+		)
+			return "email";
+		if (
+			lower.includes("phone") ||
+			lower.includes("mobile") ||
+			lower.includes("number") ||
+			lower.includes("contact")
+		)
+			return "phone";
+		if (
+			lower.includes("your name") ||
+			lower.includes("full name") ||
+			lower.includes("may i have your name") ||
+			lower.includes("what's your name") ||
+			lower.includes("whats your name")
+		)
+			return "name";
+		if (
+			lower.includes("country") ||
+			lower.includes("based in") ||
+			lower.includes("location")
+		)
+			return "country";
+		return null;
+	}
+
 	async handleAppointmentLeadCapture(
 		userId: string,
 		message: string,
@@ -2171,6 +2348,8 @@ ${message}`;
 			isAppointmentBookingIntent(
 				normalizedMessage,
 			);
+		const lastAssistantMessage =
+			this.getLastAssistantMessage(session.messages);
 		let classifiedIntent: AppointmentIntentClassification =
 			{
 				isAppointmentIntent: false,
@@ -2186,20 +2365,107 @@ ${message}`;
 				await this.classifyAppointmentIntent(
 					message,
 					session.messages,
+					lastAssistantMessage,
 				);
 			timing.llmMs +=
 				Date.now() - classifierStart;
 		}
 
+		// Detect LLM-driven lead collection: the bot (via custom system prompt)
+		// already asked for a lead field and the user is now providing it, but
+		// the state machine was never activated.  Bridge the gap so we capture
+		// the data and avoid re-asking.
+		const llmLeadBridge =
+			!existingState?.active &&
+			!regexMatchedIntent &&
+			!classifiedIntent.isAppointmentIntent &&
+			lastAssistantMessage != null &&
+			this.isLastMessageAskingForLeadField(
+				lastAssistantMessage,
+			) != null &&
+			(this.extractEmailCandidate(normalizedMessage) != null ||
+				this.extractPhoneCandidate(normalizedMessage) != null ||
+				this.extractNameCandidate(normalizedMessage) != null ||
+				this.extractCountryCandidate(normalizedMessage) != null);
+
 		const isActive =
 			Boolean(existingState?.active) ||
 			regexMatchedIntent ||
+			llmLeadBridge ||
 			(classifiedIntent.isAppointmentIntent &&
 				classifiedIntent.confidence !== "low");
 
 		if (!isActive) {
 			return null;
 		}
+
+		// ── Session lead profile check ─────────────────────────────────────────
+		// If the user already provided contact details earlier in this session,
+		// skip collection entirely and confirm with the known details.
+		if (!existingState?.active) {
+			const sessionProfile = await this.getSessionLeadProfile(
+				session.sessionId,
+			);
+			if (
+				sessionProfile &&
+				this.hasMinimumLeadData(sessionProfile)
+			) {
+				const namePart = sessionProfile.name
+					? `, ${sessionProfile.name}`
+					: "";
+				const contactPart =
+					sessionProfile.email || sessionProfile.phone
+						? ` Our team will reach out to you at ${sessionProfile.email || sessionProfile.phone}.`
+						: "";
+				const response = `Great${namePart}! Our team already has your details and will be in touch shortly.${contactPart}`;
+				const saveStart = Date.now();
+				const userTs = await this.persistMessage(
+					session.sessionId,
+					userId,
+					"user",
+					message,
+					{ language: resolvedLanguage, appointmentLeadCapture: true },
+				);
+				session.messages.push({
+					role: "user",
+					content: message,
+					timestamp: userTs,
+				});
+				const assistantTs = await this.persistMessage(
+					session.sessionId,
+					userId,
+					"assistant",
+					response,
+					{
+						language: resolvedLanguage,
+						appointmentLeadCapture: true,
+						leadCaptureCompleted: true,
+					},
+				);
+				session.messages.push({
+					role: "assistant",
+					content: response,
+					timestamp: assistantTs,
+				});
+				session.updatedAt = assistantTs;
+				await this.saveCachedSession(session);
+				input.onToken?.(response);
+				timing.saveMs = Date.now() - saveStart;
+				timing.totalMs = Date.now() - startedAt;
+				logger.info("lead: skipped re-collection via session lead profile", {
+					userId,
+					sessionId: session.sessionId,
+				});
+				return {
+					sessionId: session.sessionId,
+					response,
+					language: resolvedLanguage,
+					sources: [],
+					timing,
+				};
+			}
+		}
+		// ──────────────────────────────────────────────────────────────────────
 
 		let leadTurnClassification: AppointmentLeadTurnClassification | null =
 			null;
@@ -2341,6 +2607,14 @@ ${message}`;
 		);
 		if (existingFormLead.completed && existingFormLead.lead) {
 			const lead = existingFormLead.lead;
+			// Warm the session lead profile cache so subsequent triggers skip
+			// the DB round-trip entirely.
+			this.saveSessionLeadProfile(session.sessionId, {
+				name: lead.name ?? undefined,
+				email: lead.email ?? undefined,
+				phone: lead.phone ?? undefined,
+				country: lead.country ?? undefined,
+			}).catch(() => {});
 			const namePart = lead.name ? `, ${lead.name}` : "";
 			const contactPart = lead.email || lead.phone
 				? ` We'll reach out to you at ${lead.email || lead.phone}.`
@@ -2376,30 +2650,44 @@ ${message}`;
 					existingState,
 				);
 			if (expectedField) {
-				const captured =
-					this.captureExpectedAppointmentField(
-						state,
-						expectedField,
-						message,
-					);
-				state = captured.state;
-				if (!captured.valid) {
-					if (
-						leadTurnClassification?.action ===
-							"requested_field" &&
-						(expectedField === "name" ||
-							expectedField === "country") &&
-						this.isBasicAppointmentTextFieldValue(
+				// Handle explicit declination of optional fields
+				if (
+					leadTurnClassification?.action ===
+						"declined_field"
+				) {
+					state = {
+						...state,
+						declinedFields: [
+							...(state.declinedFields ?? []),
+							expectedField,
+						],
+					};
+				} else {
+					const captured =
+						this.captureExpectedAppointmentField(
+							state,
+							expectedField,
 							message,
-						)
-					) {
-						state.fields[expectedField] =
-							message.trim();
-					} else {
-						response =
-							this.buildInvalidAppointmentLeadPrompt(
-								expectedField,
-							);
+						);
+					state = captured.state;
+					if (!captured.valid) {
+						if (
+							leadTurnClassification?.action ===
+								"requested_field" &&
+							(expectedField === "name" ||
+								expectedField === "country") &&
+							this.isBasicAppointmentTextFieldValue(
+								message,
+							)
+						) {
+							state.fields[expectedField] =
+								message.trim();
+						} else {
+							response =
+								this.buildInvalidAppointmentLeadPrompt(
+									expectedField,
+								);
+						}
 					}
 				}
 			}
@@ -2428,6 +2716,21 @@ ${message}`;
 		} else {
 			await this.clearAppointmentLeadState(
 				session.sessionId,
+			);
+		}
+
+		// Always keep the session lead profile up-to-date so subsequent
+		// appointment intents in the same session skip re-collection.
+		if (state.fields.email || state.fields.phone) {
+			this.saveSessionLeadProfile(
+				session.sessionId,
+				state.fields,
+			).catch((err: Error) =>
+				logger.warn("Failed to save session lead profile", {
+					userId,
+					sessionId: session.sessionId,
+					error: err.message,
+				}),
 			);
 		}
 
