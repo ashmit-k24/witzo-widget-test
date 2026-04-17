@@ -8231,7 +8231,7 @@
 			if (this.elements.cfSubmit) {
 				this.elements.cfSubmit.disabled = true;
 				this.elements.cfSubmit.textContent =
-					"Sending...";
+					"Send";
 			}
 			try {
 				const resp = await fetch(
