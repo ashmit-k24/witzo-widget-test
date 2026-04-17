@@ -1,7 +1,6 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { config } from "../config/env";
-import { redisCache } from "../config/redis";
 import { RagChunk, ScrapedPage } from "../types";
 import logger from "../utils/logger";
 import { assertSafeOutgoingUrl } from "../utils/networkSafety";
