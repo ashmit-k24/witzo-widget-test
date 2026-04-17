@@ -559,30 +559,65 @@ ${message}`;
 		const fields: Partial<
 			Record<AppointmentLeadField, string>
 		> = {};
-		for (const msg of messages) {
-			if (msg.role !== "user") continue;
-			const text = msg.content;
-			if (!fields.name) {
-				const name =
-					this.extractNameCandidate(text);
-				if (name) fields.name = name;
+
+		for (let i = 0; i < messages.length; i++) {
+			const msg = messages[i];
+
+			// Pattern-based extraction from user messages
+			if (msg.role === "user") {
+				const text = msg.content;
+				if (!fields.email) {
+					const email = this.extractEmailCandidate(text);
+					if (email) fields.email = email;
+				}
+				if (!fields.phone) {
+					const phone = this.extractPhoneCandidate(text);
+					if (phone) fields.phone = phone;
+				}
+				if (!fields.name) {
+					const name = this.extractNameCandidate(text);
+					if (name) fields.name = name;
+				}
+				if (!fields.country) {
+					const country = this.extractCountryCandidate(text);
+					if (country) fields.country = country;
+				}
 			}
-			if (!fields.email) {
-				const email =
-					this.extractEmailCandidate(text);
-				if (email) fields.email = email;
-			}
-			if (!fields.phone) {
-				const phone =
-					this.extractPhoneCandidate(text);
-				if (phone) fields.phone = phone;
-			}
-			if (!fields.country) {
-				const country =
-					this.extractCountryCandidate(text);
-				if (country) fields.country = country;
+
+			// Context-aware pair: bot asked for a field → next user message is the answer
+			if (msg.role === "assistant" && i + 1 < messages.length) {
+				const next = messages[i + 1];
+				if (next.role !== "user") continue;
+				const askedField = this.isLastMessageAskingForLeadField(msg.content);
+				if (!askedField) continue;
+				const userReply = next.content.trim();
+				switch (askedField) {
+					case "name":
+						if (!fields.name && this.isBasicAppointmentTextFieldValue(userReply)) {
+							fields.name = userReply;
+						}
+						break;
+					case "email":
+						if (!fields.email) {
+							const e = this.extractEmailCandidate(userReply);
+							if (e) fields.email = e;
+						}
+						break;
+					case "phone":
+						if (!fields.phone) {
+							const p = this.extractPhoneCandidate(userReply);
+							if (p) fields.phone = p;
+						}
+						break;
+					case "country":
+						if (!fields.country && this.isBasicAppointmentTextFieldValue(userReply)) {
+							fields.country = userReply;
+						}
+						break;
+				}
 			}
 		}
+
 		return fields;
 	}
 
@@ -860,28 +895,25 @@ ${message}`;
 			updatedAt: new Date().toISOString(),
 		};
 
-		const email =
-			this.extractEmailCandidate(message);
-		if (email) {
-			nextState.fields.email = email;
+		// Only fill fields that are not already captured — never overwrite.
+		if (!nextState.fields.email) {
+			const email = this.extractEmailCandidate(message);
+			if (email) nextState.fields.email = email;
 		}
 
-		const phone =
-			this.extractPhoneCandidate(message);
-		if (phone) {
-			nextState.fields.phone = phone;
+		if (!nextState.fields.phone) {
+			const phone = this.extractPhoneCandidate(message);
+			if (phone) nextState.fields.phone = phone;
 		}
 
-		const name =
-			this.extractNameCandidate(message);
-		if (name) {
-			nextState.fields.name = name;
+		if (!nextState.fields.name) {
+			const name = this.extractNameCandidate(message);
+			if (name) nextState.fields.name = name;
 		}
 
-		const country =
-			this.extractCountryCandidate(message);
-		if (country) {
-			nextState.fields.country = country;
+		if (!nextState.fields.country) {
+			const country = this.extractCountryCandidate(message);
+			if (country) nextState.fields.country = country;
 		}
 
 		return nextState;
@@ -1701,6 +1733,18 @@ ${message}`;
 		}
 	}
 
+	private buildCollectedLeadContext(
+		profile: Partial<Record<AppointmentLeadField, string>>,
+	): string {
+		const parts: string[] = [];
+		if (profile.name) parts.push(`Name: ${profile.name}`);
+		if (profile.email) parts.push(`Email: ${profile.email}`);
+		if (profile.phone) parts.push(`Phone: ${profile.phone}`);
+		if (profile.country) parts.push(`Country: ${profile.country}`);
+		if (!parts.length) return "";
+		return `VISITOR DETAILS ALREADY COLLECTED — do NOT ask for any of these again:\n${parts.join(", ")}`;
+	}
+
 	private async buildChatMessages(
 		userId: string,
 		query: string,
@@ -1708,11 +1752,15 @@ ${message}`;
 		messages: ChatMessage[],
 		_languageCode?: string,
 		personaContext?: PersonaContext,
+		sessionId?: string,
 	): Promise<Array<any>> {
-		const effectiveSystemMessage =
-			await systemMessageService.resolveEffectiveSystemMessage(
-				userId,
-			);
+		const [effectiveSystemMessage, sessionProfile] =
+			await Promise.all([
+				systemMessageService.resolveEffectiveSystemMessage(userId),
+				sessionId
+					? this.getSessionLeadProfile(sessionId)
+					: Promise.resolve(null),
+			]);
 
 		// Build a flat knowledge-base block from retrieved matches.
 		const contextParts: string[] = [];
@@ -1739,10 +1787,15 @@ ${message}`;
 		const baseSystemPrompt =
 			effectiveSystemMessage.trim() ||
 			this.defaultGeneratedSystemPrompt();
+		const collectedContext =
+			sessionProfile && this.hasMinimumLeadData(sessionProfile)
+				? this.buildCollectedLeadContext(sessionProfile)
+				: "";
 		const systemPrompt = [
 			baseSystemPrompt,
 			this.buildLeadCaptureGuardrail(),
-		].join("\n\n");
+			collectedContext,
+		].filter(Boolean).join("\n\n");
 		const languageInstruction =
 			this.buildLanguageInstruction(
 				_languageCode,
@@ -1946,12 +1999,13 @@ ${message}`;
 		history: ChatMessage[],
 		languageCode?: string,
 		personaContext?: PersonaContext,
+		sessionId?: string,
 	): Promise<AgenticDecision> {
 		if (!config.OPENAI_API_KEY?.trim()) {
 			return { mode: "search", query };
 		}
 
-		const [websiteName, effectiveSystemMessage] =
+		const [websiteName, effectiveSystemMessage, sessionProfile] =
 			await Promise.all([
 				websiteBrandingService.resolveUserWebsiteName(
 					userId,
@@ -1959,6 +2013,9 @@ ${message}`;
 				systemMessageService.resolveEffectiveSystemMessage(
 					userId,
 				),
+				sessionId
+					? this.getSessionLeadProfile(sessionId)
+					: Promise.resolve(null),
 			]);
 
 		const recentHistory = history
@@ -2034,7 +2091,13 @@ ${message}`;
 										? [
 												{
 													role: "system" as const,
-													content: `Widget persona and behavioral rules (apply these when generating a direct response):\n${effectiveSystemMessage.trim()}\n\n${this.buildLeadCaptureGuardrail()}`,
+													content: [
+														`Widget persona and behavioral rules (apply these when generating a direct response):\n${effectiveSystemMessage.trim()}`,
+														this.buildLeadCaptureGuardrail(),
+														sessionProfile && this.hasMinimumLeadData(sessionProfile)
+															? this.buildCollectedLeadContext(sessionProfile)
+															: "",
+													].filter(Boolean).join("\n\n"),
 												},
 											]
 										: []),
@@ -2185,6 +2248,7 @@ ${message}`;
 				[],
 				resolvedLanguage,
 				personaContext,
+				syntheticSessionId,
 			);
 		const { matches, sources } =
 			decision.mode === "respond"
@@ -2226,6 +2290,7 @@ ${message}`;
 						[],
 						resolvedLanguage,
 						personaContext,
+						syntheticSessionId,
 					),
 					CHAT_DEFAULT_TIMEOUT_MS,
 				);
@@ -2375,18 +2440,21 @@ ${message}`;
 		// already asked for a lead field and the user is now providing it, but
 		// the state machine was never activated.  Bridge the gap so we capture
 		// the data and avoid re-asking.
+		const llmLeadBridgeAskedField = lastAssistantMessage != null
+			? this.isLastMessageAskingForLeadField(lastAssistantMessage)
+			: null;
 		const llmLeadBridge =
 			!existingState?.active &&
 			!regexMatchedIntent &&
 			!classifiedIntent.isAppointmentIntent &&
-			lastAssistantMessage != null &&
-			this.isLastMessageAskingForLeadField(
-				lastAssistantMessage,
-			) != null &&
+			llmLeadBridgeAskedField != null &&
 			(this.extractEmailCandidate(normalizedMessage) != null ||
 				this.extractPhoneCandidate(normalizedMessage) != null ||
 				this.extractNameCandidate(normalizedMessage) != null ||
-				this.extractCountryCandidate(normalizedMessage) != null);
+				this.extractCountryCandidate(normalizedMessage) != null ||
+				// bare name or country — accepted when bot asked for that exact field
+				((llmLeadBridgeAskedField === "name" || llmLeadBridgeAskedField === "country") &&
+					this.isBasicAppointmentTextFieldValue(normalizedMessage)));
 
 		const isActive =
 			Boolean(existingState?.active) ||
@@ -2882,6 +2950,7 @@ ${message}`;
 					historyMessages,
 					resolvedLanguage,
 					personaContext,
+					session.sessionId,
 				);
 			const { matches, sources } =
 				decision.mode === "respond"
@@ -2933,6 +3002,7 @@ ${message}`;
 							historyMessages,
 							resolvedLanguage,
 							personaContext,
+							session.sessionId,
 						);
 					const completionResult =
 						await this.generateNonStreamingResponse(
@@ -3107,6 +3177,7 @@ ${message}`;
 				historyMessages,
 				resolvedLanguage,
 				personaContext,
+				session.sessionId,
 			);
 		const { matches, sources } =
 			decision.mode === "respond"
@@ -3163,6 +3234,7 @@ ${message}`;
 						historyMessages,
 						resolvedLanguage,
 						personaContext,
+						session.sessionId,
 					);
 				const stream =
 					await openAICircuitBreaker.execute(
