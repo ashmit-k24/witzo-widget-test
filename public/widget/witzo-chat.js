@@ -739,7 +739,7 @@
 			).some(
 				(node) =>
 					node.textContent?.trim() ===
-					"Our team will connect with you.",
+					"Our team will reach out to you shortly.",
 			);
 			if (alreadyShown) return;
 
@@ -755,7 +755,7 @@
 			);
 			this.updateBubble(
 				wrapper,
-				"Our team will connect with you.",
+				"Our team will reach out to you shortly.",
 			);
 			if (this.elements.messagesContainer) {
 				this.elements.messagesContainer.scrollTop =
@@ -1256,6 +1256,7 @@
       <div class="cf-field-group">
         <input id="cf-name" type="text" />
         <label>Full name</label>
+        <div class="cf-error" id="cf-name-error"></div>
       </div>`
 								: "",
 							this.config.leadFormEmailEnabled !==
@@ -1264,6 +1265,7 @@
       <div class="cf-field-group">
         <input id="cf-email" type="email" />
         <label>Email address</label>
+        <div class="cf-error" id="cf-email-error"></div>
       </div>`
 								: "",
 							this.config.leadFormPhoneEnabled !==
@@ -1281,6 +1283,7 @@
             <label>Phone number</label>
           </div>
         </div>
+        <div class="cf-error" id="cf-phone-error"></div>
       </div>`
 								: "",
 							this.config
@@ -1306,11 +1309,13 @@
       <div class="cf-field-group">
         <input id="cf-name" type="text" />
         <label>Full name</label>
+        <div class="cf-error" id="cf-name-error"></div>
       </div>`,
 							`
       <div class="cf-field-group">
         <input id="cf-email" type="email" />
         <label>Email address</label>
+        <div class="cf-error" id="cf-email-error"></div>
       </div>`,
 						]
 			)
@@ -4023,6 +4028,13 @@
               display: none;
             }
             .contact-form textarea { min-height: 90px; resize: vertical; padding-top: 18px; }
+            .cf-error {
+              color: #dc2626;
+              font-size: 0.78rem;
+              line-height: 1.3;
+              margin-top: 4px;
+              white-space: pre-wrap;
+            }
             .contact-form-submit {
               background: var(--color-primary, #fc0e3f);
               color: #fff;
@@ -4633,6 +4645,18 @@
 				cfPhone:
 					this.shadowRoot.getElementById(
 						"cf-phone",
+					),
+				cfNameError:
+					this.shadowRoot.getElementById(
+						"cf-name-error",
+					),
+				cfEmailError:
+					this.shadowRoot.getElementById(
+						"cf-email-error",
+					),
+				cfPhoneError:
+					this.shadowRoot.getElementById(
+						"cf-phone-error",
 					),
 				cfPhoneCodeTrigger:
 					this.shadowRoot.getElementById(
@@ -8138,6 +8162,10 @@
 				"lead-form-open",
 				Boolean(this.config.leadFormEnabled),
 			);
+			// Clear any previous errors
+			["cfName", "cfEmail", "cfPhone"].forEach(field => {
+				this.setCfFieldError(field, "");
+			});
 			if (!this.config.leadFormEnabled) {
 				this.elements.messagesContainer.classList.add(
 					"hidden",
@@ -8193,41 +8221,98 @@ if (this.elements.chatInput) {
 					"click",
 					() => this.submitContactForm(),
 				);
+
+				// Real-time validation
+				if (this.elements.cfName) {
+					this.elements.cfName.addEventListener("input", () => {
+						this.validateCfField("cfName");
+					});
+				}
+				if (this.elements.cfEmail) {
+					this.elements.cfEmail.addEventListener("input", () => {
+						this.validateCfField("cfEmail");
+					});
+				}
+				if (this.elements.cfPhone) {
+					this.elements.cfPhone.addEventListener("input", (e) => {
+						// Allow only digits
+						e.target.value = e.target.value.replace(/\D/g, "");
+						this.validateCfField("cfPhone");
+					});
+				}
 			}
 		}
 
 		updateCfSubmitState() {
 			const elements = this.elements;
 			if (!elements.cfSubmit) return;
+			const errors = this.getCfValidationErrors();
+			elements.cfSubmit.disabled = Object.values(errors).some(
+				(message) => Boolean(message),
+			);
+		}
 
-			let isValid = true;
-			if (
-				elements.cfName &&
-				!elements.cfName.value.trim()
-			)
-				isValid = false;
-			if (
-				elements.cfEmail &&
-				!elements.cfEmail.value.trim()
-			)
-				isValid = false;
+		getCfValidationErrors() {
+			const errors = {};
+			const name = this.elements.cfName?.value.trim() || "";
+			const email = this.elements.cfEmail?.value.trim() || "";
+			const phone = this.elements.cfPhone?.value.trim() || "";
 
-			if (this.config.leadFormPhoneEnabled) {
-				if (
-					elements.cfPhone &&
-					!elements.cfPhone.value.trim()
-				)
-					isValid = false;
-			}
-			if (this.config.leadFormCountryEnabled) {
-				if (
-					elements.cfCountry &&
-					!elements.cfCountry.value.trim()
-				)
-					isValid = false;
+			if (this.elements.cfName) {
+				if (name && /\d/.test(name)) {
+					errors.cfName = "Full name cannot contain numbers.";
+				}
 			}
 
-			elements.cfSubmit.disabled = !isValid;
+			if (this.elements.cfEmail) {
+				if (email && !this.isValidEmail(email)) {
+					errors.cfEmail = "Enter a valid email address.";
+				}
+			}
+
+			if (this.config.leadFormPhoneEnabled && this.elements.cfPhone) {
+				if (!phone) {
+					errors.cfPhone = "Phone number is required.";
+				} else if (/\D/.test(phone)) {
+					errors.cfPhone = "Phone number may only contain digits.";
+				}
+			}
+
+			return errors;
+		}
+
+		setCfFieldError(field, message) {
+			const errorEl = this.elements[`${field}Error`];
+			if (errorEl) {
+				errorEl.textContent = message || "";
+			}
+			const inputEl = this.elements[field];
+			if (inputEl) {
+				inputEl.style.borderColor = message ? "#dc2626" : "";
+			}
+		}
+
+		validateCfField(field) {
+			const errors = this.getCfValidationErrors();
+			this.setCfFieldError(field, errors[field] || "");
+			this.updateCfSubmitState();
+		}
+
+		isValidEmail(email) {
+			const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+			return emailRegex.test(email);
+		}
+
+		validateCfForm(showErrors = true) {
+			const errors = this.getCfValidationErrors();
+			if (showErrors) {
+				["cfName", "cfEmail", "cfPhone"].forEach(
+					(field) => {
+						this.setCfFieldError(field, errors[field] || "");
+					},
+				);
+			}
+			return !Object.values(errors).some(Boolean);
 		}
 
 		async submitContactForm() {
