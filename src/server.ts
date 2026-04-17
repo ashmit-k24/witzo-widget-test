@@ -397,7 +397,7 @@ const gracefulShutdown = (server: Server) => {
 };
 
 const flushChatCacheOnStartup = async (): Promise<void> => {
-	const patterns = ["chat:semantic-answer:*", "chat:retrieval:*"];
+	const patterns = ["chat:retrieval:*"];
 	let total = 0;
 	for (const pattern of patterns) {
 		let cursor = "0";

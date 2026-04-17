@@ -10,7 +10,6 @@ import logger from "./src/utils/logger";
  *   pnpm tsx flush-chat-cache.ts <userId>       # flush for one user only
  *
  * Clears:
- *   - chat:semantic-answer:*     (12h cached LLM answers, keyed by userId)
  *   - chat:retrieval:*           (per-session Pinecone retrieval results)
  */
 
@@ -47,14 +46,8 @@ async function main(): Promise<void> {
 	const userId = process.argv[2]?.trim();
 
 	const patterns = userId
-		? [
-				`chat:semantic-answer:${userId}`,
-				`chat:retrieval:${userId}:*`,
-			]
-		: [
-				"chat:semantic-answer:*",
-				"chat:retrieval:*",
-			];
+		? [`chat:retrieval:${userId}:*`]
+		: ["chat:retrieval:*"];
 
 	logger.info("flush-chat-cache: starting", {
 		scope: userId ? `user ${userId}` : "ALL users",
