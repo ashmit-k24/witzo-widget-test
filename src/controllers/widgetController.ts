@@ -464,6 +464,10 @@ export const getWidgetConfig = async (
 			},
 		);
 
+		const usage = await usageTrackingService
+			.getUserUsage(widget.user_id)
+			.catch(() => null);
+
 		res.status(200).json({
 			success: true,
 			data: {
@@ -471,6 +475,7 @@ export const getWidgetConfig = async (
 				widgetName: widget.widget_name,
 				config: widget.widget_config,
 				webhookUrl: `${req.protocol}://${req.get("host")}/api/v1/webhook`,
+				limitReached: usage?.isAtLimit === true,
 			},
 		});
 	} catch (error) {

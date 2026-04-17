@@ -106,6 +106,7 @@
 			this._calendlyMessageHandler = null;
 			this._calendlyBookingActive = false;
 			this._leadFormCompleted = false;
+			this._serverLimitReached = false;
 			this._leadFormStatusChecking = false;
 			this._lastLeadFinalizeSessionId = null;
 			this._pageHideHandler = () =>
@@ -336,7 +337,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-				"string" &&
+					"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -484,6 +485,48 @@
 				},
 				this.isEmbeddedPreview ? 0 : 2000,
 			);
+
+			// Check server-side monthly conversation limit and auto-show lead form
+			this._checkServerLimit();
+		}
+
+		async _checkServerLimit() {
+			if (!this.apiBaseUrl || !this.widgetKey)
+				return;
+			try {
+				const resp = await fetch(
+					`${this.apiBaseUrl}/api/v1/widget/config/${this.widgetKey}`,
+				);
+				if (!resp.ok) return;
+				const data = await resp.json();
+				if (data?.data?.limitReached !== true)
+					return;
+				this._serverLimitReached = true;
+				const delay = this.config.primaryText
+					? 700
+					: 200;
+				setTimeout(() => {
+					if (this._leadFormCompleted) {
+						this.showTeamWillContactYouMessage();
+						return;
+					}
+					const wrapper =
+						document.createElement("div");
+					wrapper.className = "chat-message";
+					const bubble =
+						document.createElement("div");
+					bubble.className = "chat-bubble-ai";
+					wrapper.appendChild(bubble);
+					this.elements.messagesContainer?.appendChild(
+						wrapper,
+					);
+					this.updateBubble(
+						wrapper,
+						"Thank you for sharing your details. Our team will get in touch with you shortly.",
+					);
+					this.showContactForm();
+				}, delay);
+			} catch (_) {}
 		}
 
 		disconnectedCallback() {
@@ -657,6 +700,54 @@
 				this.getLeadFormCompletedKey(),
 				value ? "1" : "0",
 			);
+		}
+
+		showTeamWillContactYouMessage() {
+			this.elements.contactFormSlot?.classList.add(
+				"hidden",
+			);
+			this.elements.contactFormSlot?.classList.remove(
+				"lead-form-gate",
+			);
+			this.elements.messagesContainer?.classList.remove(
+				"lead-form-open",
+			);
+			this.elements.messagesContainer?.classList.remove(
+				"hidden",
+			);
+			this.elements.chatInput?.classList.add(
+				"hidden",
+			);
+
+			const alreadyShown = Array.from(
+				this.elements.messagesContainer?.querySelectorAll(
+					".chat-bubble-ai .md-content",
+				) || [],
+			).some(
+				(node) =>
+					node.textContent?.trim() ===
+					"Our team will connect with you.",
+			);
+			if (alreadyShown) return;
+
+			const wrapper =
+				document.createElement("div");
+			wrapper.className = "chat-message";
+			const bubble =
+				document.createElement("div");
+			bubble.className = "chat-bubble-ai";
+			wrapper.appendChild(bubble);
+			this.elements.messagesContainer?.appendChild(
+				wrapper,
+			);
+			this.updateBubble(
+				wrapper,
+				"Our team will connect with you.",
+			);
+			if (this.elements.messagesContainer) {
+				this.elements.messagesContainer.scrollTop =
+					this.elements.messagesContainer.scrollHeight;
+			}
 		}
 
 		getRatingShownKey() {
@@ -1143,19 +1234,28 @@
 
 		render() {
 			// Use the CSS and HTML from template.ts
-			const leadFields = (this.config.leadFormEnabled
-				? [
-					this.config.leadFormNameEnabled !== false ? `
+			const leadFields = (
+				this.config.leadFormEnabled
+					? [
+							this.config.leadFormNameEnabled !==
+							false
+								? `
       <div class="cf-field-group">
         <input id="cf-name" type="text" />
         <label>Full name</label>
-      </div>` : '',
-					this.config.leadFormEmailEnabled !== false ? `
+      </div>`
+								: "",
+							this.config.leadFormEmailEnabled !==
+							false
+								? `
       <div class="cf-field-group">
         <input id="cf-email" type="email" />
         <label>Email address</label>
-      </div>` : '',
-					this.config.leadFormPhoneEnabled !== false ? `
+      </div>`
+								: "",
+							this.config.leadFormPhoneEnabled !==
+							false
+								? `
       <div class="cf-field-group">
         <div class="cf-phone-wrapper">
           <div class="cf-phone-trigger" id="cf-phone-code-trigger">
@@ -1168,8 +1268,11 @@
             <label>Phone number</label>
           </div>
         </div>
-      </div>` : '',
-					this.config.leadFormCountryEnabled !== false ? `
+      </div>`
+								: "",
+							this.config
+								.leadFormCountryEnabled !== false
+								? `
       <div class="cf-field-group">
         <div class="cf-country-wrapper" id="cf-country-wrapper">
           <div class="cf-country-trigger" id="cf-country-trigger">
@@ -1182,20 +1285,24 @@
             <div class="cf-country-list" id="cf-country-list"></div>
           </div>
         </div>
-      </div>` : ''
-				]
-				: [
-					`
+      </div>`
+								: "",
+						]
+					: [
+							`
       <div class="cf-field-group">
         <input id="cf-name" type="text" />
         <label>Full name</label>
       </div>`,
-					`
+							`
       <div class="cf-field-group">
         <input id="cf-email" type="email" />
         <label>Email address</label>
-      </div>`
-				]).filter(Boolean).join("");
+      </div>`,
+						]
+			)
+				.filter(Boolean)
+				.join("");
 			this.shadowRoot.innerHTML = `
       <link rel="preconnect" href="https://fonts.googleapis.com">
 	  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2551,7 +2658,7 @@
 			object-fit: contain;
 		  }
 
-          /* Flip animation: chat icon (front face) â†” close icon (back face) */
+          /* Flip animation: chat icon (front face) â†" close icon (back face) */
           .floating-icon-chat,
           .floating-icon-close {
             position: absolute;
@@ -4094,10 +4201,11 @@
                    <div class="chat-action-row">
 
 				   <div class="chat-icon">
-                    ${this.getDisplayIconUrl()
-					? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-				}
+                    ${
+											this.getDisplayIconUrl()
+												? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+												: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+										}
 
 					  
                       </div>
@@ -4183,14 +4291,14 @@
                       </div>
                       <div id="headerLanguageMenu" class="chat-menu-submenu">
                         ${this.supportedLanguages
-					.map(
-						(language) => `
+													.map(
+														(language) => `
                           <button class="chat-menu-language-item${language.code === this.selectedLanguage ? " active" : ""}" type="button" data-code="${this.escapeHtml(language.code)}">
                             <span>${this.escapeHtml(language.label)}</span>
                             <svg class="chat-menu-language-item-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </button>`,
-					)
-					.join("")}
+													)
+													.join("")}
                       </div>
                     </div>
                 </div>
@@ -4280,11 +4388,15 @@
                   </div>
                   <div class="contact-form-fields">
                     ${leadFields}
-                    ${this.config.leadFormEnabled ? "" : `
+                    ${
+											this.config.leadFormEnabled
+												? ""
+												: `
                     <div class="cf-field-group">
                       <textarea id="cf-message"></textarea>
                       <label>Type your feedback...</label>
-                    </div>`}
+                    </div>`
+										}
                   </div>
                   <button class="contact-form-submit" id="cf-submit">${this.config.leadFormEnabled ? sanitizeHTML(this.config.leadFormButtonText || "Continue") : "Continue"}</button>
                 </div>
@@ -4484,38 +4596,133 @@
 					this.shadowRoot.getElementById(
 						"calendlySlot",
 					),
-				cfName: this.shadowRoot.getElementById("cf-name"),
-				cfEmail: this.shadowRoot.getElementById("cf-email"),
-				cfPhone: this.shadowRoot.getElementById("cf-phone"),
-				cfPhoneCodeTrigger: this.shadowRoot.getElementById("cf-phone-code-trigger"),
-				cfPhoneCode: this.shadowRoot.getElementById("cf-phone-code"),
-				cfPhoneDropdown: this.shadowRoot.getElementById("cf-phone-dropdown"),
-				cfCountry: this.shadowRoot.getElementById("cf-country"),
-				cfCountryTrigger: this.shadowRoot.getElementById("cf-country-trigger"),
-				cfCountryValue: this.shadowRoot.getElementById("cf-country-value"),
-				cfCountryDropdown: this.shadowRoot.getElementById("cf-country-dropdown"),
-				cfCountrySearch: this.shadowRoot.getElementById("cf-country-search"),
-				cfCountryList: this.shadowRoot.getElementById("cf-country-list"),
-				cfMessage: this.shadowRoot.getElementById("cf-message"),
-				cfSubmit: this.shadowRoot.getElementById("cf-submit"),
-				chatInput: this.shadowRoot.querySelector(".chat-input"),
-				chatInputContainer: this.shadowRoot.querySelector(".chat-input-container"),
-				conversationRatingSlot: this.shadowRoot.getElementById("conversationRatingSlot"),
-				langPillBtn: this.shadowRoot.getElementById("langPillBtn"),
-				langDropdown: this.shadowRoot.getElementById("langDropdown"),
-				langItems: this.shadowRoot.querySelectorAll(".lang-dropdown-item"),
-				expandChatBtn: this.shadowRoot.getElementById("expandChatBtn"),
-				headerMenuBtn: this.shadowRoot.getElementById("headerMenuBtn"),
-				headerCloseBtn: this.shadowRoot.getElementById("headerCloseBtn"),
-				headerMenuDropdown: this.shadowRoot.getElementById("headerMenuDropdown"),
-				headerLanguageBtn: this.shadowRoot.getElementById("headerLanguageBtn"),
-				headerLanguageMenu: this.shadowRoot.getElementById("headerLanguageMenu"),
-				headerLanguageItems: this.shadowRoot.querySelectorAll(".chat-menu-language-item"),
-				headerHelpBtn: this.shadowRoot.getElementById("headerHelpBtn"),
-				downloadTranscriptBtn: this.shadowRoot.getElementById("downloadTranscriptBtn"),
-				clearConversationBtn: this.shadowRoot.getElementById("clearConversationBtn"),
-				navHome: this.shadowRoot.getElementById("navHome"),
-				navChat: this.shadowRoot.getElementById("navChat"),
+				cfName:
+					this.shadowRoot.getElementById(
+						"cf-name",
+					),
+				cfEmail:
+					this.shadowRoot.getElementById(
+						"cf-email",
+					),
+				cfPhone:
+					this.shadowRoot.getElementById(
+						"cf-phone",
+					),
+				cfPhoneCodeTrigger:
+					this.shadowRoot.getElementById(
+						"cf-phone-code-trigger",
+					),
+				cfPhoneCode:
+					this.shadowRoot.getElementById(
+						"cf-phone-code",
+					),
+				cfPhoneDropdown:
+					this.shadowRoot.getElementById(
+						"cf-phone-dropdown",
+					),
+				cfCountry:
+					this.shadowRoot.getElementById(
+						"cf-country",
+					),
+				cfCountryTrigger:
+					this.shadowRoot.getElementById(
+						"cf-country-trigger",
+					),
+				cfCountryValue:
+					this.shadowRoot.getElementById(
+						"cf-country-value",
+					),
+				cfCountryDropdown:
+					this.shadowRoot.getElementById(
+						"cf-country-dropdown",
+					),
+				cfCountrySearch:
+					this.shadowRoot.getElementById(
+						"cf-country-search",
+					),
+				cfCountryList:
+					this.shadowRoot.getElementById(
+						"cf-country-list",
+					),
+				cfMessage:
+					this.shadowRoot.getElementById(
+						"cf-message",
+					),
+				cfSubmit:
+					this.shadowRoot.getElementById(
+						"cf-submit",
+					),
+				chatInput: this.shadowRoot.querySelector(
+					".chat-input",
+				),
+				chatInputContainer:
+					this.shadowRoot.querySelector(
+						".chat-input-container",
+					),
+				conversationRatingSlot:
+					this.shadowRoot.getElementById(
+						"conversationRatingSlot",
+					),
+				langPillBtn:
+					this.shadowRoot.getElementById(
+						"langPillBtn",
+					),
+				langDropdown:
+					this.shadowRoot.getElementById(
+						"langDropdown",
+					),
+				langItems:
+					this.shadowRoot.querySelectorAll(
+						".lang-dropdown-item",
+					),
+				expandChatBtn:
+					this.shadowRoot.getElementById(
+						"expandChatBtn",
+					),
+				headerMenuBtn:
+					this.shadowRoot.getElementById(
+						"headerMenuBtn",
+					),
+				headerCloseBtn:
+					this.shadowRoot.getElementById(
+						"headerCloseBtn",
+					),
+				headerMenuDropdown:
+					this.shadowRoot.getElementById(
+						"headerMenuDropdown",
+					),
+				headerLanguageBtn:
+					this.shadowRoot.getElementById(
+						"headerLanguageBtn",
+					),
+				headerLanguageMenu:
+					this.shadowRoot.getElementById(
+						"headerLanguageMenu",
+					),
+				headerLanguageItems:
+					this.shadowRoot.querySelectorAll(
+						".chat-menu-language-item",
+					),
+				headerHelpBtn:
+					this.shadowRoot.getElementById(
+						"headerHelpBtn",
+					),
+				downloadTranscriptBtn:
+					this.shadowRoot.getElementById(
+						"downloadTranscriptBtn",
+					),
+				clearConversationBtn:
+					this.shadowRoot.getElementById(
+						"clearConversationBtn",
+					),
+				navHome:
+					this.shadowRoot.getElementById(
+						"navHome",
+					),
+				navChat:
+					this.shadowRoot.getElementById(
+						"navChat",
+					),
 			};
 		}
 
@@ -4529,7 +4736,7 @@
 			const url = window.location.href;
 			fetch(
 				this.apiBaseUrl.replace(/\/+$/, "") +
-				"/api/v1/widget/page-view",
+					"/api/v1/widget/page-view",
 				{
 					method: "POST",
 					headers: {
@@ -4541,7 +4748,7 @@
 						url,
 					}),
 				},
-			).catch(() => { });
+			).catch(() => {});
 		}
 
 		bindEvents() {
@@ -4746,32 +4953,317 @@
 			this.updateFloatingLauncherState();
 
 			const COUNTRIES = [
-				{ n: "Afghanistan", c: "AF", p: "+93" }, { n: "Albania", c: "AL", p: "+355" }, { n: "Algeria", c: "DZ", p: "+213" }, { n: "Andorra", c: "AD", p: "+376" }, { n: "Angola", c: "AO", p: "+244" }, { n: "Antigua and Barbuda", c: "AG", p: "+1" }, { n: "Argentina", c: "AR", p: "+54" }, { n: "Armenia", c: "AM", p: "+374" }, { n: "Australia", c: "AU", p: "+61" }, { n: "Austria", c: "AT", p: "+43" }, { n: "Azerbaijan", c: "AZ", p: "+994" }, { n: "Bahamas", c: "BS", p: "+1" }, { n: "Bahrain", c: "BH", p: "+973" }, { n: "Bangladesh", c: "BD", p: "+880" }, { n: "Barbados", c: "BB", p: "+1" }, { n: "Belarus", c: "BY", p: "+375" }, { n: "Belgium", c: "BE", p: "+32" }, { n: "Belize", c: "BZ", p: "+501" }, { n: "Benin", c: "BJ", p: "+229" }, { n: "Bhutan", c: "BT", p: "+975" }, { n: "Bolivia", c: "BO", p: "+591" }, { n: "Bosnia and Herzegovina", c: "BA", p: "+387" }, { n: "Botswana", c: "BW", p: "+267" }, { n: "Brazil", c: "BR", p: "+55" }, { n: "Brunei", c: "BN", p: "+673" }, { n: "Bulgaria", c: "BG", p: "+359" }, { n: "Burkina Faso", c: "BF", p: "+226" }, { n: "Burundi", c: "BI", p: "+257" }, { n: "Cabo Verde", c: "CV", p: "+238" }, { n: "Cambodia", c: "KH", p: "+855" }, { n: "Cameroon", c: "CM", p: "+237" }, { n: "Canada", c: "CA", p: "+1" }, { n: "Central African Republic", c: "CF", p: "+236" }, { n: "Chad", c: "TD", p: "+235" }, { n: "Chile", c: "CL", p: "+56" }, { n: "China", c: "CN", p: "+86" }, { n: "Colombia", c: "CO", p: "+57" }, { n: "Comoros", c: "KM", p: "+269" }, { n: "Congo", c: "CG", p: "+242" }, { n: "Costa Rica", c: "CR", p: "+506" }, { n: "Croatia", c: "HR", p: "+385" }, { n: "Cuba", c: "CU", p: "+53" }, { n: "Cyprus", c: "CY", p: "+357" }, { n: "Czechia", c: "CZ", p: "+420" }, { n: "Denmark", c: "DK", p: "+45" }, { n: "Djibouti", c: "DJ", p: "+253" }, { n: "Dominica", c: "DM", p: "+1" }, { n: "Dominican Republic", c: "DO", p: "+1" }, { n: "Ecuador", c: "EC", p: "+593" }, { n: "Egypt", c: "EG", p: "+20" }, { n: "El Salvador", c: "SV", p: "+503" }, { n: "Equatorial Guinea", c: "GQ", p: "+240" }, { n: "Eritrea", c: "ER", p: "+291" }, { n: "Estonia", c: "EE", p: "+372" }, { n: "Eswatini", c: "SZ", p: "+268" }, { n: "Ethiopia", c: "ET", p: "+251" }, { n: "Fiji", c: "FJ", p: "+679" }, { n: "Finland", c: "FI", p: "+358" }, { n: "France", c: "FR", p: "+33" }, { n: "Gabon", c: "GA", p: "+241" }, { n: "Gambia", c: "GM", p: "+220" }, { n: "Georgia", c: "GE", p: "+995" }, { n: "Germany", c: "DE", p: "+49" }, { n: "Ghana", c: "GH", p: "+233" }, { n: "Greece", c: "GR", p: "+30" }, { n: "Grenada", c: "GD", p: "+1" }, { n: "Guatemala", c: "GT", p: "+502" }, { n: "Guinea", c: "GN", p: "+224" }, { n: "Guinea-Bissau", c: "GW", p: "+245" }, { n: "Guyana", c: "GY", p: "+592" }, { n: "Haiti", c: "HT", p: "+509" }, { n: "Honduras", c: "HN", p: "+504" }, { n: "Hungary", c: "HU", p: "+36" }, { n: "Iceland", c: "IS", p: "+354" }, { n: "India", c: "IN", p: "+91" }, { n: "Indonesia", c: "ID", p: "+62" }, { n: "Iran", c: "IR", p: "+98" }, { n: "Iraq", c: "IQ", p: "+964" }, { n: "Ireland", c: "IE", p: "+353" }, { n: "Israel", c: "IL", p: "+972" }, { n: "Italy", c: "IT", p: "+39" }, { n: "Jamaica", c: "JM", p: "+1" }, { n: "Japan", c: "JP", p: "+81" }, { n: "Jordan", c: "JO", p: "+962" }, { n: "Kazakhstan", c: "KZ", p: "+7" }, { n: "Kenya", c: "KE", p: "+254" }, { n: "Kiribati", c: "KI", p: "+686" }, { n: "Kuwait", c: "KW", p: "+965" }, { n: "Kyrgyzstan", c: "KG", p: "+996" }, { n: "Laos", c: "LA", p: "+856" }, { n: "Latvia", c: "LV", p: "+371" }, { n: "Lebanon", c: "LB", p: "+961" }, { n: "Lesotho", c: "LS", p: "+266" }, { n: "Liberia", c: "LR", p: "+231" }, { n: "Libya", c: "LY", p: "+218" }, { n: "Liechtenstein", c: "LI", p: "+423" }, { n: "Lithuania", c: "LT", p: "+370" }, { n: "Luxembourg", c: "LU", p: "+352" }, { n: "Madagascar", c: "MG", p: "+261" }, { n: "Malawi", c: "MW", p: "+265" }, { n: "Malaysia", c: "MY", p: "+60" }, { n: "Maldives", c: "MV", p: "+960" }, { n: "Mali", c: "ML", p: "+223" }, { n: "Malta", c: "MT", p: "+356" }, { n: "Marshall Islands", c: "MH", p: "+692" }, { n: "Mauritania", c: "MR", p: "+222" }, { n: "Mauritius", c: "MU", p: "+230" }, { n: "Mexico", c: "MX", p: "+52" }, { n: "Micronesia", c: "FM", p: "+691" }, { n: "Moldova", c: "MD", p: "+373" }, { n: "Monaco", c: "MC", p: "+377" }, { n: "Mongolia", c: "MN", p: "+976" }, { n: "Montenegro", c: "ME", p: "+382" }, { n: "Morocco", c: "MA", p: "+212" }, { n: "Mozambique", c: "MZ", p: "+258" }, { n: "Myanmar", c: "MM", p: "+95" }, { n: "Namibia", c: "NA", p: "+264" }, { n: "Nauru", c: "NR", p: "+674" }, { n: "Nepal", c: "NP", p: "+977" }, { n: "Netherlands", c: "NL", p: "+31" }, { n: "New Zealand", c: "NZ", p: "+64" }, { n: "Nicaragua", c: "NI", p: "+505" }, { n: "Niger", c: "NE", p: "+227" }, { n: "Nigeria", c: "NG", p: "+234" }, { n: "North Korea", c: "KP", p: "+850" }, { n: "North Macedonia", c: "MK", p: "+389" }, { n: "Norway", c: "NO", p: "+47" }, { n: "Oman", c: "OM", p: "+968" }, { n: "Pakistan", c: "PK", p: "+92" }, { n: "Palau", c: "PW", p: "+680" }, { n: "Palestine", c: "PS", p: "+970" }, { n: "Panama", c: "PA", p: "+507" }, { n: "Papua New Guinea", c: "PG", p: "+675" }, { n: "Paraguay", c: "PY", p: "+595" }, { n: "Peru", c: "PE", p: "+51" }, { n: "Philippines", c: "PH", p: "+63" }, { n: "Poland", c: "PL", p: "+48" }, { n: "Portugal", c: "PT", p: "+351" }, { n: "Qatar", c: "QA", p: "+974" }, { n: "Romania", c: "RO", p: "+40" }, { n: "Russia", c: "RU", p: "+7" }, { n: "Rwanda", c: "RW", p: "+250" }, { n: "Saint Kitts and Nevis", c: "KN", p: "+1" }, { n: "Saint Lucia", c: "LC", p: "+1" }, { n: "Saint Vincent and the Grenadines", c: "VC", p: "+1" }, { n: "Samoa", c: "WS", p: "+685" }, { n: "San Marino", c: "SM", p: "+378" }, { n: "Sao Tome and Principe", c: "ST", p: "+239" }, { n: "Saudi Arabia", c: "SA", p: "+966" }, { n: "Senegal", c: "SN", p: "+221" }, { n: "Serbia", c: "RS", p: "+381" }, { n: "Seychelles", c: "SC", p: "+248" }, { n: "Sierra Leone", c: "SL", p: "+232" }, { n: "Singapore", c: "SG", p: "+65" }, { n: "Slovakia", c: "SK", p: "+421" }, { n: "Slovenia", c: "SI", p: "+386" }, { n: "Solomon Islands", c: "SB", p: "+677" }, { n: "Somalia", c: "SO", p: "+252" }, { n: "South Africa", c: "ZA", p: "+27" }, { n: "South Korea", c: "KR", p: "+82" }, { n: "South Sudan", c: "SS", p: "+211" }, { n: "Spain", c: "ES", p: "+34" }, { n: "Sri Lanka", c: "LK", p: "+94" }, { n: "Sudan", c: "SD", p: "+249" }, { n: "Suriname", c: "SR", p: "+597" }, { n: "Sweden", c: "SE", p: "+46" }, { n: "Switzerland", c: "CH", p: "+41" }, { n: "Syria", c: "SY", p: "+963" }, { n: "Taiwan", c: "TW", p: "+886" }, { n: "Tajikistan", c: "TJ", p: "+992" }, { n: "Tanzania", c: "TZ", p: "+255" }, { n: "Thailand", c: "TH", p: "+66" }, { n: "Timor-Leste", c: "TL", p: "+670" }, { n: "Togo", c: "TG", p: "+228" }, { n: "Tonga", c: "TO", p: "+676" }, { n: "Trinidad and Tobago", c: "TT", p: "+1" }, { n: "Tunisia", c: "TN", p: "+216" }, { n: "Turkey", c: "TR", p: "+90" }, { n: "Turkmenistan", c: "TM", p: "+993" }, { n: "Tuvalu", c: "TV", p: "+688" }, { n: "Uganda", c: "UG", p: "+256" }, { n: "Ukraine", c: "UA", p: "+380" }, { n: "United Arab Emirates", c: "AE", p: "+971" }, { n: "United Kingdom", c: "GB", p: "+44" }, { n: "United States", c: "US", p: "+1" }, { n: "Uruguay", c: "UY", p: "+598" }, { n: "Uzbekistan", c: "UZ", p: "+998" }, { n: "Vanuatu", c: "VU", p: "+678" }, { n: "Vatican City", c: "VA", p: "+39" }, { n: "Venezuela", c: "VE", p: "+58" }, { n: "Vietnam", c: "VN", p: "+84" }, { n: "Yemen", c: "YE", p: "+967" }, { n: "Zambia", c: "ZM", p: "+260" }, { n: "Zimbabwe", c: "ZW", p: "+263" }
+				{ n: "Afghanistan", c: "AF", p: "+93" },
+				{ n: "Albania", c: "AL", p: "+355" },
+				{ n: "Algeria", c: "DZ", p: "+213" },
+				{ n: "Andorra", c: "AD", p: "+376" },
+				{ n: "Angola", c: "AO", p: "+244" },
+				{
+					n: "Antigua and Barbuda",
+					c: "AG",
+					p: "+1",
+				},
+				{ n: "Argentina", c: "AR", p: "+54" },
+				{ n: "Armenia", c: "AM", p: "+374" },
+				{ n: "Australia", c: "AU", p: "+61" },
+				{ n: "Austria", c: "AT", p: "+43" },
+				{ n: "Azerbaijan", c: "AZ", p: "+994" },
+				{ n: "Bahamas", c: "BS", p: "+1" },
+				{ n: "Bahrain", c: "BH", p: "+973" },
+				{ n: "Bangladesh", c: "BD", p: "+880" },
+				{ n: "Barbados", c: "BB", p: "+1" },
+				{ n: "Belarus", c: "BY", p: "+375" },
+				{ n: "Belgium", c: "BE", p: "+32" },
+				{ n: "Belize", c: "BZ", p: "+501" },
+				{ n: "Benin", c: "BJ", p: "+229" },
+				{ n: "Bhutan", c: "BT", p: "+975" },
+				{ n: "Bolivia", c: "BO", p: "+591" },
+				{
+					n: "Bosnia and Herzegovina",
+					c: "BA",
+					p: "+387",
+				},
+				{ n: "Botswana", c: "BW", p: "+267" },
+				{ n: "Brazil", c: "BR", p: "+55" },
+				{ n: "Brunei", c: "BN", p: "+673" },
+				{ n: "Bulgaria", c: "BG", p: "+359" },
+				{ n: "Burkina Faso", c: "BF", p: "+226" },
+				{ n: "Burundi", c: "BI", p: "+257" },
+				{ n: "Cabo Verde", c: "CV", p: "+238" },
+				{ n: "Cambodia", c: "KH", p: "+855" },
+				{ n: "Cameroon", c: "CM", p: "+237" },
+				{ n: "Canada", c: "CA", p: "+1" },
+				{
+					n: "Central African Republic",
+					c: "CF",
+					p: "+236",
+				},
+				{ n: "Chad", c: "TD", p: "+235" },
+				{ n: "Chile", c: "CL", p: "+56" },
+				{ n: "China", c: "CN", p: "+86" },
+				{ n: "Colombia", c: "CO", p: "+57" },
+				{ n: "Comoros", c: "KM", p: "+269" },
+				{ n: "Congo", c: "CG", p: "+242" },
+				{ n: "Costa Rica", c: "CR", p: "+506" },
+				{ n: "Croatia", c: "HR", p: "+385" },
+				{ n: "Cuba", c: "CU", p: "+53" },
+				{ n: "Cyprus", c: "CY", p: "+357" },
+				{ n: "Czechia", c: "CZ", p: "+420" },
+				{ n: "Denmark", c: "DK", p: "+45" },
+				{ n: "Djibouti", c: "DJ", p: "+253" },
+				{ n: "Dominica", c: "DM", p: "+1" },
+				{
+					n: "Dominican Republic",
+					c: "DO",
+					p: "+1",
+				},
+				{ n: "Ecuador", c: "EC", p: "+593" },
+				{ n: "Egypt", c: "EG", p: "+20" },
+				{ n: "El Salvador", c: "SV", p: "+503" },
+				{
+					n: "Equatorial Guinea",
+					c: "GQ",
+					p: "+240",
+				},
+				{ n: "Eritrea", c: "ER", p: "+291" },
+				{ n: "Estonia", c: "EE", p: "+372" },
+				{ n: "Eswatini", c: "SZ", p: "+268" },
+				{ n: "Ethiopia", c: "ET", p: "+251" },
+				{ n: "Fiji", c: "FJ", p: "+679" },
+				{ n: "Finland", c: "FI", p: "+358" },
+				{ n: "France", c: "FR", p: "+33" },
+				{ n: "Gabon", c: "GA", p: "+241" },
+				{ n: "Gambia", c: "GM", p: "+220" },
+				{ n: "Georgia", c: "GE", p: "+995" },
+				{ n: "Germany", c: "DE", p: "+49" },
+				{ n: "Ghana", c: "GH", p: "+233" },
+				{ n: "Greece", c: "GR", p: "+30" },
+				{ n: "Grenada", c: "GD", p: "+1" },
+				{ n: "Guatemala", c: "GT", p: "+502" },
+				{ n: "Guinea", c: "GN", p: "+224" },
+				{
+					n: "Guinea-Bissau",
+					c: "GW",
+					p: "+245",
+				},
+				{ n: "Guyana", c: "GY", p: "+592" },
+				{ n: "Haiti", c: "HT", p: "+509" },
+				{ n: "Honduras", c: "HN", p: "+504" },
+				{ n: "Hungary", c: "HU", p: "+36" },
+				{ n: "Iceland", c: "IS", p: "+354" },
+				{ n: "India", c: "IN", p: "+91" },
+				{ n: "Indonesia", c: "ID", p: "+62" },
+				{ n: "Iran", c: "IR", p: "+98" },
+				{ n: "Iraq", c: "IQ", p: "+964" },
+				{ n: "Ireland", c: "IE", p: "+353" },
+				{ n: "Israel", c: "IL", p: "+972" },
+				{ n: "Italy", c: "IT", p: "+39" },
+				{ n: "Jamaica", c: "JM", p: "+1" },
+				{ n: "Japan", c: "JP", p: "+81" },
+				{ n: "Jordan", c: "JO", p: "+962" },
+				{ n: "Kazakhstan", c: "KZ", p: "+7" },
+				{ n: "Kenya", c: "KE", p: "+254" },
+				{ n: "Kiribati", c: "KI", p: "+686" },
+				{ n: "Kuwait", c: "KW", p: "+965" },
+				{ n: "Kyrgyzstan", c: "KG", p: "+996" },
+				{ n: "Laos", c: "LA", p: "+856" },
+				{ n: "Latvia", c: "LV", p: "+371" },
+				{ n: "Lebanon", c: "LB", p: "+961" },
+				{ n: "Lesotho", c: "LS", p: "+266" },
+				{ n: "Liberia", c: "LR", p: "+231" },
+				{ n: "Libya", c: "LY", p: "+218" },
+				{
+					n: "Liechtenstein",
+					c: "LI",
+					p: "+423",
+				},
+				{ n: "Lithuania", c: "LT", p: "+370" },
+				{ n: "Luxembourg", c: "LU", p: "+352" },
+				{ n: "Madagascar", c: "MG", p: "+261" },
+				{ n: "Malawi", c: "MW", p: "+265" },
+				{ n: "Malaysia", c: "MY", p: "+60" },
+				{ n: "Maldives", c: "MV", p: "+960" },
+				{ n: "Mali", c: "ML", p: "+223" },
+				{ n: "Malta", c: "MT", p: "+356" },
+				{
+					n: "Marshall Islands",
+					c: "MH",
+					p: "+692",
+				},
+				{ n: "Mauritania", c: "MR", p: "+222" },
+				{ n: "Mauritius", c: "MU", p: "+230" },
+				{ n: "Mexico", c: "MX", p: "+52" },
+				{ n: "Micronesia", c: "FM", p: "+691" },
+				{ n: "Moldova", c: "MD", p: "+373" },
+				{ n: "Monaco", c: "MC", p: "+377" },
+				{ n: "Mongolia", c: "MN", p: "+976" },
+				{ n: "Montenegro", c: "ME", p: "+382" },
+				{ n: "Morocco", c: "MA", p: "+212" },
+				{ n: "Mozambique", c: "MZ", p: "+258" },
+				{ n: "Myanmar", c: "MM", p: "+95" },
+				{ n: "Namibia", c: "NA", p: "+264" },
+				{ n: "Nauru", c: "NR", p: "+674" },
+				{ n: "Nepal", c: "NP", p: "+977" },
+				{ n: "Netherlands", c: "NL", p: "+31" },
+				{ n: "New Zealand", c: "NZ", p: "+64" },
+				{ n: "Nicaragua", c: "NI", p: "+505" },
+				{ n: "Niger", c: "NE", p: "+227" },
+				{ n: "Nigeria", c: "NG", p: "+234" },
+				{ n: "North Korea", c: "KP", p: "+850" },
+				{
+					n: "North Macedonia",
+					c: "MK",
+					p: "+389",
+				},
+				{ n: "Norway", c: "NO", p: "+47" },
+				{ n: "Oman", c: "OM", p: "+968" },
+				{ n: "Pakistan", c: "PK", p: "+92" },
+				{ n: "Palau", c: "PW", p: "+680" },
+				{ n: "Palestine", c: "PS", p: "+970" },
+				{ n: "Panama", c: "PA", p: "+507" },
+				{
+					n: "Papua New Guinea",
+					c: "PG",
+					p: "+675",
+				},
+				{ n: "Paraguay", c: "PY", p: "+595" },
+				{ n: "Peru", c: "PE", p: "+51" },
+				{ n: "Philippines", c: "PH", p: "+63" },
+				{ n: "Poland", c: "PL", p: "+48" },
+				{ n: "Portugal", c: "PT", p: "+351" },
+				{ n: "Qatar", c: "QA", p: "+974" },
+				{ n: "Romania", c: "RO", p: "+40" },
+				{ n: "Russia", c: "RU", p: "+7" },
+				{ n: "Rwanda", c: "RW", p: "+250" },
+				{
+					n: "Saint Kitts and Nevis",
+					c: "KN",
+					p: "+1",
+				},
+				{ n: "Saint Lucia", c: "LC", p: "+1" },
+				{
+					n: "Saint Vincent and the Grenadines",
+					c: "VC",
+					p: "+1",
+				},
+				{ n: "Samoa", c: "WS", p: "+685" },
+				{ n: "San Marino", c: "SM", p: "+378" },
+				{
+					n: "Sao Tome and Principe",
+					c: "ST",
+					p: "+239",
+				},
+				{ n: "Saudi Arabia", c: "SA", p: "+966" },
+				{ n: "Senegal", c: "SN", p: "+221" },
+				{ n: "Serbia", c: "RS", p: "+381" },
+				{ n: "Seychelles", c: "SC", p: "+248" },
+				{ n: "Sierra Leone", c: "SL", p: "+232" },
+				{ n: "Singapore", c: "SG", p: "+65" },
+				{ n: "Slovakia", c: "SK", p: "+421" },
+				{ n: "Slovenia", c: "SI", p: "+386" },
+				{
+					n: "Solomon Islands",
+					c: "SB",
+					p: "+677",
+				},
+				{ n: "Somalia", c: "SO", p: "+252" },
+				{ n: "South Africa", c: "ZA", p: "+27" },
+				{ n: "South Korea", c: "KR", p: "+82" },
+				{ n: "South Sudan", c: "SS", p: "+211" },
+				{ n: "Spain", c: "ES", p: "+34" },
+				{ n: "Sri Lanka", c: "LK", p: "+94" },
+				{ n: "Sudan", c: "SD", p: "+249" },
+				{ n: "Suriname", c: "SR", p: "+597" },
+				{ n: "Sweden", c: "SE", p: "+46" },
+				{ n: "Switzerland", c: "CH", p: "+41" },
+				{ n: "Syria", c: "SY", p: "+963" },
+				{ n: "Taiwan", c: "TW", p: "+886" },
+				{ n: "Tajikistan", c: "TJ", p: "+992" },
+				{ n: "Tanzania", c: "TZ", p: "+255" },
+				{ n: "Thailand", c: "TH", p: "+66" },
+				{ n: "Timor-Leste", c: "TL", p: "+670" },
+				{ n: "Togo", c: "TG", p: "+228" },
+				{ n: "Tonga", c: "TO", p: "+676" },
+				{
+					n: "Trinidad and Tobago",
+					c: "TT",
+					p: "+1",
+				},
+				{ n: "Tunisia", c: "TN", p: "+216" },
+				{ n: "Turkey", c: "TR", p: "+90" },
+				{ n: "Turkmenistan", c: "TM", p: "+993" },
+				{ n: "Tuvalu", c: "TV", p: "+688" },
+				{ n: "Uganda", c: "UG", p: "+256" },
+				{ n: "Ukraine", c: "UA", p: "+380" },
+				{
+					n: "United Arab Emirates",
+					c: "AE",
+					p: "+971",
+				},
+				{
+					n: "United Kingdom",
+					c: "GB",
+					p: "+44",
+				},
+				{ n: "United States", c: "US", p: "+1" },
+				{ n: "Uruguay", c: "UY", p: "+598" },
+				{ n: "Uzbekistan", c: "UZ", p: "+998" },
+				{ n: "Vanuatu", c: "VU", p: "+678" },
+				{ n: "Vatican City", c: "VA", p: "+39" },
+				{ n: "Venezuela", c: "VE", p: "+58" },
+				{ n: "Vietnam", c: "VN", p: "+84" },
+				{ n: "Yemen", c: "YE", p: "+967" },
+				{ n: "Zambia", c: "ZM", p: "+260" },
+				{ n: "Zimbabwe", c: "ZW", p: "+263" },
 			];
 
 			if (this.elements.cfPhoneDropdown) {
-				this.elements.cfPhoneDropdown.innerHTML = `<div class="cf-phone-list">${COUNTRIES.map(c => `<div class="cf-phone-item" data-code="${c.p}" data-name="${c.n}">${c.n} (${c.p})</div>`).join('')}</div>`;
+				this.elements.cfPhoneDropdown.innerHTML = `<div class="cf-phone-list">${COUNTRIES.map((c) => `<div class="cf-phone-item" data-code="${c.p}" data-name="${c.n}">${c.n} (${c.p})</div>`).join("")}</div>`;
 
-				this.elements.cfPhoneDropdown.querySelectorAll('.cf-phone-item').forEach(item => {
-					item.addEventListener('click', (e) => {
-						e.stopPropagation();
-						this.elements.cfPhoneCode.textContent = item.getAttribute('data-code');
-						this.elements.cfPhoneCode.setAttribute('data-code', item.getAttribute('data-code'));
-						this.elements.cfPhoneDropdown.classList.add('hidden');
-						this.updateCfSubmitState();
+				this.elements.cfPhoneDropdown
+					.querySelectorAll(".cf-phone-item")
+					.forEach((item) => {
+						item.addEventListener(
+							"click",
+							(e) => {
+								e.stopPropagation();
+								this.elements.cfPhoneCode.textContent =
+									item.getAttribute("data-code");
+								this.elements.cfPhoneCode.setAttribute(
+									"data-code",
+									item.getAttribute("data-code"),
+								);
+								this.elements.cfPhoneDropdown.classList.add(
+									"hidden",
+								);
+								this.updateCfSubmitState();
+							},
+						);
 					});
-				});
 
-				this.elements.cfPhoneCodeTrigger.addEventListener('click', (e) => {
-					e.stopPropagation();
-					this.elements.cfPhoneDropdown.classList.toggle('hidden');
-					this.elements.cfCountryDropdown?.classList.add('hidden');
-				});
+				this.elements.cfPhoneCodeTrigger.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						this.elements.cfPhoneDropdown.classList.toggle(
+							"hidden",
+						);
+						this.elements.cfCountryDropdown?.classList.add(
+							"hidden",
+						);
+					},
+				);
 			}
 
-			if (this.elements.cfCountryTrigger && this.elements.cfCountryDropdown) {
-				const renderCountries = (filterText = '') => {
-					const list = this.elements.cfCountryList;
+			if (
+				this.elements.cfCountryTrigger &&
+				this.elements.cfCountryDropdown
+			) {
+				const renderCountries = (
+					filterText = "",
+				) => {
+					const list =
+						this.elements.cfCountryList;
 					if (!list) return;
 					list.innerHTML = "";
 					const filtered = COUNTRIES.filter((c) =>
@@ -4792,31 +5284,56 @@
 						el.addEventListener("click", (e) => {
 							e.stopPropagation();
 							if (this.elements.cfCountry) {
-								this.elements.cfCountry.value = country.n;
-								this.elements.cfCountry.parentElement.classList.add('has-value');
+								this.elements.cfCountry.value =
+									country.n;
+								this.elements.cfCountry.parentElement.classList.add(
+									"has-value",
+								);
 							}
 							if (this.elements.cfCountryValue) {
-								this.elements.cfCountryValue.textContent = country.n;
-								this.elements.cfCountryTrigger.classList.add('has-value');
+								this.elements.cfCountryValue.textContent =
+									country.n;
+								this.elements.cfCountryTrigger.classList.add(
+									"has-value",
+								);
 							}
-							this.elements.cfCountryDropdown.classList.add('hidden');
+							this.elements.cfCountryDropdown.classList.add(
+								"hidden",
+							);
 							this.updateCfSubmitState();
 						});
 						list.appendChild(el);
 					});
 				};
 
-				this.elements.cfCountryTrigger.addEventListener('click', (e) => {
-					e.stopPropagation();
-					const isHidden = this.elements.cfCountryDropdown.classList.contains('hidden');
-					this.elements.cfCountryDropdown.classList.toggle('hidden');
-					this.elements.cfPhoneDropdown?.classList.add('hidden');
-					if (isHidden) {
-						if (this.elements.cfCountrySearch) this.elements.cfCountrySearch.value = '';
-						renderCountries('');
-						if (this.elements.cfCountrySearch) setTimeout(() => this.elements.cfCountrySearch.focus(), 50);
-					}
-				});
+				this.elements.cfCountryTrigger.addEventListener(
+					"click",
+					(e) => {
+						e.stopPropagation();
+						const isHidden =
+							this.elements.cfCountryDropdown.classList.contains(
+								"hidden",
+							);
+						this.elements.cfCountryDropdown.classList.toggle(
+							"hidden",
+						);
+						this.elements.cfPhoneDropdown?.classList.add(
+							"hidden",
+						);
+						if (isHidden) {
+							if (this.elements.cfCountrySearch)
+								this.elements.cfCountrySearch.value =
+									"";
+							renderCountries("");
+							if (this.elements.cfCountrySearch)
+								setTimeout(
+									() =>
+										this.elements.cfCountrySearch.focus(),
+									50,
+								);
+						}
+					},
+				);
 
 				if (this.elements.cfCountrySearch) {
 					this.elements.cfCountrySearch.addEventListener(
@@ -4830,10 +5347,17 @@
 					);
 				}
 
-				this.shadowRoot.addEventListener('click', () => {
-					this.elements.cfCountryDropdown.classList.add('hidden');
-					this.elements.cfPhoneDropdown?.classList.add('hidden');
-				});
+				this.shadowRoot.addEventListener(
+					"click",
+					() => {
+						this.elements.cfCountryDropdown.classList.add(
+							"hidden",
+						);
+						this.elements.cfPhoneDropdown?.classList.add(
+							"hidden",
+						);
+					},
+				);
 			}
 
 			// Custom Language Dropdown Logic
@@ -4955,9 +5479,9 @@
 					() => {
 						const helpUrl = sanitizeURL(
 							this.config.introHelpOptionOneUrl ||
-							this.config
-								.introHelpOptionTwoUrl ||
-							"",
+								this.config
+									.introHelpOptionTwoUrl ||
+								"",
 						);
 						this.elements.headerMenuDropdown?.classList.add(
 							"hidden",
@@ -5034,9 +5558,7 @@
 					if (
 						e.target.closest(".message-feedback")
 					) {
-						this.handleMessageFeedbackClick(
-							e,
-						);
+						this.handleMessageFeedbackClick(e);
 					}
 					if (
 						!e.target.closest(".message-feedback")
@@ -5705,12 +6227,12 @@
 				this.isOpen &&
 				!container.classList.contains("hidden") &&
 				container.scrollHeight -
-				container.scrollTop -
-				container.clientHeight >
-				Math.max(
-					container.clientHeight * 0.6,
-					180,
-				);
+					container.scrollTop -
+					container.clientHeight >
+					Math.max(
+						container.clientHeight * 0.6,
+						180,
+					);
 			button.classList.toggle(
 				"hidden",
 				!shouldShow,
@@ -5825,9 +6347,9 @@
 				) ||
 				(this.isExpanded
 					? Math.min(
-						window.innerWidth * 0.96,
-						555,
-					)
+							window.innerWidth * 0.96,
+							555,
+						)
 					: 400);
 			const endH = this.isExpanded
 				? window.innerHeight * 0.8
@@ -6235,20 +6757,17 @@
 				} else {
 					try {
 						const err = JSON.parse(rawText);
-						if (
-							err.limitReached &&
-							err.data?.planType === "basic"
-						) {
+						if (err.limitReached) {
 							this.updateTypingToMessage(
 								typingWrapper,
-								"You've reached the conversation limit. Please use the form below to get in touch.",
+								"Thank you for sharing your details. Our team will get in touch with you shortly..",
 							);
 							this.pendingEndIntentRating = false;
 							this.showContactForm();
 							return;
 						}
 						content = err.message || content;
-					} catch (e) { }
+					} catch (e) {}
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -6480,24 +6999,37 @@
 		}
 		
 		getMessageFeedbackMenuItems() {
-			return this._messageFeedbackReasons
-				.map(
-					(reason) => `
-              <button type="button" class="message-feedback-item" data-feedback-reason="${this.escapeHtml(reason)}">
-                <span>${this.escapeHtml(reason)}</span>
-                <span class="message-feedback-item-icon">${this.getMessageFeedbackIcon(reason)}</span>
-              </button>`,
-				)
-				.join("");
+			
+			const messageIdAttr =
+				typeof messageId === "number" &&
+				Number.isFinite(messageId)
+					? ` data-message-id="${String(messageId)}"`
+					: "";
+			return `
+            <div class="message-feedback"${messageIdAttr}>
+              <div class="message-feedback-row">
+                <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
+                  ${this.getMessageFeedbackIcon("up")}
+                  <span class="message-feedback-tooltip">Helpful</span>
+                </button>
+                <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
+                  ${this.getMessageFeedbackIcon("down")}
+                  <span class="message-feedback-tooltip">Not helpful</span>
+                </button>
+              </div>
+              <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?">
+                ${items}
+              </div>
+            </div>`;
 		}
 
 		getBotMessageMarkup(text, messageId) {
 			const feedbackMarkup =
 				typeof messageId === "number" &&
-					Number.isFinite(messageId)
+				Number.isFinite(messageId)
 					? this.getMessageFeedbackMarkup(
-						messageId,
-					)
+							messageId,
+						)
 					: "";
 			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${feedbackMarkup}</div>`;
 		}
@@ -6886,7 +7418,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) { }
+						} catch (_) {}
 					}
 				}
 			}
@@ -6898,7 +7430,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) { }
+					} catch (_) {}
 				}
 			}
 
@@ -6952,14 +7484,14 @@
 				assembled,
 				donePayload &&
 					typeof donePayload.assistantMessageId ===
-					"number"
+						"number"
 					? donePayload.assistantMessageId
 					: undefined,
 			);
 			appendSources(
 				typingWrapper,
 				(donePayload && donePayload.sources) ||
-				[],
+					[],
 			);
 			this.smoothScrollToBottom();
 			if (
@@ -7131,7 +7663,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/rating",
+						"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -7154,7 +7686,7 @@
 					);
 				}
 			} catch (e) {
-				// Non-fatal â€” silently ignore
+				// Non-fatal â€" silently ignore
 			}
 		}
 
@@ -7174,7 +7706,7 @@
 			try {
 				const response = await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/message-feedback",
+						"/api/v1/widget/message-feedback",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -7209,7 +7741,7 @@
 				!this.widgetKey ||
 				!this.sessionId ||
 				this._lastLeadFinalizeSessionId ===
-				this.sessionId
+					this.sessionId
 			) {
 				return;
 			}
@@ -7217,7 +7749,7 @@
 				this.sessionId;
 			fetch(
 				this.apiBaseUrl +
-				"/api/v1/widget/lead-finalize",
+					"/api/v1/widget/lead-finalize",
 				{
 					method: "POST",
 					headers: this.getRequestHeaders({
@@ -7229,7 +7761,7 @@
 					}),
 					keepalive: true,
 				},
-			).catch(() => { });
+			).catch(() => {});
 		}
 
 		showRatingAcknowledgement(rating) {
@@ -7332,7 +7864,7 @@
 						: event.data?.event;
 				if (
 					eventName !==
-					"calendly.event_scheduled" ||
+						"calendly.event_scheduled" ||
 					!this._calendlyBookingActive
 				) {
 					return;
@@ -7591,19 +8123,27 @@
 			if (!this._cfBound) {
 				this._cfBound = true;
 
-				['cfName', 'cfEmail', 'cfPhone'].forEach(id => {
-					const el = this.elements[id];
-					if (el) {
-						el.addEventListener('input', () => {
-							el.parentElement.classList.toggle('has-value', el.value.trim().length > 0);
-							el.style.borderColor = "";
-							this.updateCfSubmitState();
-						});
-						el.addEventListener('blur', () => {
-							el.parentElement.classList.toggle('has-value', el.value.trim().length > 0);
-						});
-					}
-				});
+				["cfName", "cfEmail", "cfPhone"].forEach(
+					(id) => {
+						const el = this.elements[id];
+						if (el) {
+							el.addEventListener("input", () => {
+								el.parentElement.classList.toggle(
+									"has-value",
+									el.value.trim().length > 0,
+								);
+								el.style.borderColor = "";
+								this.updateCfSubmitState();
+							});
+							el.addEventListener("blur", () => {
+								el.parentElement.classList.toggle(
+									"has-value",
+									el.value.trim().length > 0,
+								);
+							});
+						}
+					},
+				);
 
 				this.elements.cfSubmit.addEventListener(
 					"click",
@@ -7617,40 +8157,78 @@
 			if (!elements.cfSubmit) return;
 
 			let isValid = true;
-			if (elements.cfName && !elements.cfName.value.trim()) isValid = false;
-			if (elements.cfEmail && !elements.cfEmail.value.trim()) isValid = false;
+			if (
+				elements.cfName &&
+				!elements.cfName.value.trim()
+			)
+				isValid = false;
+			if (
+				elements.cfEmail &&
+				!elements.cfEmail.value.trim()
+			)
+				isValid = false;
 
 			if (this.config.leadFormPhoneEnabled) {
-				if (elements.cfPhone && !elements.cfPhone.value.trim()) isValid = false;
+				if (
+					elements.cfPhone &&
+					!elements.cfPhone.value.trim()
+				)
+					isValid = false;
 			}
 			if (this.config.leadFormCountryEnabled) {
-				if (elements.cfCountry && !elements.cfCountry.value.trim()) isValid = false;
+				if (
+					elements.cfCountry &&
+					!elements.cfCountry.value.trim()
+				)
+					isValid = false;
 			}
 
 			elements.cfSubmit.disabled = !isValid;
 		}
 
 		async submitContactForm() {
-			const phoneCode = this.elements.cfPhoneCode?.getAttribute('data-code') || this.elements.cfPhoneCode?.textContent || "";
+			const phoneCode =
+				this.elements.cfPhoneCode?.getAttribute(
+					"data-code",
+				) ||
+				this.elements.cfPhoneCode?.textContent ||
+				"";
 			const values = {
-				name: this.elements.cfName?.value.trim() || null,
-				email: this.elements.cfEmail?.value.trim() || null,
-				phone: this.elements.cfPhone ? (phoneCode + " " + this.elements.cfPhone.value.trim()) : null,
-				country: this.elements.cfCountry?.value.trim() || null,
-				message: this.elements.cfMessage?.value.trim() || null,
+				name:
+					this.elements.cfName?.value.trim() ||
+					null,
+				email:
+					this.elements.cfEmail?.value.trim() ||
+					null,
+				phone: this.elements.cfPhone
+					? phoneCode +
+						" " +
+						this.elements.cfPhone.value.trim()
+					: null,
+				country:
+					this.elements.cfCountry?.value.trim() ||
+					null,
+				message:
+					this.elements.cfMessage?.value.trim() ||
+					null,
 			};
 
 			// Re-verify validation
-			if (this.elements.cfSubmit && this.elements.cfSubmit.disabled) return;
+			if (
+				this.elements.cfSubmit &&
+				this.elements.cfSubmit.disabled
+			)
+				return;
 
 			if (this.elements.cfSubmit) {
 				this.elements.cfSubmit.disabled = true;
-				this.elements.cfSubmit.textContent = "Sending...";
+				this.elements.cfSubmit.textContent =
+					"Sending...";
 			}
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/contact",
+						"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -7664,6 +8242,18 @@
 					},
 				);
 				if (resp.ok) {
+					if (this._serverLimitReached) {
+						// Limit-reached flow: lock chat permanently and show one confirmation message
+						this.setLeadFormCompletedState(true);
+						this._sessionLocked = true;
+						if (this.elements.input)
+							this.elements.input.disabled = true;
+						if (this.elements.sendBtn)
+							this.elements.sendBtn.disabled = true;
+						this.updateSendButtonState();
+						this.showTeamWillContactYouMessage();
+						return;
+					}
 					if (this.config.leadFormEnabled) {
 						this.setLeadFormCompletedState(true);
 						this.elements.contactFormSlot.classList.add(
@@ -7694,13 +8284,15 @@
 						return;
 					}
 					this.elements.contactFormSlot.innerHTML =
-						'<div class="contact-form-success">âœ“ Message sent! We\'ll be in touch soon.</div>';
+						'<div class="contact-form-success">&#10003; Message sent! We\'ll be in touch soon.</div>';
 				} else {
 					if (this.elements.cfSubmit) {
 						this.elements.cfSubmit.disabled = false;
 						this.elements.cfSubmit.textContent =
 							this.config.leadFormEnabled
-								? this.config.leadFormButtonText || "Continue"
+								? this.config
+										.leadFormButtonText ||
+									"Continue"
 								: "Send Message";
 					}
 				}
@@ -7709,7 +8301,8 @@
 					this.elements.cfSubmit.disabled = false;
 					this.elements.cfSubmit.textContent =
 						this.config.leadFormEnabled
-							? this.config.leadFormButtonText || "Continue"
+							? this.config.leadFormButtonText ||
+								"Continue"
 							: "Send Message";
 				}
 			}
@@ -7754,7 +8347,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-					"/api/v1/widget/lead-status",
+						"/api/v1/widget/lead-status",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({

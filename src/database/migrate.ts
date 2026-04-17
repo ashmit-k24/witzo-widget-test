@@ -319,6 +319,12 @@ const migrations: Migration[] = [
 			"Add pending_delete flag to scraper_sources for instant hide-on-delete UX",
 		file: "20260416_050_scraper_source_pending_delete.sql",
 	},
+	{
+		id: "20260416_051_migrate_custom_system_messages_to_persona",
+		description:
+			"Clear old custom system messages and assign general_information persona to widgets without one",
+		file: "20260416_051_migrate_custom_system_messages_to_persona.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

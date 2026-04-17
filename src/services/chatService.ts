@@ -27,6 +27,7 @@ import {
 	calendlyIntegrationService,
 	CalendlyWidgetBookingAction,
 } from "./calendlyIntegrationService";
+import { leadService } from "./leadService";
 import { pineconeService } from "./pineconeService";
 import {
 	getTopKForQuery,
@@ -1457,77 +1458,6 @@ ${message}`;
 		);
 	}
 
-	private isPersonalIntroduction(
-		message: string,
-	): boolean {
-		return /^\s*(i\s+am|i['']m|my\s+name\s+is|this\s+is|call\s+me|you\s+can\s+call\s+me|hi[,!.]?\s+i['']?m|hey[,!.]?\s+i['']?m|hello[,!.]?\s+i['']?m)\s+[A-Za-z]/i.test(
-			message.trim(),
-		);
-	}
-
-	private async generateDirectResponse(
-		query: string,
-		personaContext: PersonaContext | undefined,
-		languageCode: string | undefined,
-		websiteName: string,
-		history: ChatMessage[],
-	): Promise<string> {
-		if (!config.OPENAI_API_KEY?.trim()) {
-			return "How can I help you today?";
-		}
-
-		const messages: any[] = [
-			{
-				role: "system",
-				content: `You are a friendly support assistant for ${websiteName}. Respond warmly and naturally to the user's message. Keep your reply short (1–2 sentences). If the user introduced themselves by name, acknowledge their name. Do not pitch services unless the user asks.`,
-			},
-		];
-
-		const languageInstruction =
-			this.buildLanguageInstruction(languageCode);
-		if (languageInstruction) {
-			messages.push({
-				role: "system",
-				content: languageInstruction,
-			});
-		}
-
-		const personaOverride = personaContext
-			? this.buildPersonaOverrideInstruction(
-					personaContext,
-				)
-			: null;
-		if (personaOverride) {
-			messages.push({
-				role: "system",
-				content: personaOverride,
-			});
-		}
-
-		for (const msg of history.slice(-4)) {
-			messages.push({
-				role: msg.role,
-				content: msg.content,
-			});
-		}
-		messages.push({ role: "user", content: query });
-
-		try {
-			const completion =
-				await this.openai.chat.completions.create({
-					model: CHAT_COMPLETION_MODEL,
-					messages,
-					temperature: 0.7,
-					max_tokens: 80,
-				});
-			return (
-				completion.choices[0]?.message?.content?.trim() ||
-				"How can I help you today?"
-			);
-		} catch {
-			return "How can I help you today?";
-		}
-	}
 
 	private normalizeLanguagePreference(
 		language?: string,
@@ -1686,6 +1616,7 @@ ${message}`;
 		const session: ChatSession = {
 			sessionId: conversation.id,
 			userId: conversation.user_id,
+			widgetKeyId: conversation.widget_key_id,
 			messages,
 			createdAt: conversation.created_at,
 			updatedAt: conversation.updated_at,
@@ -2074,23 +2005,6 @@ ${message}`;
 				userId,
 			);
 
-		// Layer 3 fast-path: personal introductions ("I am Vivek", "my name is...")
-		// and obvious small talk never need a knowledge base lookup. Skip the
-		// tool-call routing LLM entirely and generate a short direct reply.
-		if (
-			this.isPersonalIntroduction(query) ||
-			this.isLikelySmallTalk(query)
-		) {
-			const message = await this.generateDirectResponse(
-				query,
-				personaContext,
-				languageCode,
-				websiteName,
-				history,
-			);
-			return { mode: "respond", message };
-		}
-
 		const recentHistory = history
 			.slice(-CHAT_HISTORY_WINDOW_MESSAGES)
 			.map((message) => ({
@@ -2185,7 +2099,7 @@ ${message}`;
 									},
 								],
 								temperature: 0,
-								max_tokens: 120,
+								max_tokens: 200,
 								tools,
 								tool_choice: "required",
 							}),
@@ -2624,6 +2538,43 @@ ${message}`;
 			};
 		}
 
+		// If the visitor already submitted the lead-capture form, skip the
+		// conversational field collection entirely and confirm the request.
+		const existingFormLead = await leadService.getLeadFormStatus(
+			userId,
+			session.sessionId,
+			{ name: true, email: true, phone: true, country: true },
+		);
+		if (existingFormLead.completed && existingFormLead.lead) {
+			const lead = existingFormLead.lead;
+			const namePart = lead.name ? `, ${lead.name}` : "";
+			const contactPart = lead.email || lead.phone
+				? ` We'll reach out to you at ${lead.email || lead.phone}.`
+				: "";
+			const response = `Thank you${namePart}! Our team will connect with you shortly.${contactPart}`;
+			await this.clearAppointmentLeadState(session.sessionId);
+			const assistantTimestamp = await this.persistMessage(
+				session.sessionId,
+				userId,
+				"assistant",
+				response,
+				{ language: resolvedLanguage, appointmentLeadCapture: true, leadCaptureCompleted: true },
+			);
+			session.messages.push({ role: "assistant", content: response, timestamp: assistantTimestamp });
+			session.updatedAt = assistantTimestamp;
+			await this.saveCachedSession(session);
+			input.onToken?.(response);
+			timing.saveMs = Date.now() - saveStart;
+			timing.totalMs = Date.now() - startedAt;
+			return {
+				sessionId: session.sessionId,
+				response,
+				language: resolvedLanguage,
+				sources: [],
+				timing,
+			};
+		}
+
 		let response = "";
 		if (existingState?.active) {
 			const expectedField =
@@ -2684,6 +2635,36 @@ ${message}`;
 			await this.clearAppointmentLeadState(
 				session.sessionId,
 			);
+		}
+
+		// Persist conversationally-collected fields to the leads table so the
+		// UI lead-capture form does not pop up for data already given in chat.
+		if (session.widgetKeyId != null) {
+			const f = state.fields;
+			if (f.name || f.email || f.phone || f.country) {
+				leadService
+					.saveContactFormLead(
+						userId,
+						session.sessionId,
+						session.widgetKeyId,
+						{
+							name: f.name ?? null,
+							email: f.email ?? null,
+							phone: f.phone ?? null,
+							country: f.country ?? null,
+						},
+					)
+					.catch((err: Error) => {
+						logger.warn(
+							"Failed to persist appointment lead fields to leads table",
+							{
+								userId,
+								sessionId: session.sessionId,
+								error: err.message,
+							},
+						);
+					});
+			}
 		}
 
 		const assistantTimestamp =
@@ -2798,7 +2779,6 @@ ${message}`;
 
 			if (
 				historyMessages.length <= 2 &&
-				!this.isPersonalIntroduction(message) &&
 				!this.isLikelySmallTalk(message)
 			) {
 				const cachedAnswer =
@@ -3078,7 +3058,6 @@ ${message}`;
 
 		if (
 			historyMessages.length <= 2 &&
-			!this.isPersonalIntroduction(message) &&
 			!this.isLikelySmallTalk(message)
 		) {
 			const cachedAnswer =
@@ -3382,6 +3361,7 @@ ${message}`;
 		const session: ChatSession = {
 			sessionId: conversation.id,
 			userId: conversation.user_id,
+			widgetKeyId: conversation.widget_key_id,
 			messages,
 			createdAt: conversation.created_at,
 			updatedAt:
@@ -3504,6 +3484,16 @@ ${message}`;
 				visitorId,
 			],
 		);
+
+		// Keep Redis session cache in sync so subsequent requests within the
+		// same session can read widgetKeyId without a DB round-trip.
+		if (widgetKeyId != null) {
+			const cached = await this.getCachedSession(normalized);
+			if (cached && cached.widgetKeyId == null) {
+				cached.widgetKeyId = widgetKeyId;
+				await this.saveCachedSession(cached);
+			}
+		}
 	}
 
 	async clearSession(

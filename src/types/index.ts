@@ -523,6 +523,7 @@ export interface ChatMessage {
 export interface ChatSession {
 	sessionId: string;
 	userId: string;
+	widgetKeyId?: number | null;
 	messages: ChatMessage[];
 	createdAt: Date;
 	updatedAt: Date;

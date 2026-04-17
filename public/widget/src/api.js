@@ -48,6 +48,18 @@ export async function finalizeLead({ apiBaseUrl, widgetKey, sessionId }) {
   });
 }
 
+/** Check if the monthly conversation limit is reached for this widget key */
+export async function checkLimitStatus({ apiBaseUrl, widgetKey }) {
+  try {
+    const resp = await fetch(`${apiBaseUrl}/api/v1/widget/config/${widgetKey}`);
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    return data?.data?.limitReached === true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /** Track the current page as viewed by this session (fire-and-forget) */
 export function trackPageView({ apiBaseUrl, widgetKey, sessionId }) {
   if (!apiBaseUrl || !widgetKey || !sessionId) return;
