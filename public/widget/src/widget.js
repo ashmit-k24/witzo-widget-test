@@ -649,7 +649,7 @@ export class WitzoChatWidget extends HTMLElement {
 				return;
 			}
 
-			// — Error response —
+			// — Error-
 			try {
 				const err = JSON.parse(rawText);
 				if (err.limitReached) {
