@@ -2317,10 +2317,20 @@
             opacity: 1;
             transform: none;
             transition: opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1);
-			background: var(--color-banner-bg, #471791);
             overflow: hidden;
             position: relative;
           }
+
+		  .chat-main-view::before {
+  			content: "";
+  			position: absolute;
+  			top: 0;
+  			left: 0;
+  			width: 100%;
+  			height: 300px;
+  			background: var(--color-banner-bg, #471791);
+  			z-index: -1;
+        }
           .scroll-bottom-btn {
            position: absolute;
     		left: 50%;
