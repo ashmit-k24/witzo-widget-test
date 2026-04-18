@@ -1763,7 +1763,7 @@ ${message}`;
 			]);
 
 		// Build a flat knowledge-base block from retrieved matches.
-		const contextParts: string[] = [];
+		const allContextParts: string[] = [];
 		for (const match of matches) {
 			const text = this.extractMatchText(match);
 			if (!text) continue;
@@ -1777,7 +1777,7 @@ ${message}`;
 					: "",
 				sourceUrl ? `Source: ${sourceUrl}` : "",
 			].filter(Boolean);
-			contextParts.push(
+			allContextParts.push(
 				headerParts.length > 0
 					? `${headerParts.join("\n")}\n${text}`
 					: text,
@@ -1800,6 +1800,51 @@ ${message}`;
 			this.buildLanguageInstruction(
 				_languageCode,
 			);
+		const personaOverride =
+			this.buildPersonaOverrideInstruction(
+				personaContext,
+			);
+
+		// Token budget: reserve space for completion + overhead.
+		// Estimate tokens as chars/4 (accurate enough without tiktoken).
+		const TOKEN_MODEL_LIMIT = 128000;
+		const TOKEN_COMPLETION_RESERVE = CHAT_COMPLETION_MAX_TOKENS + 2000;
+		const TOKEN_BUDGET = TOKEN_MODEL_LIMIT - TOKEN_COMPLETION_RESERVE;
+
+		const fixedTokens = Math.ceil(
+			[
+				systemPrompt,
+				languageInstruction ?? "",
+				personaOverride ?? "",
+				...messages
+					.slice(-CHAT_HISTORY_WINDOW_MESSAGES)
+					.map((m) => m.content),
+				query,
+			]
+				.join(" ")
+				.length / 4,
+		);
+
+		const ragBudget = TOKEN_BUDGET - fixedTokens;
+		const contextParts: string[] = [];
+		let ragTokensUsed = 0;
+		for (const part of allContextParts) {
+			const partTokens = Math.ceil(part.length / 4);
+			if (ragTokensUsed + partTokens > ragBudget) {
+				logger.warn(
+					"RAG context trimmed to fit token budget",
+					{
+						keptChunks: contextParts.length,
+						droppedChunks: allContextParts.length - contextParts.length,
+						ragBudget,
+						ragTokensUsed,
+					},
+				);
+				break;
+			}
+			contextParts.push(part);
+			ragTokensUsed += partTokens;
+		}
 
 		const conversationHistory: Array<any> = [
 			{
@@ -1813,10 +1858,6 @@ ${message}`;
 				content: languageInstruction,
 			});
 		}
-		const personaOverride =
-			this.buildPersonaOverrideInstruction(
-				personaContext,
-			);
 		if (personaOverride) {
 			conversationHistory.push({
 				role: "system",
