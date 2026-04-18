@@ -30,7 +30,12 @@ import {
 import { leadService } from "./leadService";
 import { pineconeService } from "./pineconeService";
 import {
+	buildCtaTargetedQuery,
+	classifyCtaIntent,
+	CtaIntent,
 	getTopKForQuery,
+	getCtaQueryMode,
+	getCtaTopicTerms,
 	isAppointmentBookingIntent,
 	normalizeWidgetQuery,
 } from "./queryService";
@@ -78,6 +83,12 @@ type ContextResult = {
 		title: string;
 		relevanceScore: number;
 	}>;
+};
+
+type CtaSource = {
+	url: string;
+	title: string;
+	relevanceScore: number;
 };
 
 type ChatTiming = {
@@ -1160,6 +1171,769 @@ ${message}`;
 			this.buildAllowedUrlSet(allowedSourceUrls),
 		);
 		return this.finalizeResponseEnding(output);
+	}
+
+	private async finalizeAssistantResponse(
+		response: string,
+		input: {
+			userId: string;
+			sessionId: string;
+			query: string;
+			websiteName?: string;
+			sources?: CtaSource[];
+		},
+	): Promise<string> {
+		const formatted = this.formatAssistantResponse(
+			response,
+			input.query,
+			input.websiteName,
+			(input.sources ?? []).map((source) => source.url),
+		);
+		return this.appendQueryBasedCta(
+			formatted,
+			input.userId,
+			input.sessionId,
+			input.query,
+			input.sources ?? [],
+		);
+	}
+
+	private async appendQueryBasedCta(
+		response: string,
+		userId: string,
+		sessionId: string,
+		query: string,
+		sources: CtaSource[],
+	): Promise<string> {
+		if (
+			this.isFallbackLikeResponse(response) &&
+			!this.responseAlreadyHasCta(
+				response,
+				"contact",
+			)
+		) {
+			const knownContact =
+				await this.getKnownSessionContactChannel(
+					userId,
+					sessionId,
+				);
+			if (knownContact) {
+				const followUpMessage = `Our team will reach out to you shortly at ${knownContact}.`;
+				if (
+					!response
+						.toLowerCase()
+						.includes(
+							followUpMessage.toLowerCase(),
+						)
+				) {
+					return this.appendResponseLine(
+						response,
+						followUpMessage,
+					);
+				}
+				return response;
+			}
+
+			const contactUrl = await this.resolveCtaUrl(
+				userId,
+				query,
+				"contact",
+				sources,
+			);
+			if (
+				contactUrl &&
+				!this.responseAlreadyHasUrl(
+					response,
+					contactUrl,
+				)
+			) {
+				return this.appendResponseLine(
+					response,
+					this.buildCtaLine(
+						query,
+						"contact",
+						contactUrl,
+					),
+				);
+			}
+		}
+
+		const intent = classifyCtaIntent(query);
+		if (!intent) {
+			return response;
+		}
+
+		if (this.responseAlreadyHasCta(response, intent)) {
+			return response;
+		}
+
+		if (intent === "contact") {
+			if (!this.isFallbackLikeResponse(response)) {
+				return response;
+			}
+
+			const knownContact =
+				await this.getKnownSessionContactChannel(
+					userId,
+					sessionId,
+				);
+			if (knownContact) {
+				const followUpMessage = `Our team will reach out to you shortly at ${knownContact}.`;
+				if (
+					response
+						.toLowerCase()
+						.includes(
+							followUpMessage.toLowerCase(),
+						)
+				) {
+					return response;
+				}
+				return this.appendResponseLine(
+					response,
+					followUpMessage,
+				);
+			}
+		}
+
+		const ctaUrl = await this.resolveCtaUrl(
+			userId,
+			query,
+			intent,
+			sources,
+		);
+		if (!ctaUrl) {
+			return response;
+		}
+
+		if (
+			this.responseAlreadyHasCta(
+				response,
+				intent,
+				ctaUrl,
+			)
+		) {
+			return response;
+		}
+
+		const ctaLine =
+			this.buildCtaLine(
+				query,
+				intent,
+				ctaUrl,
+			);
+
+		return this.appendResponseLine(response, ctaLine);
+	}
+
+	private buildCtaLine(
+		query: string,
+		intent: CtaIntent,
+		url: string,
+	): string {
+		if (intent === "contact") {
+			return `Get in touch: [Contact our team](${url})`;
+		}
+
+		if (intent === "case_study") {
+			return getCtaQueryMode(query, intent) ===
+				"general"
+				? `Learn more: [View all case studies](${url})`
+				: `Learn more: [View case study](${url})`;
+		}
+
+		return getCtaQueryMode(query, intent) ===
+			"general"
+			? `Read more: [View all blog posts](${url})`
+			: `Read more: [Read blog post](${url})`;
+	}
+
+	private appendResponseLine(
+		response: string,
+		line: string,
+	): string {
+		const trimmedResponse = response.trimEnd();
+		const trimmedLine = line.trim();
+		if (!trimmedLine) {
+			return trimmedResponse;
+		}
+		return trimmedResponse
+			? `${trimmedResponse}\n\n${trimmedLine}`
+			: trimmedLine;
+	}
+
+	private async getKnownSessionContactChannel(
+		userId: string,
+		sessionId: string,
+	): Promise<string | null> {
+		const sessionProfile =
+			await this.getSessionLeadProfile(sessionId);
+		const cachedContact =
+			sessionProfile?.email?.trim() ||
+			sessionProfile?.phone?.trim();
+		if (cachedContact) {
+			return cachedContact;
+		}
+
+		try {
+			const leadStatus =
+				await leadService.getLeadFormStatus(
+					userId,
+					sessionId,
+					{
+						email: true,
+						phone: true,
+					},
+				);
+			return (
+				leadStatus.lead?.email?.trim() ||
+				leadStatus.lead?.phone?.trim() ||
+				null
+			);
+		} catch (error) {
+			logger.warn(
+				"CTA contact channel lookup failed",
+				{
+					userId,
+					sessionId,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+			return null;
+		}
+	}
+
+	private async resolveCtaUrl(
+		userId: string,
+		query: string,
+		intent: CtaIntent,
+		currentSources: CtaSource[],
+	): Promise<string | null> {
+		const directMatch = this.selectBestCtaSource(
+			query,
+			intent,
+			currentSources,
+			{ strictSpecific: true },
+		);
+		if (directMatch) {
+			return directMatch.url;
+		}
+
+		try {
+			const targetedMatches =
+				await pineconeService.queryDocuments(
+					userId,
+					buildCtaTargetedQuery(
+						query,
+						intent,
+					),
+					8,
+					{
+						history: [],
+					},
+				);
+			const targetedSources =
+				this.buildCtaSourcesFromMatches(
+					targetedMatches,
+				);
+			const targetedMatch =
+				this.selectBestCtaSource(
+					query,
+					intent,
+					targetedSources,
+					{ strictSpecific: true },
+				);
+			if (targetedMatch) {
+				return targetedMatch.url;
+			}
+		} catch (error) {
+			logger.warn("CTA targeted Pinecone query failed", {
+				userId,
+				intent,
+				error:
+					error instanceof Error
+						? error.message
+						: String(error),
+			});
+		}
+
+		try {
+			const storedSources =
+				await this.getStoredWebsiteCtaSources(
+					userId,
+				);
+			const storedMatch =
+				this.selectBestCtaSource(
+					query,
+					intent,
+					storedSources,
+					{ strictSpecific: false },
+				);
+			return storedMatch?.url ?? null;
+		} catch (error) {
+			logger.warn(
+				"CTA stored-page fallback lookup failed",
+				{
+					userId,
+					intent,
+					error:
+						error instanceof Error
+							? error.message
+							: String(error),
+				},
+			);
+			return null;
+		}
+	}
+
+	private async getStoredWebsiteCtaSources(
+		userId: string,
+	): Promise<CtaSource[]> {
+		const allSources =
+			await pineconeService.getAllUserSourcesFromDB(
+				userId,
+			);
+		return this.deduplicateCtaSources(
+			allSources.websites.flatMap((website) =>
+				website.pages.map((page) => ({
+					url: page.url,
+					title: page.title || page.url,
+					relevanceScore: 0,
+				})),
+			),
+		);
+	}
+
+	private buildCtaSourcesFromMatches(
+		matches: any[],
+	): CtaSource[] {
+		return this.deduplicateCtaSources(
+			matches.map((match) => ({
+				url: this.extractMatchUrl(match),
+				title:
+					this.extractMatchTitle(match) ||
+					this.extractMatchUrl(match),
+				relevanceScore:
+					this.ragMatchScore(match),
+			})),
+		);
+	}
+
+	private deduplicateCtaSources(
+		sources: CtaSource[],
+	): CtaSource[] {
+		const byUrl = new Map<string, CtaSource>();
+		for (const source of sources) {
+			const url = source.url?.trim();
+			if (!url) {
+				continue;
+			}
+			const normalizedUrl =
+				this.normalizeUrlForComparison(url);
+			const existing = byUrl.get(normalizedUrl);
+			if (
+				!existing ||
+				source.relevanceScore >
+					existing.relevanceScore
+			) {
+				byUrl.set(normalizedUrl, {
+					url,
+					title:
+						source.title?.trim() || url,
+					relevanceScore:
+						source.relevanceScore || 0,
+				});
+			}
+		}
+		return Array.from(byUrl.values());
+	}
+
+	private selectBestCtaSource(
+		query: string,
+		intent: CtaIntent,
+		sources: CtaSource[],
+		options: {
+			strictSpecific: boolean;
+		},
+	): CtaSource | null {
+		const candidates = this.deduplicateCtaSources(
+			sources,
+		)
+			.filter((source) => {
+				const inferredIntent =
+					this.inferCtaPageIntent(
+						source.url,
+						source.title,
+					);
+				if (inferredIntent === intent) {
+					return true;
+				}
+
+				return (
+					intent !== "contact" &&
+					this.countCtaTopicMatches(
+						query,
+						intent,
+						source,
+					) > 0
+				);
+			})
+			.map((source) => ({
+				source,
+				score: this.scoreCtaSource(
+					query,
+					intent,
+					source,
+				),
+				specificMatch:
+					intent === "contact"
+						? true
+						: this.isSpecificCtaCandidate(
+								query,
+								intent,
+								source,
+						  ),
+			}))
+			.sort((a, b) => b.score - a.score);
+
+		if (candidates.length === 0) {
+			return null;
+		}
+
+		if (intent !== "contact") {
+			const mode = getCtaQueryMode(
+				query,
+				intent,
+			);
+			if (
+				mode === "specific" &&
+				options.strictSpecific
+			) {
+				return (
+					candidates.find(
+						(candidate) =>
+							candidate.specificMatch,
+					)?.source ?? null
+				);
+			}
+		}
+
+		return candidates[0]?.source ?? null;
+	}
+
+	private scoreCtaSource(
+		query: string,
+		intent: CtaIntent,
+		source: CtaSource,
+	): number {
+		const combined = normalizeWidgetQuery(
+			`${source.title} ${source.url}`,
+		);
+		const pathDepth = this.getUrlPathSegments(
+			source.url,
+		).length;
+		let score = source.relevanceScore || 0;
+
+		if (intent === "contact") {
+			if (
+				/\b(contact|reach|get in touch|sales|talk|speak)\b/.test(
+					combined,
+				)
+			) {
+				score += 20;
+			}
+			return score;
+		}
+
+		const mode = getCtaQueryMode(query, intent);
+		const topicMatches = this.countCtaTopicMatches(
+			query,
+			intent,
+			source,
+		);
+		const titleTopicMatches =
+			this.countCtaTitleTopicMatches(
+				query,
+				intent,
+				source,
+			);
+		const isOverview = this.isOverviewCtaPage(
+			intent,
+			source.url,
+			source.title,
+		);
+
+		if (mode === "general") {
+			score += isOverview ? 15 : 2;
+			score += pathDepth <= 2 ? 3 : 0;
+		} else {
+			score += isOverview ? -8 : 10;
+			score += topicMatches * 8;
+			score += titleTopicMatches * 12;
+			score +=
+				titleTopicMatches > 0 &&
+				titleTopicMatches ===
+					getCtaTopicTerms(query, intent).length
+					? 15
+					: 0;
+			score += pathDepth > 1 ? 2 : 0;
+		}
+
+		return score;
+	}
+
+	private countCtaTopicMatches(
+		query: string,
+		intent: Exclude<CtaIntent, "contact">,
+		source: CtaSource,
+	): number {
+		const haystack = normalizeWidgetQuery(
+			`${source.title} ${source.url}`,
+		);
+		return getCtaTopicTerms(query, intent).reduce(
+			(count, term) =>
+				count + (haystack.includes(term) ? 1 : 0),
+			0,
+		);
+	}
+
+	private countCtaTitleTopicMatches(
+		query: string,
+		intent: Exclude<CtaIntent, "contact">,
+		source: CtaSource,
+	): number {
+		const haystack = normalizeWidgetQuery(
+			source.title,
+		);
+		return getCtaTopicTerms(query, intent).reduce(
+			(count, term) =>
+				count + (haystack.includes(term) ? 1 : 0),
+			0,
+		);
+	}
+
+	private isSpecificCtaCandidate(
+		query: string,
+		intent: Exclude<CtaIntent, "contact">,
+		source: CtaSource,
+	): boolean {
+		if (
+			this.isOverviewCtaPage(
+				intent,
+				source.url,
+				source.title,
+			)
+		) {
+			return false;
+		}
+
+		const topicTerms = getCtaTopicTerms(
+			query,
+			intent,
+		);
+		if (topicTerms.length === 0) {
+			return true;
+		}
+
+		return (
+			this.countCtaTopicMatches(
+				query,
+				intent,
+				source,
+			) > 0
+		);
+	}
+
+	private inferCtaPageIntent(
+		url: string,
+		title: string,
+	): CtaIntent | null {
+		const combined = normalizeWidgetQuery(
+			`${title} ${url}`,
+		);
+		if (
+			/\b(contact|get in touch|reach|talk to|speak to|sales)\b/.test(
+				combined,
+			)
+		) {
+			return "contact";
+		}
+		if (
+			/\b(blog|article|guide|insight|resource|news|post)\b/.test(
+				combined,
+			)
+		) {
+			return "blog";
+		}
+		if (
+			/\b(case stud(?:y|ies)|portfolio|our work|client work|project|showcase|success stor(?:y|ies))\b/.test(
+				combined,
+			)
+		) {
+			return "case_study";
+		}
+		return null;
+	}
+
+	private isOverviewCtaPage(
+		intent: Exclude<CtaIntent, "contact">,
+		url: string,
+		title: string,
+	): boolean {
+		const combined = normalizeWidgetQuery(
+			`${title} ${url}`,
+		);
+		const pathSegments =
+			this.getUrlPathSegments(url);
+		const lastSegment =
+			pathSegments[pathSegments.length - 1] || "";
+
+		if (intent === "case_study") {
+			return (
+				[
+					"case-study",
+					"case-studies",
+					"portfolio",
+					"work",
+					"projects",
+					"showcase",
+				].includes(lastSegment) ||
+				(pathSegments.length <= 2 &&
+					/\b(case stud(?:y|ies)|portfolio|our work|client work|projects?|showcase)\b/.test(
+						combined,
+					))
+			);
+		}
+
+		return (
+			[
+				"blog",
+				"blogs",
+				"articles",
+				"resources",
+				"guides",
+				"insights",
+				"news",
+			].includes(lastSegment) ||
+			(pathSegments.length <= 2 &&
+				/\b(blog|articles?|guides?|resources?|insights?|news)\b/.test(
+					combined,
+				))
+		);
+	}
+
+	private getUrlPathSegments(url: string): string[] {
+		try {
+			return new URL(url).pathname
+				.toLowerCase()
+				.split("/")
+				.map((segment) => segment.trim())
+				.filter(Boolean);
+		} catch {
+			return url
+				.toLowerCase()
+				.split(/[/?#]/)
+				.map((segment) => segment.trim())
+				.filter(Boolean);
+		}
+	}
+
+	private responseAlreadyHasCta(
+		response: string,
+		intent: CtaIntent,
+		url?: string,
+	): boolean {
+		const lower = response.toLowerCase();
+		if (url && this.responseAlreadyHasUrl(response, url)) {
+			return true;
+		}
+
+		if (intent === "contact") {
+			return /get in touch:\s*\[contact our team\]|contact(?: our)? team|reach out(?: to (?:us|our team))?|talk to(?: our)? team|speak to(?: our)? team/.test(
+				lower,
+			);
+		}
+		if (intent === "case_study") {
+			return /learn more:\s*\[(?:view all case studies|view case study)\]|(?:view|see|browse|explore|check out)(?: all| our)? (?:case studies|portfolio|work|projects)|view case study/.test(
+				lower,
+			);
+		}
+		return /read more:\s*\[(?:view all blog posts|read blog post)\]|(?:explore|browse|read|see|check out|view)(?: all| our)? (?:blog|blogs|blog posts|articles|resources|guides|insights)|read blog post/.test(
+			lower,
+		);
+	}
+
+	private responseAlreadyHasUrl(
+		response: string,
+		url: string,
+	): boolean {
+		const normalizedTarget =
+			this.normalizeUrlForComparison(url);
+		return this.extractUrlsFromText(response).some(
+			(existingUrl) =>
+				this.normalizeUrlForComparison(
+					existingUrl,
+				) === normalizedTarget,
+		);
+	}
+
+	private extractUrlsFromText(
+		text: string,
+	): string[] {
+		const urls = new Set<string>();
+		const markdownMatches = text.matchAll(
+			/\[[^\]]+\]\((https?:\/\/[^\s)]+?)(?:\s+"[^"]*")?\)/g,
+		);
+		for (const match of markdownMatches) {
+			if (match[1]) {
+				urls.add(match[1]);
+			}
+		}
+		const bareMatches = text.matchAll(
+			/https?:\/\/[^\s<>"'()]+/g,
+		);
+		for (const match of bareMatches) {
+			if (match[0]) {
+				urls.add(match[0]);
+			}
+		}
+		return Array.from(urls);
+	}
+
+	private isFallbackLikeResponse(
+		response: string,
+	): boolean {
+		const normalized = normalizeWidgetQuery(
+			response,
+		);
+		return [
+			"i don't have information about that",
+			"i do not have information about that",
+			"i'm not sure",
+			"im not sure",
+			"i am not sure",
+			"i'm here to help with information available on our website",
+			"i am here to help with information available on our website",
+			"information available on our website",
+			"details not listed",
+			"not listed on the website",
+			"assist you directly",
+			"our team would be happy to assist you directly",
+			"i'm still learning this site",
+			"i am still learning this site",
+			"please contact support",
+			"i don't know",
+			"i do not know",
+			"i couldn't find",
+			"i could not find",
+			"i can't find",
+			"i cannot find",
+			"not available in the knowledge base",
+		].some((phrase) =>
+			normalized.includes(phrase),
+		);
 	}
 
 	// URL normalization for comparing a URL the model wrote against the
@@ -2357,11 +3131,15 @@ ${message}`;
 			await websiteBrandingService.resolveUserWebsiteName(
 				userId,
 			);
-		answer = this.formatAssistantResponse(
+		answer = await this.finalizeAssistantResponse(
 			answer,
-			message,
-			websiteName,
-			sources.map((s) => s.url),
+			{
+				userId,
+				sessionId: syntheticSessionId,
+				query: message,
+				websiteName,
+				sources,
+			},
 		);
 		return {
 			answer,
@@ -3089,11 +3867,15 @@ ${message}`;
 					userId,
 				);
 			assistantResponse =
-				this.formatAssistantResponse(
+				await this.finalizeAssistantResponse(
 					assistantResponse,
-					message,
-					websiteName,
-					sources.map((s) => s.url),
+					{
+						userId,
+						sessionId: session.sessionId,
+						query: message,
+						websiteName,
+						sources,
+					},
 				);
 			timing.llmMs = Date.now() - llmStart;
 
@@ -3366,13 +4148,35 @@ ${message}`;
 			await websiteBrandingService.resolveUserWebsiteName(
 				userId,
 			);
+		const streamedAssistantResponse =
+			assistantResponse;
 		assistantResponse =
-			this.formatAssistantResponse(
+			await this.finalizeAssistantResponse(
 				assistantResponse,
-				message,
-				websiteName,
-				sources.map((s) => s.url),
+				{
+					userId,
+					sessionId: session.sessionId,
+					query: message,
+					websiteName,
+					sources,
+				},
 			);
+		const streamedTrimmed =
+			streamedAssistantResponse.trimEnd();
+		if (
+			assistantResponse !==
+				streamedAssistantResponse &&
+			streamedTrimmed &&
+			assistantResponse.startsWith(streamedTrimmed)
+		) {
+			const postProcessDelta =
+				assistantResponse.slice(
+					streamedTrimmed.length,
+				);
+			if (postProcessDelta) {
+				options?.onToken?.(postProcessDelta);
+			}
+		}
 		const usageMeta =
 			this.buildUsageMetadata(usage);
 		const assistantTimestamp =
