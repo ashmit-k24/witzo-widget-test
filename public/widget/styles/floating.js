@@ -29,7 +29,7 @@ export const floatingCSS = `
     --floating-close-btn-right-typing: calc(var(--floating-help-pill-right-typing) + 4px);
     --floating-help-pill-top-space: 66px;
     position: relative;
-    width: min(690px, calc(100vw - 48px));
+    width: fit-content;
     min-height: calc(56px + var(--floating-help-pill-top-space));
     flex-direction: column;
     align-items: flex-end;
@@ -449,7 +449,7 @@ export const floatingCSS = `
 			    bottom: 30px;
 			}
     .floating-launcher-prompt {
-      width: min(92vw, 460px);
+      width: fit-content;
       --floating-help-pill-right-rest: 70px;
       --floating-help-pill-right-typing: 0px;
       --floating-close-btn-right-rest: calc(var(--floating-help-pill-right-rest) + 4px);

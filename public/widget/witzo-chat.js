@@ -2807,7 +2807,7 @@
             --floating-close-btn-right-typing: calc(var(--floating-help-pill-right-typing) + 4px);
             --floating-help-pill-top-space: 66px;
             position: relative;
-            width: min(460px, calc(100vw - 48px));
+            width: fit-content;
             min-height: calc(56px + var(--floating-help-pill-top-space));
             display: flex;
             flex-direction: column;
@@ -3366,7 +3366,8 @@
               bottom: auto;
               width: 100vw;
               max-width: 100vw;
-              height: 100vh;
+			  height: 100vh;   /* fallback */
+  			  height: 100dvh;  /* override if supported */
               min-height: 100vh;
               max-height: 100vh;
               border-radius: 0;
@@ -3385,7 +3386,7 @@
               width: 230px;
             }
             .floating-launcher-prompt {
-              width: min(92vw, 460px);
+              width: fit-content;
               --floating-help-pill-right-rest: 70px;
               --floating-help-pill-right-typing: 0px;
               --floating-close-btn-right-rest: calc(var(--floating-help-pill-right-rest) + 4px);
@@ -3464,7 +3465,7 @@
 				font-size: 9px;
 			}
 				.floating-input-shell::before {
-					transform: scaleX(0.79);
+					transform: scaleX(1);
 				}
           }
 
