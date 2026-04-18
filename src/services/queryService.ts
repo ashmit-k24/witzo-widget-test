@@ -340,6 +340,66 @@ export function generateQueryVariations(query: string): string[] {
 		.slice(0, 3);
 }
 
+export type TurnType = "new_question" | "continuation";
+
+/**
+ * Asks the LLM to classify the current turn using conversation history.
+ * "continuation" = user is asking for more detail / confirming / drilling into
+ *   what was just discussed (e.g. "yes", "tell me more", "what about the first one?",
+ *   "and the pricing for that?", "go ahead").
+ * "new_question" = a standalone new topic.
+ * Falls back to "new_question" on any error so the main flow is never blocked.
+ */
+export async function classifyTurnType(
+	query: string,
+	history: Array<{ role: string; content: string }>,
+): Promise<TurnType> {
+	if (!config.OPENAI_API_KEY?.trim() || history.length < 2) {
+		return "new_question";
+	}
+
+	logger.info("[TURN-CLASSIFY] classifying turn", { query, historyLength: history.length });
+
+	try {
+		const recentHistory = history
+			.slice(-4)
+			.map((m) => `${m.role}: ${m.content.slice(0, 300)}`)
+			.join("\n");
+
+		const completion = await openai.chat.completions.create({
+			model: "gpt-4o-mini",
+			messages: [
+				{
+					role: "system",
+					content:
+						'Classify the user\'s latest message as either "continuation" or "new_question".\n\n' +
+						'"continuation" ONLY means the user is affirming, drilling deeper, or asking for more detail on the EXACT SAME topic that was just explained or listed — e.g. "yes", "tell me more", "ok go ahead", "what about the first one?", "expand on that", "and the pricing for that?".\n\n' +
+						'"new_question" means the user is introducing a specific topic or task — even if it follows a clarification prompt. A message that contains a clear subject or action ("tell me about your services", "what do you offer", "show me pricing", "how do I contact you") is ALWAYS a new_question, regardless of what was said before.\n\n' +
+						"Reply with exactly one word: continuation or new_question.",
+				},
+				{
+					role: "user",
+					content: `Conversation so far:\n${recentHistory}\n\nLatest message: "${query}"`,
+				},
+			],
+			temperature: 0,
+			max_tokens: 5,
+		});
+
+		const result =
+			completion.choices[0]?.message?.content?.trim().toLowerCase() ?? "";
+		const turnType: TurnType = result === "continuation" ? "continuation" : "new_question";
+		logger.info("[TURN-CLASSIFY] result", { query, turnType, rawLlmResult: result });
+		return turnType;
+	} catch (err) {
+		logger.warn("[TURN-CLASSIFY] LLM call failed, defaulting to new_question", {
+			query,
+			error: err instanceof Error ? err.message : String(err),
+		});
+		return "new_question";
+	}
+}
+
 export async function stepBackRewrite(
 	query: string,
 	history?: Array<{ role: string; content: string }>,
@@ -357,23 +417,28 @@ export async function stepBackRewrite(
 		return trimmed;
 	}
 
+	logger.info("[STEP-BACK] rewriting query", { original: trimmed, historyLength: (history ?? []).length });
+
 	try {
 		const recentHistory = (history ?? [])
 			.slice(-6)
-			.map((message) => `${message.role}: ${message.content}`)
+			.map((message) => `${message.role}: ${message.content.slice(0, 400)}`)
 			.join("\n");
+
 		const completion = await openai.chat.completions.create({
 			model: "gpt-4o-mini",
 			messages: [
 				{
 					role: "system",
 					content:
-						"Rewrite the user query into one standalone website knowledge-base search query. Return only the rewritten query.",
+						"Given the conversation history, rewrite the user's latest message into a single detailed standalone search query that captures exactly what they want to know. " +
+						"If the message is vague or short (e.g. 'yes', 'tell me more', 'what about that?'), resolve what specific topic they are referring to from the conversation. " +
+						"Return only the rewritten query — never return the original word 'yes' or a similar non-specific reply.",
 				},
 				{
 					role: "user",
 					content: recentHistory
-						? `Conversation:\n${recentHistory}\n\nQuery: ${trimmed}`
+						? `Conversation:\n${recentHistory}\n\nLatest message: ${trimmed}`
 						: `Query: ${trimmed}`,
 				},
 			],
@@ -382,15 +447,15 @@ export async function stepBackRewrite(
 		});
 		const rewritten =
 			completion.choices[0]?.message?.content?.trim() || trimmed;
-		return rewritten.length > 0 && rewritten.length < 300
+		const finalQuery = rewritten.length > 0 && rewritten.length < 300
 			? rewritten.replace(/^["']|["']$/g, "")
 			: trimmed;
+		logger.info("[STEP-BACK] rewrite result", { original: trimmed, rewritten: finalQuery });
+		return finalQuery;
 	} catch (error) {
-		logger.warn("RAG step-back rewrite failed; using original query", {
-			error:
-				error instanceof Error
-					? error.message
-					: String(error),
+		logger.warn("[STEP-BACK] rewrite failed, using original query", {
+			original: trimmed,
+			error: error instanceof Error ? error.message : String(error),
 		});
 		return trimmed;
 	}

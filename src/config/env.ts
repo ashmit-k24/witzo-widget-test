@@ -626,6 +626,7 @@ export const config: EnvConfig = {
 	ADMIN_JWT_SECRET: getRequiredSecret("ADMIN_JWT_SECRET"),
 	ADMIN_TOKEN_EXPIRY_HOURS: getEnvNumber("ADMIN_TOKEN_EXPIRY_HOURS", 24),
 	ADMIN_FRONTEND_URL: getOptionalEnvString("ADMIN_FRONTEND_URL"),
+	QUEUE_DASHBOARD_TOKEN: getOptionalEnvString("QUEUE_DASHBOARD_TOKEN"),
 	S3_WIDGET_ICON_BUCKET: getOptionalEnvString("S3_WIDGET_ICON_BUCKET"),
 	S3_WIDGET_ICON_REGION: getOptionalEnvString("S3_WIDGET_ICON_REGION") || getOptionalEnvString("AWS_REGION"),
 	S3_WIDGET_ICON_PUBLIC_BASE_URL: getOptionalEnvString("S3_WIDGET_ICON_PUBLIC_BASE_URL"),
@@ -653,6 +654,7 @@ export const config: EnvConfig = {
 		3,
 	),
 	HYPE_SOURCE_LIMIT: getEnvNumber("HYPE_SOURCE_LIMIT", 120),
+	HYPE_BATCH_CONCURRENCY: getEnvNumber("HYPE_BATCH_CONCURRENCY", 10),
 	KNOWLEDGE_BOUNDARY: getEnvString("KNOWLEDGE_BOUNDARY", "workspace_only"),
 };
 

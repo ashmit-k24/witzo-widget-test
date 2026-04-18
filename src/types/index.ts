@@ -322,6 +322,7 @@ export interface EnvConfig {
 	ADMIN_JWT_SECRET: string;
 	ADMIN_TOKEN_EXPIRY_HOURS: number;
 	ADMIN_FRONTEND_URL?: string;
+	QUEUE_DASHBOARD_TOKEN?: string;
 	S3_WIDGET_ICON_BUCKET?: string;
 	S3_WIDGET_ICON_REGION?: string;
 	S3_WIDGET_ICON_PUBLIC_BASE_URL?: string;
@@ -346,6 +347,7 @@ export interface EnvConfig {
 	PINECONE_HYBRID: boolean;
 	HYPE_QUESTIONS_PER_CHUNK: number;
 	HYPE_SOURCE_LIMIT: number;
+	HYPE_BATCH_CONCURRENCY: number;
 	KNOWLEDGE_BOUNDARY: string;
 }
 

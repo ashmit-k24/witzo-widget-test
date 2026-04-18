@@ -8,9 +8,9 @@ import {
 	CHAT_COMPLETION_MODEL,
 	CHAT_COMPLETION_TEMPERATURE,
 	CHAT_DEFAULT_TIMEOUT_MS,
+	CHAT_GENERATION_MODEL,
 	CHAT_HISTORY_WINDOW_MESSAGES,
 	CHAT_LANGUAGE_LABELS,
-	CHAT_RETRIEVAL_CACHE_TTL_SECONDS,
 	CHAT_SESSION_CACHE_MESSAGE_LIMIT,
 	CHAT_SESSION_CACHE_TTL_SECONDS,
 	CHAT_SUPPORTED_LANGUAGE_SET,
@@ -20,6 +20,17 @@ import {
 	ChatMessage,
 	ChatSession,
 } from "../types";
+import {
+	extractMatchText,
+	extractMatchTitle,
+	extractMatchUrl,
+	gradeAnswer,
+	gradeDocuments as gradeDocumentsCtx,
+	ragMatchScore,
+	ragScoreThreshold,
+	relevantRagMatches,
+	retrieveRelevantContext as fetchRelevantContext,
+} from "./contextRetrievalService";
 import { openAICircuitBreaker } from "../utils/circuitBreaker";
 import logger from "../utils/logger";
 import { retryOnRateLimit } from "../utils/retry";
@@ -32,12 +43,14 @@ import { pineconeService } from "./pineconeService";
 import {
 	buildCtaTargetedQuery,
 	classifyCtaIntent,
+	classifyQuery,
+	classifyTurnType,
 	CtaIntent,
-	getTopKForQuery,
 	getCtaQueryMode,
 	getCtaTopicTerms,
 	isAppointmentBookingIntent,
 	normalizeWidgetQuery,
+	stepBackRewrite,
 } from "./queryService";
 import personaService, {
 	WidgetPersonaKey,
@@ -45,6 +58,7 @@ import personaService, {
 import { scraperStatusService } from "./scraperStatusService";
 import systemMessageService from "./systemMessageService";
 import websiteBrandingService from "./websiteBrandingService";
+import usageTrackingService from "./usageTrackingService";
 
 type AppointmentLeadField =
 	| "name"
@@ -76,14 +90,7 @@ type AppointmentLeadTurnClassification = {
 	confidence: "high" | "medium" | "low";
 };
 
-type ContextResult = {
-	matches: any[];
-	sources: Array<{
-		url: string;
-		title: string;
-		relevanceScore: number;
-	}>;
-};
+// ContextResult is re-exported from contextRetrievalService
 
 type CtaSource = {
 	url: string;
@@ -128,6 +135,10 @@ type AgenticDecision =
 	| {
 			mode: "respond";
 			message: string;
+	  }
+	| {
+			mode: "clarify";
+			message: string;
 	  };
 
 type PersonaContext = {
@@ -149,22 +160,6 @@ class ChatService {
 		sessionId: string,
 	): string {
 		return `chat:session:${sessionId}`;
-	}
-
-	private getRetrievalCacheKey(
-		userId: string,
-		sessionId: string,
-		query: string,
-	): string {
-		const normalized = query
-			.toLowerCase()
-			.trim()
-			.replace(/\s+/g, " ");
-		const digest = crypto
-			.createHash("sha1")
-			.update(normalized)
-			.digest("hex");
-		return `chat:retrieval:${userId}:${sessionId}:${digest}`;
 	}
 
 	private getAppointmentLeadStateKey(
@@ -646,6 +641,13 @@ ${message}`;
 			return false;
 		}
 
+		// Reject question-word phrases — these are pushback/meta-questions, not field values.
+		// "why you need this", "what is this for", "how will you use it" must never be saved as a name/country.
+		if (/^(why|how|what|when|where|who|which|whose|whom|is this|do you|are you|will you|can you|could you|should i|must i|do i)\b/i.test(trimmed)) {
+			logger.info("[CONTACT-FORM] question-word rejected as field value", { value: trimmed });
+			return false;
+		}
+
 		const words = trimmed
 			.split(/\s+/)
 			.filter(Boolean);
@@ -679,7 +681,18 @@ ${message}`;
 
 	private isDeclinationMessage(message: string): boolean {
 		const t = message.trim().toLowerCase();
-		return /^(no|nope|nah|skip|not now|dont want|don't want|prefer not|no thanks|no thank you|n\/a|none|pass|later|not interested|no need|ignore|leave it|not required|not necessary)\b/.test(t);
+		// Explicit refusals
+		if (/^(no|nope|nah|skip|not now|dont want|don't want|prefer not|no thanks|no thank you|n\/a|none|pass|later|not interested|no need|ignore|leave it|not required|not necessary)\b/.test(t)) {
+			logger.info("[CONTACT-FORM] explicit declination detected", { message: t });
+			return true;
+		}
+		// Pushback questions about why we're asking — e.g. "why you need this", "what is this for",
+		// "why do you need my country". These are resistance signals, not field values.
+		if (/^(why|what for|what is this for|why do you need|why is this|is this required|is this necessary|is it required|do i have to|must i|is this mandatory|do you really need)\b/.test(t)) {
+			logger.info("[CONTACT-FORM] pushback question treated as declination", { message: t });
+			return true;
+		}
+		return false;
 	}
 
 	private async classifyAppointmentLeadTurn(
@@ -696,12 +709,10 @@ ${message}`;
 			};
 		}
 
-		// Fast-path: clear declination for optional fields — no LLM call needed
-		const optionalFields: AppointmentLeadField[] = ["phone", "country"];
-		if (
-			optionalFields.includes(expectedField) &&
-			this.isDeclinationMessage(trimmed)
-		) {
+		// Fast-path: detect declinations for any field — no LLM call needed.
+		// This prevents "no i dont want to give" from falling through to the LLM
+		// which would classify it as normal_chat and exit the appointment flow entirely.
+		if (this.isDeclinationMessage(trimmed)) {
 			return { action: "declined_field", confidence: "high" };
 		}
 
@@ -740,14 +751,16 @@ Return only valid JSON with this exact shape:
 }
 
 Valid actions:
-- "requested_field": the visitor is trying to provide the requested detail
-- "normal_chat": the visitor is asking a different question or changing topic and should get a normal chatbot answer
-- "unclear": the visitor is not clearly doing either
+- "requested_field": the visitor is providing the requested detail
+- "declined_field": the visitor is refusing, declining, or expressing reluctance to share the field (e.g. "no", "I don't want to", "skip", "not now", "why do you need this", "I prefer not to")
+- "normal_chat": the visitor is asking a completely different business question unrelated to the booking
+- "unclear": the visitor's intent is genuinely ambiguous
 
 Rules:
-- If the visitor asks a business question, requests information, or changes the topic, use "normal_chat"
-- If the visitor clearly provides the requested field value, use "requested_field"
-- Greetings, acknowledgements, or vague replies like "hi", "okay", "thanks" should usually be "unclear"
+- If the visitor refuses, says no, or pushes back on sharing the field → use "declined_field"
+- If the visitor asks a business question unrelated to the booking (e.g. "what are your services?") → use "normal_chat"
+- If the visitor clearly provides the requested field value → use "requested_field"
+- Vague replies like "hi", "okay", "thanks" → "unclear"
 - Be tolerant of typos and short casual wording
 
 Recent conversation:
@@ -844,7 +857,7 @@ ${message}`;
 		state: AppointmentLeadState,
 	): AppointmentLeadField | null {
 		const orderedFields: AppointmentLeadField[] =
-			["name", "email", "phone", "country"];
+			["name", "email", "phone"];
 		const declined = state.declinedFields ?? [];
 
 		for (const field of orderedFields) {
@@ -1073,10 +1086,6 @@ ${message}`;
 		);
 	}
 
-	private getTopKForQuery(_query: string): number {
-		return getTopKForQuery(_query);
-	}
-
 	private getFallbackResponse(): string {
 		return "I don't have information about that. Please contact support.";
 	}
@@ -1098,59 +1107,96 @@ ${message}`;
 		);
 	}
 
-	private ragMatchScore(match: any): number {
-		const raw = match?.score;
-		return typeof raw === "number" &&
-			Number.isFinite(raw)
-			? raw
-			: 0;
+	private isListResponse(text: string): boolean {
+		return /(?:^|\n)\s*[-•*]\s|(?:^|\n)\s*\d+\.\s/.test(text);
 	}
 
-	private extractMatchText(match: any): string {
-		return String(
-			match?.metadata?.parentText ||
-				match?.metadata?.content ||
-				match?.metadata?.text ||
-				"",
-		).trim();
-	}
+	private buildIntentInstruction(
+		query: string,
+		isContinuation: boolean = false,
+		lastAssistantMsg?: string | null,
+	): string {
+		const queryClass = classifyQuery(query);
 
-	private extractMatchTitle(match: any): string {
-		return String(
-			match?.metadata?.title || "",
-		).trim();
-	}
+		if (isContinuation) {
+			// Safety check: if the query itself has specific intent (service, pricing, contact, etc.),
+			// the turn-classifier was wrong — treat it as a new question with proper intent routing.
+			if (queryClass !== "general") {
+				logger.info("[INTENT] continuation overridden — query has specific intent", {
+					query,
+					queryClass,
+				});
+			} else {
+				const lastWasList =
+					lastAssistantMsg != null
+						? this.isListResponse(lastAssistantMsg)
+						: true;
 
-	private extractMatchUrl(match: any): string {
-		return String(
-			match?.metadata?.url || "",
-		).trim();
-	}
+				logger.info("[INTENT] continuation detected", {
+					query,
+					lastWasList,
+					lastMsgPreview: lastAssistantMsg?.slice(0, 100) ?? "none",
+					path: lastWasList ? "explain-first-listed-item" : "advance-conversation",
+				});
 
-	private relevantRagMatches(
-		matches: any[],
-		minScore: number,
-	): any[] {
-		return matches.filter((match) => {
-			const score = this.ragMatchScore(match);
-			return score >= minScore;
-		});
-	}
+				if (!lastWasList) {
+					// Last response was already a detailed explanation — repeating it causes a loop.
+					// Advance the conversation instead: offer to go deeper on a specific angle or suggest the next step.
+					return [
+						"The visitor confirmed they want to continue or learn more.",
+						"Your LAST response was already a detailed explanation — do NOT restate or paraphrase it.",
+						"Instead, naturally advance the conversation:",
+						"(1) Ask which specific aspect they'd like to explore further (e.g. pricing, timeline, examples, getting started), OR",
+						"(2) If they seem ready to take action, offer to connect them with the team.",
+						"Keep your response to 1–2 sentences. Be conversational, not robotic.",
+					].join(" ");
+				}
 
-	private ragScoreThreshold(
-		_query: string,
-	): number {
-		return 0.3;
+				// Last response was a bullet list — explain the first item in depth.
+				return [
+					"The visitor just confirmed they want to know more.",
+					"Look at the LAST assistant message in the conversation history.",
+					"Identify the FIRST specific item, service, or option that was listed.",
+					"Explain ONLY that specific item in detail (3–5 sentences): what it is, what it includes, and why it matters.",
+					"CRITICAL: Do NOT show a bullet list again. Do NOT repeat the full list of options. Give a detailed paragraph about the single most relevant item.",
+					"End with one specific question to understand what the visitor needs next.",
+				].join(" ");
+			}
+		}
+		logger.info("[INTENT] new-question intent class", { query, queryClass });
+		switch (queryClass) {
+			case "pricing":
+				return "The visitor is asking about pricing, plans, or costs. Be specific with numbers and tiers if they appear in the knowledge base. If exact pricing is not in the context, say so clearly and direct them to contact the team for a quote — never invent a number.";
+			case "contact":
+				return "The visitor wants to get in touch or reach the team. Lead with the contact method (email, phone, form link). If a CTA link is available in the knowledge base, include it as the primary call to action.";
+			case "case_study":
+				return "The visitor is interested in past work, client projects, or success stories. Highlight specific client outcomes and measurable results if present. Do not fabricate project names or results.";
+			case "service":
+				return "The visitor is asking about services or solutions. List only the 3–4 most relevant services — do not enumerate every offering. Lead with the one most likely to match their intent.";
+			case "blog":
+				return "The visitor is looking for articles, guides, or resources. If specific titles appear in the knowledge base, name them. Otherwise summarise the topic areas covered. Do not invent article titles.";
+			case "people":
+				return "The visitor is asking about a specific person or the team. Use the person's exact name and title from the knowledge base verbatim. Do not infer seniority or role beyond what is stated.";
+			case "general":
+			default:
+				return "The visitor's question is open-ended. Respond with a concise 2–3 sentence overview of what is most relevant, then end with one focused follow-up question to narrow their intent.";
+		}
 	}
 
 	private defaultGeneratedSystemPrompt(): string {
-		return (
-			"You are a helpful assistant for this company's website. " +
-			"Answer the user's question using only the knowledge base provided in the user message. " +
-			"If the knowledge base does not contain the answer, say so honestly and suggest the user contact the team. " +
-			"Never invent facts, prices, features, or policies. " +
-			"Be concise and direct. Use markdown when helpful, but do not pad answers with unnecessary descriptions or filler."
-		);
+		return [
+			"You are a knowledgeable assistant for this company's website.",
+			"",
+			"STRICT RULES — follow every one without exception:",
+			"1. Answer ONLY using the Knowledge Base provided in the user message. Do not use any outside knowledge.",
+			"2. If the Knowledge Base does not contain enough information to answer, say exactly: \"I don't have that information available. Please contact the team directly for the most accurate answer.\" — do NOT guess, paraphrase around the gap, or give a vague generic reply.",
+			"3. Never invent or assume: prices, dates, names, roles, features, policies, or URLs that are not explicitly in the Knowledge Base.",
+			"4. Stay strictly on topic. Do not answer questions unrelated to this company.",
+			"5. Be concise and specific. Prefer bullet points over long paragraphs when listing multiple items.",
+			"6. When the Knowledge Base has a direct quote or specific detail, use it verbatim — do not paraphrase in a way that loses precision.",
+			"7. CONFUSED OR NEW VISITOR: If the visitor says they are new, unfamiliar, don't know where to start, or asks for a suggestion — respond with a warm 2–3 sentence overview of what this company offers, then ask ONE focused question to understand their goal (e.g. 'What kind of project are you looking to build?' or 'What's the main outcome you're hoping to achieve?'). Do NOT output a generic bullet list of features — guide them with a real question.",
+			"8. PUSHBACK OR RESISTANCE: If the visitor pushes back, questions why something is needed, or expresses frustration — acknowledge their concern in one sentence, give a brief honest answer, then move forward. Never ignore their concern or treat it as a non-answer.",
+		].join("\n");
 	}
 
 	private formatAssistantResponse(
@@ -1511,12 +1557,12 @@ ${message}`;
 	): CtaSource[] {
 		return this.deduplicateCtaSources(
 			matches.map((match) => ({
-				url: this.extractMatchUrl(match),
+				url: extractMatchUrl(match),
 				title:
-					this.extractMatchTitle(match) ||
-					this.extractMatchUrl(match),
+					extractMatchTitle(match) ||
+					extractMatchUrl(match),
 				relevanceScore:
-					this.ragMatchScore(match),
+					ragMatchScore(match),
 			})),
 		);
 	}
@@ -2421,92 +2467,6 @@ ${message}`;
 		return result.rows[0].created_at;
 	}
 
-	private async retrieveRelevantContext(
-		userId: string,
-		query: string,
-		sessionId: string,
-		history: ChatMessage[],
-	): Promise<ContextResult> {
-		try {
-			const cacheKey = this.getRetrievalCacheKey(
-				userId,
-				sessionId,
-				query,
-			);
-			const cached =
-				await redisCache.get(cacheKey);
-			if (cached) {
-				return JSON.parse(
-					cached,
-				) as ContextResult;
-			}
-
-			const topK = this.getTopKForQuery(query);
-			const results =
-				await pineconeService.queryDocuments(
-					userId,
-					query,
-					topK,
-					{
-						history: history
-							.slice(-6)
-							.map((message) => ({
-								role: message.role,
-								content: message.content,
-							})),
-					},
-				);
-
-			if (!results || results.length === 0) {
-				return { matches: [], sources: [] };
-			}
-
-			const sources: Array<{
-				url: string;
-				title: string;
-				relevanceScore: number;
-			}> = [];
-
-			for (const match of results) {
-				if (!match?.metadata?.url) {
-					continue;
-				}
-				if (
-					!sources.find(
-						(source) =>
-							source.url === match.metadata.url,
-					)
-				) {
-					sources.push({
-						url: match.metadata.url,
-						title:
-							match.metadata.title ||
-							match.metadata.url,
-						relevanceScore:
-							this.ragMatchScore(match),
-					});
-				}
-			}
-
-			const responseData: ContextResult = {
-				matches: results,
-				sources,
-			};
-			await redisCache.setex(
-				cacheKey,
-				CHAT_RETRIEVAL_CACHE_TTL_SECONDS,
-				JSON.stringify(responseData),
-			);
-			return responseData;
-		} catch (error) {
-			logger.error(
-				"Error retrieving context from Pinecone",
-				{ error, userId },
-			);
-			return { matches: [], sources: [] };
-		}
-	}
-
 	private buildCollectedLeadContext(
 		profile: Partial<Record<AppointmentLeadField, string>>,
 	): string {
@@ -2516,7 +2476,7 @@ ${message}`;
 		if (profile.phone) parts.push(`Phone: ${profile.phone}`);
 		if (profile.country) parts.push(`Country: ${profile.country}`);
 		if (!parts.length) return "";
-		return `VISITOR DETAILS ALREADY COLLECTED — do NOT ask for any of these again:\n${parts.join(", ")}`;
+		return `VISITOR DETAILS ALREADY COLLECTED — do NOT ask for any of these again:\n${parts.join(", ")}\nIf the visitor asks what information they have shared or what contact details you have on file, refer exactly to the details above.`;
 	}
 
 	private async buildChatMessages(
@@ -2527,6 +2487,8 @@ ${message}`;
 		_languageCode?: string,
 		personaContext?: PersonaContext,
 		sessionId?: string,
+		originalQuery?: string,
+		isContinuation: boolean = false,
 	): Promise<Array<any>> {
 		const [effectiveSystemMessage, sessionProfile] =
 			await Promise.all([
@@ -2539,12 +2501,12 @@ ${message}`;
 		// Build a flat knowledge-base block from retrieved matches.
 		const allContextParts: string[] = [];
 		for (const match of matches) {
-			const text = this.extractMatchText(match);
+			const text = extractMatchText(match);
 			if (!text) continue;
 			const sourceUrl =
-				this.extractMatchUrl(match);
+				extractMatchUrl(match);
 			const sourceTitle =
-				this.extractMatchTitle(match);
+				extractMatchTitle(match);
 			const headerParts = [
 				sourceTitle
 					? `Title: ${sourceTitle}`
@@ -2652,6 +2614,17 @@ ${message}`;
 			});
 		}
 
+		// Intent-specific instruction — informs the model how to shape its response
+		const intentInstruction = this.buildIntentInstruction(
+			query,
+			isContinuation,
+			this.getLastAssistantMessage(messages),
+		);
+		conversationHistory.push({
+			role: "system",
+			content: intentInstruction,
+		});
+
 		const recentMessages = messages.slice(
 			-CHAT_HISTORY_WINDOW_MESSAGES,
 		);
@@ -2662,16 +2635,63 @@ ${message}`;
 			});
 		}
 
+		const selfCorrectionNote =
+			"IMPORTANT: If the knowledge base above does not contain enough information to answer the question directly and specifically, say so honestly in one sentence and offer to connect the visitor with the team — do not give a vague or generic response that avoids the question.";
+
+		const continuationNote = isContinuation
+			? "IMPORTANT: The visitor said 'yes' or a short affirmative. Do NOT re-show the same list. Pick the first specific item from your previous response and explain it in a detailed paragraph."
+			: "";
+
+		const question = isContinuation && originalQuery
+			? `The visitor confirmed: "${originalQuery}". Continue from your last response — explain the first specific item in detail.`
+			: `Question: ${query}`;
+
 		const userPrompt =
 			contextParts.length > 0
-				? `Knowledge Base:\n${contextParts.join("\n\n---\n\n")}\n\nQuestion: ${query}`
-				: `Question: ${query}`;
+				? `Knowledge Base:\n${contextParts.join("\n\n---\n\n")}\n\n${selfCorrectionNote}${continuationNote ? `\n${continuationNote}` : ""}\n\n${question}`
+				: `${selfCorrectionNote}${continuationNote ? `\n${continuationNote}` : ""}\n\n${question}`;
 
 		conversationHistory.push({
 			role: "user",
 			content: userPrompt,
 		});
 		return conversationHistory;
+	}
+
+	// ── Debug / evaluation helpers (admin-only) ───────────────────────────────
+
+	async buildDebugPrompt(
+		userId: string,
+		query: string,
+	): Promise<{
+		messages: Array<{ role: string; content: string }>;
+		matches: any[];
+		docGrade: string;
+		matchCount: number;
+		topScore: number | null;
+	}> {
+		const { matches } = await fetchRelevantContext(userId, query, "debug", []);
+		const threshold = ragScoreThreshold(query);
+		const relevant = relevantRagMatches(matches, threshold);
+		const docGrade = await gradeDocumentsCtx(query, relevant);
+		const messages = await this.buildChatMessages(
+			userId,
+			query,
+			relevant,
+			[],
+		);
+		return {
+			messages,
+			matches: relevant.map((m: any) => ({
+				text: extractMatchText(m).slice(0, 300),
+				url: extractMatchUrl(m),
+				title: extractMatchTitle(m),
+				score: m.score ?? m.cohereScore ?? null,
+			})),
+			docGrade,
+			matchCount: relevant.length,
+			topScore: relevant[0]?.score ?? relevant[0]?.cohereScore ?? null,
+		};
 	}
 
 	private async generateNonStreamingResponse(
@@ -2697,7 +2717,7 @@ ${message}`;
 							async () => {
 								return await this.openai.chat.completions.create(
 									{
-										model: CHAT_COMPLETION_MODEL,
+										model: CHAT_GENERATION_MODEL,
 										messages: conversationHistory,
 										temperature:
 											CHAT_COMPLETION_TEMPERATURE,
@@ -2740,7 +2760,6 @@ ${message}`;
 	private async generatePersonaAwareFallbackResponse(
 		userId: string,
 		query: string,
-		fallbackResponse: string,
 		history: ChatMessage[],
 		languageCode: string | undefined,
 		personaContext: PersonaContext,
@@ -2748,10 +2767,7 @@ ${message}`;
 		response: string;
 		usage?: CompletionUsage;
 	} | null> {
-		if (
-			!config.OPENAI_API_KEY?.trim() ||
-			!personaContext.prompt.trim()
-		) {
+		if (!config.OPENAI_API_KEY?.trim()) {
 			return null;
 		}
 
@@ -2796,8 +2812,8 @@ ${message}`;
 				role: "user",
 				content: [
 					`Visitor message: ${query}`,
-					`The normal fallback response would be: ${fallbackResponse}`,
-					"Reply to the visitor while strictly following the selected persona instructions. Do not ignore the persona just because knowledge-base retrieval had no matching result.",
+					"The knowledge base did not contain a specific answer to this question.",
+					"Reply warmly and helpfully: acknowledge the visitor's question, share anything generally relevant you know from the company context above, and offer to connect them with the team for more detail. Keep the response concise — under 60 words.",
 				].join("\n\n"),
 			});
 
@@ -2893,6 +2909,25 @@ ${message}`;
 					},
 				},
 			},
+			{
+				type: "function",
+				function: {
+					name: "ask_clarification",
+					description:
+						"Ask ONE short clarifying question when the user's message is too broad or ambiguous to search meaningfully — e.g. 'tell me everything', 'what do you do', 'I need help'. Do NOT use this for greetings or for questions that are clearly answerable by searching the knowledge base.",
+					parameters: {
+						type: "object",
+						properties: {
+							question: {
+								type: "string",
+								description:
+									"A single, focused question to narrow the user's intent. Keep it under 20 words.",
+							},
+						},
+						required: ["question"],
+					},
+				},
+			},
 		];
 
 		try {
@@ -2908,7 +2943,8 @@ ${message}`;
 										content: [
 											`You are a routing agent for ${websiteName}'s support widget. Choose exactly one tool.`,
 											`Use respond_to_user for: greetings, farewells, personal introductions (e.g. "I am John", "my name is...", "I'm Vivek"), thank-you messages, acknowledgements, or any social exchange that doesn't need company knowledge.`,
-											`Use search_knowledge_base for questions about the company, services, pricing, contact info, team, policies, or any factual business question.`,
+											`Use search_knowledge_base for any specific question about the company, services, pricing, contact info, team, policies, or any factual business question.`,
+											`Use ask_clarification ONLY when the message is too vague to search usefully — e.g. "tell me everything", "what do you do", "I need help", "can you help me". Never use it for greetings or specific questions.`,
 											"CRITICAL: Personal introductions (user sharing their name or personal info) MUST use respond_to_user — never search the knowledge base for them.",
 											"CRITICAL: Email addresses and phone numbers are personal contact information — even if an email contains a company domain (e.g. john@company.com), treat it as personal info and use respond_to_user, never search_knowledge_base.",
 											"CRITICAL: If the previous assistant message was asking the user for their name, email, phone number, or other personal details, and the user's message is providing that information, ALWAYS use respond_to_user.",
@@ -2980,6 +3016,7 @@ ${message}`;
 			) as {
 				query?: string;
 				message?: string;
+				question?: string;
 			};
 			if (
 				toolCall.function.name ===
@@ -2990,6 +3027,17 @@ ${message}`;
 					message:
 						args.message?.trim() ||
 						this.getFallbackResponse(),
+				};
+			}
+			if (
+				toolCall.function.name ===
+				"ask_clarification"
+			) {
+				return {
+					mode: "clarify",
+					message:
+						args.question?.trim() ||
+						"Could you tell me a bit more about what you're looking for?",
 				};
 			}
 			return {
@@ -3086,23 +3134,24 @@ ${message}`;
 				syntheticSessionId,
 			);
 		const { matches, sources } =
-			decision.mode === "respond"
+			decision.mode === "respond" || decision.mode === "clarify"
 				? { matches: [], sources: [] }
-				: await this.retrieveRelevantContext(
+				: await fetchRelevantContext(
 						userId,
 						decision.query,
 						syntheticSessionId,
 						[],
 					);
 		const ragThreshold =
-			this.ragScoreThreshold(message);
+			ragScoreThreshold(message);
 		const relevantMatches =
-			this.relevantRagMatches(
+			relevantRagMatches(
 				matches,
 				ragThreshold,
 			);
 		const shouldCallLlm =
 			decision.mode === "respond" ||
+			decision.mode === "clarify" ||
 			relevantMatches.length > 0;
 		const fallbackResponse =
 			decision.mode === "search" &&
@@ -3111,7 +3160,7 @@ ${message}`;
 				? this.getLearningFallbackResponse()
 				: this.getFallbackResponse();
 		let answer =
-			decision.mode === "respond"
+			decision.mode === "respond" || decision.mode === "clarify"
 				? decision.message
 				: fallbackResponse;
 
@@ -3137,7 +3186,6 @@ ${message}`;
 				await this.generatePersonaAwareFallbackResponse(
 					userId,
 					message,
-					fallbackResponse,
 					[],
 					resolvedLanguage,
 					personaContext,
@@ -3382,36 +3430,43 @@ ${message}`;
 					existingState,
 				);
 			if (expectedField) {
-				const previewState =
-					this.hydrateAppointmentLeadState(
-						existingState,
-						message,
-					);
-				const previewCapture =
-					this.captureExpectedAppointmentField(
-						previewState,
-						expectedField,
-						message,
-					);
-				if (!previewCapture.valid) {
-					const leadTurnClassifierStart =
-						Date.now();
-					leadTurnClassification =
-						await this.classifyAppointmentLeadTurn(
-							message,
-							expectedField,
+				// Declination check BEFORE preview capture — prevents words like "no", "skip"
+				// from passing isBasicAppointmentTextFieldValue and being stored as a field value.
+				if (this.isDeclinationMessage(message.trim())) {
+					leadTurnClassification = { action: "declined_field", confidence: "high" };
+					logger.info("[CONTACT-FORM] early-declination detected (pre-capture)", { expectedField, message });
+				} else {
+					const previewState =
+						this.hydrateAppointmentLeadState(
 							existingState,
-							session.messages,
+							message,
 						);
-					timing.llmMs +=
-						Date.now() - leadTurnClassifierStart;
-					if (
-						leadTurnClassification.action ===
-							"normal_chat" &&
-						leadTurnClassification.confidence !==
-							"low"
-					) {
-						return null;
+					const previewCapture =
+						this.captureExpectedAppointmentField(
+							previewState,
+							expectedField,
+							message,
+						);
+					if (!previewCapture.valid) {
+						const leadTurnClassifierStart =
+							Date.now();
+						leadTurnClassification =
+							await this.classifyAppointmentLeadTurn(
+								message,
+								expectedField,
+								existingState,
+								session.messages,
+							);
+						timing.llmMs +=
+							Date.now() - leadTurnClassifierStart;
+						if (
+							leadTurnClassification.action ===
+								"normal_chat" &&
+							leadTurnClassification.confidence !==
+								"low"
+						) {
+							return null;
+						}
 					}
 				}
 			}
@@ -3556,19 +3611,51 @@ ${message}`;
 				this.getNextAppointmentLeadField(
 					existingState,
 				);
+			logger.info("[CONTACT-FORM] processing turn", {
+				userId,
+				message,
+				expectedField,
+				leadTurnAction: leadTurnClassification?.action ?? "none",
+				leadTurnConfidence: leadTurnClassification?.confidence ?? "none",
+				collectedSoFar: existingState.fields,
+			});
 			if (expectedField) {
 				// Handle explicit declination of optional fields
 				if (
 					leadTurnClassification?.action ===
 						"declined_field"
 				) {
-					state = {
-						...state,
-						declinedFields: [
-							...(state.declinedFields ?? []),
-							expectedField,
-						],
-					};
+					logger.info("[CONTACT-FORM] field declined", { userId, expectedField, message });
+
+					// Email is the only way to reach the visitor — give one gentle re-ask before accepting.
+					// Detect "second decline" via the last bot message, NOT by adding to declinedFields early.
+					// Adding email to declinedFields before the re-ask would cause the NEXT valid email
+					// submission to be skipped (getNextAppointmentLeadField sees it as declined).
+					if (expectedField === "email") {
+						const lastBotMsg = this.getLastAssistantMessage(session.messages) ?? "";
+						const alreadyReAsked = lastBotMsg.includes("We just need an email address");
+						if (!alreadyReAsked) {
+							// First decline — gentle re-ask, do NOT add to declinedFields yet
+							const namePart = state.fields.name ? `, ${state.fields.name}` : "";
+							response = `No worries${namePart}! We just need an email address so our team can get back to you — it won't be shared with anyone else. Could you share one?`;
+							logger.info("[CONTACT-FORM] email re-ask (first decline)", { userId });
+						} else {
+							// Second decline — accept it and move on
+							state = {
+								...state,
+								declinedFields: [...(state.declinedFields ?? []), expectedField],
+							};
+							logger.info("[CONTACT-FORM] email declined (second time), skipping", { userId });
+						}
+					} else {
+						state = {
+							...state,
+							declinedFields: [
+								...(state.declinedFields ?? []),
+								expectedField,
+							],
+						};
+					}
 				} else {
 					const captured =
 						this.captureExpectedAppointmentField(
@@ -3577,6 +3664,12 @@ ${message}`;
 							message,
 						);
 					state = captured.state;
+					logger.info("[CONTACT-FORM] field capture result", {
+						userId,
+						expectedField,
+						valid: captured.valid,
+						capturedValue: captured.state.fields[expectedField] ?? null,
+					});
 					if (!captured.valid) {
 						if (
 							leadTurnClassification?.action ===
@@ -3587,9 +3680,11 @@ ${message}`;
 								message,
 							)
 						) {
+							logger.info("[CONTACT-FORM] fallback field accept", { userId, expectedField, value: message.trim() });
 							state.fields[expectedField] =
 								message.trim();
 						} else {
+							logger.info("[CONTACT-FORM] invalid field value, re-prompting", { userId, expectedField, message });
 							response =
 								this.buildInvalidAppointmentLeadPrompt(
 									expectedField,
@@ -3602,6 +3697,12 @@ ${message}`;
 
 		const nextField =
 			this.getNextAppointmentLeadField(state);
+		logger.info("[CONTACT-FORM] next-field", {
+			userId,
+			nextField: nextField ?? "none (form complete)",
+			fields: state.fields,
+			declinedFields: state.declinedFields ?? [],
+		});
 		if (!response) {
 			if (nextField) {
 				response =
@@ -3610,8 +3711,14 @@ ${message}`;
 						state,
 					);
 			} else {
-				response =
-					"Thank you. We've captured your appointment request, and our team will reach out soon to schedule the meeting.";
+				const contactRef = state.fields.email || state.fields.phone;
+				const namePart = state.fields.name ? `, ${state.fields.name}` : "";
+				if (contactRef) {
+					response = `No worries${namePart}! Our team will reach out to you at ${contactRef} shortly.`;
+				} else {
+					// No contact info collected — direct them to reach out themselves
+					response = `No worries${namePart}! Since we don't have your contact details, please reach out to our team directly and they'll be happy to assist you.`;
+				}
 			}
 		}
 
@@ -3791,13 +3898,20 @@ ${message}`;
 					personaContext,
 					session.sessionId,
 				);
+			logger.info("[CHAT] agentic-decision", {
+				userId,
+				message,
+				mode: decision.mode,
+				query: decision.mode === "search" ? decision.query : "N/A",
+			});
+
 			const { matches, sources } =
-				decision.mode === "respond"
+				decision.mode === "respond" || decision.mode === "clarify"
 					? {
 							matches: [],
 							sources: [],
 						}
-					: await this.retrieveRelevantContext(
+					: await fetchRelevantContext(
 							userId,
 							decision.query,
 							session.sessionId,
@@ -3805,17 +3919,65 @@ ${message}`;
 						);
 			timing.retrievalMs =
 				Date.now() - retrievalStart;
-			const relevantMatches =
-				this.relevantRagMatches(
-					matches,
-					this.ragScoreThreshold(
-						decision.mode === "search"
-							? decision.query
-							: message,
-					),
+			const scoreThreshold = ragScoreThreshold(
+				decision.mode === "search" ? decision.query : message,
+			);
+			let relevantMatches =
+				relevantRagMatches(matches, scoreThreshold);
+
+			logger.info("[CHAT] rag-retrieval", {
+				userId,
+				query: decision.mode === "search" ? decision.query : "N/A",
+				totalMatches: matches.length,
+				relevantMatchesAfterThreshold: relevantMatches.length,
+				scoreThreshold,
+				topScore: matches[0]?.score ?? null,
+			});
+
+			// CRAG: grade retrieved docs; if irrelevant, rewrite query and retry once
+			let docGrade: "yes" | "partial" | "no" | undefined;
+			if (decision.mode === "search" && relevantMatches.length > 0) {
+				docGrade = await gradeDocumentsCtx(
+					decision.query,
+					relevantMatches,
 				);
+				logger.info("[CHAT] doc-grade", { userId, docGrade, query: decision.query });
+				if (docGrade === "no") {
+					const rewritten = await stepBackRewrite(
+						decision.query,
+						historyMessages.slice(-6).map((m) => ({
+							role: m.role,
+							content: m.content,
+						})),
+					);
+					if (rewritten !== decision.query) {
+						const retryResult =
+							await fetchRelevantContext(
+								userId,
+								rewritten,
+								session.sessionId,
+								historyMessages,
+							);
+						const retryMatches = relevantRagMatches(
+							retryResult.matches,
+							ragScoreThreshold(rewritten),
+						);
+						logger.info("[CHAT] crag-retry", {
+							userId,
+							rewritten,
+							retryMatchCount: retryMatches.length,
+							used: retryMatches.length > 0,
+						});
+						if (retryMatches.length > 0) {
+							relevantMatches = retryMatches;
+						}
+					}
+				}
+			}
+
 			const shouldCallLlm =
 				decision.mode === "respond" ||
+				decision.mode === "clarify" ||
 				relevantMatches.length > 0;
 
 			const fallbackResponse =
@@ -3825,11 +3987,20 @@ ${message}`;
 					? this.getLearningFallbackResponse()
 					: this.getFallbackResponse();
 			let assistantResponse =
-				decision.mode === "respond"
+				decision.mode === "respond" || decision.mode === "clarify"
 					? decision.message
 					: fallbackResponse;
 			let usedFallback = !shouldCallLlm;
+			let answerGrade: "yes" | "no" | undefined;
 			let usage: CompletionUsage | undefined;
+			// Let the LLM decide if this turn is a continuation of the previous exchange
+			const turnType = await classifyTurnType(
+				message,
+				historyMessages.slice(-4).map((m) => ({ role: m.role, content: m.content })),
+			);
+			const isContinuation = turnType === "continuation";
+			logger.info("[CHAT] turn-classification", { userId, message, turnType, isContinuation });
+
 			const llmStart = Date.now();
 			if (shouldCallLlm && decision.mode === "search") {
 				try {
@@ -3842,25 +4013,74 @@ ${message}`;
 							resolvedLanguage,
 							personaContext,
 							session.sessionId,
+							message,
+							isContinuation,
 						);
 					const completionResult =
 						await this.generateNonStreamingResponse(
 							conversationHistory,
 							CHAT_DEFAULT_TIMEOUT_MS,
 						);
-					assistantResponse =
-						completionResult.response;
+					assistantResponse = completionResult.response;
 					usage = completionResult.usage;
-					usedFallback =
-						assistantResponse ===
-						fallbackResponse;
+					usedFallback = assistantResponse === fallbackResponse;
+
+					// Step 2: Grade the answer — if it doesn't address the query,
+					// retry once with a broader rewrite before giving up
+					if (!usedFallback) {
+						answerGrade = await gradeAnswer(message, assistantResponse);
+						logger.info("[CHAT] answer-grade", {
+							userId,
+							message,
+							answerGrade,
+							responsePreview: assistantResponse.slice(0, 120),
+						});
+						if (answerGrade === "no") {
+							const broaderQuery = await stepBackRewrite(
+								message,
+								historyMessages.slice(-6).map((m) => ({
+									role: m.role,
+									content: m.content,
+								})),
+							);
+							if (broaderQuery !== message) {
+								const retryCtx = await fetchRelevantContext(
+									userId,
+									broaderQuery,
+									session.sessionId,
+									historyMessages,
+								);
+								const retryMatches = relevantRagMatches(
+									retryCtx.matches,
+									ragScoreThreshold(broaderQuery),
+								);
+								if (retryMatches.length > 0) {
+									const retryHistory = await this.buildChatMessages(
+										userId,
+										broaderQuery,
+										retryMatches,
+										historyMessages,
+										resolvedLanguage,
+										personaContext,
+										session.sessionId,
+									);
+									const retryResult =
+										await this.generateNonStreamingResponse(
+											retryHistory,
+											CHAT_DEFAULT_TIMEOUT_MS,
+										);
+									if (retryResult.response && retryResult.response !== fallbackResponse) {
+										assistantResponse = retryResult.response;
+										usage = retryResult.usage;
+									}
+								}
+							}
+						}
+					}
 				} catch (error) {
 					logger.error(
 						"Chat generation failed, using fallback",
-						{
-							error,
-							userId,
-						},
+						{ error, userId },
 					);
 					usedFallback = true;
 				}
@@ -3870,22 +4090,18 @@ ${message}`;
 					await this.generatePersonaAwareFallbackResponse(
 						userId,
 						message,
-						assistantResponse || fallbackResponse,
 						historyMessages,
 						resolvedLanguage,
 						personaContext,
 					);
 				if (personaFallback?.response?.trim()) {
-					assistantResponse =
-						personaFallback.response;
+					assistantResponse = personaFallback.response;
 					usage = personaFallback.usage;
 					usedFallback = false;
 				}
 			}
 			const websiteName =
-				await websiteBrandingService.resolveUserWebsiteName(
-					userId,
-				);
+				await websiteBrandingService.resolveUserWebsiteName(userId);
 			assistantResponse =
 				await this.finalizeAssistantResponse(
 					assistantResponse,
@@ -3899,8 +4115,17 @@ ${message}`;
 				);
 			timing.llmMs = Date.now() - llmStart;
 
-			const usageMeta =
-				this.buildUsageMetadata(usage);
+			const usageMeta = this.buildUsageMetadata(usage);
+			if (usage && !usedFallback) {
+				void usageTrackingService.recordTokenUsage({
+					userId,
+					sessionId: session.sessionId,
+					model: CHAT_GENERATION_MODEL,
+					promptTokens: usage.prompt_tokens,
+					completionTokens: usage.completion_tokens,
+					source: "chat",
+				});
+			}
 			const assistantTimestamp =
 				await this.persistMessage(
 					session.sessionId,
@@ -3927,9 +4152,19 @@ ${message}`;
 			timing.saveMs = Date.now() - saveStart;
 			timing.totalMs = Date.now() - startedAt;
 
-			logger.info("Chat response generated", {
+			// Step 1: Structured trace log — every field needed to diagnose a bad response
+			logger.info("chat:trace", {
 				userId,
 				sessionId: session.sessionId,
+				query: message,
+				routerMode: decision.mode,
+				queryRewritten: decision.mode === "search" ? decision.query : undefined,
+				docGrade,
+				answerGrade,
+				matchCount: relevantMatches.length,
+				topMatchScore: relevantMatches[0]?.score ?? relevantMatches[0]?.cohereScore,
+				usedFallback,
+				responseLength: assistantResponse.length,
 				language: resolvedLanguage,
 				sourcesCount: sources.length,
 				timing,
@@ -4022,10 +4257,17 @@ ${message}`;
 				personaContext,
 				session.sessionId,
 			);
+		logger.info("[STREAM] agentic-decision", {
+			userId,
+			message,
+			mode: decision.mode,
+			query: decision.mode === "search" ? decision.query : "N/A",
+		});
+
 		const { matches, sources } =
-			decision.mode === "respond"
+			decision.mode === "respond" || decision.mode === "clarify"
 				? { matches: [], sources: [] }
-				: await this.retrieveRelevantContext(
+				: await fetchRelevantContext(
 						userId,
 						decision.query,
 						session.sessionId,
@@ -4033,23 +4275,70 @@ ${message}`;
 					);
 		timing.retrievalMs =
 			Date.now() - retrievalStart;
-		const relevantMatches =
-			this.relevantRagMatches(
-				matches,
-				this.ragScoreThreshold(
-					decision.mode === "search"
-						? decision.query
-						: message,
-				),
+		const streamScoreThreshold = ragScoreThreshold(
+			decision.mode === "search" ? decision.query : message,
+		);
+		let relevantMatches = relevantRagMatches(matches, streamScoreThreshold);
+
+		logger.info("[STREAM] rag-retrieval", {
+			userId,
+			query: decision.mode === "search" ? decision.query : "N/A",
+			totalMatches: matches.length,
+			relevantMatchesAfterThreshold: relevantMatches.length,
+			scoreThreshold: streamScoreThreshold,
+			topScore: matches[0]?.score ?? null,
+		});
+
+		// CRAG: grade retrieved docs; if irrelevant, rewrite query and retry once
+		let docGrade: "yes" | "partial" | "no" | undefined;
+		if (decision.mode === "search" && relevantMatches.length > 0) {
+			docGrade = await gradeDocumentsCtx(
+				decision.query,
+				relevantMatches,
 			);
+			logger.info("[STREAM] doc-grade", { userId, docGrade, query: decision.query });
+			if (docGrade === "no") {
+				const rewritten = await stepBackRewrite(
+					decision.query,
+					historyMessages.slice(-6).map((m) => ({
+						role: m.role,
+						content: m.content,
+					})),
+				);
+				if (rewritten !== decision.query) {
+					const retryResult =
+						await fetchRelevantContext(
+							userId,
+							rewritten,
+							session.sessionId,
+							historyMessages,
+						);
+					const retryMatches = relevantRagMatches(
+						retryResult.matches,
+						ragScoreThreshold(rewritten),
+					);
+					logger.info("[STREAM] crag-retry", {
+						userId,
+						rewritten,
+						retryMatchCount: retryMatches.length,
+						used: retryMatches.length > 0,
+					});
+					if (retryMatches.length > 0) {
+						relevantMatches = retryMatches;
+					}
+				}
+			}
+		}
+
 		const shouldCallLlm =
 			decision.mode === "respond" ||
+			decision.mode === "clarify" ||
 			relevantMatches.length > 0;
 
 		const fallbackResponse =
 			this.getFallbackResponse();
 		let assistantResponse =
-			decision.mode === "respond"
+			decision.mode === "respond" || decision.mode === "clarify"
 				? decision.message
 				: decision.mode === "search" &&
 					  relevantMatches.length === 0 &&
@@ -4057,7 +4346,16 @@ ${message}`;
 					? this.getLearningFallbackResponse()
 					: fallbackResponse;
 		let usedFallback = !shouldCallLlm;
+		let answerGrade: "yes" | "no" | undefined;
 		let usage: CompletionUsage | undefined;
+		// Let the LLM decide if this turn is a continuation of the previous exchange
+		const turnType = await classifyTurnType(
+			message,
+			historyMessages.slice(-4).map((m) => ({ role: m.role, content: m.content })),
+		);
+		const isContinuation = turnType === "continuation";
+		logger.info("[STREAM] turn-classification", { userId, message, turnType, isContinuation });
+
 		const llmStart = Date.now();
 		if (shouldCallLlm && decision.mode === "search") {
 			const timeoutController =
@@ -4078,13 +4376,15 @@ ${message}`;
 						resolvedLanguage,
 						personaContext,
 						session.sessionId,
+						message,
+						isContinuation,
 					);
 				const stream =
 					await openAICircuitBreaker.execute(
 						async () => {
 							return await this.openai.chat.completions.create(
 								{
-									model: CHAT_COMPLETION_MODEL,
+									model: CHAT_GENERATION_MODEL,
 									messages: conversationHistory,
 									temperature:
 										CHAT_COMPLETION_TEMPERATURE,
@@ -4137,15 +4437,80 @@ ${message}`;
 			} finally {
 				clearTimeout(timeout);
 			}
-		} else if (decision.mode === "respond") {
+		} else if (decision.mode === "respond" || decision.mode === "clarify") {
 			options?.onToken?.(assistantResponse);
 		}
+
+		// Step 2: Answer-quality self-check for streaming path
+		// Since we can't re-stream a retry, we generate non-streaming and emit via onToken
+		if (
+			decision.mode === "search" &&
+			!usedFallback &&
+			assistantResponse.trim()
+		) {
+			answerGrade = await gradeAnswer(message, assistantResponse);
+			logger.info("[STREAM] answer-grade", {
+				userId,
+				message,
+				answerGrade,
+				responsePreview: assistantResponse.slice(0, 120),
+			});
+			if (answerGrade === "no") {
+				const broaderQuery = await stepBackRewrite(
+					message,
+					historyMessages.slice(-6).map((m) => ({
+						role: m.role,
+						content: m.content,
+					})),
+				);
+				if (broaderQuery !== message) {
+					const retryCtx = await fetchRelevantContext(
+						userId,
+						broaderQuery,
+						session.sessionId,
+						historyMessages,
+					);
+					const retryMatches = relevantRagMatches(
+						retryCtx.matches,
+						ragScoreThreshold(broaderQuery),
+					);
+					if (retryMatches.length > 0) {
+						try {
+							const retryHistory = await this.buildChatMessages(
+								userId,
+								broaderQuery,
+								retryMatches,
+								historyMessages,
+								resolvedLanguage,
+								personaContext,
+								session.sessionId,
+							);
+							const retryResult =
+								await this.generateNonStreamingResponse(
+									retryHistory,
+									CHAT_DEFAULT_TIMEOUT_MS,
+								);
+							if (
+								retryResult.response &&
+								retryResult.response !== assistantResponse
+							) {
+								assistantResponse = retryResult.response;
+								usage = retryResult.usage;
+								options?.onToken?.(assistantResponse);
+							}
+						} catch {
+							// Non-fatal — keep original streamed response
+						}
+					}
+				}
+			}
+		}
+
 		if (usedFallback) {
 			const personaFallback =
 				await this.generatePersonaAwareFallbackResponse(
 					userId,
 					message,
-					assistantResponse || fallbackResponse,
 					historyMessages,
 					resolvedLanguage,
 					personaContext,
@@ -4199,6 +4564,16 @@ ${message}`;
 		}
 		const usageMeta =
 			this.buildUsageMetadata(usage);
+		if (usage && !usedFallback) {
+			void usageTrackingService.recordTokenUsage({
+				userId,
+				sessionId: session.sessionId,
+				model: CHAT_GENERATION_MODEL,
+				promptTokens: usage.prompt_tokens,
+				completionTokens: usage.completion_tokens,
+				source: "chat_stream",
+			});
+		}
 		const assistantTimestamp =
 			await this.persistMessage(
 				session.sessionId,
@@ -4224,16 +4599,24 @@ ${message}`;
 		timing.saveMs = Date.now() - saveStart;
 		timing.totalMs = Date.now() - startedAt;
 
-		logger.info(
-			"Chat streaming response generated",
-			{
-				userId,
-				sessionId: session.sessionId,
-				language: resolvedLanguage,
-				sourcesCount: sources.length,
-				timing,
-			},
-		);
+		// Step 1: Structured trace log for streaming path
+		logger.info("chat:trace", {
+			userId,
+			sessionId: session.sessionId,
+			query: message,
+			routerMode: decision.mode,
+			queryRewritten: decision.mode === "search" ? decision.query : undefined,
+			docGrade,
+			answerGrade,
+			matchCount: relevantMatches.length,
+			topMatchScore: relevantMatches[0]?.score ?? relevantMatches[0]?.cohereScore,
+			usedFallback,
+			responseLength: assistantResponse.length,
+			language: resolvedLanguage,
+			sourcesCount: sources.length,
+			timing,
+			stream: true,
+		});
 
 		return {
 			sessionId: session.sessionId,

@@ -433,6 +433,67 @@ class UsageTrackingService {
 		}
 	}
 
+	/**
+	 * Record a token usage event for cost attribution.
+	 * Non-fatal — failures are logged but never propagate to callers.
+	 */
+	async recordTokenUsage(record: {
+		userId: string;
+		sessionId?: string;
+		model: string;
+		promptTokens: number;
+		completionTokens: number;
+		source?: string;
+	}): Promise<void> {
+		try {
+			await pool.query(
+				`INSERT INTO usage_events
+				   (user_id, session_id, model, prompt_tokens, completion_tokens, source)
+				 VALUES ($1, $2, $3, $4, $5, $6)`,
+				[
+					record.userId,
+					record.sessionId ?? null,
+					record.model,
+					record.promptTokens,
+					record.completionTokens,
+					record.source ?? "chat",
+				],
+			);
+		} catch (error) {
+			logger.warn("usageTracking: failed to record token usage", {
+				userId: record.userId,
+				model: record.model,
+				error: (error as Error).message,
+			});
+		}
+	}
+
+	async getTokenUsageSummary(
+		userId: string,
+		since?: Date,
+	): Promise<{ totalTokens: number; promptTokens: number; completionTokens: number }> {
+		const sinceTs = since ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+		const result = await pool.query<{
+			total_tokens: string;
+			prompt_tokens: string;
+			completion_tokens: string;
+		}>(
+			`SELECT
+			   COALESCE(SUM(total_tokens), 0)      AS total_tokens,
+			   COALESCE(SUM(prompt_tokens), 0)     AS prompt_tokens,
+			   COALESCE(SUM(completion_tokens), 0) AS completion_tokens
+			 FROM usage_events
+			 WHERE user_id = $1 AND created_at >= $2`,
+			[userId, sinceTs],
+		);
+		const row = result.rows[0];
+		return {
+			totalTokens: parseInt(row.total_tokens, 10),
+			promptTokens: parseInt(row.prompt_tokens, 10),
+			completionTokens: parseInt(row.completion_tokens, 10),
+		};
+	}
+
 }
 
 export default new UsageTrackingService();

@@ -28,6 +28,7 @@ import {
 	retryWithBackoff,
 } from "../utils/retry";
 import { bm25SparseVector, chunkMarkdown } from "./chunkingService";
+import { hypeVectorRegistryService } from "./hypeVectorRegistryService";
 import {
 	buildPageTypeFilters,
 	generateQueryVariations,
@@ -634,27 +635,47 @@ class PineconeService {
 		userId: string,
 		sourceKey: string,
 	): Promise<void> {
+		// Derive the canonical source URL from the hype source key (strip #hype suffix)
+		const sourceUrl = sourceKey.endsWith("#hype")
+			? sourceKey.slice(0, -5)
+			: sourceKey;
+
+		// Fetch stored vector IDs from the registry (O(1) DB lookup, no Pinecone scan)
+		const registeredIds = await hypeVectorRegistryService.getVectorIds(
+			userId,
+			sourceUrl,
+		);
+
+		if (registeredIds.length > 0) {
+			const index = this.getNamespaceIndex(userId);
+			await this.deleteVectorIds(index, registeredIds);
+			await hypeVectorRegistryService.clearVectorIds(userId, sourceUrl);
+			logger.info("Deleted old HyPE vectors via registry", {
+				userId,
+				sourceKey,
+				vectors: registeredIds.length,
+			});
+			return;
+		}
+
+		// Fallback: registry empty (first run or registry was cleared) — scan namespace once
+		logger.info("HyPE registry empty, falling back to namespace scan", {
+			userId,
+			sourceKey,
+		});
 		const index = this.getNamespaceIndex(userId);
 		const matchingIds: string[] = [];
-		await this.forEachUserRecord(
-			userId,
-			async (records) => {
-				for (const [id, record] of Object.entries(records)) {
-					const metadata = record.metadata as
-						| Record<string, unknown>
-						| undefined;
-					if (
-						metadata?.isHype === true &&
-						metadata?.sourceKey === sourceKey
-					) {
-						matchingIds.push(id);
-					}
+		await this.forEachUserRecord(userId, async (records) => {
+			for (const [id, record] of Object.entries(records)) {
+				const metadata = record.metadata as Record<string, unknown> | undefined;
+				if (metadata?.isHype === true && metadata?.sourceKey === sourceKey) {
+					matchingIds.push(id);
 				}
-			},
-		);
+			}
+		});
 		await this.deleteVectorIds(index, matchingIds);
 		if (matchingIds.length > 0) {
-			logger.info("Deleted old HyPE vectors", {
+			logger.info("Deleted old HyPE vectors via fallback scan", {
 				userId,
 				sourceKey,
 				vectors: matchingIds.length,
@@ -1248,19 +1269,18 @@ class PineconeService {
 				}
 			};
 
-			const resultLists: any[][] = [];
-			for (let inputIndex = 0; inputIndex < inputs.length; inputIndex += 1) {
-				const useFilter = metadataReady && pageTypes.length > 0;
-				const matches = await queryOnce(
-					inputs[inputIndex],
-					embeddings[inputIndex],
-					useFilter,
-					inputIndex === 0,
-				);
-				if (matches.length > 0) {
-					resultLists.push(matches);
-				}
-			}
+			const useFilter = metadataReady && pageTypes.length > 0;
+			const allResults = await Promise.all(
+				inputs.map((input, inputIndex) =>
+					queryOnce(
+						input,
+						embeddings[inputIndex],
+						useFilter,
+						inputIndex === 0,
+					),
+				),
+			);
+			const resultLists = allResults.filter((m) => m.length > 0);
 
 			let matches = this.rrfMerge(resultLists);
 			if (matches.length === 0 && pageTypes.length > 0) {

@@ -10,7 +10,7 @@ import {
 	firecrawlCrawlWebsite,
 	firecrawlEnabled,
 } from "./firecrawlService";
-import { upsertHypeAsync } from "./hypeService";
+import { hypeQueue } from "../config/queue";
 import { extractAsync as extractPageMetadataAsync } from "./pageMetadataService";
 import { pineconeService } from "./pineconeService";
 import { scraperSourceService } from "./scraperSourceService";
@@ -1213,18 +1213,18 @@ class ScraperService {
 			}
 
 			try {
-				await upsertHypeAsync(
-					userId,
-					sourceUrl,
-					chunks,
+				await hypeQueue.add(
+					"hype",
+					{ userId, sourceUrl, chunks },
+					{ jobId: `hype:${userId}:${encodeURIComponent(sourceUrl)}` },
 				);
+				logger.info("scraper: HyPE job enqueued", { userId, sourceUrl });
 			} catch (error) {
 				logger.warn(
-					"scraper: enrichment task failed",
+					"scraper: failed to enqueue HyPE job",
 					{
 						userId,
 						sourceUrl,
-						task: "hype",
 						error:
 							error instanceof Error
 								? error.message

@@ -325,6 +325,18 @@ const migrations: Migration[] = [
 			"Clear old custom system messages and assign general_information persona to widgets without one",
 		file: "20260416_051_migrate_custom_system_messages_to_persona.sql",
 	},
+	{
+		id: "20260418_052_hype_vector_registry",
+		description:
+			"Store HyPE vector IDs per source to enable O(1) deletion without namespace scan",
+		file: "20260418_052_hype_vector_registry.sql",
+	},
+	{
+		id: "20260418_053_usage_events",
+		description:
+			"Per-user token usage tracking for cost attribution",
+		file: "20260418_053_usage_events.sql",
+	},
 ];
 
 const ensureMigrationTable = async (

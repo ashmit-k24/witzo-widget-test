@@ -45,6 +45,11 @@ import widgetService from "./services/widgetService";
 import logger from "./utils/logger";
 import { createMaintenanceWorker } from "./workers/maintenanceWorker";
 import { createScraperWorker } from "./workers/scraperWorker";
+import { createHypeWorker } from "./workers/hypeWorker";
+import { createBullBoard } from "@bull-board/api";
+import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
+import { ExpressAdapter } from "@bull-board/express";
+import { scraperQueue, hypeQueue } from "./config/queue";
 
 const isRateLimitExemptPath = (path: string): boolean => {
 	const normalized = path.toLowerCase();
@@ -58,6 +63,7 @@ const isRateLimitExemptPath = (path: string): boolean => {
 
 // Start background workers and keep references for graceful shutdown
 const scraperWorker = createScraperWorker();
+const hypeWorker = createHypeWorker();
 const maintenanceWorker = createMaintenanceWorker();
 
 const app: Application = express();
@@ -285,6 +291,35 @@ app.use("/api/admin", adminRoutes);
 // Public API routes (for widget embedding)
 app.use("/api/v1", publicRoutes);
 
+// Bull Board queue dashboard — protected by bearer token
+const bullBoardAdapter = new ExpressAdapter();
+bullBoardAdapter.setBasePath("/admin/queues");
+createBullBoard({
+	queues: [
+		new BullMQAdapter(scraperQueue),
+		new BullMQAdapter(hypeQueue),
+	],
+	serverAdapter: bullBoardAdapter,
+});
+app.use(
+	"/admin/queues",
+	(req: Request, res: Response, next) => {
+		const token = config.QUEUE_DASHBOARD_TOKEN;
+		if (!token) {
+			// Disable dashboard when no token is configured
+			res.status(403).json({ error: "Queue dashboard is not configured" });
+			return;
+		}
+		const auth = req.headers.authorization;
+		if (!auth || auth !== `Bearer ${token}`) {
+			res.status(401).json({ error: "Unauthorized" });
+			return;
+		}
+		next();
+	},
+	bullBoardAdapter.getRouter(),
+);
+
 // 404 handler
 app.use(notFoundHandler);
 
@@ -382,6 +417,7 @@ const gracefulShutdown = (server: Server) => {
 		try {
 			await Promise.all([
 				scraperWorker.close(),
+				hypeWorker.close(),
 				maintenanceWorker.close(),
 			]);
 			logger.info("BullMQ workers closed");
