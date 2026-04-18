@@ -1,4 +1,4 @@
-export const SYSTEM_MESSAGE_MAX_LENGTH = 12000;
+export const SYSTEM_MESSAGE_MAX_LENGTH = 50000;
 
 export const PLATFORM_DEFAULT_SYSTEM_MESSAGE_TEMPLATE = `You are the friendly chat assistant for {{websiteName}}. You talk to website visitors inside a small chat widget, so your answers must feel like a quick, helpful chat — never a brochure or a long report.
 

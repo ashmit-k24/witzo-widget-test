@@ -2558,18 +2558,22 @@ ${message}`;
 			);
 		}
 
+		// Stable system prompt — kept identical across turns so OpenAI can cache it.
+		// collectedContext is intentionally excluded here and added as a separate
+		// message below so it doesn't invalidate the cached prefix.
 		const baseSystemPrompt =
 			effectiveSystemMessage.trim() ||
 			this.defaultGeneratedSystemPrompt();
+		const systemPrompt = [
+			baseSystemPrompt,
+			this.buildLeadCaptureGuardrail(),
+		].filter(Boolean).join("\n\n");
+
+		// Dynamic per-turn context — placed after the stable prefix.
 		const collectedContext =
 			sessionProfile && this.hasMinimumLeadData(sessionProfile)
 				? this.buildCollectedLeadContext(sessionProfile)
 				: "";
-		const systemPrompt = [
-			baseSystemPrompt,
-			this.buildLeadCaptureGuardrail(),
-			collectedContext,
-		].filter(Boolean).join("\n\n");
 		const languageInstruction =
 			this.buildLanguageInstruction(
 				_languageCode,
@@ -2588,6 +2592,7 @@ ${message}`;
 		const fixedTokens = Math.ceil(
 			[
 				systemPrompt,
+				collectedContext,
 				languageInstruction ?? "",
 				personaOverride ?? "",
 				...messages
@@ -2620,6 +2625,7 @@ ${message}`;
 			ragTokensUsed += partTokens;
 		}
 
+		// message[0]: stable system prompt — cached by OpenAI across turns
 		const conversationHistory: Array<any> = [
 			{
 				role: "system",
@@ -2636,6 +2642,13 @@ ${message}`;
 			conversationHistory.push({
 				role: "system",
 				content: personaOverride,
+			});
+		}
+		// Dynamic context injected after the stable cached prefix
+		if (collectedContext) {
+			conversationHistory.push({
+				role: "system",
+				content: collectedContext,
 			});
 		}
 
@@ -2902,6 +2915,7 @@ ${message}`;
 											"When responding directly, be warm and natural, and follow the widget persona instructions.",
 										].join(" "),
 									},
+									// Stable persona + guardrail — cached by OpenAI across turns
 									...(effectiveSystemMessage?.trim()
 										? [
 												{
@@ -2909,10 +2923,16 @@ ${message}`;
 													content: [
 														`Widget persona and behavioral rules (apply these when generating a direct response):\n${effectiveSystemMessage.trim()}`,
 														this.buildLeadCaptureGuardrail(),
-														sessionProfile && this.hasMinimumLeadData(sessionProfile)
-															? this.buildCollectedLeadContext(sessionProfile)
-															: "",
 													].filter(Boolean).join("\n\n"),
+												},
+											]
+										: []),
+									// Dynamic collected context — after the stable cached prefix
+									...(sessionProfile && this.hasMinimumLeadData(sessionProfile)
+										? [
+												{
+													role: "system" as const,
+													content: this.buildCollectedLeadContext(sessionProfile),
 												},
 											]
 										: []),
