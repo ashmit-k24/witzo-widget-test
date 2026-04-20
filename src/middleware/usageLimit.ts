@@ -5,7 +5,6 @@ import {
 } from "express";
 import {
 	coercePlanType,
-	SCRAPER_PAGE_LIMIT,
 } from "../config/planConfig";
 import { pineconeService } from "../services/pineconeService";
 import usageTrackingService from "../services/usageTrackingService";
@@ -186,7 +185,7 @@ export const checkScraperLimit = async (
 
 			res.status(403).json({
 				success: false,
-				message: `You've reached your website scraping limit. You can scrape up to ${SCRAPER_PAGE_LIMIT} pages in total.`,
+				message: `You've reached your website scraping limit. You can scrape up to ${usage.pagesLimit} pages in total.`,
 				data: {
 					planType: usage.planType,
 					pagesUsed: usage.pagesUsed,
