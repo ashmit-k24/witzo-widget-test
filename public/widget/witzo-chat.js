@@ -123,6 +123,9 @@
 				"Not helpful",
 			];
 
+			this._viewportHeightUpdateHandler =
+				this._updateViewportHeight.bind(this);
+
 			this.elements = {};
 			this.supportedLanguages = [
 				{ code: "en", label: "English" },
@@ -171,6 +174,13 @@
 				leadFormTriggerMessageCount: 5,
 				closePromptFrequency: 0.35,
 			};
+		}
+
+		_updateViewportHeight() {
+			document.documentElement.style.setProperty(
+				"--witzo-vh",
+				`${window.innerHeight * 0.01}px`,
+			);
 		}
 
 		connectedCallback() {
@@ -404,6 +414,15 @@
 				document.head.appendChild(link);
 			}
 			this.render();
+			this._updateViewportHeight();
+			window.addEventListener(
+				"resize",
+				this._viewportHeightUpdateHandler,
+			);
+			window.addEventListener(
+				"orientationchange",
+				this._viewportHeightUpdateHandler,
+			);
 			this.bindEvents();
 			// Track this page view for the session (fire-and-forget)
 			this.trackPageView();
@@ -544,6 +563,16 @@
 					this._calendlyMessageHandler,
 				);
 				this._calendlyMessageHandler = null;
+			}
+			if (this._viewportHeightUpdateHandler) {
+				window.removeEventListener(
+					"resize",
+					this._viewportHeightUpdateHandler,
+				);
+				window.removeEventListener(
+					"orientationchange",
+					this._viewportHeightUpdateHandler,
+				);
 			}
 			this._unbindMessagesFadeResizeObservers?.();
 			if (this._messagesFadeSyncHandler) {
@@ -3366,15 +3395,26 @@
               bottom: auto;
               width: 100vw;
               max-width: 100vw;
-			  height: 100vh;   /* fallback */
-  			  height: 100dvh;  /* override if supported */
-              min-height: 100vh;
+              height: 100vh;   /* fallback */
+              height: calc(var(--witzo-vh, 1vh) * 100);
+              height: 100dvh;  /* override if supported */
               max-height: 100vh;
               border-radius: 0;
             }
+
+			#expandChatBtn{
+				display: none;
+			}
+
+			.chat-menu-submenu {
+				min-width:70px;
+		    }
+
             #textChatWidget.intro-mode {
               width: 100vw;
               height: 100vh;
+              height: calc(var(--witzo-vh, 1vh) * 100);
+              height: 100dvh;
               min-height: 100vh;
               max-height: 100vh;
               border-radius: 0;
