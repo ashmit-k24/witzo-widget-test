@@ -14,7 +14,7 @@ export const inputCSS = `
   .chat-text-input {
     flex: 1; width: 100%; background: #fff; border-radius: 9999px;
     padding: 14px 24px; padding-right: 65px !important;
-    font-size: 0.875rem; outline: none;
+    font-size: 13px; outline: none;
     border: 1px solid rgb(227, 227, 227);
     box-shadow: rgba(0,0,0,0.075) 0px 0.6px 2px -1.3px, rgba(0,0,0,0.067) 0px 2.3px 7.8px -2.7px, rgba(0,0,0,0.02) 0px 10px 34px -4px;
   }
