@@ -22,7 +22,7 @@ export type AnalyticsTier =
 	| "standard"
 	| "advanced";
 
-export const SCRAPER_PAGE_LIMIT_FREE = 500;
+export const SCRAPER_PAGE_LIMIT_FREE = 100;
 export const SCRAPER_PAGE_LIMIT_BASIC = 300;
 export const SCRAPER_PAGE_LIMIT_STANDARD = 600;
 // Enterprise has no page limit (null = unlimited)

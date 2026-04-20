@@ -631,6 +631,7 @@ class ChatService {
 		}
 
 		const conversationHistory: Array<any> = [{ role: "system", content: systemPrompt }];
+		conversationHistory.push({ role: "system", content: "FORMATTING RULE: Always use bullet points (- ) for any list. Never use numbered lists (1. 2. 3.). This applies to every response without exception." });
 		if (languageInstruction) {
 			conversationHistory.push({ role: "system", content: languageInstruction });
 		}
