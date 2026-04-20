@@ -541,7 +541,7 @@
 					);
 					this.updateBubble(
 						wrapper,
-						"Thank you for sharing your details. Our team will get in touch with you shortly.",
+						"Please share your details and our team will get in touch with you shortly.",
 					);
 					this.showContactForm();
 				}, delay);
@@ -1276,9 +1276,7 @@
 
 		render() {
 			// Use the CSS and HTML from template.ts
-			const leadFields = (
-				this.config.leadFormEnabled
-					? [
+			const leadFields = [
 							this.config.leadFormNameEnabled !==
 							false
 								? `
@@ -1333,21 +1331,6 @@
       </div>`
 								: "",
 						]
-					: [
-							`
-      <div class="cf-field-group">
-        <input id="cf-name" type="text" />
-        <label>Full name</label>
-        <div class="cf-error" id="cf-name-error"></div>
-      </div>`,
-							`
-      <div class="cf-field-group">
-        <input id="cf-email" type="email" />
-        <label>Email address</label>
-        <div class="cf-error" id="cf-email-error"></div>
-      </div>`,
-						]
-			)
 				.filter(Boolean)
 				.join("");
 			this.shadowRoot.innerHTML = `
@@ -4476,21 +4459,12 @@
               <div class="contact-form-shell">
                 <div class="contact-form-card">
                   <div class="contact-form-copy">
-                    <h3>${this.config.leadFormEnabled ? "Just a few details so we can keep helping you 😊" : "Let's Connect"}</h3>
+                    <h3>Just a few details so we can keep helping you 😊</h3>
                   </div>
                   <div class="contact-form-fields">
                     ${leadFields}
-                    ${
-											this.config.leadFormEnabled
-												? ""
-												: `
-                    <div class="cf-field-group">
-                      <textarea id="cf-message"></textarea>
-                      <label>Type your Message...</label>
-                    </div>`
-										}
                   </div>
-                  <button class="contact-form-submit" id="cf-submit">${this.config.leadFormEnabled ? sanitizeHTML(this.config.leadFormButtonText || "Continue") : "Continue"}</button>
+                  <button class="contact-form-submit" id="cf-submit">${sanitizeHTML(this.config.leadFormButtonText || "Continue")}</button>
                 </div>
               </div>
             </div>
@@ -8263,14 +8237,17 @@
 
 		showContactForm() {
 			if (!this.elements.contactFormSlot) return;
+			const useLeadFormLayout =
+				this.config.leadFormEnabled ||
+				this._serverLimitReached;
 			this.hideCalendlyEmbed();
 			this.elements.contactFormSlot.classList.toggle(
 				"lead-form-gate",
-				Boolean(this.config.leadFormEnabled),
+				Boolean(useLeadFormLayout),
 			);
 			this.elements.messagesContainer.classList.toggle(
 				"lead-form-open",
-				Boolean(this.config.leadFormEnabled),
+				Boolean(useLeadFormLayout),
 			);
 			// Clear any previous errors
 			["cfName", "cfEmail", "cfPhone"].forEach(
@@ -8278,7 +8255,7 @@
 					this.setCfFieldError(field, "");
 				},
 			);
-			if (!this.config.leadFormEnabled) {
+			if (!useLeadFormLayout) {
 				this.elements.messagesContainer.classList.add(
 					"hidden",
 				);
@@ -8560,21 +8537,16 @@
 					if (this.elements.cfSubmit) {
 						this.elements.cfSubmit.disabled = false;
 						this.elements.cfSubmit.textContent =
-							this.config.leadFormEnabled
-								? this.config
-										.leadFormButtonText ||
-									"Continue"
-								: "Send Message";
+							this.config.leadFormButtonText ||
+							"Continue";
 					}
 				}
 			} catch (e) {
 				if (this.elements.cfSubmit) {
 					this.elements.cfSubmit.disabled = false;
 					this.elements.cfSubmit.textContent =
-						this.config.leadFormEnabled
-							? this.config.leadFormButtonText ||
-								"Continue"
-							: "Send Message";
+						this.config.leadFormButtonText ||
+						"Continue";
 				}
 			}
 		}

@@ -32,25 +32,23 @@ export function buildTemplate(
     </div>`,
 		)
 		.join("");
-	const leadFields = (
-		config.leadFormEnabled
-			? [
-					config.leadFormNameEnabled !== false
-						? `
+	const leadFields = [
+		config.leadFormNameEnabled !== false
+			? `
       <div class="cf-field-group">
         <input id="cf-name" type="text" />
         <label>Full name</label>
       </div>`
-						: "",
-					config.leadFormEmailEnabled !== false
-						? `
+			: "",
+		config.leadFormEmailEnabled !== false
+			? `
       <div class="cf-field-group">
         <input id="cf-email" type="email" />
         <label>Email address</label>
       </div>`
-						: "",
-					config.leadFormPhoneEnabled !== false
-						? `
+			: "",
+		config.leadFormPhoneEnabled !== false
+			? `
       <div class="cf-field-group">
         <div class="cf-phone-wrapper">
           <div class="cf-phone-trigger" id="cf-phone-code-trigger">
@@ -64,9 +62,9 @@ export function buildTemplate(
           </div>
         </div>
       </div>`
-						: "",
-					config.leadFormCountryEnabled !== false
-						? `
+			: "",
+		config.leadFormCountryEnabled !== false
+			? `
       <div class="cf-field-group">
         <div class="cf-country-wrapper" id="cf-country-trigger">
           <span id="cf-country-value">Select country</span>
@@ -78,21 +76,8 @@ export function buildTemplate(
         </div>
         <input type="hidden" id="cf-country" />
       </div>`
-						: "",
-				]
-			: [
-					`
-    <div class="cf-field-group">
-      <input id="cf-name" type="text" />
-      <label>Full name</label>
-    </div>`,
-					`
-    <div class="cf-field-group">
-      <input id="cf-email" type="email" />
-      <label>Email address</label>
-    </div>`,
-				]
-	)
+			: "",
+	]
 		.filter(Boolean)
 		.join("");
 
@@ -168,7 +153,6 @@ export function buildTemplate(
             </div>
             <div class="contact-form-fields">
               ${leadFields}
-              ${config.leadFormEnabled ? "" : '<textarea id="cf-message" placeholder="Type your Message..."></textarea>'}
             </div>
             <div class="cf-agreement">
               <label class="cf-checkbox-wrapper">
@@ -177,8 +161,8 @@ export function buildTemplate(
                 <span class="cf-agreement-text">I agree to the <a href="#">Privacy Policy</a> and <a href="#">Terms & Conditions</a></span>
               </label>
             </div>
-            <button id="cf-submit" class="contact-form-submit" disabled>${config.leadFormEnabled ? config.leadFormButtonText || "Continue" : "Continue"}</button>
-            <div class="contact-form-note">${config.leadFormEnabled ? "We'll only use these details to follow up on your request." : "Your feedback helps us refine the experience."}</div>
+            <button id="cf-submit" class="contact-form-submit" disabled>${config.leadFormButtonText || "Continue"}</button>
+            <div class="contact-form-note">We'll only use these details to follow up on your request.</div>
           </div>
         </div>
       </div>

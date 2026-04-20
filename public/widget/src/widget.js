@@ -1059,16 +1059,19 @@ export class WitzoChatWidget extends HTMLElement {
 
 	showContactForm() {
 		if (!this.elements.contactFormSlot) return;
+		const useLeadFormLayout =
+			this.config.leadFormEnabled ||
+			this._serverLimitReached;
 		this.hideCalendlyEmbed();
 		this.elements.contactFormSlot.classList.toggle(
 			"lead-form-gate",
-			Boolean(this.config.leadFormEnabled),
+			Boolean(useLeadFormLayout),
 		);
 		this.elements.messagesContainer.classList.toggle(
 			"lead-form-open",
-			Boolean(this.config.leadFormEnabled),
+			Boolean(useLeadFormLayout),
 		);
-		if (!this.config.leadFormEnabled) {
+		if (!useLeadFormLayout) {
 			this.elements.messagesContainer.classList.add(
 				"hidden",
 			);
@@ -1298,11 +1301,9 @@ export class WitzoChatWidget extends HTMLElement {
 	_resetCfBtn() {
 		if (this.elements.cfSubmit) {
 			this.elements.cfSubmit.disabled = false;
-			this.elements.cfSubmit.textContent = this
-				.config.leadFormEnabled
-				? this.config.leadFormButtonText ||
-					"Continue"
-				: "Send Message";
+			this.elements.cfSubmit.textContent =
+				this.config.leadFormButtonText ||
+				"Continue";
 		}
 	}
 
@@ -1752,7 +1753,7 @@ export class WitzoChatWidget extends HTMLElement {
 				);
 				msg.updateBubble(
 					wrapper,
-					"Thank you for sharing your details. Our team will get in touch with you shortly.",
+					"Please share your details and our team will get in touch with you shortly.",
 					this.config.logoIcon,
 				);
 				this.showContactForm();
