@@ -3405,6 +3405,11 @@
 			#expandChatBtn{
 				display: none;
 			}
+
+			.chat-menu-submenu {
+				min-width:70px;
+		    }
+
             #textChatWidget.intro-mode {
               width: 100vw;
               height: 100vh;
