@@ -32,6 +32,8 @@
 	"author": "Witzo-AI",
 	"license": "MIT",
 	"dependencies": {
+		"@bull-board/api": "^7.0.0",
+		"@bull-board/express": "^7.0.0",
 		"@langchain/core": "^1.1.39",
 		"@langchain/textsplitters": "^1.0.1",
 		"@paddle/paddle-node-sdk": "^3.6.0",

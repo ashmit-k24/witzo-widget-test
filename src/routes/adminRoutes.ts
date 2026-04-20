@@ -5,6 +5,7 @@ import * as adminPlanController from "../controllers/adminPlanController";
 import * as adminSettingsController from "../controllers/adminSettingsController";
 import * as adminUserController from "../controllers/adminUserController";
 import * as personaController from "../controllers/personaController";
+import * as debugController from "../controllers/debugController";
 import {
 	adminAuth,
 	requireAdminPermission,
@@ -140,6 +141,26 @@ router.post(
 	"/actions/set-plan",
 	requireAdminPermission("actions.set_plan"),
 	adminController.setUserPlan,
+);
+
+// ── Debug / evaluation endpoints (admin-only) ────────────────────────────────
+// Step 3: Inspect the exact prompt sent to OpenAI for a userId + query
+router.get(
+	"/debug/prompt",
+	requireAdminPermission("dashboard.view"),
+	debugController.getDebugPrompt,
+);
+// Step 5: Run a batch of queries through retrieval only (no LLM) to audit Pinecone results
+router.post(
+	"/debug/rag-test",
+	requireAdminPermission("dashboard.view"),
+	debugController.runRagTest,
+);
+// Step 5: Surface fallback rate, zero-source rate, and failing queries for a userId
+router.get(
+	"/debug/chat-insights",
+	requireAdminPermission("dashboard.view"),
+	debugController.getChatInsights,
 );
 
 export default router;

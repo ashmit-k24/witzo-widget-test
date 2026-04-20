@@ -59,7 +59,7 @@ const publicWidgetKeyGenerator = (req: {
 
 export const publicWidgetChatLimiter = rateLimit({
 	windowMs: 60 * 1000,
-	max: 20,
+	max: 50,
 	standardHeaders: true,
 	legacyHeaders: false,
 	keyGenerator: publicWidgetKeyGenerator,
@@ -71,16 +71,17 @@ export const publicWidgetChatLimiter = rateLimit({
 	},
 });
 
-export const publicWidgetActionLimiter = rateLimit({
-	windowMs: 60 * 1000,
-	max: 10,
-	standardHeaders: true,
-	legacyHeaders: false,
-	keyGenerator: publicWidgetKeyGenerator,
-	message: {
-		success: false,
-		message:
-			"Too many widget actions. Please try again shortly.",
-		code: "WIDGET_ACTION_RATE_LIMIT_EXCEEDED",
-	},
-});
+export const publicWidgetActionLimiter =
+	rateLimit({
+		windowMs: 60 * 1000,
+		max: 50,
+		standardHeaders: true,
+		legacyHeaders: false,
+		keyGenerator: publicWidgetKeyGenerator,
+		message: {
+			success: false,
+			message:
+				"Too many widget actions. Please try again shortly.",
+			code: "WIDGET_ACTION_RATE_LIMIT_EXCEEDED",
+		},
+	});

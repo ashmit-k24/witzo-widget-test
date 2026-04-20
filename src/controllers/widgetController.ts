@@ -699,23 +699,6 @@ export const webhookChat = async (
 				  >
 				| undefined;
 			try {
-				const appointmentResult =
-					await chatService.handleAppointmentLeadCapture(
-						userId,
-						message,
-						{
-							sessionId,
-							language: resolvedLanguage,
-							onToken: (token) =>
-								writeEvent({
-									type: "token",
-									token,
-								}),
-						},
-					);
-				if (appointmentResult) {
-					result = appointmentResult;
-				} else {
 				result = await chatService.chatStream(
 					userId,
 					message,
@@ -725,11 +708,10 @@ export const webhookChat = async (
 							writeEvent({
 								type: "token",
 								token,
-						}),
+							}),
 					},
 					resolvedLanguage,
 				);
-				}
 				await chatService.attachConversationContext(
 					result.sessionId,
 					userId,
@@ -753,10 +735,6 @@ export const webhookChat = async (
 							)
 						)?.messageId,
 					language: result.language,
-					calendlyBooking:
-						"calendlyBooking" in result
-							? result.calendlyBooking
-							: undefined,
 					usage: {
 						conversationsRemaining:
 							usage!.conversationsRemaining,
@@ -785,21 +763,12 @@ export const webhookChat = async (
 			return;
 		}
 
-		const result =
-			(await chatService.handleAppointmentLeadCapture(
-				userId,
-				message,
-				{
-					sessionId,
-					language: resolvedLanguage,
-				},
-			)) ??
-			(await chatService.chat(
-				userId,
-				message,
-				sessionId,
-				resolvedLanguage,
-			));
+		const result = await chatService.chat(
+			userId,
+			message,
+			sessionId,
+			resolvedLanguage,
+		);
 		await chatService.attachConversationContext(
 			result.sessionId,
 			userId,
@@ -826,10 +795,6 @@ export const webhookChat = async (
 					)
 				)?.messageId,
 			language: result.language,
-			calendlyBooking:
-				"calendlyBooking" in result
-					? result.calendlyBooking
-					: undefined,
 			usage: {
 				conversationsRemaining:
 					usage!.conversationsRemaining,

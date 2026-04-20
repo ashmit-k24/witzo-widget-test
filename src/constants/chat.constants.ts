@@ -39,8 +39,12 @@ export const CHAT_SESSION_CACHE_MESSAGE_LIMIT = parseBoundedInt(
 	100,
 );
 
+// Routing/utility model — cheap, used for intent routing, rewrites, classification
 export const CHAT_COMPLETION_MODEL =
 	process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4o-mini";
+// Generation model — used for the final visible response to the visitor
+export const CHAT_GENERATION_MODEL =
+	process.env.OPENAI_GENERATION_MODEL?.trim() || "gpt-4o";
 export const CHAT_COMPLETION_TEMPERATURE = parseBoundedFloat(
 	process.env.OPENAI_CHAT_TEMPERATURE,
 	0.3,

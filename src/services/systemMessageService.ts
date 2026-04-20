@@ -56,19 +56,7 @@ class SystemMessageService {
 		);
 	}
 
-	private renderPersonaSystemMessage(
-		personaPrompt: string,
-	): string {
-		const trimmed = personaPrompt.trim();
-		if (!trimmed) return "";
-		return [
-			"Mandatory selected widget persona instructions:",
-			trimmed,
-			"These persona instructions are binding for every reply. If they conflict with the default website assistant instructions, follow the persona instructions.",
-		].join("\n");
-	}
-
-	private async mapSettings(
+private async mapSettings(
 		user: User,
 	): Promise<SystemMessageSettings> {
 		const trimmedCustom = user.custom_system_message?.trim() || null;
@@ -277,50 +265,36 @@ class SystemMessageService {
 		return this.mapSettings(result.rows[0]);
 	}
 
+	private async appendPersona(base: string, userId: string): Promise<string> {
+		try {
+			const raw = await personaService.getUserPersonaPrompt(userId);
+			const websiteName = await websiteBrandingService.resolveUserWidgetLabel(userId);
+			const trimmed = raw.trim().replace(/\{\{websiteName\}\}/g, websiteName);
+			if (!trimmed) return base;
+			const personaBlock = [
+				"Mandatory selected widget persona instructions:",
+				trimmed,
+				"These persona instructions are binding for every reply. If they conflict with the default website assistant instructions, follow the persona instructions.",
+			].join("\n");
+			return [base, personaBlock].filter(Boolean).join("\n\n");
+		} catch {
+			return base;
+		}
+	}
+
 	async resolveEffectiveSystemMessage(
 		userId: string,
 	): Promise<string> {
 		try {
 			const settings = await this.getSettings(userId);
-			const personaPrompt =
-				await personaService.getUserPersonaPrompt(
-					userId,
-				);
-			return [
-				settings.effectiveSystemMessage,
-				"",
-				this.renderPersonaSystemMessage(
-					personaPrompt,
-				),
-			]
-				.filter((part) => part.trim())
-				.join("\n\n");
+			return this.appendPersona(settings.effectiveSystemMessage, userId);
 		} catch {
 			const websiteName =
-				await websiteBrandingService.resolveUserWidgetLabel(
-					userId,
-				);
-			const defaultMessage =
-				this.renderPlatformDefaultSystemMessage(
-					websiteName,
-				);
-			try {
-				const personaPrompt =
-					await personaService.getUserPersonaPrompt(
-						userId,
-					);
-				return [
-					defaultMessage,
-					"",
-					this.renderPersonaSystemMessage(
-						personaPrompt,
-					),
-				]
-					.filter((part) => part.trim())
-					.join("\n\n");
-			} catch {
-				return defaultMessage;
-			}
+				await websiteBrandingService.resolveUserWidgetLabel(userId);
+			return this.appendPersona(
+				this.renderPlatformDefaultSystemMessage(websiteName),
+				userId,
+			);
 		}
 	}
 

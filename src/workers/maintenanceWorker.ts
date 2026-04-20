@@ -1,4 +1,4 @@
-import fs from "fs";
+import fs from "fs/promises";
 import path from "path";
 import pool from "../config/database";
 import {
@@ -11,16 +11,6 @@ import {
 import logger from "../utils/logger";
 
 // ─── Partition automation ───────────────────────────────────────────────────
-//
-// The migration that created chat_messages only creates partitions for the
-// current and next calendar month at the time it runs.  After that, any new
-// messages fall into the DEFAULT catch-all partition, which is an unpartitioned
-// heap — defeating the entire point of time-range partitioning.
-//
-// This worker runs the partition-creation check once on startup and then every
-// 24 hours.  The SQL is fully idempotent (CREATE TABLE IF NOT EXISTS), so
-// multiple runs are safe.  Running daily means we always have at least the
-// next two months' partitions created before they are needed.
 
 async function ensureUpcomingPartitions(): Promise<void> {
 	try {
@@ -58,10 +48,6 @@ async function ensureUpcomingPartitions(): Promise<void> {
 }
 
 // ─── widget_analytics cleanup ───────────────────────────────────────────────
-//
-// widget_analytics is not partitioned and has no retention policy, so it grows
-// unboundedly.  Records older than 90 days are no longer useful for live
-// dashboards; they are deleted weekly.
 
 async function cleanupOldAnalytics(): Promise<void> {
 	try {
@@ -84,69 +70,81 @@ async function cleanupOldAnalytics(): Promise<void> {
 }
 
 // ─── Upload directory cleanup ────────────────────────────────────────────────
-//
-// Uploaded files (PDFs, docs, etc.) are processed and stored in Pinecone.
-// The local copies are no longer needed after processing.  Files older than
-// UPLOAD_MAX_AGE_HOURS are deleted daily to prevent unbounded disk growth.
 
 async function cleanupUploadedFiles(): Promise<void> {
-	const uploadDir = path.join(
-		__dirname,
-		"../../uploads",
-	);
+	const uploadDir = path.join(__dirname, "../../uploads");
 
-	if (!fs.existsSync(uploadDir)) {
+	try {
+		await fs.access(uploadDir);
+	} catch {
 		return;
 	}
 
-	const maxAgeMs =
-		UPLOAD_MAX_AGE_HOURS * 60 * 60 * 1000;
+	const maxAgeMs = UPLOAD_MAX_AGE_HOURS * 60 * 60 * 1000;
 	const cutoff = Date.now() - maxAgeMs;
 	let deleted = 0;
 	let errors = 0;
 
 	try {
-		const entries = fs.readdirSync(uploadDir);
-		for (const entry of entries) {
-			const filePath = path.join(
-				uploadDir,
-				entry,
-			);
-			try {
-				const stat = fs.statSync(filePath);
-				if (
-					stat.isFile() &&
-					stat.mtimeMs < cutoff
-				) {
-					fs.unlinkSync(filePath);
-					deleted++;
-				}
-			} catch (err) {
-				errors++;
-				logger.warn(
-					"Upload cleanup: failed to delete file",
-					{
+		const entries = await fs.readdir(uploadDir);
+		await Promise.allSettled(
+			entries.map(async (entry) => {
+				const filePath = path.join(uploadDir, entry);
+				try {
+					const stat = await fs.stat(filePath);
+					if (stat.isFile() && stat.mtimeMs < cutoff) {
+						await fs.unlink(filePath);
+						deleted++;
+					}
+				} catch (err) {
+					errors++;
+					logger.warn("Upload cleanup: failed to delete file", {
 						file: entry,
 						error: (err as Error).message,
-					},
-				);
-			}
-		}
-
-		logger.info(
-			"Upload cleanup: stale files removed",
-			{
-				deleted,
-				errors,
-				maxAgeHours: UPLOAD_MAX_AGE_HOURS,
-			},
+					});
+				}
+			}),
 		);
+
+		logger.info("Upload cleanup: stale files removed", {
+			deleted,
+			errors,
+			maxAgeHours: UPLOAD_MAX_AGE_HOURS,
+		});
 	} catch (error) {
 		const err = error as Error;
-		logger.error(
-			"Upload cleanup: failed to read uploads directory",
-			{ error: err.message },
-		);
+		logger.error("Upload cleanup: failed to read uploads directory", {
+			error: err.message,
+		});
+	}
+}
+
+// ─── CRM dead-event alerting ────────────────────────────────────────────────
+// Issue 11: alert on stuck/dead CRM sync events so ops can investigate
+
+async function alertDeadCrmEvents(): Promise<void> {
+	const tables = [
+		"hubspot_sync_events",
+		"zoho_sync_events",
+		"salesforce_sync_events",
+		"lead_webhook_events",
+	];
+
+	for (const table of tables) {
+		try {
+			const result = await pool.query<{ count: string }>(
+				`SELECT COUNT(*) AS count FROM ${table} WHERE status = 'dead'`,
+			);
+			const count = parseInt(result.rows[0]?.count ?? "0", 10);
+			if (count > 0) {
+				logger.warn(
+					`CRM dead-event alert: ${count} dead events in ${table} — manual intervention required`,
+					{ table, deadCount: count },
+				);
+			}
+		} catch (error) {
+			// Table may not exist if integration is not set up — silently skip
+		}
 	}
 }
 
@@ -157,12 +155,12 @@ export interface MaintenanceWorkerHandle {
 }
 
 export function createMaintenanceWorker(): MaintenanceWorkerHandle {
-	// Run immediately on startup so partitions exist from the first request
+	// Run immediately on startup
 	ensureUpcomingPartitions();
 	cleanupOldAnalytics();
 	cleanupUploadedFiles();
+	alertDeadCrmEvents();
 
-	// Then run on recurring intervals
 	const partitionInterval = setInterval(() => {
 		ensureUpcomingPartitions().catch((error: Error) => {
 			logger.error("Partition maintenance interval failed", {
@@ -187,10 +185,16 @@ export function createMaintenanceWorker(): MaintenanceWorkerHandle {
 		});
 	}, UPLOAD_CLEANUP_INTERVAL_MS);
 
+	// Check for dead CRM events every 6 hours
+	const crmAlertInterval = setInterval(() => {
+		alertDeadCrmEvents().catch((error: Error) => {
+			logger.error("CRM dead-event alert failed", { error: error.message });
+		});
+	}, 6 * 60 * 60 * 1000);
+
 	logger.info("Maintenance worker started", {
 		partitionCheckIntervalHours: PARTITION_CHECK_INTERVAL_MS / 3_600_000,
-		analyticsCleanupIntervalDays:
-			ANALYTICS_CLEANUP_INTERVAL_MS / 86_400_000,
+		analyticsCleanupIntervalDays: ANALYTICS_CLEANUP_INTERVAL_MS / 86_400_000,
 		analyticsRetentionDays: ANALYTICS_RETENTION_DAYS,
 		uploadMaxAgeHours: UPLOAD_MAX_AGE_HOURS,
 	});
@@ -200,7 +204,23 @@ export function createMaintenanceWorker(): MaintenanceWorkerHandle {
 			clearInterval(partitionInterval);
 			clearInterval(analyticsInterval);
 			clearInterval(uploadCleanupInterval);
+			clearInterval(crmAlertInterval);
 			logger.info("Maintenance worker stopped");
 		},
 	};
+}
+
+// Self-execute when run as a standalone process
+if (require.main === module) {
+	const worker = createMaintenanceWorker();
+	logger.info("Maintenance worker started as standalone process");
+
+	const shutdown = async () => {
+		logger.info("Maintenance worker shutting down...");
+		await worker.close();
+		process.exit(0);
+	};
+
+	process.on("SIGTERM", shutdown);
+	process.on("SIGINT", shutdown);
 }
