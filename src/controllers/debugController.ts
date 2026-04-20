@@ -3,7 +3,6 @@ import pool from "../config/database";
 import logger from "../utils/logger";
 import { chatService } from "../services/chatService";
 import { retrieveRelevantContext as fetchRelevantContext } from "../services/contextRetrievalService";
-import { classifyQuery } from "../services/queryService";
 
 /**
  * GET /api/admin/debug/prompt?userId=&query=
@@ -35,10 +34,8 @@ export const getDebugPrompt = async (
 		res.json({
 			userId,
 			query,
-			intentClass: classifyQuery(query),
 			matchCount: result.matchCount,
 			topScore: result.topScore,
-			docGrade: result.docGrade,
 			matches: result.matches,
 			messages: result.messages,
 		});
@@ -92,7 +89,6 @@ export const runRagTest = async (
 					);
 					return {
 						query,
-						intentClass: classifyQuery(query),
 						matchCount: matches.length,
 						topScore: matches[0]?.score ?? matches[0]?.cohereScore ?? null,
 						topMatches: matches.slice(0, 3).map((m: any) => ({
@@ -224,7 +220,6 @@ export const getChatInsights = async (
 			zeroSourceQueries: zeroSourceQueriesResult.rows.map((r) => ({
 				query: r.content,
 				at: r.created_at,
-				intentClass: classifyQuery(r.content),
 			})),
 		});
 	} catch (error) {

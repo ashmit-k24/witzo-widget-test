@@ -131,17 +131,6 @@ export async function submitContactForm(req: Request, res: Response): Promise<vo
 			planType,
 		});
 
-		// Populate the session lead profile so the conversational bot skips
-		// re-asking for details already submitted via the lead form.
-		if (sessionId && (email || phone)) {
-			chatService.saveSessionLeadProfile(sessionId, {
-				name: name || undefined,
-				email: email || undefined,
-				phone: phone || undefined,
-				country: country || undefined,
-			}).catch(() => {});
-		}
-
 		res.status(200).json({ success: true, message: "Message received. We will be in touch!" });
 	} catch (err) {
 		logger.error("Error saving contact form lead", { err });

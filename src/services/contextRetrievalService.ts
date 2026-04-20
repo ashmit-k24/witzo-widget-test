@@ -1,13 +1,10 @@
 import crypto from "crypto";
-import OpenAI from "openai";
-import { config } from "../config/env";
 import {
 	CHAT_RETRIEVAL_CACHE_TTL_SECONDS,
 } from "../constants";
 import { redisCache } from "../config/redis";
 import { ChatMessage } from "../types";
 import logger from "../utils/logger";
-import { getTopKForQuery } from "./queryService";
 import { pineconeService } from "./pineconeService";
 
 export type ContextResult = {
@@ -47,30 +44,21 @@ export function relevantRagMatches(matches: any[], minScore: number): any[] {
 	return matches.filter((m) => ragMatchScore(m) >= minScore);
 }
 
-export function ragScoreThreshold(query: string): number {
-	// Import inline to avoid circular dep — queryService has no dependency on this file
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	const { classifyQuery } = require("./queryService") as {
-		classifyQuery: (q: string) => string;
-	};
-	switch (classifyQuery(query)) {
-		case "pricing":
-		case "contact":
-			// High precision — a wrong price or wrong contact detail is worse than "I don't know"
-			return 0.45;
-		case "people":
-			// Person queries need reasonable precision to avoid attributing the wrong role
-			return 0.38;
-		case "case_study":
-		case "service":
-			return 0.30;
-		case "blog":
-			return 0.28;
-		case "general":
-		default:
-			// Open-ended questions benefit from slightly more recall
-			return 0.27;
-	}
+export function diversifyByUrl(matches: any[], maxPerUrl: number = 3): any[] {
+	const urlCount = new Map<string, number>();
+	return matches.filter((m) => {
+		const url = String(m?.metadata?.url || "");
+		const count = urlCount.get(url) ?? 0;
+		if (count >= maxPerUrl) return false;
+		urlCount.set(url, count + 1);
+		return true;
+	});
+}
+
+export function getRagScoreThreshold(): number {
+	const envVal = parseFloat(process.env.RAG_SCORE_THRESHOLD ?? "");
+	if (Number.isFinite(envVal) && envVal >= 0 && envVal <= 1) return envVal;
+	return 0.27;
 }
 
 // ── Cache key ────────────────────────────────────────────────────────────────
@@ -100,7 +88,7 @@ export async function retrieveRelevantContext(
 			return JSON.parse(cached) as ContextResult;
 		}
 
-		const topK = getTopKForQuery(query);
+		const topK = 15;
 		const results = await pineconeService.queryDocuments(userId, query, topK, {
 			history: history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
 		});
@@ -134,75 +122,3 @@ export async function retrieveRelevantContext(
 	}
 }
 
-// ── Document grading (CRAG) + Answer grading ─────────────────────────────────
-
-const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
-
-export async function gradeDocuments(
-	query: string,
-	matches: any[],
-): Promise<"yes" | "partial" | "no"> {
-	if (!config.OPENAI_API_KEY?.trim() || matches.length === 0) return "no";
-
-	const sampleText = matches
-		.slice(0, 5)
-		.map((m) => extractMatchText(m))
-		.filter(Boolean)
-		.join("\n---\n")
-		.slice(0, 2000);
-
-	if (!sampleText) return "no";
-
-	try {
-		const completion = await openai.chat.completions.create({
-			model: "gpt-4o-mini",
-			messages: [
-				{
-					role: "user",
-					content: `Does the following knowledge base excerpt contain enough information to answer the question: "${query}"?\n\nKnowledge Base:\n${sampleText}\n\nReply with exactly one word: yes, partial, or no.`,
-				},
-			],
-			temperature: 0,
-			max_tokens: 5,
-		});
-		const answer =
-			completion.choices[0]?.message?.content?.trim().toLowerCase() ??
-			"partial";
-		if (answer === "yes" || answer === "partial" || answer === "no") {
-			return answer;
-		}
-		return "partial";
-	} catch {
-		return "partial";
-	}
-}
-
-// ── Answer grading (self-reflection) ─────────────────────────────────────────
-// Grades whether the generated answer actually addresses the user's query.
-// Used after generation to decide whether to retry with a different strategy.
-
-export async function gradeAnswer(
-	query: string,
-	answer: string,
-): Promise<"yes" | "no"> {
-	if (!config.OPENAI_API_KEY?.trim() || !answer.trim()) return "yes";
-
-	try {
-		const completion = await openai.chat.completions.create({
-			model: "gpt-4o-mini",
-			messages: [
-				{
-					role: "user",
-					content: `Does this response actually answer the question asked?\n\nQuestion: "${query}"\n\nResponse: "${answer.slice(0, 600)}"\n\nReply with exactly one word: yes or no.`,
-				},
-			],
-			temperature: 0,
-			max_tokens: 5,
-		});
-		const result =
-			completion.choices[0]?.message?.content?.trim().toLowerCase() ?? "yes";
-		return result === "no" ? "no" : "yes";
-	} catch {
-		return "yes";
-	}
-}

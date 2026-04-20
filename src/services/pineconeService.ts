@@ -29,11 +29,7 @@ import {
 } from "../utils/retry";
 import { bm25SparseVector, chunkMarkdown } from "./chunkingService";
 import { hypeVectorRegistryService } from "./hypeVectorRegistryService";
-import {
-	buildPageTypeFilters,
-	generateQueryVariations,
-	stepBackRewrite,
-} from "./queryService";
+import { stepBackRewrite } from "./queryService";
 import { cohereRerank } from "./rerankService";
 import { scraperSourceService } from "./scraperSourceService";
 import { subscriptionService } from "./subscriptionService";
@@ -1194,17 +1190,10 @@ class PineconeService {
 				query,
 				options?.history,
 			);
-			const metadataReady =
-				await scraperSourceService.isMetadataReady(
-					userId,
-				);
-			const pageTypes = metadataReady //Just for trial
-				? buildPageTypeFilters(query)
-				: [];
+			const pageTypes: string[] = [];
 			const inputs = [
 				rewrittenQuery,
 				...(rewrittenQuery !== query ? [query] : []),
-				...generateQueryVariations(query),
 			];
 			const embeddings =
 				await this.mapWithConcurrency(
@@ -1269,7 +1258,7 @@ class PineconeService {
 				}
 			};
 
-			const useFilter = metadataReady && pageTypes.length > 0;
+			const useFilter = pageTypes.length > 0;
 			const allResults = await Promise.all(
 				inputs.map((input, inputIndex) =>
 					queryOnce(
