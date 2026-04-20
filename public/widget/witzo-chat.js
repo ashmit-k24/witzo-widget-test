@@ -3382,6 +3382,10 @@
 			.contact-form-shell {
 			    bottom: 30px;
 			}
+				
+			 .chat-text-input {
+				font-size: 16px;
+			}
 
 			  
             #floatingBtn .floating-launcher.widget-open {
@@ -6041,7 +6045,8 @@
 			setTimeout(() => {
 				if (
 					this.elements.input &&
-					!this.isEmbeddedPreview
+					!this.isEmbeddedPreview &&
+					window.innerWidth > 640
 				) {
 					this.elements.input.focus();
 				}
@@ -6659,7 +6664,8 @@
 					setTimeout(() => {
 						if (
 							this.elements.input &&
-							!this.isEmbeddedPreview
+							!this.isEmbeddedPreview &&
+							window.innerWidth > 640
 						) {
 							this.elements.input.focus();
 						}
