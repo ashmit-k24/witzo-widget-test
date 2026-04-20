@@ -4476,7 +4476,7 @@
               <div class="contact-form-shell">
                 <div class="contact-form-card">
                   <div class="contact-form-copy">
-                    <h3>${this.config.leadFormEnabled ? "Just a few details so we can keep helping you 😊" : "What can we improve?"}</h3>
+                    <h3>${this.config.leadFormEnabled ? "Just a few details so we can keep helping you 😊" : "Let's Connect"}</h3>
                   </div>
                   <div class="contact-form-fields">
                     ${leadFields}
@@ -4486,7 +4486,7 @@
 												: `
                     <div class="cf-field-group">
                       <textarea id="cf-message"></textarea>
-                      <label>Type your feedback...</label>
+                      <label>Type your Message...</label>
                     </div>`
 										}
                   </div>
@@ -5701,31 +5701,62 @@
 					}
 				},
 			);
-			
+
 			// Populate feedback buttons on hover
 			this.shadowRoot.addEventListener(
 				"mouseover",
 				(e) => {
-					const mdContent = e.target.closest(".md-content");
-					const messageFeedback = e.target.closest(".message-feedback");
-					const botResponseBlock = e.target.closest(".bot-response-block");
-					
-					if (mdContent || messageFeedback || botResponseBlock) {
-						const feedbackContainer = botResponseBlock?.querySelector(".message-feedback") || 
-							messageFeedback?.closest(".message-feedback");
-						
+					const mdContent = e.target.closest(
+						".md-content",
+					);
+					const messageFeedback =
+						e.target.closest(".message-feedback");
+					const botResponseBlock =
+						e.target.closest(
+							".bot-response-block",
+						);
+
+					if (
+						mdContent ||
+						messageFeedback ||
+						botResponseBlock
+					) {
+						const feedbackContainer =
+							botResponseBlock?.querySelector(
+								".message-feedback",
+							) ||
+							messageFeedback?.closest(
+								".message-feedback",
+							);
+
 						if (feedbackContainer) {
-							const feedbackRow = feedbackContainer.querySelector(".message-feedback-row");
-							const feedbackMenu = feedbackContainer.querySelector(".message-feedback-menu");
-							
+							const feedbackRow =
+								feedbackContainer.querySelector(
+									".message-feedback-row",
+								);
+							const feedbackMenu =
+								feedbackContainer.querySelector(
+									".message-feedback-menu",
+								);
+
 							// Populate feedback row if empty
-							if (feedbackRow && feedbackRow.innerHTML.trim() === "") {
-								feedbackRow.innerHTML = this.getMessageFeedbackRowMarkup();
+							if (
+								feedbackRow &&
+								feedbackRow.innerHTML.trim() ===
+									""
+							) {
+								feedbackRow.innerHTML =
+									this.getMessageFeedbackRowMarkup();
 							}
-							
+
 							// Populate feedback menu if empty
-							if (feedbackMenu && feedbackMenu.innerHTML.trim() === "") {
-								feedbackMenu.innerHTML = this.getMessageFeedbackMenuItems();
+							if (
+								feedbackMenu &&
+								feedbackMenu.innerHTML.trim() ===
+									""
+							) {
+								feedbackMenu.innerHTML =
+									this.getMessageFeedbackMenuItems();
 							}
 						}
 					}
@@ -7087,7 +7118,7 @@
 		getMessageFeedbackMarkup(messageId) {
 			const messageIdAttr =
 				typeof messageId === "number" &&
-						Number.isFinite(messageId)
+				Number.isFinite(messageId)
 					? ` data-message-id="${String(messageId)}"`
 					: "";
 			return `
@@ -7096,7 +7127,7 @@
               <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?"></div>
             </div>`;
 		}
-		
+
 		getMessageFeedbackRowMarkup() {
 			return `
                 <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
@@ -7108,7 +7139,7 @@
                   <span class="message-feedback-tooltip">Not helpful</span>
                 </button>`;
 		}
-		
+
 		getMessageFeedbackMenuItems() {
 			return this._messageFeedbackReasons
 				.map(
@@ -7125,21 +7156,21 @@
 			// 		? ` data-message-id="${String(messageId)}"`
 			// 		: "";
 			// return `
-            // <div class="message-feedback"${messageIdAttr}>
-            //   <div class="message-feedback-row">
-            //     <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
-            //       ${this.getMessageFeedbackIcon("up")}
-            //       <span class="message-feedback-tooltip">Helpful</span>
-            //     </button>
-            //     <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
-            //       ${this.getMessageFeedbackIcon("down")}
-            //       <span class="message-feedback-tooltip">Not helpful</span>
-            //     </button>
-            //   </div>
-            //   <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?">
-            //     ${items}
-            //   </div>
-            // </div>`;
+			// <div class="message-feedback"${messageIdAttr}>
+			//   <div class="message-feedback-row">
+			//     <button type="button" class="message-feedback-btn" data-feedback="up" aria-label="Helpful">
+			//       ${this.getMessageFeedbackIcon("up")}
+			//       <span class="message-feedback-tooltip">Helpful</span>
+			//     </button>
+			//     <button type="button" class="message-feedback-btn down" data-feedback="down" aria-label="Not helpful">
+			//       ${this.getMessageFeedbackIcon("down")}
+			//       <span class="message-feedback-tooltip">Not helpful</span>
+			//     </button>
+			//   </div>
+			//   <div class="message-feedback-menu" role="menu" aria-label="Why was this not helpful?">
+			//     ${items}
+			//   </div>
+			// </div>`;
 		}
 
 		getBotMessageMarkup(text, messageId) {
@@ -7170,10 +7201,14 @@
 
 		closeAllMessageFeedbackMenus() {
 			this.shadowRoot
-				.querySelectorAll('.message-feedback-menu.show')
+				.querySelectorAll(
+					".message-feedback-menu.show",
+				)
 				.forEach((menu) => {
-					menu.classList.remove('show');
-					menu.closest('.message-feedback')?.classList.remove('menu-open');
+					menu.classList.remove("show");
+					menu
+						.closest(".message-feedback")
+						?.classList.remove("menu-open");
 				});
 		}
 
@@ -7397,17 +7432,25 @@
 				".typing-indicator",
 			);
 			wrapper.classList.remove("has-feedback");
-			
+
 			// Remove open-up class from all previous messages
 			this.shadowRoot
-				.querySelectorAll(".message-feedback-menu.open-up")
-				.forEach((menu) => menu.classList.remove("open-up"));
-			
+				.querySelectorAll(
+					".message-feedback-menu.open-up",
+				)
+				.forEach((menu) =>
+					menu.classList.remove("open-up"),
+				);
+
 			// Remove no-tooltip class from all previous bot responses when they are no longer last
 			this.shadowRoot
-				.querySelectorAll(".bot-response-block.no-tooltip")
-				.forEach((block) => block.classList.remove("no-tooltip"));
-			
+				.querySelectorAll(
+					".bot-response-block.no-tooltip",
+				)
+				.forEach((block) =>
+					block.classList.remove("no-tooltip"),
+				);
+
 			if (bubble) {
 				bubble.classList.remove(
 					"typing-indicator",
@@ -7429,24 +7472,34 @@
 						);
 				}
 			}
-			
+
 			// Apply open-up class to dropdown menu for 2nd+ bot responses
 			if (this.botMessageCount >= 1) {
-				const menu = bubble?.querySelector(".message-feedback-menu") || 
-					wrapper.querySelector(".message-feedback-menu");
+				const menu =
+					bubble?.querySelector(
+						".message-feedback-menu",
+					) ||
+					wrapper.querySelector(
+						".message-feedback-menu",
+					);
 				if (menu) {
 					menu.classList.add("open-up");
 				}
 			}
-			
+
 			// Hide tooltip for 2nd+ bot responses (only show for 1st response)
 			if (this.botMessageCount >= 1) {
-				const botResponseBlock = wrapper.querySelector(".bot-response-block");
+				const botResponseBlock =
+					wrapper.querySelector(
+						".bot-response-block",
+					);
 				if (botResponseBlock) {
-					botResponseBlock.classList.add("no-tooltip");
+					botResponseBlock.classList.add(
+						"no-tooltip",
+					);
 				}
 			}
-			
+
 			this.smoothScrollToBottom();
 		}
 
@@ -8220,9 +8273,11 @@
 				Boolean(this.config.leadFormEnabled),
 			);
 			// Clear any previous errors
-			["cfName", "cfEmail", "cfPhone"].forEach(field => {
-				this.setCfFieldError(field, "");
-			});
+			["cfName", "cfEmail", "cfPhone"].forEach(
+				(field) => {
+					this.setCfFieldError(field, "");
+				},
+			);
 			if (!this.config.leadFormEnabled) {
 				this.elements.messagesContainer.classList.add(
 					"hidden",
@@ -8232,16 +8287,16 @@
 				);
 				this.updateScrollBottomButton();
 			}
-if (this.elements.chatInput) {
-                this.elements.chatInput.classList.add(
-                    "hidden",
-                );
-            }
-            if (this.elements.chatInputPlaceholder) {
-                this.elements.chatInputPlaceholder.classList.add(
-                    "hidden",
-                );
-            }
+			if (this.elements.chatInput) {
+				this.elements.chatInput.classList.add(
+					"hidden",
+				);
+			}
+			if (this.elements.chatInputPlaceholder) {
+				this.elements.chatInputPlaceholder.classList.add(
+					"hidden",
+				);
+			}
 			this.elements.contactFormSlot.classList.remove(
 				"hidden",
 			);
@@ -8281,21 +8336,31 @@ if (this.elements.chatInput) {
 
 				// Real-time validation
 				if (this.elements.cfName) {
-					this.elements.cfName.addEventListener("input", () => {
-						this.validateCfField("cfName");
-					});
+					this.elements.cfName.addEventListener(
+						"input",
+						() => {
+							this.validateCfField("cfName");
+						},
+					);
 				}
 				if (this.elements.cfEmail) {
-					this.elements.cfEmail.addEventListener("input", () => {
-						this.validateCfField("cfEmail");
-					});
+					this.elements.cfEmail.addEventListener(
+						"input",
+						() => {
+							this.validateCfField("cfEmail");
+						},
+					);
 				}
 				if (this.elements.cfPhone) {
-					this.elements.cfPhone.addEventListener("input", (e) => {
-						// Allow only digits
-						e.target.value = e.target.value.replace(/\D/g, "");
-						this.validateCfField("cfPhone");
-					});
+					this.elements.cfPhone.addEventListener(
+						"input",
+						(e) => {
+							// Allow only digits
+							e.target.value =
+								e.target.value.replace(/\D/g, "");
+							this.validateCfField("cfPhone");
+						},
+					);
 				}
 			}
 		}
@@ -8304,34 +8369,44 @@ if (this.elements.chatInput) {
 			const elements = this.elements;
 			if (!elements.cfSubmit) return;
 			const errors = this.getCfValidationErrors();
-			elements.cfSubmit.disabled = Object.values(errors).some(
-				(message) => Boolean(message),
-			);
+			elements.cfSubmit.disabled = Object.values(
+				errors,
+			).some((message) => Boolean(message));
 		}
 
 		getCfValidationErrors() {
 			const errors = {};
-			const name = this.elements.cfName?.value.trim() || "";
-			const email = this.elements.cfEmail?.value.trim() || "";
-			const phone = this.elements.cfPhone?.value.trim() || "";
+			const name =
+				this.elements.cfName?.value.trim() || "";
+			const email =
+				this.elements.cfEmail?.value.trim() || "";
+			const phone =
+				this.elements.cfPhone?.value.trim() || "";
 
 			if (this.elements.cfName) {
 				if (name && /\d/.test(name)) {
-					errors.cfName = "Full name cannot contain numbers.";
+					errors.cfName =
+						"Full name cannot contain numbers.";
 				}
 			}
 
 			if (this.elements.cfEmail) {
 				if (email && !this.isValidEmail(email)) {
-					errors.cfEmail = "Enter a valid email address.";
+					errors.cfEmail =
+						"Enter a valid email address.";
 				}
 			}
 
-			if (this.config.leadFormPhoneEnabled && this.elements.cfPhone) {
+			if (
+				this.config.leadFormPhoneEnabled &&
+				this.elements.cfPhone
+			) {
 				if (!phone) {
-					errors.cfPhone = "Phone number is required.";
+					errors.cfPhone =
+						"Phone number is required.";
 				} else if (/\D/.test(phone)) {
-					errors.cfPhone = "Phone number may only contain digits.";
+					errors.cfPhone =
+						"Phone number may only contain digits.";
 				}
 			}
 
@@ -8339,24 +8414,31 @@ if (this.elements.chatInput) {
 		}
 
 		setCfFieldError(field, message) {
-			const errorEl = this.elements[`${field}Error`];
+			const errorEl =
+				this.elements[`${field}Error`];
 			if (errorEl) {
 				errorEl.textContent = message || "";
 			}
 			const inputEl = this.elements[field];
 			if (inputEl) {
-				inputEl.style.borderColor = message ? "#dc2626" : "";
+				inputEl.style.borderColor = message
+					? "#dc2626"
+					: "";
 			}
 		}
 
 		validateCfField(field) {
 			const errors = this.getCfValidationErrors();
-			this.setCfFieldError(field, errors[field] || "");
+			this.setCfFieldError(
+				field,
+				errors[field] || "",
+			);
 			this.updateCfSubmitState();
 		}
 
 		isValidEmail(email) {
-			const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+			const emailRegex =
+				/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 			return emailRegex.test(email);
 		}
 
@@ -8365,7 +8447,10 @@ if (this.elements.chatInput) {
 			if (showErrors) {
 				["cfName", "cfEmail", "cfPhone"].forEach(
 					(field) => {
-						this.setCfFieldError(field, errors[field] || "");
+						this.setCfFieldError(
+							field,
+							errors[field] || "",
+						);
 					},
 				);
 			}

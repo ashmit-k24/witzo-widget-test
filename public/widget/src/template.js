@@ -1,33 +1,56 @@
-import { CLOSE_ICON_SVG, LOGO_DEFAULT_SVG, GLOBE_SVG, SEND_ARROW_SVG, FLOATING_BTN_SVG, THUMBS_UP_SVG, THUMBS_DOWN_SVG } from './icons.js';
+import {
+	CLOSE_ICON_SVG,
+	FLOATING_BTN_SVG,
+	GLOBE_SVG,
+	LOGO_DEFAULT_SVG,
+	SEND_ARROW_SVG,
+	THUMBS_DOWN_SVG,
+	THUMBS_UP_SVG,
+} from "./icons.js";
 
 /**
  * Builds the full Shadow DOM HTML structure.
  * Dynamic colors are handled via CSS custom properties (see styles/index.js).
  */
-export function buildTemplate(config, selectedLanguage, supportedLanguages) {
-  const logoHtml = config.logoIcon
-    ? `<img id="logoIcon" src="${config.logoIcon}" alt="Logo" />`
-    : LOGO_DEFAULT_SVG;
+export function buildTemplate(
+	config,
+	selectedLanguage,
+	supportedLanguages,
+) {
+	const logoHtml = config.logoIcon
+		? `<img id="logoIcon" src="${config.logoIcon}" alt="Logo" />`
+		: LOGO_DEFAULT_SVG;
 
-  const langItems = supportedLanguages.map(lang => `
-    <div class="lang-dropdown-item ${lang.code === selectedLanguage ? 'active' : ''}" data-code="${lang.code}">
+	const langItems = supportedLanguages
+		.map(
+			(lang) => `
+    <div class="lang-dropdown-item ${lang.code === selectedLanguage ? "active" : ""}" data-code="${lang.code}">
       <span>${lang.label}</span>
       <svg class="lang-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="20 6 9 17 4 12"></polyline>
       </svg>
-    </div>`).join('');
-  const leadFields = (config.leadFormEnabled ? [
-    config.leadFormNameEnabled !== false ? `
+    </div>`,
+		)
+		.join("");
+	const leadFields = (
+		config.leadFormEnabled
+			? [
+					config.leadFormNameEnabled !== false
+						? `
       <div class="cf-field-group">
         <input id="cf-name" type="text" />
         <label>Full name</label>
-      </div>` : '',
-    config.leadFormEmailEnabled !== false ? `
+      </div>`
+						: "",
+					config.leadFormEmailEnabled !== false
+						? `
       <div class="cf-field-group">
         <input id="cf-email" type="email" />
         <label>Email address</label>
-      </div>` : '',
-    config.leadFormPhoneEnabled !== false ? `
+      </div>`
+						: "",
+					config.leadFormPhoneEnabled !== false
+						? `
       <div class="cf-field-group">
         <div class="cf-phone-wrapper">
           <div class="cf-phone-trigger" id="cf-phone-code-trigger">
@@ -40,8 +63,10 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
             <label>Phone number</label>
           </div>
         </div>
-      </div>` : '',
-    config.leadFormCountryEnabled !== false ? `
+      </div>`
+						: "",
+					config.leadFormCountryEnabled !== false
+						? `
       <div class="cf-field-group">
         <div class="cf-country-wrapper" id="cf-country-trigger">
           <span id="cf-country-value">Select country</span>
@@ -52,27 +77,34 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
           </div>
         </div>
         <input type="hidden" id="cf-country" />
-      </div>` : '',
-  ] : [
-    `
+      </div>`
+						: "",
+				]
+			: [
+					`
     <div class="cf-field-group">
       <input id="cf-name" type="text" />
       <label>Full name</label>
     </div>`,
-    `
+					`
     <div class="cf-field-group">
       <input id="cf-email" type="email" />
       <label>Email address</label>
-    </div>`
-  ]).filter(Boolean).join("");
+    </div>`,
+				]
+	)
+		.filter(Boolean)
+		.join("");
 
-  const floatingType = config.floatingType || 'small';
-  const chatIconHtml = config.logoIcon
-    ? `<img src="${config.logoIcon}" alt="Logo" style="width: 100%; height: 100%; border-radius: inherit;" />`
-    : FLOATING_BTN_SVG;
-  const floatingIcon = `<span class="floating-orb"><span class="floating-orb-inner"><span class="floating-icon-chat">${chatIconHtml}</span><span class="floating-icon-close">${CLOSE_ICON_SVG('white')}</span></span></span>`;
-  const floatingMarkup = floatingType === 'full'
-    ? `
+	const floatingType =
+		config.floatingType || "small";
+	const chatIconHtml = config.logoIcon
+		? `<img src="${config.logoIcon}" alt="Logo" style="width: 100%; height: 100%; border-radius: inherit;" />`
+		: FLOATING_BTN_SVG;
+	const floatingIcon = `<span class="floating-orb"><span class="floating-orb-inner"><span class="floating-icon-chat">${chatIconHtml}</span><span class="floating-icon-close">${CLOSE_ICON_SVG("white")}</span></span></span>`;
+	const floatingMarkup =
+		floatingType === "full"
+			? `
       <button class="floating-launcher floating-launcher-full hidden" id="floating-btn" aria-label="Open chat">
         <span class="floating-full-message">Hey there! 😊 What brings you here today?</span>
         <span class="floating-full-row">
@@ -85,18 +117,18 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
           </span>
         </span>
       </button>`
-    : floatingType === 'compact'
-      ? `
+			: floatingType === "compact"
+				? `
       <button class="floating-launcher floating-launcher-compact hidden" id="floating-btn" aria-label="Open chat">
         ${floatingIcon}
         <span class="floating-compact-label">Need<br/> Assistance ?</span>
       </button>`
-      : `
+				: `
       <button class="floating-launcher floating-launcher-small hidden" id="floating-btn" aria-label="Open chat">
         ${floatingIcon}
       </button>`;
 
-  return `
+	return `
     <!-- ── Chat Window ── -->
     <div id="textChatWidget" class="chat-widget hidden">
 
@@ -104,11 +136,11 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
       <div class="chat-header">
         <div class="chat-header-left">
           <div class="chat-icon">${logoHtml}</div>
-          <h3 id="banner-text" class="chat-title" style="color:${config.bannerTextColor || '#fff'}">${config.bannerText}</h3>
+          <h3 id="banner-text" class="chat-title" style="color:${config.bannerTextColor || "#fff"}">${config.bannerText}</h3>
         </div>
         <div class="chat-header-right">
           <button id="closeTextChat" class="chat-action-btn">
-            ${CLOSE_ICON_SVG(config.closeButtonColor || 'white')}
+            ${CLOSE_ICON_SVG(config.closeButtonColor || "white")}
           </button>
         </div>
       </div>
@@ -131,12 +163,12 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
         <div class="contact-form-shell">
           <div class="contact-form-card">
             <div class="contact-form-copy">
-              <h3>${config.leadFormEnabled ? "Just a few details so we can keep helping you 😊" : 'What can we improve?'}</h3>
-              <p>${config.leadFormEnabled ? 'Share your details to continue the conversation with our team.' : "Thanks for helping us do better. Tell us what we can improve and we'll take it from there."}</p>
+              <h3>${config.leadFormEnabled ? "Just a few details so we can keep helping you 😊" : "Let's Connect"}</h3>
+              <p>${config.leadFormEnabled ? "Share your details to continue the conversation with our team." : "Thanks for helping us do better. Tell us what we can improve and we'll take it from there."}</p>
             </div>
             <div class="contact-form-fields">
               ${leadFields}
-              ${config.leadFormEnabled ? '' : '<textarea id="cf-message" placeholder="Type your feedback..."></textarea>'}
+              ${config.leadFormEnabled ? "" : '<textarea id="cf-message" placeholder="Type your Message..."></textarea>'}
             </div>
             <div class="cf-agreement">
               <label class="cf-checkbox-wrapper">
@@ -145,8 +177,8 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
                 <span class="cf-agreement-text">I agree to the <a href="#">Privacy Policy</a> and <a href="#">Terms & Conditions</a></span>
               </label>
             </div>
-            <button id="cf-submit" class="contact-form-submit" disabled>${config.leadFormEnabled ? config.leadFormButtonText || 'Continue' : 'Continue'}</button>
-            <div class="contact-form-note">${config.leadFormEnabled ? "We'll only use these details to follow up on your request." : 'Your feedback helps us refine the experience.'}</div>
+            <button id="cf-submit" class="contact-form-submit" disabled>${config.leadFormEnabled ? config.leadFormButtonText || "Continue" : "Continue"}</button>
+            <div class="contact-form-note">${config.leadFormEnabled ? "We'll only use these details to follow up on your request." : "Your feedback helps us refine the experience."}</div>
           </div>
         </div>
       </div>
@@ -165,7 +197,7 @@ export function buildTemplate(config, selectedLanguage, supportedLanguages) {
           <!-- Language pill + dropdown -->
           <div class="lang-pill" id="langPillBtn">
             ${GLOBE_SVG}
-            <span id="langPillCode">${(selectedLanguage || 'en').slice(0, 2).toUpperCase()}</span>
+            <span id="langPillCode">${(selectedLanguage || "en").slice(0, 2).toUpperCase()}</span>
             <div class="lang-dropdown" id="langDropdown">${langItems}</div>
           </div>
 
