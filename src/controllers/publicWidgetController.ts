@@ -89,22 +89,6 @@ export async function submitContactForm(req: Request, res: Response): Promise<vo
 				res.status(400).json({ success: false, message: "Email is required" });
 				return;
 			}
-
-			const sessionContext =
-				await chatService.getConversationContext(
-					sessionId,
-					userId,
-				);
-			if (
-				!sessionContext ||
-				sessionContext.widgetKeyId !== widget.id
-			) {
-				res.status(403).json({
-					success: false,
-					message: "Invalid widget session",
-				});
-				return;
-			}
 		}
 
 		if (!name && !email && !phone && !country && !message) {
