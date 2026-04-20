@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { coercePlanType, getPlanCapabilities } from "../config/planConfig";
+import { coercePlanType } from "../config/planConfig";
 import pool from "../config/database";
 import widgetService from "../services/widgetService";
 import { chatRatingService } from "../services/chatRatingService";
@@ -87,11 +87,6 @@ export async function submitContactForm(req: Request, res: Response): Promise<vo
 		if (!leadFormEnabled) {
 			if (!email) {
 				res.status(400).json({ success: false, message: "Email is required" });
-				return;
-			}
-
-			if (!getPlanCapabilities(planType).fallbackLeadForm) {
-				res.status(403).json({ success: false, message: "Feature not available on your plan" });
 				return;
 			}
 
