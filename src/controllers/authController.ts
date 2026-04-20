@@ -1,12 +1,12 @@
+import axios from "axios";
+import crypto from "crypto";
 import {
 	NextFunction,
 	Request,
 	Response,
 } from "express";
-import crypto from "crypto";
-import axios from "axios";
-import passport from "../config/passport";
 import { config } from "../config/env";
+import passport from "../config/passport";
 import {
 	clearCookies,
 	setCookies,
@@ -22,11 +22,11 @@ import {
 	ForgotPasswordBody,
 	LoginPasswordBody,
 	RegisterBody,
-	ResetPasswordBody,
 	RequestCodeBody,
+	ResetPasswordBody,
 	UpdateProfileBody,
-	VerifyGoogleCodeBody,
 	VerifyCodeBody,
+	VerifyGoogleCodeBody,
 } from "../types";
 import logger from "../utils/logger";
 
@@ -64,10 +64,14 @@ interface GoogleOAuthStatePayload {
 }
 
 const encodeBase64Url = (value: string): string =>
-	Buffer.from(value, "utf-8").toString("base64url");
+	Buffer.from(value, "utf-8").toString(
+		"base64url",
+	);
 
 const decodeBase64Url = (value: string): string =>
-	Buffer.from(value, "base64url").toString("utf-8");
+	Buffer.from(value, "base64url").toString(
+		"utf-8",
+	);
 
 const createGoogleOAuthStateToken = (
 	clientState: string,
@@ -76,9 +80,7 @@ const createGoogleOAuthStateToken = (
 		clientState,
 		iat: Date.now(),
 		exp: Date.now() + GOOGLE_OAUTH_STATE_TTL_MS,
-		nonce: crypto
-			.randomBytes(16)
-			.toString("hex"),
+		nonce: crypto.randomBytes(16).toString("hex"),
 	};
 	const encodedPayload = encodeBase64Url(
 		JSON.stringify(payload),
@@ -212,14 +214,30 @@ const verifyEmailDeliverability = async (
 				responseType: "text",
 			},
 		);
-		const result = String(response.data).trim().toLowerCase();
-		logger.info("Email deliverability check", { email, result });
-		return result === "ok";
-	} catch (err) {
-		logger.warn("Email deliverability check failed, allowing through", {
+		const result = String(response.data)
+			.trim()
+			.toLowerCase();
+		const deliverableStatuses = new Set([
+			"ok",
+			"ok_for_all",
+			"antispam_system",
+		]);
+		logger.info("Email deliverability check", {
 			email,
-			error: err instanceof Error ? err.message : String(err),
+			result,
 		});
+		return deliverableStatuses.has(result);
+	} catch (err) {
+		logger.warn(
+			"Email deliverability check failed, allowing through",
+			{
+				email,
+				error:
+					err instanceof Error
+						? err.message
+						: String(err),
+			},
+		);
 		return true; // Fail open — don't block users if the API is down
 	}
 };
@@ -238,11 +256,14 @@ export const requestCode = async (
 			userAgent: req.get("user-agent"),
 		});
 
-		const isDeliverable = await verifyEmailDeliverability(email);
+		const isDeliverable =
+			await verifyEmailDeliverability(email);
+
 		if (!isDeliverable) {
 			res.status(422).json({
 				success: false,
-				message: "Please provide a valid email address.",
+				message:
+					"Please provide a valid email address.",
 			});
 			return;
 		}
@@ -508,10 +529,11 @@ export const updateProfile = async (
 			return;
 		}
 
-		const updated = await authService.updateUserProfile(
-			userId,
-			req.body,
-		);
+		const updated =
+			await authService.updateUserProfile(
+				userId,
+				req.body,
+			);
 		res.status(200).json({
 			success: true,
 			message: "Profile updated successfully",
@@ -542,11 +564,12 @@ export const updatePassword = async (
 			return;
 		}
 
-		const result = await authService.updatePassword(
-			userId,
-			req.body,
-			req.user?.sessionId,
-		);
+		const result =
+			await authService.updatePassword(
+				userId,
+				req.body,
+				req.user?.sessionId,
+			);
 
 		res.status(200).json(result);
 	} catch (error) {
@@ -574,14 +597,12 @@ export const deleteAccount = async (
 			return;
 		}
 
-		const result = await authService.deleteAccount(
-			userId,
-			{
+		const result =
+			await authService.deleteAccount(userId, {
 				...req.body,
 				ipAddress: req.ip,
 				userAgent: req.get("user-agent"),
-			},
-		);
+			});
 
 		clearCookies(res);
 		res.status(200).json(result);
@@ -611,7 +632,11 @@ export const updateOnboarding = async (
 		}
 
 		const step = Number(req.body.step);
-		const user = await authService.updateOnboardingStep(userId, step);
+		const user =
+			await authService.updateOnboardingStep(
+				userId,
+				step,
+			);
 		res.status(200).json({ success: true, user });
 	} catch (error) {
 		next(error);
@@ -644,8 +669,7 @@ export const completeDashboardTour = async (
 			);
 		res.status(200).json({
 			success: true,
-			message:
-				"Dashboard tour preference saved",
+			message: "Dashboard tour preference saved",
 			user,
 		});
 	} catch (error) {
@@ -712,9 +736,9 @@ export const revokeSession = async (
 				currentSessionId,
 			);
 
-		res.status(result.success ? 200 : 400).json(
-			result,
-		);
+		res
+			.status(result.success ? 200 : 400)
+			.json(result);
 	} catch (error) {
 		next(error);
 	}
@@ -786,20 +810,15 @@ export const initiateGoogleAuth = async (
 ): Promise<void> => {
 	try {
 		const queryClientState =
-			typeof req.query.clientState ===
-			"string"
+			typeof req.query.clientState === "string"
 				? req.query.clientState.trim()
 				: "";
 		const clientState =
 			queryClientState.length >= 32
 				? queryClientState
-				: crypto
-						.randomBytes(32)
-						.toString("hex");
+				: crypto.randomBytes(32).toString("hex");
 		const state =
-			createGoogleOAuthStateToken(
-				clientState,
-			);
+			createGoogleOAuthStateToken(clientState);
 		res.cookie(
 			GOOGLE_OAUTH_CLIENT_STATE_COOKIE,
 			clientState,
@@ -831,10 +850,9 @@ export const validateGoogleOAuthState = async (
 			GOOGLE_OAUTH_CLIENT_STATE_COOKIE
 		] || "",
 	);
-	const parsedState =
-		parseGoogleOAuthStateToken(
-			queryStateToken,
-		);
+	const parsedState = parseGoogleOAuthStateToken(
+		queryStateToken,
+	);
 
 	if (!parsedState || !cookieClientState) {
 		logger.warn("Missing Google OAuth state", {
@@ -901,7 +919,8 @@ export const googleCallback = async (
 	next: NextFunction,
 ): Promise<void> => {
 	try {
-		const profile = req.user as unknown as GoogleProfile;
+		const profile =
+			req.user as unknown as GoogleProfile;
 
 		if (!profile || !profile.email) {
 			res.redirect(
@@ -945,12 +964,9 @@ export const googleCallback = async (
 			result.accessToken,
 			result.refreshToken,
 		);
-		res.clearCookie(
-			GOOGLE_OTP_PENDING_COOKIE,
-			{
-				...authFlowCookieOptions,
-			},
-		);
+		res.clearCookie(GOOGLE_OTP_PENDING_COOKIE, {
+			...authFlowCookieOptions,
+		});
 		res.redirect(`${getFrontendUrl()}/dashboard`);
 	} catch (error) {
 		next(error);
@@ -970,15 +986,12 @@ export const verifyGoogleCode = async (
 	try {
 		const { code } = req.body;
 		const bodyPendingToken =
-			typeof req.body.pendingToken ===
-			"string"
+			typeof req.body.pendingToken === "string"
 				? req.body.pendingToken.trim()
 				: "";
 		const pendingToken =
 			bodyPendingToken ||
-			req.cookies?.[
-				GOOGLE_OTP_PENDING_COOKIE
-			] ||
+			req.cookies?.[GOOGLE_OTP_PENDING_COOKIE] ||
 			"";
 
 		if (!pendingToken) {
@@ -993,12 +1006,9 @@ export const verifyGoogleCode = async (
 		const pendingPayload =
 			parseGooglePendingToken(pendingToken);
 		if (!pendingPayload) {
-			res.clearCookie(
-				GOOGLE_OTP_PENDING_COOKIE,
-				{
-					...authFlowCookieOptions,
-				},
-			);
+			res.clearCookie(GOOGLE_OTP_PENDING_COOKIE, {
+				...authFlowCookieOptions,
+			});
 			res.status(401).json({
 				success: false,
 				message:
@@ -1024,18 +1034,14 @@ export const verifyGoogleCode = async (
 				result.accessToken,
 				result.refreshToken,
 			);
-			res.clearCookie(
-				GOOGLE_OTP_PENDING_COOKIE,
-				{
-					...authFlowCookieOptions,
-				},
-			);
+			res.clearCookie(GOOGLE_OTP_PENDING_COOKIE, {
+				...authFlowCookieOptions,
+			});
 			res.status(200).json({
 				success: true,
 				message: result.message,
 				expiresIn:
-					config.ACCESS_TOKEN_EXPIRY_MINUTES *
-					60,
+					config.ACCESS_TOKEN_EXPIRY_MINUTES * 60,
 			});
 			return;
 		}
@@ -1043,8 +1049,7 @@ export const verifyGoogleCode = async (
 		res.status(401).json({
 			success: false,
 			message: result.message,
-			remainingAttempts:
-				result.remainingAttempts,
+			remainingAttempts: result.remainingAttempts,
 		});
 	} catch (error) {
 		next(error);
@@ -1069,24 +1074,35 @@ export const register = async (
 			ip: req.ip,
 		});
 
-		const isDeliverable = await verifyEmailDeliverability(email);
+		const isDeliverable =
+			await verifyEmailDeliverability(email);
 		if (!isDeliverable) {
 			res.status(422).json({
 				success: false,
-				message: "Please provide a valid email address.",
+				message:
+					"Please provide a valid email address.",
 			});
 			return;
 		}
 
-		const result = await authService.registerWithPassword(
-			email,
-			password,
-			req.ip,
-			req.get("user-agent"),
-		);
+		const result =
+			await authService.registerWithPassword(
+				email,
+				password,
+				req.ip,
+				req.get("user-agent"),
+			);
 
-		if (result.success && result.accessToken && result.refreshToken) {
-			setCookies(res, result.accessToken, result.refreshToken);
+		if (
+			result.success &&
+			result.accessToken &&
+			result.refreshToken
+		) {
+			setCookies(
+				res,
+				result.accessToken,
+				result.refreshToken,
+			);
 			res.status(201).json({
 				success: true,
 				message: result.message,
@@ -1124,7 +1140,9 @@ export const forgotPassword = async (
 		});
 
 		const result =
-			await authService.requestPasswordReset(email);
+			await authService.requestPasswordReset(
+				email,
+			);
 
 		res.status(200).json(result);
 	} catch (error) {
@@ -1140,10 +1158,11 @@ export const resetPassword = async (
 	try {
 		const { token, password } = req.body;
 
-		const result = await authService.resetPassword(
-			token,
-			password,
-		);
+		const result =
+			await authService.resetPassword(
+				token,
+				password,
+			);
 
 		clearCookies(res);
 		res.status(200).json(result);
@@ -1170,15 +1189,24 @@ export const loginWithPassword = async (
 			ip: req.ip,
 		});
 
-		const result = await authService.loginWithPassword(
-			email,
-			password,
-			req.ip,
-			req.get("user-agent"),
-		);
+		const result =
+			await authService.loginWithPassword(
+				email,
+				password,
+				req.ip,
+				req.get("user-agent"),
+			);
 
-		if (result.success && result.accessToken && result.refreshToken) {
-			setCookies(res, result.accessToken, result.refreshToken);
+		if (
+			result.success &&
+			result.accessToken &&
+			result.refreshToken
+		) {
+			setCookies(
+				res,
+				result.accessToken,
+				result.refreshToken,
+			);
 			res.status(200).json({
 				success: true,
 				message: result.message,

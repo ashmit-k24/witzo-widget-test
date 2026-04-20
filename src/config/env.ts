@@ -134,8 +134,12 @@ const getEnvBoolean = (
 	return defaultValue;
 };
 
-const getRequiredSecret = (key: string): string => {
-	const value = normalizeEnvString(process.env[key]);
+const getRequiredSecret = (
+	key: string,
+): string => {
+	const value = normalizeEnvString(
+		process.env[key],
+	);
 	if (value !== undefined && value !== "") {
 		return value;
 	}
@@ -157,7 +161,7 @@ const getRequiredSecret = (key: string): string => {
 
 const resolvedFrontendUrl = getEnvString(
 	"FRONTEND_URL",
-	"http://localhost:3001",
+	"https://www.witzo.ai",
 );
 
 export const config: EnvConfig = {
@@ -232,7 +236,9 @@ export const config: EnvConfig = {
 	JWT_REFRESH_SECRET: getRequiredSecret(
 		"JWT_REFRESH_SECRET",
 	),
-	COOKIE_SECRET: getRequiredSecret("COOKIE_SECRET"),
+	COOKIE_SECRET: getRequiredSecret(
+		"COOKIE_SECRET",
+	),
 
 	// Rate Limiting
 	RATE_LIMIT_WINDOW_MS: getEnvNumber(
@@ -376,7 +382,11 @@ export const config: EnvConfig = {
 	),
 	SALESFORCE_OAUTH_SCOPES: getEnvString(
 		"SALESFORCE_OAUTH_SCOPES",
-		["api", "refresh_token", "offline_access"].join(" "),
+		[
+			"api",
+			"refresh_token",
+			"offline_access",
+		].join(" "),
 	),
 	SALESFORCE_AUTH_BASE_URL: getEnvString(
 		"SALESFORCE_AUTH_BASE_URL",
@@ -477,12 +487,13 @@ export const config: EnvConfig = {
 		"localhost",
 	),
 	REDIS_PORT: (() => {
-		const directValue = getOptionalEnvStringFromKeys([
-			"REDIS_PORT",
-			"REDIS_CACHE_PORT",
-			"REDIS_QUEUE_PORT",
-			"REDIS_ANALYTICS_PORT",
-		]);
+		const directValue =
+			getOptionalEnvStringFromKeys([
+				"REDIS_PORT",
+				"REDIS_CACHE_PORT",
+				"REDIS_QUEUE_PORT",
+				"REDIS_ANALYTICS_PORT",
+			]);
 		if (!directValue) {
 			return 6379;
 		}
@@ -519,12 +530,13 @@ export const config: EnvConfig = {
 		"localhost",
 	),
 	REDIS_CACHE_PORT: (() => {
-		const directValue = getOptionalEnvStringFromKeys([
-			"REDIS_PORT",
-			"REDIS_CACHE_PORT",
-			"REDIS_QUEUE_PORT",
-			"REDIS_ANALYTICS_PORT",
-		]);
+		const directValue =
+			getOptionalEnvStringFromKeys([
+				"REDIS_PORT",
+				"REDIS_CACHE_PORT",
+				"REDIS_QUEUE_PORT",
+				"REDIS_ANALYTICS_PORT",
+			]);
 		if (!directValue) {
 			return 6379;
 		}
@@ -533,18 +545,20 @@ export const config: EnvConfig = {
 			? parsedValue
 			: 6379;
 	})(),
-	REDIS_CACHE_USERNAME: getOptionalEnvStringFromKeys([
-		"REDIS_USERNAME",
-		"REDIS_CACHE_USERNAME",
-		"REDIS_QUEUE_USERNAME",
-		"REDIS_ANALYTICS_USERNAME",
-	]),
-	REDIS_CACHE_PASSWORD: getOptionalEnvStringFromKeys([
-		"REDIS_PASSWORD",
-		"REDIS_CACHE_PASSWORD",
-		"REDIS_QUEUE_PASSWORD",
-		"REDIS_ANALYTICS_PASSWORD",
-	]),
+	REDIS_CACHE_USERNAME:
+		getOptionalEnvStringFromKeys([
+			"REDIS_USERNAME",
+			"REDIS_CACHE_USERNAME",
+			"REDIS_QUEUE_USERNAME",
+			"REDIS_ANALYTICS_USERNAME",
+		]),
+	REDIS_CACHE_PASSWORD:
+		getOptionalEnvStringFromKeys([
+			"REDIS_PASSWORD",
+			"REDIS_CACHE_PASSWORD",
+			"REDIS_QUEUE_PASSWORD",
+			"REDIS_ANALYTICS_PASSWORD",
+		]),
 	REDIS_QUEUE_HOST: getEnvStringFromKeys(
 		[
 			"REDIS_HOST",
@@ -555,12 +569,13 @@ export const config: EnvConfig = {
 		"localhost",
 	),
 	REDIS_QUEUE_PORT: (() => {
-		const directValue = getOptionalEnvStringFromKeys([
-			"REDIS_PORT",
-			"REDIS_CACHE_PORT",
-			"REDIS_QUEUE_PORT",
-			"REDIS_ANALYTICS_PORT",
-		]);
+		const directValue =
+			getOptionalEnvStringFromKeys([
+				"REDIS_PORT",
+				"REDIS_CACHE_PORT",
+				"REDIS_QUEUE_PORT",
+				"REDIS_ANALYTICS_PORT",
+			]);
 		if (!directValue) {
 			return 6379;
 		}
@@ -569,18 +584,20 @@ export const config: EnvConfig = {
 			? parsedValue
 			: 6379;
 	})(),
-	REDIS_QUEUE_USERNAME: getOptionalEnvStringFromKeys([
-		"REDIS_USERNAME",
-		"REDIS_CACHE_USERNAME",
-		"REDIS_QUEUE_USERNAME",
-		"REDIS_ANALYTICS_USERNAME",
-	]),
-	REDIS_QUEUE_PASSWORD: getOptionalEnvStringFromKeys([
-		"REDIS_PASSWORD",
-		"REDIS_CACHE_PASSWORD",
-		"REDIS_QUEUE_PASSWORD",
-		"REDIS_ANALYTICS_PASSWORD",
-	]),
+	REDIS_QUEUE_USERNAME:
+		getOptionalEnvStringFromKeys([
+			"REDIS_USERNAME",
+			"REDIS_CACHE_USERNAME",
+			"REDIS_QUEUE_USERNAME",
+			"REDIS_ANALYTICS_USERNAME",
+		]),
+	REDIS_QUEUE_PASSWORD:
+		getOptionalEnvStringFromKeys([
+			"REDIS_PASSWORD",
+			"REDIS_CACHE_PASSWORD",
+			"REDIS_QUEUE_PASSWORD",
+			"REDIS_ANALYTICS_PASSWORD",
+		]),
 	REDIS_ANALYTICS_HOST: getEnvStringFromKeys(
 		[
 			"REDIS_HOST",
@@ -591,12 +608,13 @@ export const config: EnvConfig = {
 		"localhost",
 	),
 	REDIS_ANALYTICS_PORT: (() => {
-		const directValue = getOptionalEnvStringFromKeys([
-			"REDIS_PORT",
-			"REDIS_CACHE_PORT",
-			"REDIS_QUEUE_PORT",
-			"REDIS_ANALYTICS_PORT",
-		]);
+		const directValue =
+			getOptionalEnvStringFromKeys([
+				"REDIS_PORT",
+				"REDIS_CACHE_PORT",
+				"REDIS_QUEUE_PORT",
+				"REDIS_ANALYTICS_PORT",
+			]);
 		if (!directValue) {
 			return 6379;
 		}
@@ -621,41 +639,99 @@ export const config: EnvConfig = {
 		]),
 
 	// Admin
-	ADMIN_EMAIL: getEnvString("ADMIN_EMAIL", "admin@witzo.local"),
-	ADMIN_PASSWORD: getEnvString("ADMIN_PASSWORD", ""),
-	ADMIN_JWT_SECRET: getRequiredSecret("ADMIN_JWT_SECRET"),
-	ADMIN_TOKEN_EXPIRY_HOURS: getEnvNumber("ADMIN_TOKEN_EXPIRY_HOURS", 24),
-	ADMIN_FRONTEND_URL: getOptionalEnvString("ADMIN_FRONTEND_URL"),
-	QUEUE_DASHBOARD_TOKEN: getOptionalEnvString("QUEUE_DASHBOARD_TOKEN"),
-	S3_WIDGET_ICON_BUCKET: getOptionalEnvString("S3_WIDGET_ICON_BUCKET"),
-	S3_WIDGET_ICON_REGION: getOptionalEnvString("S3_WIDGET_ICON_REGION") || getOptionalEnvString("AWS_REGION"),
-	S3_WIDGET_ICON_PUBLIC_BASE_URL: getOptionalEnvString("S3_WIDGET_ICON_PUBLIC_BASE_URL"),
-	AWS_ACCESS_KEY_ID: getOptionalEnvString("AWS_ACCESS_KEY_ID"),
-	AWS_SECRET_ACCESS_KEY: getOptionalEnvString("AWS_SECRET_ACCESS_KEY"),
-	AWS_SESSION_TOKEN: getOptionalEnvString("AWS_SESSION_TOKEN"),
+	ADMIN_EMAIL: getEnvString(
+		"ADMIN_EMAIL",
+		"admin@witzo.local",
+	),
+	ADMIN_PASSWORD: getEnvString(
+		"ADMIN_PASSWORD",
+		"",
+	),
+	ADMIN_JWT_SECRET: getRequiredSecret(
+		"ADMIN_JWT_SECRET",
+	),
+	ADMIN_TOKEN_EXPIRY_HOURS: getEnvNumber(
+		"ADMIN_TOKEN_EXPIRY_HOURS",
+		24,
+	),
+	ADMIN_FRONTEND_URL: getOptionalEnvString(
+		"ADMIN_FRONTEND_URL",
+	),
+	QUEUE_DASHBOARD_TOKEN: getOptionalEnvString(
+		"QUEUE_DASHBOARD_TOKEN",
+	),
+	S3_WIDGET_ICON_BUCKET: getOptionalEnvString(
+		"S3_WIDGET_ICON_BUCKET",
+	),
+	S3_WIDGET_ICON_REGION:
+		getOptionalEnvString(
+			"S3_WIDGET_ICON_REGION",
+		) || getOptionalEnvString("AWS_REGION"),
+	S3_WIDGET_ICON_PUBLIC_BASE_URL:
+		getOptionalEnvString(
+			"S3_WIDGET_ICON_PUBLIC_BASE_URL",
+		),
+	AWS_ACCESS_KEY_ID: getOptionalEnvString(
+		"AWS_ACCESS_KEY_ID",
+	),
+	AWS_SECRET_ACCESS_KEY: getOptionalEnvString(
+		"AWS_SECRET_ACCESS_KEY",
+	),
+	AWS_SESSION_TOKEN: getOptionalEnvString(
+		"AWS_SESSION_TOKEN",
+	),
 
 	// Email verification
-	EMAIL_LIST_VERIFY_API_KEY: getOptionalEnvString("EMAIL_LIST_VERIFY_API_KEY"),
+	EMAIL_LIST_VERIFY_API_KEY: getOptionalEnvString(
+		"EMAIL_LIST_VERIFY_API_KEY",
+	),
 
 	// Firecrawl (primary scraper)
-	FIRECRAWL_API_KEY: getOptionalEnvString("FIRECRAWL_API_KEY"),
-	FIRECRAWL_API_URL: getOptionalEnvString("FIRECRAWL_API_URL"),
-	SCRAPER_RENDER_SERVICE_URL: getOptionalEnvString("SCRAPER_RENDER_SERVICE_URL"),
-	SCRAPER_RENDER_SERVICE_TOKEN: getOptionalEnvString("SCRAPER_RENDER_SERVICE_TOKEN"),
-	SCRAPER_RENDER_SERVICE_MODE: getOptionalEnvString("SCRAPER_RENDER_SERVICE_MODE"),
+	FIRECRAWL_API_KEY: getOptionalEnvString(
+		"FIRECRAWL_API_KEY",
+	),
+	FIRECRAWL_API_URL: getOptionalEnvString(
+		"FIRECRAWL_API_URL",
+	),
+	SCRAPER_RENDER_SERVICE_URL:
+		getOptionalEnvString(
+			"SCRAPER_RENDER_SERVICE_URL",
+		),
+	SCRAPER_RENDER_SERVICE_TOKEN:
+		getOptionalEnvString(
+			"SCRAPER_RENDER_SERVICE_TOKEN",
+		),
+	SCRAPER_RENDER_SERVICE_MODE:
+		getOptionalEnvString(
+			"SCRAPER_RENDER_SERVICE_MODE",
+		),
 
 	// Cohere reranking
-	COHERE_API_KEY: getOptionalEnvString("COHERE_API_KEY"),
+	COHERE_API_KEY: getOptionalEnvString(
+		"COHERE_API_KEY",
+	),
 
 	// RAG pipeline settings
-	PINECONE_HYBRID: getEnvBoolean("PINECONE_HYBRID", false),
+	PINECONE_HYBRID: getEnvBoolean(
+		"PINECONE_HYBRID",
+		false,
+	),
 	HYPE_QUESTIONS_PER_CHUNK: getEnvNumber(
 		"HYPE_QUESTIONS_PER_CHUNK",
 		3,
 	),
-	HYPE_SOURCE_LIMIT: getEnvNumber("HYPE_SOURCE_LIMIT", 120),
-	HYPE_BATCH_CONCURRENCY: getEnvNumber("HYPE_BATCH_CONCURRENCY", 10),
-	KNOWLEDGE_BOUNDARY: getEnvString("KNOWLEDGE_BOUNDARY", "workspace_only"),
+	HYPE_SOURCE_LIMIT: getEnvNumber(
+		"HYPE_SOURCE_LIMIT",
+		120,
+	),
+	HYPE_BATCH_CONCURRENCY: getEnvNumber(
+		"HYPE_BATCH_CONCURRENCY",
+		10,
+	),
+	KNOWLEDGE_BOUNDARY: getEnvString(
+		"KNOWLEDGE_BOUNDARY",
+		"workspace_only",
+	),
 };
 
 export default config;
