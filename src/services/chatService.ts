@@ -262,48 +262,10 @@ class ChatService {
 	private normalizeOrderedMarkdownLists(
 		text: string,
 	): string {
-		const lines = text.split("\n");
-		let orderedIndex = 0;
-		let lastOrderedLine = false;
-		let pendingBlankAfterOrdered = false;
-
-		for (let i = 0; i < lines.length; i += 1) {
-			const line = lines[i];
-			const trimmed = line.trim();
-
-			if (!trimmed) {
-				if (lastOrderedLine) {
-					pendingBlankAfterOrdered = true;
-				} else {
-					orderedIndex = 0;
-				}
-				lastOrderedLine = false;
-				continue;
-			}
-
-			const orderedMatch = line.match(
-				/^(\s*)\d+\.\s+(.+)$/,
-			);
-			if (orderedMatch) {
-				orderedIndex += 1;
-				lines[i] =
-					`${orderedMatch[1]}${orderedIndex}. ${orderedMatch[2]}`;
-				lastOrderedLine = true;
-				pendingBlankAfterOrdered = false;
-				continue;
-			}
-
-			if (
-				pendingBlankAfterOrdered ||
-				!lastOrderedLine
-			) {
-				orderedIndex = 0;
-			}
-			pendingBlankAfterOrdered = false;
-			lastOrderedLine = false;
-		}
-
-		return lines.join("\n");
+		return text
+			.split("\n")
+			.map((line) => line.replace(/^(\s*)\d+\.\s+/, "$1- "))
+			.join("\n");
 	}
 
 	private normalizeCompanyVoice(
