@@ -41,10 +41,7 @@ export const listLeads = async (
 				success: true,
 				data: leads,
 				meta: {
-					total:
-						planLeadLimit === null
-							? total
-						: Math.min(total, planLeadLimit),
+					total,
 				planLeadLimit,
 				planType,
 			},
