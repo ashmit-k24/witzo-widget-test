@@ -84,9 +84,10 @@ export const getOverviewAnalytics = async (
 				? widgetLoadedEvents
 				: embedLoadedEvents;
 		const totalViews = viewEvents.length;
-		const totalMessages = events.filter(
-			(event) => event.event_type === "message_sent",
-		).length;
+		const totalMessages = sessions.reduce(
+			(sum, session) => sum + session.messageCount,
+			0,
+		);
 		const uniqueVisitors = new Set(
 			viewEvents
 				.map((event) => event.ip_address || "")

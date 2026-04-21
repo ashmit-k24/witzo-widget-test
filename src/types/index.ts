@@ -519,6 +519,13 @@ export interface ChatMessage {
 	timestamp: Date;
 }
 
+export interface SessionLeadProfile {
+	name: string | null;
+	email: string | null;
+	phone: string | null;
+	capturedAt: Date | null;
+}
+
 export interface ChatSession {
 	sessionId: string;
 	userId: string;
@@ -526,6 +533,7 @@ export interface ChatSession {
 	messages: ChatMessage[];
 	createdAt: Date;
 	updatedAt: Date;
+	leadProfile?: SessionLeadProfile;
 }
 
 export interface ChatRequest {

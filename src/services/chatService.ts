@@ -18,6 +18,7 @@ import {
 import {
 	ChatMessage,
 	ChatSession,
+	SessionLeadProfile,
 } from "../types";
 import {
 	extractMatchText,
@@ -107,6 +108,14 @@ class ChatService {
 					timestamp: new Date(msg.timestamp),
 				}),
 			),
+			leadProfile: parsed.leadProfile
+				? {
+						...parsed.leadProfile,
+						capturedAt: parsed.leadProfile.capturedAt
+							? new Date(parsed.leadProfile.capturedAt)
+							: null,
+					}
+				: undefined,
 		};
 	}
 
@@ -521,6 +530,7 @@ class ChatService {
 			messages,
 			createdAt: conversation.created_at,
 			updatedAt: conversation.updated_at,
+			leadProfile: this.extractLeadProfileFromMessages(messages),
 		};
 
 		await this.saveCachedSession(session);
@@ -575,6 +585,7 @@ class ChatService {
 		matches: any[],
 		messages: ChatMessage[],
 		_languageCode?: string,
+		leadProfile?: SessionLeadProfile,
 	): Promise<Array<any>> {
 		const effectiveSystemMessage =
 			await systemMessageService.resolveEffectiveSystemMessage(userId);
@@ -635,6 +646,16 @@ class ChatService {
 		if (languageInstruction) {
 			conversationHistory.push({ role: "system", content: languageInstruction });
 		}
+		const leadNote = this.buildLeadProfileNote(leadProfile);
+		if (leadNote) {
+			conversationHistory.push({ role: "system", content: leadNote });
+			logger.info("[LEAD-PROFILE] injected into system context", {
+				userId,
+				hasName: !!leadProfile?.name,
+				hasEmail: !!leadProfile?.email,
+				hasPhone: !!leadProfile?.phone,
+			});
+		}
 
 		for (const msg of messages.slice(-CHAT_HISTORY_WINDOW_MESSAGES)) {
 			conversationHistory.push({ role: msg.role, content: msg.content });
@@ -646,6 +667,106 @@ class ChatService {
 
 		conversationHistory.push({ role: "user", content: userPrompt });
 		return conversationHistory;
+	}
+
+	// ── Lead profile helpers ──────────────────────────────────────────────────
+
+	private extractLeadProfileFromMessages(
+		messages: ChatMessage[],
+	): SessionLeadProfile {
+		let name: string | null = null;
+		let email: string | null = null;
+		let phone: string | null = null;
+
+		for (let i = 0; i < messages.length; i++) {
+			const msg = messages[i];
+
+			if (msg.role === "user") {
+				const content = msg.content.trim();
+
+				if (!email) {
+					const m = content.match(
+						/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/,
+					);
+					if (m) email = m[0];
+				}
+
+				if (!phone) {
+					const m = content.match(
+						/\+?[\d][\d\s\-(). ]{5,17}[\d]/,
+					);
+					if (m) {
+						const digits = m[0].replace(/\D/g, "");
+						if (digits.length >= 7 && digits.length <= 15) {
+							phone = m[0].trim();
+						}
+					}
+				}
+			}
+
+			// Name: user reply immediately after bot asks for name
+			if (!name && msg.role === "assistant") {
+				const asksForName =
+					/\b(your name|provide your name|share your name|what.{0,10}name|name.*please)\b/i.test(
+						msg.content,
+					);
+				if (asksForName) {
+					const next = messages[i + 1];
+					if (next?.role === "user") {
+						const candidate = next.content.trim();
+						const isEmail = /@/.test(candidate);
+						const isPhone =
+							/^\+?[\d\s\-(). ]{7,}$/.test(candidate);
+						const isTooLong = candidate.length > 60;
+						const isNonName =
+							/^(yes|no|ok|okay|sure|alright|connect|team|help|nothing|skip|i don|i do)$/i.test(
+								candidate,
+							);
+						if (!isEmail && !isPhone && !isTooLong && !isNonName) {
+							name = candidate
+								.replace(
+									/^(my name is|i am|i'm|name is)\s+/i,
+									"",
+								)
+								.trim() || candidate;
+						}
+					}
+				}
+			}
+		}
+
+		const hasSomeData = !!(name || email || phone);
+		return {
+			name,
+			email,
+			phone,
+			capturedAt: hasSomeData ? new Date() : null,
+		};
+	}
+
+	private buildLeadProfileNote(
+		leadProfile: SessionLeadProfile | undefined,
+	): string | null {
+		if (!leadProfile) return null;
+		const parts: string[] = [];
+		if (leadProfile.name) parts.push(`Name: ${leadProfile.name}`);
+		if (leadProfile.email) parts.push(`Email: ${leadProfile.email}`);
+		if (leadProfile.phone) parts.push(`Phone: ${leadProfile.phone}`);
+		if (parts.length === 0) return null;
+
+		const allCollected =
+			leadProfile.name && leadProfile.email && leadProfile.phone;
+		if (allCollected) {
+			return [
+				"VISITOR CONTACT DETAILS ALREADY COLLECTED — do NOT ask for any of these again under any circumstances:",
+				parts.join("\n"),
+				"If the visitor wants to connect with the team, schedule a call, or book an appointment, confirm that the team will reach out using the details above. Skip all lead collection questions.",
+			].join("\n");
+		}
+		return [
+			"VISITOR CONTACT DETAILS ALREADY COLLECTED (partial) — do NOT ask for the fields listed below again:",
+			parts.join("\n"),
+		].join("\n");
 	}
 
 	// ── Debug / evaluation helpers (admin-only) ───────────────────────────────
@@ -942,6 +1063,7 @@ class ChatService {
 					relevantMatches,
 					historyMessages,
 					resolvedLanguage,
+					session.leadProfile,
 				);
 				const completionResult = await this.generateNonStreamingResponse(
 					conversationHistory,
@@ -997,6 +1119,7 @@ class ChatService {
 			};
 			session.messages.push(assistantMessage);
 			session.updatedAt = assistantTimestamp;
+			session.leadProfile = this.extractLeadProfileFromMessages(session.messages);
 
 			await this.saveCachedSession(session);
 			timing.saveMs = Date.now() - saveStart;
@@ -1141,6 +1264,7 @@ class ChatService {
 				relevantMatches,
 				historyMessages,
 				resolvedLanguage,
+				session.leadProfile,
 			);
 			const stream = await openAICircuitBreaker.execute(async () => {
 				return await this.openai.chat.completions.create(
@@ -1226,6 +1350,7 @@ class ChatService {
 			timestamp: assistantTimestamp,
 		});
 		session.updatedAt = assistantTimestamp;
+		session.leadProfile = this.extractLeadProfileFromMessages(session.messages);
 
 		await this.saveCachedSession(session);
 		timing.saveMs = Date.now() - saveStart;
