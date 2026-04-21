@@ -754,13 +754,6 @@
 					"hidden",
 				);
 			}
-			if (this.elements.chatInputPlaceholder) {
-				this.elements.chatInputPlaceholder.classList.remove(
-					"hidden",
-				);
-				this.elements.chatInputPlaceholder.innerHTML = `<div style="display: flex; align-items: center; gap: 8px;"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; color: #be8722;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span>Our team will reach out to you shortly.</span></div>`;
-			}
-
 			const alreadyShown = Array.from(
 				this.elements.messagesContainer?.querySelectorAll(
 					".chat-bubble-ai .md-content",
@@ -3138,6 +3131,7 @@
           .floating-launcher-prompt.widget-open .floating-prompt-send-icon-chevron {
             opacity: 1;
             transform: scale(1);
+			margin-bottom: -3px;
           }
           .floating-launcher-prompt.widget-open.is-typing .floating-prompt-send-icon-arrow {
             opacity: 0;
@@ -4521,7 +4515,6 @@
                     <div id="langPillBtn" style="display:none"></div>
                     <div id="langDropdown" style="display:none"></div>
                 </div>
-                <div class="chat-input-placeholder hidden" id="chatInputPlaceholder"></div>
             </div>
             </div> <!-- close chatMainView -->
 
@@ -4737,10 +4730,6 @@
 				chatInputContainer:
 					this.shadowRoot.querySelector(
 						".chat-input-container",
-					),
-				chatInputPlaceholder:
-					this.shadowRoot.getElementById(
-						"chatInputPlaceholder",
 					),
 				conversationRatingSlot:
 					this.shadowRoot.getElementById(
@@ -8266,11 +8255,6 @@
 			}
 			if (this.elements.chatInput) {
 				this.elements.chatInput.classList.add(
-					"hidden",
-				);
-			}
-			if (this.elements.chatInputPlaceholder) {
-				this.elements.chatInputPlaceholder.classList.add(
 					"hidden",
 				);
 			}
