@@ -2668,6 +2668,13 @@
             transform: scale(1.06);
             transition: transform 0.12s ease, filter 0.12s ease !important;
           }
+          #floatingBtn.drag-ready {
+            transform: scale(1.08);
+            transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1) !important;
+          }
+          .floating-prompt-send.locking {
+            cursor: move;
+          }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
             right: 16px;
@@ -4896,7 +4903,7 @@
 			const STORAGE_KEY = 'witzo_widget_pos';
 			const shadow = this.shadowRoot;
 			const floatingBtn = shadow.getElementById('floatingBtn');
-			const chatWidget  = shadow.getElementById('textChatWidget');
+			const chatWidget = shadow.getElementById('textChatWidget');
 			if (!floatingBtn) return;
 
 			let dragging = false, didDrag = false;
@@ -4911,45 +4918,45 @@
 				const tr = animate ? 'left 0.35s cubic-bezier(0.22,1,0.36,1), right 0.35s cubic-bezier(0.22,1,0.36,1), bottom 0.35s cubic-bezier(0.22,1,0.36,1)' : 'none';
 				floatingBtn.style.transition = tr;
 				if (side === 'left') {
-					floatingBtn.style.left   = EDGE_GAP + 'px';
-					floatingBtn.style.right  = 'auto';
+					floatingBtn.style.left = EDGE_GAP + 'px';
+					floatingBtn.style.right = 'auto';
 					floatingBtn.classList.add('on-left');
 				} else {
-					floatingBtn.style.right  = EDGE_GAP + 'px';
-					floatingBtn.style.left   = 'auto';
+					floatingBtn.style.right = EDGE_GAP + 'px';
+					floatingBtn.style.left = 'auto';
 					floatingBtn.classList.remove('on-left');
 				}
 				floatingBtn.style.bottom = EDGE_GAP + 'px';
-				floatingBtn.style.top    = 'auto';
+				floatingBtn.style.top = 'auto';
 
 				// Mirror the chat widget horizontal alignment
 				if (chatWidget) {
 					chatWidget.style.transition = tr;
 					if (side === 'left') {
-						chatWidget.style.left  = EDGE_GAP + 'px';
+						chatWidget.style.left = EDGE_GAP + 'px';
 						chatWidget.style.right = 'auto';
 					} else {
 						chatWidget.style.right = EDGE_GAP + 'px';
-						chatWidget.style.left  = 'auto';
+						chatWidget.style.left = 'auto';
 					}
 				}
 			};
 
 			const snapToBottomCorner = (animate) => {
-				const rect  = floatingBtn.getBoundingClientRect();
-				const midX  = rect.left + rect.width / 2;
-				const side  = midX < window.innerWidth / 2 ? 'left' : 'right';
+				const rect = floatingBtn.getBoundingClientRect();
+				const midX = rect.left + rect.width / 2;
+				const side = midX < window.innerWidth / 2 ? 'left' : 'right';
 				applySide(side, animate);
-				try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ side })); } catch(_) {}
+				try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ side })); } catch (_) { }
 			};
 
 			// Restore persisted side
 			setTimeout(() => {
 				try {
-					const raw  = localStorage.getItem(STORAGE_KEY);
+					const raw = localStorage.getItem(STORAGE_KEY);
 					const side = raw ? JSON.parse(raw).side : 'right';
 					applySide(typeof side === 'string' ? side : 'right', false);
-				} catch(_) { applySide('right', false); }
+				} catch (_) { applySide('right', false); }
 			}, 50);
 
 			const xy = (e) => e.touches?.length
@@ -4964,17 +4971,48 @@
 				const { x, y } = xy(e);
 				startX = x; startY = y;
 				const rect = floatingBtn.getBoundingClientRect();
-				startLeft   = rect.left;
+				startLeft = rect.left;
 				startBottom = window.innerHeight - rect.bottom;
 				floatingBtn.style.transition = 'none';
-				// Switch to left/top for free-drag positioning
-				floatingBtn.style.left   = rect.left + 'px';
-				floatingBtn.style.right  = 'auto';
+				floatingBtn.style.left = rect.left + 'px';
+				floatingBtn.style.right = 'auto';
 				floatingBtn.style.bottom = startBottom + 'px';
-				floatingBtn.style.top    = 'auto';
+				floatingBtn.style.top = 'auto';
+				floatingBtn.classList.remove('drag-ready');
 				floatingBtn.classList.add('is-dragging');
 				document.body.style.userSelect = 'none';
 				document.body.style.webkitUserSelect = 'none';
+			};
+
+			// 1-second long-press tracking
+			let longPressTimer = null;
+			let dragUnlocked = false;
+			let lpX = 0, lpY = 0;
+
+			const onSendDown = (e) => {
+				if (e.type === 'mousedown' && e.button !== 0) return;
+				const pos = xy(e); lpX = pos.x; lpY = pos.y;
+				const send = shadow.getElementById('floatingPromptSend');
+				if (send) send.classList.add('locking');
+				dragUnlocked = false;
+				longPressTimer = setTimeout(() => {
+					dragUnlocked = true;
+					longPressTimer = null;
+					if (send) send.classList.remove('locking');
+					// Scale-up pulse to signal drag is ready
+					floatingBtn.classList.add('drag-ready');
+					// Synthesise a fake event to start drag from current pointer position
+					onDown({ type: 'longpress', clientX: lpX, clientY: lpY });
+				}, 1000);
+			};
+
+			const onSendUp = () => {
+				if (longPressTimer) {
+					clearTimeout(longPressTimer);
+					longPressTimer = null;
+					const send = shadow.getElementById('floatingPromptSend');
+					if (send) send.classList.remove('locking');
+				}
 			};
 
 			const onMove = (e) => {
@@ -4982,19 +5020,22 @@
 				e.preventDefault();
 				const { x, y } = xy(e);
 				const dx = x - startX, dy = y - startY;
-				if (!didDrag && Math.sqrt(dx*dx + dy*dy) > DRAG_THRESHOLD) didDrag = true;
+				if (!didDrag && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) didDrag = true;
 				if (!didDrag) return;
 				const rect = floatingBtn.getBoundingClientRect();
 				const vw = window.innerWidth, vh = window.innerHeight;
-				const newLeft   = clamp(startLeft + dx, EDGE_GAP, vw - rect.width - EDGE_GAP);
+				const newLeft = clamp(startLeft + dx, EDGE_GAP, vw - rect.width - EDGE_GAP);
 				const newBottom = clamp(startBottom - dy, EDGE_GAP, vh - rect.height - EDGE_GAP);
-				floatingBtn.style.left   = newLeft + 'px';
+				if (dragging) { lpX = x; lpY = y; }
+				floatingBtn.style.left = newLeft + 'px';
 				floatingBtn.style.bottom = newBottom + 'px';
 			};
 
 			const onUp = () => {
+				onSendUp(); // always cancel long-press timer
 				if (!dragging) return;
 				dragging = false;
+				dragUnlocked = false;
 				floatingBtn.classList.remove('is-dragging');
 				document.body.style.userSelect = '';
 				document.body.style.webkitUserSelect = '';
@@ -5005,11 +5046,17 @@
 				}
 			};
 
-			floatingBtn.addEventListener('mousedown',  onDown, { passive: true });
-			floatingBtn.addEventListener('touchstart', onDown, { passive: true });
-			window.addEventListener('mousemove',  onMove, { passive: false });
-			window.addEventListener('touchmove',  onMove, { passive: false });
-			window.addEventListener('mouseup',  onUp);
+			// Long-press only on send button — clicking elsewhere still works normally
+			const sendBtn = shadow.getElementById('floatingPromptSend');
+			if (sendBtn) {
+				sendBtn.addEventListener('mousedown',  onSendDown, { passive: true });
+				sendBtn.addEventListener('touchstart', onSendDown, { passive: true });
+				sendBtn.addEventListener('mouseup',    onSendUp);
+				sendBtn.addEventListener('touchend',   onSendUp);
+			}
+			window.addEventListener('mousemove', onMove, { passive: false });
+			window.addEventListener('touchmove', onMove, { passive: false });
+			window.addEventListener('mouseup', onUp);
 			window.addEventListener('touchend', onUp);
 			window.addEventListener('resize', () => {
 				if (!floatingBtn.style.left && !floatingBtn.style.right) return;
