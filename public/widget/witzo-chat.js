@@ -3261,6 +3261,18 @@
           .floating-launcher-prompt.entering .floating-help-pill {
             animation: floatingHelpPillIn 0.62s cubic-bezier(0.22, 1, 0.36, 1) 0.56s both;
           }
+          .floating-launcher-prompt.entering.landing-no-zoom {
+            animation: none !important;
+            transform: none !important;
+          }
+          .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send,
+          .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-chat,
+          .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-arrow,
+          .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-chevron {
+            animation: none !important;
+            opacity: 1 !important;
+            transform: scale(1) !important;
+          }
 
           @keyframes floatingBtnIn {
             0% {
@@ -4947,7 +4959,7 @@
 				const vw     = window.innerWidth;
 				const btnW   = floatingBtn.offsetWidth || 64;
 				const leftPx = side === 'left' ? EDGE_GAP : vw - EDGE_GAP - btnW;
-				const tr     = 'left 0.65s cubic-bezier(0.16,1,0.3,1), bottom 0.65s cubic-bezier(0.16,1,0.3,1)';
+				const tr     = 'left 0.95s cubic-bezier(0.16,1,0.3,1), bottom 0.95s cubic-bezier(0.16,1,0.3,1)';
 				floatingBtn.style.transition = tr;
 				floatingBtn.style.left   = leftPx + 'px';
 				floatingBtn.style.right  = 'auto';
@@ -4970,7 +4982,7 @@
 							chatWidget.style.transition = 'none';
 							chatWidget.style.right = EDGE_GAP + 'px';
 							chatWidget.style.left  = 'auto';
-						}, 670);
+						}, 970);
 					}
 				}
 			};
@@ -5049,6 +5061,9 @@
 
 			// ── Long-press start (send button only) ─────────────────────
 			const onSendDown = (e) => {
+				const exitPrompt = shadow.getElementById('floatingExitPrompt');
+				const exitPromptVisible = exitPrompt && !exitPrompt.classList.contains('hidden');
+				if (this.isOpen || exitPromptVisible) return; // disable drag when widget is opened or exit prompt is visible
 				if (e.type === 'mousedown' && e.button !== 0) return;
 				const pos = xy(e);
 				pressX = pos.x; pressY = pos.y;
@@ -5089,18 +5104,22 @@
 				document.body.style.webkitUserSelect = '';
 				// Snap to corner with smooth animation
 				snapToBottomCorner(true);
-				// Re-expand launcher elements after snap lands (~650ms)
+				// Re-expand launcher elements after snap lands (~950ms)
 				setTimeout(() => {
 					floatingBtn.classList.remove('dragging-mode');
 					// Re-trigger the stagger entrance animation
 					const prompt = floatingBtn.querySelector('.floating-launcher-prompt');
 					if (prompt) {
 						prompt.classList.remove('entering');
+						prompt.classList.add('landing-no-zoom');
 						void prompt.offsetWidth; // flush so re-add is treated as new animation
 						prompt.classList.add('entering');
-						setTimeout(() => prompt.classList.remove('entering'), 1300);
+						setTimeout(() => {
+							prompt.classList.remove('entering');
+							prompt.classList.remove('landing-no-zoom');
+						}, 1300);
 					}
-				}, 660);
+				}, 960);
 				this._dragJustEnded = true;
 				setTimeout(() => { this._dragJustEnded = false; }, 250);
 			};
