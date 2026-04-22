@@ -2688,7 +2688,7 @@
 
 		  
           #floatingBtn.dragging-mode {
-            cursor: grab !important;
+            cursor: grabbing !important;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
@@ -3016,6 +3016,7 @@
             transition: max-width 0.6s cubic-bezier(0.22, 1, 0.36, 1), padding 0.6s cubic-bezier(0.22, 1, 0.36, 1), gap 0.6s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
             transform-origin: right center;
             will-change: transform, opacity;
+            cursor: grab;
           }
 					.floating-input-shell::before {
 						content: "";
@@ -4994,12 +4995,13 @@
 			const STORAGE_KEY = 'witzo_widget_pos';
 			const shadow = this.shadowRoot;
 			const floatingBtn = shadow.getElementById('floatingBtn');
+			const floatingInputShell = shadow.querySelector('.floating-input-shell');
 			const chatWidget = shadow.getElementById('textChatWidget');
 			if (!floatingBtn) return;
 
 			const EDGE_GAP = 16;
-			const LONG_PRESS_MS = 400;  // hold this long to unlock drag
 			const LERP = 0.12; // 0– 1: lower = more lag (GSAP-scrub feel)
+			const DRAG_START_DISTANCE = 6;
 			const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 			const isMobileViewport = () => window.innerWidth <= 640;
 			const getMaxBottom = (rectHeight = floatingBtn.offsetHeight || 64) => {
@@ -5117,14 +5119,8 @@
 			let curLeft = 0, curBottom = 0;     // lerp-smoothed position
 			let rafId = null;
 
-			// ── Long-press state ────────────────────────────────────────
-			let pressTimer = null;
 			let pressX = 0, pressY = 0;  // position at press start
-			let dragActive = false;           // true once long-press fires
-
-			const cancelPress = () => {
-				if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-			};
+			let pendingDrag = false;
 
 			// ── RAF lerp loop ──────────────────────────────────────────
 			const tick = () => {
@@ -5136,10 +5132,9 @@
 				rafId = requestAnimationFrame(tick);
 			};
 
-			// ── Activate drag (called when long-press threshold is met) ───
 			const activateDrag = () => {
+				if (dragging) return;
 				dragging = true;
-				dragActive = true;
 				const rect = floatingBtn.getBoundingClientRect();
 				startX = pressX; startY = pressY;
 				startLeft = rect.left;
@@ -5158,27 +5153,23 @@
 				if (!rafId) rafId = requestAnimationFrame(tick);
 			};
 
-			// ── Long-press start (send button only) ─────────────────────
-			const onSendDown = (e) => {
+			const onDragHandleDown = (e) => {
 				if (this.isOpen) return; // disable drag when widget is opened
 				if (e.type === 'mousedown' && e.button !== 0) return;
 				const pos = xy(e);
 				pressX = pos.x; pressY = pos.y;
-				dragActive = false;
-				cancelPress();
-				pressTimer = setTimeout(() => {
-					pressTimer = null;
-					activateDrag();
-				}, LONG_PRESS_MS);
+				pendingDrag = true;
 			};
 
 			// ── Move (window) ─────────────────────────────────────────────
 			const onMove = (e) => {
 				const { x, y } = xy(e);
-				// Cancel long-press if finger/mouse drifts too early
-				if (pressTimer) {
-					const dx = x - pressX, dy = y - pressY;
-					if (Math.sqrt(dx * dx + dy * dy) > 8) cancelPress();
+				if (!dragging && pendingDrag) {
+					const dxFromPress = x - pressX;
+					const dyFromPress = y - pressY;
+					if (Math.hypot(dxFromPress, dyFromPress) >= DRAG_START_DISTANCE) {
+						activateDrag();
+					}
 				}
 				if (!dragging) return;
 				e.preventDefault();
@@ -5191,10 +5182,9 @@
 
 			// ── Release (window) ──────────────────────────────────────────
 			const onUp = () => {
-				cancelPress(); // always kill the timer
+				pendingDrag = false;
 				if (!dragging) return;
 				dragging = false;
-				dragActive = false;
 				if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 				floatingBtn.classList.remove('is-dragging');
 				document.body.style.userSelect = '';
@@ -5222,10 +5212,9 @@
 			};
 
 			// ── Bind events ─────────────────────────────────────────────
-			const sendBtn = shadow.getElementById('floatingPromptSend');
-			if (sendBtn) {
-				sendBtn.addEventListener('mousedown', onSendDown, { passive: true });
-				sendBtn.addEventListener('touchstart', onSendDown, { passive: true });
+			if (floatingInputShell) {
+				floatingInputShell.addEventListener('mousedown', onDragHandleDown, { passive: true });
+				floatingInputShell.addEventListener('touchstart', onDragHandleDown, { passive: true });
 			}
 			window.addEventListener('mousemove', onMove, { passive: false });
 			window.addEventListener('touchmove', onMove, { passive: false });
