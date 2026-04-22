@@ -3270,8 +3270,6 @@
           .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-arrow,
           .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-chevron {
             animation: none !important;
-            opacity: 1 !important;
-            transform: scale(1) !important;
           }
 
           @keyframes floatingBtnIn {
