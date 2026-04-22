@@ -221,5 +221,6 @@ jobs:
             --log-driver=awslogs \
             --log-opt awslogs-region=ap-south-1 \
             --log-opt awslogs-group=witzo-logs \
+            --log-opt awslogs-create-group=true \
             --log-opt awslogs-stream=cicd-pipeline-witzo-automation-$(date +%s) \
             webomindapps1/witzo-automation-dev:latest
