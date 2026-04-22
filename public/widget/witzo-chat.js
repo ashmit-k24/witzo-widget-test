@@ -2660,7 +2660,7 @@
             position: fixed;
             right: 24px;
             z-index: 999999;
-            cursor: grab;
+            cursor: pointer;
             user-select: none;
             -webkit-user-select: none;
             touch-action: none;
@@ -2679,6 +2679,9 @@
             opacity: 0 !important;
             pointer-events: none !important;
             transition: opacity 0.5s ease !important;
+          }
+          #floatingBtn.dragging-mode {
+            cursor: grab !important;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
