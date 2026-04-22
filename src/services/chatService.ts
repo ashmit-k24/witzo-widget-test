@@ -756,6 +756,7 @@ class ChatService {
 
 		const allCollected =
 			leadProfile.name && leadProfile.email && leadProfile.phone;
+		const canConfirmConnection = !!(leadProfile.name && leadProfile.email);
 		if (allCollected) {
 			return [
 				"VISITOR CONTACT DETAILS ALREADY COLLECTED — do NOT ask for any of these again under any circumstances:",
@@ -763,10 +764,14 @@ class ChatService {
 				"If the visitor wants to connect with the team, schedule a call, or book an appointment, confirm that the team will reach out using the details above. Skip all lead collection questions.",
 			].join("\n");
 		}
+		const confirmInstruction = canConfirmConnection
+			? "If the visitor confirms they want to connect with the team or says 'yes' to a connection offer, immediately confirm that the team will reach out using the details above — do NOT ask 'Shall I do that?' or repeat the offer."
+			: "";
 		return [
 			"VISITOR CONTACT DETAILS ALREADY COLLECTED (partial) — do NOT ask for the fields listed below again:",
 			parts.join("\n"),
-		].join("\n");
+			confirmInstruction,
+		].filter(Boolean).join("\n");
 	}
 
 	// ── Debug / evaluation helpers (admin-only) ───────────────────────────────
