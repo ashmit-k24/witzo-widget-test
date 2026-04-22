@@ -5001,16 +5001,29 @@
 			const LONG_PRESS_MS = 400;  // hold this long to unlock drag
 			const LERP = 0.12; // 0– 1: lower = more lag (GSAP-scrub feel)
 			const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+			const isMobileViewport = () => window.innerWidth <= 640;
+			const getMaxBottom = (rectHeight = floatingBtn.offsetHeight || 64) => {
+				const viewportLimit = isMobileViewport()
+					? Math.max(EDGE_GAP, Math.floor(window.innerHeight * 0.65))
+					: window.innerHeight - rectHeight - EDGE_GAP;
+				return Math.max(EDGE_GAP, Math.min(viewportLimit, window.innerHeight - rectHeight - EDGE_GAP));
+			};
 
 			// ── Side/snap logic ──────────────────────────────────────────────────
-			const applySide = (side, animate) => {
+			const applySide = (side, animate, bottomOverride = null) => {
 				floatingBtn.classList.toggle('on-left', side === 'left');
 				if (chatWidget) chatWidget.classList.toggle('on-left', side === 'left');
+				const btnH = floatingBtn.offsetHeight || 64;
+				const bottomPx = clamp(
+					typeof bottomOverride === 'number' ? bottomOverride : EDGE_GAP,
+					EDGE_GAP,
+					getMaxBottom(btnH),
+				);
 
 				if (!animate) {
 					// Initial restore / resize: use semantic properties (offsetWidth may be 0)
 					floatingBtn.style.transition = 'none';
-					floatingBtn.style.bottom = EDGE_GAP + 'px';
+					floatingBtn.style.bottom = bottomPx + 'px';
 					floatingBtn.style.top = 'auto';
 					if (side === 'left') {
 						floatingBtn.style.left = EDGE_GAP + 'px';
@@ -5041,7 +5054,7 @@
 				floatingBtn.style.transition = tr;
 				floatingBtn.style.left = leftPx + 'px';
 				floatingBtn.style.right = 'auto';
-				floatingBtn.style.bottom = EDGE_GAP + 'px';
+				floatingBtn.style.bottom = bottomPx + 'px';
 				floatingBtn.style.top = 'auto';
 				// After animation, revert right-side to semantic `right` for viewport resize
 				if (side === 'right') {
@@ -5068,17 +5081,25 @@
 			const snapToBottomCorner = (animate) => {
 				const rect = floatingBtn.getBoundingClientRect();
 				const side = (rect.left + rect.width / 2) < window.innerWidth / 2 ? 'left' : 'right';
-				applySide(side, animate);
-				try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ side })); } catch (_) { }
+				const bottom = window.innerHeight - rect.bottom;
+				const storedBottom = isMobileViewport()
+					? clamp(bottom, EDGE_GAP, getMaxBottom(rect.height || floatingBtn.offsetHeight || 64))
+					: EDGE_GAP;
+				applySide(side, animate, storedBottom);
+				try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ side, bottom: storedBottom })); } catch (_) { }
 			};
 
 			// Restore persisted side
 			setTimeout(() => {
 				try {
 					const raw = localStorage.getItem(STORAGE_KEY);
-					const side = raw ? JSON.parse(raw).side : 'right';
-					applySide(typeof side === 'string' ? side : 'right', false);
-				} catch (_) { applySide('right', false); }
+					const saved = raw ? JSON.parse(raw) : {};
+					const side = typeof saved?.side === 'string' ? saved.side : 'right';
+					const bottom = isMobileViewport() && typeof saved?.bottom === 'number'
+						? saved.bottom
+						: EDGE_GAP;
+					applySide(side, false, bottom);
+				} catch (_) { applySide('right', false, EDGE_GAP); }
 			}, 50);
 
 			// ── Helpers ─────────────────────────────────────────────────
@@ -5165,7 +5186,7 @@
 				const vw = window.innerWidth, vh = window.innerHeight;
 				const rect = floatingBtn.getBoundingClientRect();
 				targetLeft = clamp(startLeft + dx, EDGE_GAP, vw - rect.width - EDGE_GAP);
-				targetBottom = clamp(startBottom - dy, EDGE_GAP, vh - rect.height - EDGE_GAP);
+				targetBottom = clamp(startBottom - dy, EDGE_GAP, getMaxBottom(rect.height));
 			};
 
 			// ── Release (window) ──────────────────────────────────────────
