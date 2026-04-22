@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -1503,6 +1503,9 @@
             transform-origin: right bottom;
             position: relative;
           }
+          .chat-widget.on-left {
+            transform-origin: left bottom !important;
+          }
           :host([preview-mode="embedded"]) .chat-widget {
             animation: none;
             transform: none;
@@ -2705,13 +2708,15 @@
             justify-content: flex-start;
             transform-origin: left center;
           }
-          #floatingBtn.on-left .floating-input-shell::before {
-            left: 70px;
-            right: 0;
-          }
+          #floatingBtn.on-left .floating-input-shell::before,
           #floatingBtn.on-left .floating-input-shell::after {
             left: 70px;
             right: 0;
+            transition: left 1s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+          }
+          #floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-input-shell::before,
+          #floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-input-shell::after {
+            left: 0;
           }
           #floatingBtn.on-left .floating-input-shell.is-collapsed {
             transform-origin: left center;
@@ -3136,7 +3141,7 @@
           .floating-launcher-prompt.is-typing .floating-prompt-send {
             background: var(--color-primary, #471791);
             box-shadow: 0 14px 30px rgba(var(--color-primary, #471791), 0.3);
-			transform: scale(0.87);
+			transform: scale(0.87) translateX(-13px);
           }
           .floating-launcher-prompt.is-typing .floating-input-shell {
             gap: 0;
@@ -3266,6 +3271,20 @@
             animation: none !important;
             transform: none !important;
           }
+
+          /* Left-side mirrored staggering animations */
+          #floatingBtn.on-left .floating-launcher-prompt.entering .floating-prompt-input-wrapper {
+            animation-name: floatingFieldFrameInLeft;
+          }
+          #floatingBtn.on-left .floating-launcher-prompt.entering .floating-prompt-input {
+            animation-name: floatingInputTextInLeft;
+          }
+          #floatingBtn.on-left .floating-launcher-prompt.entering .floating-close-btn {
+            animation-name: floatingCloseBtnInLeft;
+          }
+          #floatingBtn.on-left .floating-launcher-prompt.entering .floating-help-pill {
+            animation-name: floatingHelpPillInLeft;
+          }
           .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send,
           .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-chat,
           .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-arrow,
@@ -3339,6 +3358,52 @@
             0% {
               opacity: 0;
               transform: translate3d(18px, 0, 0) scale(0.9);
+              filter: blur(6px);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scale(1);
+              filter: blur(0);
+            }
+          }
+
+          /* Mirrored Keyframes for Left Side */
+          @keyframes floatingFieldFrameInLeft {
+            0% {
+              opacity: 0;
+              transform: translate3d(-28px, 0, 0) scaleX(0.94);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scaleX(1);
+            }
+          }
+          @keyframes floatingInputTextInLeft {
+            0% {
+              opacity: 0;
+              transform: translate3d(-22px, 0, 0);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0);
+            }
+          }
+          @keyframes floatingHelpPillInLeft {
+            0% {
+              opacity: 0;
+              transform: translate3d(-24px, 0, 0) scale(0.96);
+              filter: blur(6px);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scale(1);
+              filter: blur(0);
+            }
+          }
+          @keyframes floatingCloseBtnInLeft {
+            0% {
+              opacity: 0;
+              transform: translate3d(-18px, 0, 0) scale(0.9);
               filter: blur(6px);
             }
             100% {
@@ -4925,8 +4990,8 @@
 
 			// ── Side/snap logic ──────────────────────────────────────────────────
 			const applySide = (side, animate) => {
-				if (side === 'left') floatingBtn.classList.add('on-left');
-				else floatingBtn.classList.remove('on-left');
+				floatingBtn.classList.toggle('on-left', side === 'left');
+				if (chatWidget) chatWidget.classList.toggle('on-left', side === 'left');
 
 				if (!animate) {
 					// Initial restore / resize: use semantic properties (offsetWidth may be 0)
