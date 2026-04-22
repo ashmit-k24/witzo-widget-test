@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -3523,7 +3523,7 @@
               transform: translateY(12px) scale(0.96);
             }
             #textChatWidget {
-              inset: 0;
+              inset: 0 !important;
               right: auto;
               bottom: auto;
               width: 100vw;
