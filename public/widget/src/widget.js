@@ -6,7 +6,6 @@ import {
 	SUPPORTED_LANGUAGES,
 } from "./config.js";
 import * as events from "./events.js";
-import { initDrag } from "./events.js";
 import * as msg from "./messages.js";
 import * as session from "./session.js";
 import * as stream from "./stream.js";
@@ -73,9 +72,6 @@ export class WitzoChatWidget extends HTMLElement {
 
 		// Auto-open timer (cleared on first manual interaction)
 		this._autoOpenTimer = null;
-
-		// Drag guard — set true for 200ms after a drag ends to swallow the stray click
-		this._dragJustEnded = false;
 
 		// Daily session limit state
 		this._sessionLocked = false;
@@ -163,7 +159,7 @@ export class WitzoChatWidget extends HTMLElement {
 		);
 		this.selectedLanguage =
 			this.getAttribute("default-language") !==
-			null
+				null
 				? configuredLang
 				: storedLang || configuredLang;
 		this.config.defaultLanguage =
@@ -351,7 +347,6 @@ export class WitzoChatWidget extends HTMLElement {
 
 		// 6. Wire events
 		events.bindEvents(this);
-		initDrag(this);
 		this.updateSendButtonState();
 		this._bindCalendlyMessageListener();
 
@@ -640,7 +635,7 @@ export class WitzoChatWidget extends HTMLElement {
 						);
 						return;
 					}
-				} catch (_) {}
+				} catch (_) { }
 				this.successfulChatCount =
 					session.incrementChatCount(
 						this.successfulChatCount,
@@ -668,7 +663,7 @@ export class WitzoChatWidget extends HTMLElement {
 					return;
 				}
 				content = err.message || content;
-			} catch (_) {}
+			} catch (_) { }
 
 			msg.updateBubble(
 				typingEl,
@@ -800,7 +795,7 @@ export class WitzoChatWidget extends HTMLElement {
 			this.elements.conversationRatingSlot?.classList.add(
 				"hidden",
 			);
-		} catch (_) {}
+		} catch (_) { }
 	}
 
 	finalizePendingLeadDraft() {
@@ -809,7 +804,7 @@ export class WitzoChatWidget extends HTMLElement {
 			!this.widgetKey ||
 			!this.sessionId ||
 			this._lastLeadFinalizeSessionId ===
-				this.sessionId
+			this.sessionId
 		)
 			return;
 		this._lastLeadFinalizeSessionId =
@@ -820,7 +815,7 @@ export class WitzoChatWidget extends HTMLElement {
 				widgetKey: this.widgetKey,
 				sessionId: this.sessionId,
 			})
-			.catch(() => {});
+			.catch(() => { });
 	}
 
 	showRatingAcknowledgement(rating) {
@@ -1168,8 +1163,8 @@ export class WitzoChatWidget extends HTMLElement {
 				null,
 			phone: this.elements.cfPhone
 				? phoneCode +
-					" " +
-					this.elements.cfPhone.value.trim()
+				" " +
+				this.elements.cfPhone.value.trim()
 				: null,
 			country:
 				this.elements.cfCountry?.value.trim() ||
@@ -1714,7 +1709,7 @@ export class WitzoChatWidget extends HTMLElement {
 				});
 				return;
 			}
-		} catch (_) {}
+		} catch (_) { }
 
 		container.innerHTML = `
       <iframe
@@ -1763,7 +1758,7 @@ export class WitzoChatWidget extends HTMLElement {
 				);
 				this.showContactForm();
 			}, delay);
-		} catch (_) {}
+		} catch (_) { }
 	}
 
 	_lockSession() {

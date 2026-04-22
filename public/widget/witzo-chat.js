@@ -126,7 +126,7 @@
 			this._viewportHeightUpdateHandler =
 				this._updateViewportHeight.bind(this);
 
-			// Drag guard — true for 200ms after a drag ends to swallow stray clicks
+			// Drag guard — true for 200ms after drag ends to swallow stray clicks
 			this._dragJustEnded = false;
 
 			this.elements = {};
@@ -350,7 +350,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-					"string" &&
+				"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -549,7 +549,7 @@
 					);
 					this.showContactForm();
 				}, delay);
-			} catch (_) {}
+			} catch (_) { }
 		}
 
 		disconnectedCallback() {
@@ -1281,27 +1281,27 @@
 		render() {
 			// Use the CSS and HTML from template.ts
 			const leadFields = [
-							this.config.leadFormNameEnabled !==
-							false
-								? `
+				this.config.leadFormNameEnabled !==
+					false
+					? `
       <div class="cf-field-group">
         <input id="cf-name" type="text" />
         <label>Full name</label>
         <div class="cf-error" id="cf-name-error"></div>
       </div>`
-								: "",
-							this.config.leadFormEmailEnabled !==
-							false
-								? `
+					: "",
+				this.config.leadFormEmailEnabled !==
+					false
+					? `
       <div class="cf-field-group">
         <input id="cf-email" type="email" />
         <label>Email address</label>
         <div class="cf-error" id="cf-email-error"></div>
       </div>`
-								: "",
-							this.config.leadFormPhoneEnabled !==
-							false
-								? `
+					: "",
+				this.config.leadFormPhoneEnabled !==
+					false
+					? `
       <div class="cf-field-group">
         <div class="cf-phone-wrapper">
           <div class="cf-phone-trigger" id="cf-phone-code-trigger">
@@ -1316,10 +1316,10 @@
         </div>
         <div class="cf-error" id="cf-phone-error"></div>
       </div>`
-								: "",
-							this.config
-								.leadFormCountryEnabled !== false
-								? `
+					: "",
+				this.config
+					.leadFormCountryEnabled !== false
+					? `
       <div class="cf-field-group">
         <div class="cf-country-wrapper" id="cf-country-wrapper">
           <div class="cf-country-trigger" id="cf-country-trigger">
@@ -1333,8 +1333,8 @@
           </div>
         </div>
       </div>`
-								: "",
-						]
+					: "",
+			]
 				.filter(Boolean)
 				.join("");
 			this.shadowRoot.innerHTML = `
@@ -1373,8 +1373,8 @@
           }
           #textChatWidget {
             position: fixed;
-            bottom: auto;
-            right: auto;
+            bottom: 6em;
+            right: 2em;
             z-index: 2147483647;
             width: 400px;
     		height: 570px;
@@ -1384,7 +1384,8 @@
             flex-direction: column;
             border-radius: 20px;
             overflow: hidden;
-            transition: none;
+            transition:
+              right 0.6s cubic-bezier(0.22, 1, 0.36, 1);
             background: #fff; /* Ensure background is white */
             will-change: width, height;
           }
@@ -2673,6 +2674,51 @@
             bottom: 16px;
             z-index: 4;
           }
+
+          /* ── Left-side layout overrides ───────────────────────────────────── */
+          #floatingBtn.on-left .floating-launcher-prompt {
+            align-items: flex-start;
+            transform-origin: left bottom;
+          }
+          #floatingBtn.on-left .floating-close-btn {
+            right: auto;
+            left: var(--floating-close-btn-right-rest);
+            transform-origin: left bottom;
+          }
+          #floatingBtn.on-left .floating-help-pill {
+            right: auto;
+            left: var(--floating-help-pill-right-rest);
+            border-radius: 999px 999px 999px 0;
+            transform-origin: left bottom;
+          }
+          #floatingBtn.on-left .floating-input-shell {
+            flex-direction: row-reverse;
+            justify-content: flex-start;
+            transform-origin: left center;
+          }
+          #floatingBtn.on-left .floating-input-shell::before {
+            left: 70px;
+            right: 0;
+          }
+          #floatingBtn.on-left .floating-input-shell::after {
+            left: 70px;
+            right: 0;
+          }
+          #floatingBtn.on-left .floating-input-shell.is-collapsed {
+            transform-origin: left center;
+          }
+          #floatingBtn.on-left .floating-exit-prompt {
+            right: auto;
+            left: 0;
+          }
+          #floatingBtn.on-left .floating-exit-close {
+            right: auto;
+            left: 0;
+          }
+          #floatingBtn.on-left .floating-exit-card {
+            float: left;
+          }
+          /* ─────────────────────────────────────────────────────────────────── */
           .floating-launcher {
             font-family: inherit;
             cursor: pointer;
@@ -4289,11 +4335,10 @@
                    <div class="chat-action-row">
 
 				   <div class="chat-icon">
-                    ${
-											this.getDisplayIconUrl()
-												? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-												: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-										}
+                    ${this.getDisplayIconUrl()
+					? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
 
 					  
                       </div>
@@ -4379,14 +4424,14 @@
                       </div>
                       <div id="headerLanguageMenu" class="chat-menu-submenu">
                         ${this.supportedLanguages
-													.map(
-														(language) => `
+					.map(
+						(language) => `
                           <button class="chat-menu-language-item${language.code === this.selectedLanguage ? " active" : ""}" type="button" data-code="${this.escapeHtml(language.code)}">
                             <span>${this.escapeHtml(language.label)}</span>
                             <svg class="chat-menu-language-item-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </button>`,
-													)
-													.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                 </div>
@@ -4832,7 +4877,7 @@
 			const url = window.location.href;
 			fetch(
 				this.apiBaseUrl.replace(/\/+$/, "") +
-					"/api/v1/widget/page-view",
+				"/api/v1/widget/page-view",
 				{
 					method: "POST",
 					headers: {
@@ -4844,87 +4889,67 @@
 						url,
 					}),
 				},
-			).catch(() => {});
+			).catch(() => { });
 		}
 
 		initDrag() {
 			const STORAGE_KEY = 'witzo_widget_pos';
 			const shadow = this.shadowRoot;
 			const floatingBtn = shadow.getElementById('floatingBtn');
-			const chatWidget = shadow.getElementById('textChatWidget');
+			const chatWidget  = shadow.getElementById('textChatWidget');
 			if (!floatingBtn) return;
 
 			let dragging = false, didDrag = false;
-			let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+			let startX = 0, startY = 0, startLeft = 0, startBottom = 0;
 			const DRAG_THRESHOLD = 6;
+			const EDGE_GAP = 16;
 
 			const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-			const applyPosition = (left, top, animate) => {
-				const transition = animate
-					? 'left 0.35s cubic-bezier(0.22,1,0.36,1), top 0.35s cubic-bezier(0.22,1,0.36,1), bottom 0.35s cubic-bezier(0.22,1,0.36,1), right 0.35s cubic-bezier(0.22,1,0.36,1)'
-					: 'none';
-				
-				floatingBtn.style.transition = transition;
-				floatingBtn.style.left = left + 'px';
-				floatingBtn.style.top  = top  + 'px';
-				floatingBtn.style.right  = 'auto';
-				floatingBtn.style.bottom = 'auto';
+			// snap side = 'left' | 'right'
+			const applySide = (side, animate) => {
+				const tr = animate ? 'left 0.35s cubic-bezier(0.22,1,0.36,1), right 0.35s cubic-bezier(0.22,1,0.36,1), bottom 0.35s cubic-bezier(0.22,1,0.36,1)' : 'none';
+				floatingBtn.style.transition = tr;
+				if (side === 'left') {
+					floatingBtn.style.left   = EDGE_GAP + 'px';
+					floatingBtn.style.right  = 'auto';
+					floatingBtn.classList.add('on-left');
+				} else {
+					floatingBtn.style.right  = EDGE_GAP + 'px';
+					floatingBtn.style.left   = 'auto';
+					floatingBtn.classList.remove('on-left');
+				}
+				floatingBtn.style.bottom = EDGE_GAP + 'px';
+				floatingBtn.style.top    = 'auto';
 
+				// Mirror the chat widget horizontal alignment
 				if (chatWidget) {
-					chatWidget.style.transition = transition;
-					const vw = window.innerWidth, vh = window.innerHeight;
-					const rect = floatingBtn.getBoundingClientRect();
-					
-					// Position chat widget above the button
-					chatWidget.style.bottom = (vh - top + 12) + 'px';
-					chatWidget.style.top = 'auto';
-
-					if (left + rect.width / 2 < vw / 2) {
-						chatWidget.style.left = left + 'px';
+					chatWidget.style.transition = tr;
+					if (side === 'left') {
+						chatWidget.style.left  = EDGE_GAP + 'px';
 						chatWidget.style.right = 'auto';
-						chatWidget.style.transformOrigin = 'left bottom';
 					} else {
-						chatWidget.style.right = (vw - (left + rect.width)) + 'px';
-						chatWidget.style.left = 'auto';
-						chatWidget.style.transformOrigin = 'right bottom';
+						chatWidget.style.right = EDGE_GAP + 'px';
+						chatWidget.style.left  = 'auto';
 					}
 				}
 			};
 
-			const snapToCorner = (animate) => {
-				const rect = floatingBtn.getBoundingClientRect();
-				const vw = window.innerWidth, vh = window.innerHeight;
-				const midX = rect.left + rect.width / 2;
-				const midY = rect.top + rect.height / 2;
-				const EDGE_GAP = 16;
-				
-				const left = (midX < vw / 2) ? EDGE_GAP : vw - rect.width - EDGE_GAP;
-				const top  = (midY < vh / 2) ? EDGE_GAP : vh - rect.height - EDGE_GAP;
-				
-				applyPosition(left, top, animate);
-				try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ left, top })); } catch(_) {}
+			const snapToBottomCorner = (animate) => {
+				const rect  = floatingBtn.getBoundingClientRect();
+				const midX  = rect.left + rect.width / 2;
+				const side  = midX < window.innerWidth / 2 ? 'left' : 'right';
+				applySide(side, animate);
+				try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ side })); } catch(_) {}
 			};
 
-			// Restore persisted position
+			// Restore persisted side
 			setTimeout(() => {
 				try {
-					const raw = localStorage.getItem(STORAGE_KEY);
-					const rect = floatingBtn.getBoundingClientRect();
-					const vw = window.innerWidth, vh = window.innerHeight;
-					const EDGE_GAP = 16;
-					
-					let left, top;
-					if (raw) {
-						const pos = JSON.parse(raw);
-						left = clamp(pos.left, EDGE_GAP, vw - rect.width  - EDGE_GAP);
-						top  = clamp(pos.top,  EDGE_GAP, vh - rect.height - EDGE_GAP);
-					} else {
-						left = vw - rect.width - EDGE_GAP;
-						top  = vh - rect.height - EDGE_GAP;
-					}
-					applyPosition(left, top, false);
-				} catch(_) {}
+					const raw  = localStorage.getItem(STORAGE_KEY);
+					const side = raw ? JSON.parse(raw).side : 'right';
+					applySide(typeof side === 'string' ? side : 'right', false);
+				} catch(_) { applySide('right', false); }
 			}, 50);
 
 			const xy = (e) => e.touches?.length
@@ -4939,9 +4964,14 @@
 				const { x, y } = xy(e);
 				startX = x; startY = y;
 				const rect = floatingBtn.getBoundingClientRect();
-				startLeft = rect.left; startTop = rect.top;
+				startLeft   = rect.left;
+				startBottom = window.innerHeight - rect.bottom;
 				floatingBtn.style.transition = 'none';
-				if (chatWidget) chatWidget.style.transition = 'none';
+				// Switch to left/top for free-drag positioning
+				floatingBtn.style.left   = rect.left + 'px';
+				floatingBtn.style.right  = 'auto';
+				floatingBtn.style.bottom = startBottom + 'px';
+				floatingBtn.style.top    = 'auto';
 				floatingBtn.classList.add('is-dragging');
 				document.body.style.userSelect = 'none';
 				document.body.style.webkitUserSelect = 'none';
@@ -4956,11 +4986,10 @@
 				if (!didDrag) return;
 				const rect = floatingBtn.getBoundingClientRect();
 				const vw = window.innerWidth, vh = window.innerHeight;
-				applyPosition(
-					clamp(startLeft + dx, 4, vw - rect.width  - 4),
-					clamp(startTop  + dy, 4, vh - rect.height - 4),
-					false
-				);
+				const newLeft   = clamp(startLeft + dx, EDGE_GAP, vw - rect.width - EDGE_GAP);
+				const newBottom = clamp(startBottom - dy, EDGE_GAP, vh - rect.height - EDGE_GAP);
+				floatingBtn.style.left   = newLeft + 'px';
+				floatingBtn.style.bottom = newBottom + 'px';
 			};
 
 			const onUp = () => {
@@ -4970,7 +4999,7 @@
 				document.body.style.userSelect = '';
 				document.body.style.webkitUserSelect = '';
 				if (didDrag) {
-					snapToCorner(true);
+					snapToBottomCorner(true);
 					this._dragJustEnded = true;
 					setTimeout(() => { this._dragJustEnded = false; }, 200);
 				}
@@ -4983,8 +5012,8 @@
 			window.addEventListener('mouseup',  onUp);
 			window.addEventListener('touchend', onUp);
 			window.addEventListener('resize', () => {
-				if (!floatingBtn.style.left) return;
-				snapToCorner(true);
+				if (!floatingBtn.style.left && !floatingBtn.style.right) return;
+				snapToBottomCorner(false);
 			});
 		}
 
@@ -5718,9 +5747,9 @@
 					() => {
 						const helpUrl = sanitizeURL(
 							this.config.introHelpOptionOneUrl ||
-								this.config
-									.introHelpOptionTwoUrl ||
-								"",
+							this.config
+								.introHelpOptionTwoUrl ||
+							"",
 						);
 						this.elements.headerMenuDropdown?.classList.add(
 							"hidden",
@@ -5873,7 +5902,7 @@
 							if (
 								feedbackRow &&
 								feedbackRow.innerHTML.trim() ===
-									""
+								""
 							) {
 								feedbackRow.innerHTML =
 									this.getMessageFeedbackRowMarkup();
@@ -5883,7 +5912,7 @@
 							if (
 								feedbackMenu &&
 								feedbackMenu.innerHTML.trim() ===
-									""
+								""
 							) {
 								feedbackMenu.innerHTML =
 									this.getMessageFeedbackMenuItems();
@@ -6498,12 +6527,12 @@
 				this.isOpen &&
 				!container.classList.contains("hidden") &&
 				container.scrollHeight -
-					container.scrollTop -
-					container.clientHeight >
-					Math.max(
-						container.clientHeight * 0.6,
-						180,
-					);
+				container.scrollTop -
+				container.clientHeight >
+				Math.max(
+					container.clientHeight * 0.6,
+					180,
+				);
 			button.classList.toggle(
 				"hidden",
 				!shouldShow,
@@ -6618,9 +6647,9 @@
 				) ||
 				(this.isExpanded
 					? Math.min(
-							window.innerWidth * 0.96,
-							555,
-						)
+						window.innerWidth * 0.96,
+						555,
+					)
 					: 400);
 			const endH = this.isExpanded
 				? window.innerHeight * 0.8
@@ -7039,7 +7068,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) {}
+					} catch (e) { }
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -7248,7 +7277,7 @@
 		getMessageFeedbackMarkup(messageId) {
 			const messageIdAttr =
 				typeof messageId === "number" &&
-				Number.isFinite(messageId)
+					Number.isFinite(messageId)
 					? ` data-message-id="${String(messageId)}"`
 					: "";
 			return `
@@ -7306,10 +7335,10 @@
 		getBotMessageMarkup(text, messageId) {
 			const feedbackMarkup =
 				typeof messageId === "number" &&
-				Number.isFinite(messageId)
+					Number.isFinite(messageId)
 					? this.getMessageFeedbackMarkup(
-							messageId,
-						)
+						messageId,
+					)
 					: "";
 			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${feedbackMarkup}</div>`;
 		}
@@ -7720,7 +7749,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) {}
+						} catch (_) { }
 					}
 				}
 			}
@@ -7732,7 +7761,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) {}
+					} catch (_) { }
 				}
 			}
 
@@ -7786,14 +7815,14 @@
 				assembled,
 				donePayload &&
 					typeof donePayload.assistantMessageId ===
-						"number"
+					"number"
 					? donePayload.assistantMessageId
 					: undefined,
 			);
 			appendSources(
 				typingWrapper,
 				(donePayload && donePayload.sources) ||
-					[],
+				[],
 			);
 			this.smoothScrollToBottom();
 			if (
@@ -7965,7 +7994,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+					"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -8008,7 +8037,7 @@
 			try {
 				const response = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/message-feedback",
+					"/api/v1/widget/message-feedback",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -8043,7 +8072,7 @@
 				!this.widgetKey ||
 				!this.sessionId ||
 				this._lastLeadFinalizeSessionId ===
-					this.sessionId
+				this.sessionId
 			) {
 				return;
 			}
@@ -8051,7 +8080,7 @@
 				this.sessionId;
 			fetch(
 				this.apiBaseUrl +
-					"/api/v1/widget/lead-finalize",
+				"/api/v1/widget/lead-finalize",
 				{
 					method: "POST",
 					headers: this.getRequestHeaders({
@@ -8063,7 +8092,7 @@
 					}),
 					keepalive: true,
 				},
-			).catch(() => {});
+			).catch(() => { });
 		}
 
 		showRatingAcknowledgement(rating) {
@@ -8166,7 +8195,7 @@
 						: event.data?.event;
 				if (
 					eventName !==
-						"calendly.event_scheduled" ||
+					"calendly.event_scheduled" ||
 					!this._calendlyBookingActive
 				) {
 					return;
@@ -8606,8 +8635,8 @@
 					null,
 				phone: this.elements.cfPhone
 					? phoneCode +
-						" " +
-						this.elements.cfPhone.value.trim()
+					" " +
+					this.elements.cfPhone.value.trim()
 					: null,
 				country:
 					this.elements.cfCountry?.value.trim() ||
@@ -8632,7 +8661,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+					"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -8746,7 +8775,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/lead-status",
+					"/api/v1/widget/lead-status",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
