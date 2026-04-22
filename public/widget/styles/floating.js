@@ -4,7 +4,18 @@ export const floatingCSS = `
     position: fixed;
     bottom: 20px;
     right: 24px;
-    z-index: 0;
+    z-index: 999999;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+
+  #floatingBtn.is-dragging {
+    cursor: grabbing;
+    filter: drop-shadow(0 8px 24px rgba(0,0,0,0.28));
+    transform: scale(1.06);
+    transition: transform 0.12s ease, filter 0.12s ease !important;
   }
 
   .floating-launcher {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -125,6 +125,9 @@
 
 			this._viewportHeightUpdateHandler =
 				this._updateViewportHeight.bind(this);
+
+			// Drag guard — true for 200ms after a drag ends to swallow stray clicks
+			this._dragJustEnded = false;
 
 			this.elements = {};
 			this.supportedLanguages = [
@@ -424,6 +427,7 @@
 				this._viewportHeightUpdateHandler,
 			);
 			this.bindEvents();
+			this.initDrag();
 			// Track this page view for the session (fire-and-forget)
 			this.trackPageView();
 			this.updateSendButtonState();
@@ -1369,8 +1373,8 @@
           }
           #textChatWidget {
             position: fixed;
-            bottom: 6em;
-            right: 2em;
+            bottom: auto;
+            right: auto;
             z-index: 2147483647;
             width: 400px;
     		height: 570px;
@@ -1380,8 +1384,7 @@
             flex-direction: column;
             border-radius: 20px;
             overflow: hidden;
-            transition:
-              right 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+            transition: none;
             background: #fff; /* Ensure background is white */
             will-change: width, height;
           }
@@ -2652,7 +2655,17 @@
             bottom: 20px;
             position: fixed;
             right: 24px;
-            z-index: 0;
+            z-index: 999999;
+            cursor: grab;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+          }
+          #floatingBtn.is-dragging {
+            cursor: grabbing;
+            filter: drop-shadow(0 8px 24px rgba(0,0,0,0.28));
+            transform: scale(1.06);
+            transition: transform 0.12s ease, filter 0.12s ease !important;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
@@ -4834,6 +4847,147 @@
 			).catch(() => {});
 		}
 
+		initDrag() {
+			const STORAGE_KEY = 'witzo_widget_pos';
+			const shadow = this.shadowRoot;
+			const floatingBtn = shadow.getElementById('floatingBtn');
+			const chatWidget = shadow.getElementById('textChatWidget');
+			if (!floatingBtn) return;
+
+			let dragging = false, didDrag = false;
+			let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+			const DRAG_THRESHOLD = 6;
+
+			const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+			const applyPosition = (left, top, animate) => {
+				const transition = animate
+					? 'left 0.35s cubic-bezier(0.22,1,0.36,1), top 0.35s cubic-bezier(0.22,1,0.36,1), bottom 0.35s cubic-bezier(0.22,1,0.36,1), right 0.35s cubic-bezier(0.22,1,0.36,1)'
+					: 'none';
+				
+				floatingBtn.style.transition = transition;
+				floatingBtn.style.left = left + 'px';
+				floatingBtn.style.top  = top  + 'px';
+				floatingBtn.style.right  = 'auto';
+				floatingBtn.style.bottom = 'auto';
+
+				if (chatWidget) {
+					chatWidget.style.transition = transition;
+					const vw = window.innerWidth, vh = window.innerHeight;
+					const rect = floatingBtn.getBoundingClientRect();
+					
+					// Position chat widget above the button
+					chatWidget.style.bottom = (vh - top + 12) + 'px';
+					chatWidget.style.top = 'auto';
+
+					if (left + rect.width / 2 < vw / 2) {
+						chatWidget.style.left = left + 'px';
+						chatWidget.style.right = 'auto';
+						chatWidget.style.transformOrigin = 'left bottom';
+					} else {
+						chatWidget.style.right = (vw - (left + rect.width)) + 'px';
+						chatWidget.style.left = 'auto';
+						chatWidget.style.transformOrigin = 'right bottom';
+					}
+				}
+			};
+
+			const snapToCorner = (animate) => {
+				const rect = floatingBtn.getBoundingClientRect();
+				const vw = window.innerWidth, vh = window.innerHeight;
+				const midX = rect.left + rect.width / 2;
+				const midY = rect.top + rect.height / 2;
+				const EDGE_GAP = 16;
+				
+				const left = (midX < vw / 2) ? EDGE_GAP : vw - rect.width - EDGE_GAP;
+				const top  = (midY < vh / 2) ? EDGE_GAP : vh - rect.height - EDGE_GAP;
+				
+				applyPosition(left, top, animate);
+				try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ left, top })); } catch(_) {}
+			};
+
+			// Restore persisted position
+			setTimeout(() => {
+				try {
+					const raw = localStorage.getItem(STORAGE_KEY);
+					const rect = floatingBtn.getBoundingClientRect();
+					const vw = window.innerWidth, vh = window.innerHeight;
+					const EDGE_GAP = 16;
+					
+					let left, top;
+					if (raw) {
+						const pos = JSON.parse(raw);
+						left = clamp(pos.left, EDGE_GAP, vw - rect.width  - EDGE_GAP);
+						top  = clamp(pos.top,  EDGE_GAP, vh - rect.height - EDGE_GAP);
+					} else {
+						left = vw - rect.width - EDGE_GAP;
+						top  = vh - rect.height - EDGE_GAP;
+					}
+					applyPosition(left, top, false);
+				} catch(_) {}
+			}, 50);
+
+			const xy = (e) => e.touches?.length
+				? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+				: e.changedTouches?.length
+					? { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }
+					: { x: e.clientX, y: e.clientY };
+
+			const onDown = (e) => {
+				if (e.type === 'mousedown' && e.button !== 0) return;
+				dragging = true; didDrag = false;
+				const { x, y } = xy(e);
+				startX = x; startY = y;
+				const rect = floatingBtn.getBoundingClientRect();
+				startLeft = rect.left; startTop = rect.top;
+				floatingBtn.style.transition = 'none';
+				if (chatWidget) chatWidget.style.transition = 'none';
+				floatingBtn.classList.add('is-dragging');
+				document.body.style.userSelect = 'none';
+				document.body.style.webkitUserSelect = 'none';
+			};
+
+			const onMove = (e) => {
+				if (!dragging) return;
+				e.preventDefault();
+				const { x, y } = xy(e);
+				const dx = x - startX, dy = y - startY;
+				if (!didDrag && Math.sqrt(dx*dx + dy*dy) > DRAG_THRESHOLD) didDrag = true;
+				if (!didDrag) return;
+				const rect = floatingBtn.getBoundingClientRect();
+				const vw = window.innerWidth, vh = window.innerHeight;
+				applyPosition(
+					clamp(startLeft + dx, 4, vw - rect.width  - 4),
+					clamp(startTop  + dy, 4, vh - rect.height - 4),
+					false
+				);
+			};
+
+			const onUp = () => {
+				if (!dragging) return;
+				dragging = false;
+				floatingBtn.classList.remove('is-dragging');
+				document.body.style.userSelect = '';
+				document.body.style.webkitUserSelect = '';
+				if (didDrag) {
+					snapToCorner(true);
+					this._dragJustEnded = true;
+					setTimeout(() => { this._dragJustEnded = false; }, 200);
+				}
+			};
+
+			floatingBtn.addEventListener('mousedown',  onDown, { passive: true });
+			floatingBtn.addEventListener('touchstart', onDown, { passive: true });
+			window.addEventListener('mousemove',  onMove, { passive: false });
+			window.addEventListener('touchmove',  onMove, { passive: false });
+			window.addEventListener('mouseup',  onUp);
+			window.addEventListener('touchend', onUp);
+			window.addEventListener('resize', () => {
+				if (!floatingBtn.style.left) return;
+				snapToCorner(true);
+			});
+		}
+
 		bindEvents() {
 			if (this.elements.floatingCloseBtn) {
 				this.elements.floatingCloseBtn.addEventListener(
@@ -4849,6 +5003,7 @@
 				this.elements.floatingHelpBtn.addEventListener(
 					"click",
 					() => {
+						if (this._dragJustEnded) return;
 						this.hideFloatingExitPrompt();
 						this.openFromFloatingLauncher();
 					},
@@ -4858,6 +5013,7 @@
 				this.elements.floatingPromptSend.addEventListener(
 					"click",
 					() => {
+						if (this._dragJustEnded) return;
 						if (this.isOpen) {
 							this.requestWidgetClose();
 							return;

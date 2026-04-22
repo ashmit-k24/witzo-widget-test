@@ -6,6 +6,7 @@ import {
 	SUPPORTED_LANGUAGES,
 } from "./config.js";
 import * as events from "./events.js";
+import { initDrag } from "./events.js";
 import * as msg from "./messages.js";
 import * as session from "./session.js";
 import * as stream from "./stream.js";
@@ -72,6 +73,9 @@ export class WitzoChatWidget extends HTMLElement {
 
 		// Auto-open timer (cleared on first manual interaction)
 		this._autoOpenTimer = null;
+
+		// Drag guard — set true for 200ms after a drag ends to swallow the stray click
+		this._dragJustEnded = false;
 
 		// Daily session limit state
 		this._sessionLocked = false;
@@ -347,6 +351,7 @@ export class WitzoChatWidget extends HTMLElement {
 
 		// 6. Wire events
 		events.bindEvents(this);
+		initDrag(this);
 		this.updateSendButtonState();
 		this._bindCalendlyMessageListener();
 
