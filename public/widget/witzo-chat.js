@@ -347,7 +347,7 @@
 			if (
 				!this.getAttribute("plan-type") &&
 				typeof this.__witzoPlanType ===
-					"string" &&
+				"string" &&
 				this.__witzoPlanType
 			) {
 				this.config.planType =
@@ -545,7 +545,7 @@
 					);
 					this.showContactForm();
 				}, delay);
-			} catch (_) {}
+			} catch (_) { }
 		}
 
 		disconnectedCallback() {
@@ -1270,27 +1270,27 @@
 		render() {
 			// Use the CSS and HTML from template.ts
 			const leadFields = [
-							this.config.leadFormNameEnabled !==
-							false
-								? `
+				this.config.leadFormNameEnabled !==
+					false
+					? `
       <div class="cf-field-group">
         <input id="cf-name" type="text" />
         <label>Full name</label>
         <div class="cf-error" id="cf-name-error"></div>
       </div>`
-								: "",
-							this.config.leadFormEmailEnabled !==
-							false
-								? `
+					: "",
+				this.config.leadFormEmailEnabled !==
+					false
+					? `
       <div class="cf-field-group">
         <input id="cf-email" type="email" />
         <label>Email address</label>
         <div class="cf-error" id="cf-email-error"></div>
       </div>`
-								: "",
-							this.config.leadFormPhoneEnabled !==
-							false
-								? `
+					: "",
+				this.config.leadFormPhoneEnabled !==
+					false
+					? `
       <div class="cf-field-group">
         <div class="cf-phone-wrapper">
           <div class="cf-phone-trigger" id="cf-phone-code-trigger">
@@ -1305,10 +1305,10 @@
         </div>
         <div class="cf-error" id="cf-phone-error"></div>
       </div>`
-								: "",
-							this.config
-								.leadFormCountryEnabled !== false
-								? `
+					: "",
+				this.config
+					.leadFormCountryEnabled !== false
+					? `
       <div class="cf-field-group">
         <div class="cf-country-wrapper" id="cf-country-wrapper">
           <div class="cf-country-trigger" id="cf-country-trigger">
@@ -1322,8 +1322,8 @@
           </div>
         </div>
       </div>`
-								: "",
-						]
+					: "",
+			]
 				.filter(Boolean)
 				.join("");
 			this.shadowRoot.innerHTML = `
@@ -3803,7 +3803,7 @@
             .md-content h2 { font-size: 1rem; }
             .md-content h3 { font-size: 0.94rem; }
             .md-content h4 { font-size: 0.9rem; }
-            .md-content p { margin: 0; font-weight:500; line-height: 20px }
+            .md-content p { margin: 0; font-weight:500; line-height: 20px; color:black }
             .md-content p + p,
             .md-content p + ul,
             .md-content p + ol,
@@ -4270,11 +4270,10 @@
                    <div class="chat-action-row">
 
 				   <div class="chat-icon">
-                    ${
-											this.getDisplayIconUrl()
-												? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
-												: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
-										}
+                    ${this.getDisplayIconUrl()
+					? `<img id="logoIcon" src="${this.getDisplayIconUrl()}" alt="Logo" />`
+					: `<svg width="32" height="32" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 6C13.66 6 15 7.34 15 9C15 10.66 13.66 12 12 12C10.34 12 9 10.66 9 9C9 7.34 10.34 6 12 6ZM12 19.2C9.5 19.2 7.29 17.92 6 15.98C6.03 13.99 10 12.9 12 12.9C13.99 12.9 17.97 13.99 18 15.98C16.71 17.92 14.5 19.2 12 19.2Z"/></svg>`
+				}
 
 					  
                       </div>
@@ -4360,14 +4359,14 @@
                       </div>
                       <div id="headerLanguageMenu" class="chat-menu-submenu">
                         ${this.supportedLanguages
-													.map(
-														(language) => `
+					.map(
+						(language) => `
                           <button class="chat-menu-language-item${language.code === this.selectedLanguage ? " active" : ""}" type="button" data-code="${this.escapeHtml(language.code)}">
                             <span>${this.escapeHtml(language.label)}</span>
                             <svg class="chat-menu-language-item-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
                           </button>`,
-													)
-													.join("")}
+					)
+					.join("")}
                       </div>
                     </div>
                 </div>
@@ -4808,7 +4807,7 @@
 			const url = window.location.href;
 			fetch(
 				this.apiBaseUrl.replace(/\/+$/, "") +
-					"/api/v1/widget/page-view",
+				"/api/v1/widget/page-view",
 				{
 					method: "POST",
 					headers: {
@@ -4820,7 +4819,7 @@
 						url,
 					}),
 				},
-			).catch(() => {});
+			).catch(() => { });
 		}
 
 		bindEvents() {
@@ -5551,9 +5550,9 @@
 					() => {
 						const helpUrl = sanitizeURL(
 							this.config.introHelpOptionOneUrl ||
-								this.config
-									.introHelpOptionTwoUrl ||
-								"",
+							this.config
+								.introHelpOptionTwoUrl ||
+							"",
 						);
 						this.elements.headerMenuDropdown?.classList.add(
 							"hidden",
@@ -5706,7 +5705,7 @@
 							if (
 								feedbackRow &&
 								feedbackRow.innerHTML.trim() ===
-									""
+								""
 							) {
 								feedbackRow.innerHTML =
 									this.getMessageFeedbackRowMarkup();
@@ -5716,7 +5715,7 @@
 							if (
 								feedbackMenu &&
 								feedbackMenu.innerHTML.trim() ===
-									""
+								""
 							) {
 								feedbackMenu.innerHTML =
 									this.getMessageFeedbackMenuItems();
@@ -6331,12 +6330,12 @@
 				this.isOpen &&
 				!container.classList.contains("hidden") &&
 				container.scrollHeight -
-					container.scrollTop -
-					container.clientHeight >
-					Math.max(
-						container.clientHeight * 0.6,
-						180,
-					);
+				container.scrollTop -
+				container.clientHeight >
+				Math.max(
+					container.clientHeight * 0.6,
+					180,
+				);
 			button.classList.toggle(
 				"hidden",
 				!shouldShow,
@@ -6451,9 +6450,9 @@
 				) ||
 				(this.isExpanded
 					? Math.min(
-							window.innerWidth * 0.96,
-							555,
-						)
+						window.innerWidth * 0.96,
+						555,
+					)
 					: 400);
 			const endH = this.isExpanded
 				? window.innerHeight * 0.8
@@ -6872,7 +6871,7 @@
 							return;
 						}
 						content = err.message || content;
-					} catch (e) {}
+					} catch (e) { }
 				}
 
 				// Replace typing indicator with response (error / free plan limit)
@@ -7081,7 +7080,7 @@
 		getMessageFeedbackMarkup(messageId) {
 			const messageIdAttr =
 				typeof messageId === "number" &&
-				Number.isFinite(messageId)
+					Number.isFinite(messageId)
 					? ` data-message-id="${String(messageId)}"`
 					: "";
 			return `
@@ -7139,10 +7138,10 @@
 		getBotMessageMarkup(text, messageId) {
 			const feedbackMarkup =
 				typeof messageId === "number" &&
-				Number.isFinite(messageId)
+					Number.isFinite(messageId)
 					? this.getMessageFeedbackMarkup(
-							messageId,
-						)
+						messageId,
+					)
 					: "";
 			return `<div class="bot-response-block"><div class="bot-message-row">${this.getBotIconHtml()}<div class="md-content">${this.parseMarkdown(text)}</div></div>${feedbackMarkup}</div>`;
 		}
@@ -7553,7 +7552,7 @@
 						if (!jsonPart) continue;
 						try {
 							processEvent(JSON.parse(jsonPart));
-						} catch (_) {}
+						} catch (_) { }
 					}
 				}
 			}
@@ -7565,7 +7564,7 @@
 				if (jsonPart) {
 					try {
 						processEvent(JSON.parse(jsonPart));
-					} catch (_) {}
+					} catch (_) { }
 				}
 			}
 
@@ -7619,14 +7618,14 @@
 				assembled,
 				donePayload &&
 					typeof donePayload.assistantMessageId ===
-						"number"
+					"number"
 					? donePayload.assistantMessageId
 					: undefined,
 			);
 			appendSources(
 				typingWrapper,
 				(donePayload && donePayload.sources) ||
-					[],
+				[],
 			);
 			this.smoothScrollToBottom();
 			if (
@@ -7798,7 +7797,7 @@
 			try {
 				await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/rating",
+					"/api/v1/widget/rating",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -7841,7 +7840,7 @@
 			try {
 				const response = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/message-feedback",
+					"/api/v1/widget/message-feedback",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -7876,7 +7875,7 @@
 				!this.widgetKey ||
 				!this.sessionId ||
 				this._lastLeadFinalizeSessionId ===
-					this.sessionId
+				this.sessionId
 			) {
 				return;
 			}
@@ -7884,7 +7883,7 @@
 				this.sessionId;
 			fetch(
 				this.apiBaseUrl +
-					"/api/v1/widget/lead-finalize",
+				"/api/v1/widget/lead-finalize",
 				{
 					method: "POST",
 					headers: this.getRequestHeaders({
@@ -7896,7 +7895,7 @@
 					}),
 					keepalive: true,
 				},
-			).catch(() => {});
+			).catch(() => { });
 		}
 
 		showRatingAcknowledgement(rating) {
@@ -7999,7 +7998,7 @@
 						: event.data?.event;
 				if (
 					eventName !==
-						"calendly.event_scheduled" ||
+					"calendly.event_scheduled" ||
 					!this._calendlyBookingActive
 				) {
 					return;
@@ -8434,8 +8433,8 @@
 					null,
 				phone: this.elements.cfPhone
 					? phoneCode +
-						" " +
-						this.elements.cfPhone.value.trim()
+					" " +
+					this.elements.cfPhone.value.trim()
 					: null,
 				country:
 					this.elements.cfCountry?.value.trim() ||
@@ -8460,7 +8459,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/contact",
+					"/api/v1/widget/contact",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({
@@ -8574,7 +8573,7 @@
 			try {
 				const resp = await fetch(
 					this.apiBaseUrl +
-						"/api/v1/widget/lead-status",
+					"/api/v1/widget/lead-status",
 					{
 						method: "POST",
 						headers: this.getRequestHeaders({

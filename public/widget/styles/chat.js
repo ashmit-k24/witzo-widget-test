@@ -64,7 +64,7 @@ export const chatCSS = `
   .md-content h2 { font-size: 1rem; margin-top: 0.9rem; }
   .md-content h3 { font-size: 0.94rem; margin-top: 0.8rem; }
   .md-content h4 { font-size: 0.9rem; }
-  .md-content p { margin: 0; }
+  .md-content p { margin: 0;color:black }
   .md-content > :first-child { margin-top: 0; }
   .md-content p + p,
   .md-content p + ul,
