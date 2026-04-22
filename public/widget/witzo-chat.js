@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -2671,10 +2671,11 @@
           #floatingBtn.dragging-mode .floating-close-btn,
           #floatingBtn.dragging-mode .floating-help-pill,
           #floatingBtn.dragging-mode .floating-prompt-input-wrapper,
+          #floatingBtn.dragging-mode .floating-exit-prompt,
           #floatingBtn.dragging-mode .floating-input-shell::before {
             opacity: 0 !important;
             pointer-events: none !important;
-            transition: opacity 0.2s ease !important;
+            transition: opacity 0.5s ease !important;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
@@ -4914,73 +4915,73 @@
 			const STORAGE_KEY = 'witzo_widget_pos';
 			const shadow = this.shadowRoot;
 			const floatingBtn = shadow.getElementById('floatingBtn');
-			const chatWidget  = shadow.getElementById('textChatWidget');
+			const chatWidget = shadow.getElementById('textChatWidget');
 			if (!floatingBtn) return;
 
-			const EDGE_GAP      = 16;
+			const EDGE_GAP = 16;
 			const LONG_PRESS_MS = 400;  // hold this long to unlock drag
-			const LERP          = 0.12; // 0– 1: lower = more lag (GSAP-scrub feel)
+			const LERP = 0.12; // 0– 1: lower = more lag (GSAP-scrub feel)
 			const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 			// ── Side/snap logic ──────────────────────────────────────────────────
 			const applySide = (side, animate) => {
 				if (side === 'left') floatingBtn.classList.add('on-left');
-				else                 floatingBtn.classList.remove('on-left');
+				else floatingBtn.classList.remove('on-left');
 
 				if (!animate) {
 					// Initial restore / resize: use semantic properties (offsetWidth may be 0)
 					floatingBtn.style.transition = 'none';
 					floatingBtn.style.bottom = EDGE_GAP + 'px';
-					floatingBtn.style.top    = 'auto';
+					floatingBtn.style.top = 'auto';
 					if (side === 'left') {
-						floatingBtn.style.left  = EDGE_GAP + 'px';
+						floatingBtn.style.left = EDGE_GAP + 'px';
 						floatingBtn.style.right = 'auto';
 					} else {
 						floatingBtn.style.right = EDGE_GAP + 'px';
-						floatingBtn.style.left  = 'auto';
+						floatingBtn.style.left = 'auto';
 					}
 					if (chatWidget) {
 						chatWidget.style.transition = 'none';
 						chatWidget.style.bottom = '';
 						if (side === 'left') {
-							chatWidget.style.left  = EDGE_GAP + 'px';
+							chatWidget.style.left = EDGE_GAP + 'px';
 							chatWidget.style.right = 'auto';
 						} else {
 							chatWidget.style.right = EDGE_GAP + 'px';
-							chatWidget.style.left  = 'auto';
+							chatWidget.style.left = 'auto';
 						}
 					}
 					return;
 				}
 
 				// Animated snap: always interpolate via `left` (avoids left↔right jump)
-				const vw     = window.innerWidth;
-				const btnW   = floatingBtn.offsetWidth || 64;
+				const vw = window.innerWidth;
+				const btnW = floatingBtn.offsetWidth || 64;
 				const leftPx = side === 'left' ? EDGE_GAP : vw - EDGE_GAP - btnW;
-				const tr     = 'left 0.95s cubic-bezier(0.16,1,0.3,1), bottom 0.95s cubic-bezier(0.16,1,0.3,1)';
+				const tr = 'left 1s cubic-bezier(0.16,1,0.3,1), bottom 1s cubic-bezier(0.16,1,0.3,1)';
 				floatingBtn.style.transition = tr;
-				floatingBtn.style.left   = leftPx + 'px';
-				floatingBtn.style.right  = 'auto';
+				floatingBtn.style.left = leftPx + 'px';
+				floatingBtn.style.right = 'auto';
 				floatingBtn.style.bottom = EDGE_GAP + 'px';
-				floatingBtn.style.top    = 'auto';
+				floatingBtn.style.top = 'auto';
 				// After animation, revert right-side to semantic `right` for viewport resize
 				if (side === 'right') {
 					setTimeout(() => {
 						floatingBtn.style.transition = 'none';
 						floatingBtn.style.right = EDGE_GAP + 'px';
-						floatingBtn.style.left  = 'auto';
-					}, 670);
+						floatingBtn.style.left = 'auto';
+					}, 1010);
 				}
 				if (chatWidget) {
 					chatWidget.style.transition = tr;
-					chatWidget.style.left  = leftPx + 'px';
+					chatWidget.style.left = leftPx + 'px';
 					chatWidget.style.right = 'auto';
 					if (side === 'right') {
 						setTimeout(() => {
 							chatWidget.style.transition = 'none';
 							chatWidget.style.right = EDGE_GAP + 'px';
-							chatWidget.style.left  = 'auto';
-						}, 970);
+							chatWidget.style.left = 'auto';
+						}, 1010);
 					}
 				}
 			};
@@ -4995,7 +4996,7 @@
 			// Restore persisted side
 			setTimeout(() => {
 				try {
-					const raw  = localStorage.getItem(STORAGE_KEY);
+					const raw = localStorage.getItem(STORAGE_KEY);
 					const side = raw ? JSON.parse(raw).side : 'right';
 					applySide(typeof side === 'string' ? side : 'right', false);
 				} catch (_) { applySide('right', false); }
@@ -5003,23 +5004,23 @@
 
 			// ── Helpers ─────────────────────────────────────────────────
 			const xy = (e) => e.touches?.length
-				? { x: e.touches[0].clientX,        y: e.touches[0].clientY }
+				? { x: e.touches[0].clientX, y: e.touches[0].clientY }
 				: e.changedTouches?.length
 					? { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }
-					: { x: e.clientX,                   y: e.clientY };
+					: { x: e.clientX, y: e.clientY };
 
 			// ── Drag state ──────────────────────────────────────────────
-			let dragging    = false;
-			let startX      = 0, startY = 0;
-			let startLeft   = 0, startBottom = 0;
-			let targetLeft  = 0, targetBottom = 0;  // pointer-driven target
-			let curLeft     = 0, curBottom = 0;     // lerp-smoothed position
-			let rafId       = null;
+			let dragging = false;
+			let startX = 0, startY = 0;
+			let startLeft = 0, startBottom = 0;
+			let targetLeft = 0, targetBottom = 0;  // pointer-driven target
+			let curLeft = 0, curBottom = 0;     // lerp-smoothed position
+			let rafId = null;
 
 			// ── Long-press state ────────────────────────────────────────
-			let pressTimer  = null;
-			let pressX      = 0, pressY = 0;  // position at press start
-			let dragActive  = false;           // true once long-press fires
+			let pressTimer = null;
+			let pressX = 0, pressY = 0;  // position at press start
+			let dragActive = false;           // true once long-press fires
 
 			const cancelPress = () => {
 				if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
@@ -5028,28 +5029,28 @@
 			// ── RAF lerp loop ──────────────────────────────────────────
 			const tick = () => {
 				if (!dragging) { rafId = null; return; }
-				curLeft   += (targetLeft   - curLeft)   * LERP;
+				curLeft += (targetLeft - curLeft) * LERP;
 				curBottom += (targetBottom - curBottom) * LERP;
-				floatingBtn.style.left   = curLeft   + 'px';
+				floatingBtn.style.left = curLeft + 'px';
 				floatingBtn.style.bottom = curBottom + 'px';
 				rafId = requestAnimationFrame(tick);
 			};
 
 			// ── Activate drag (called when long-press threshold is met) ───
 			const activateDrag = () => {
-				dragging   = true;
+				dragging = true;
 				dragActive = true;
-				const rect  = floatingBtn.getBoundingClientRect();
-				startX      = pressX; startY = pressY;
-				startLeft   = rect.left;
+				const rect = floatingBtn.getBoundingClientRect();
+				startX = pressX; startY = pressY;
+				startLeft = rect.left;
 				startBottom = window.innerHeight - rect.bottom;
-				curLeft     = targetLeft  = startLeft;
-				curBottom   = targetBottom = startBottom;
+				curLeft = targetLeft = startLeft;
+				curBottom = targetBottom = startBottom;
 				floatingBtn.style.transition = 'none';
-				floatingBtn.style.left   = startLeft   + 'px';
-				floatingBtn.style.right  = 'auto';
+				floatingBtn.style.left = startLeft + 'px';
+				floatingBtn.style.right = 'auto';
 				floatingBtn.style.bottom = startBottom + 'px';
-				floatingBtn.style.top    = 'auto';
+				floatingBtn.style.top = 'auto';
 				// Collapse launcher visuals to just the send button
 				floatingBtn.classList.add('is-dragging', 'dragging-mode');
 				document.body.style.userSelect = 'none';
@@ -5059,9 +5060,7 @@
 
 			// ── Long-press start (send button only) ─────────────────────
 			const onSendDown = (e) => {
-				const exitPrompt = shadow.getElementById('floatingExitPrompt');
-				const exitPromptVisible = exitPrompt && !exitPrompt.classList.contains('hidden');
-				if (this.isOpen || exitPromptVisible) return; // disable drag when widget is opened or exit prompt is visible
+				if (this.isOpen) return; // disable drag when widget is opened
 				if (e.type === 'mousedown' && e.button !== 0) return;
 				const pos = xy(e);
 				pressX = pos.x; pressY = pos.y;
@@ -5079,14 +5078,14 @@
 				// Cancel long-press if finger/mouse drifts too early
 				if (pressTimer) {
 					const dx = x - pressX, dy = y - pressY;
-					if (Math.sqrt(dx*dx + dy*dy) > 8) cancelPress();
+					if (Math.sqrt(dx * dx + dy * dy) > 8) cancelPress();
 				}
 				if (!dragging) return;
 				e.preventDefault();
-				const dx  = x - startX, dy = y - startY;
-				const vw  = window.innerWidth, vh = window.innerHeight;
+				const dx = x - startX, dy = y - startY;
+				const vw = window.innerWidth, vh = window.innerHeight;
 				const rect = floatingBtn.getBoundingClientRect();
-				targetLeft   = clamp(startLeft   + dx, EDGE_GAP, vw - rect.width  - EDGE_GAP);
+				targetLeft = clamp(startLeft + dx, EDGE_GAP, vw - rect.width - EDGE_GAP);
 				targetBottom = clamp(startBottom - dy, EDGE_GAP, vh - rect.height - EDGE_GAP);
 			};
 
@@ -5094,7 +5093,7 @@
 			const onUp = () => {
 				cancelPress(); // always kill the timer
 				if (!dragging) return;
-				dragging   = false;
+				dragging = false;
 				dragActive = false;
 				if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 				floatingBtn.classList.remove('is-dragging');
@@ -5117,7 +5116,7 @@
 							prompt.classList.remove('landing-no-zoom');
 						}, 1300);
 					}
-				}, 960);
+				}, 600);
 				this._dragJustEnded = true;
 				setTimeout(() => { this._dragJustEnded = false; }, 250);
 			};
@@ -5125,13 +5124,13 @@
 			// ── Bind events ─────────────────────────────────────────────
 			const sendBtn = shadow.getElementById('floatingPromptSend');
 			if (sendBtn) {
-				sendBtn.addEventListener('mousedown',  onSendDown, { passive: true });
+				sendBtn.addEventListener('mousedown', onSendDown, { passive: true });
 				sendBtn.addEventListener('touchstart', onSendDown, { passive: true });
 			}
 			window.addEventListener('mousemove', onMove, { passive: false });
 			window.addEventListener('touchmove', onMove, { passive: false });
-			window.addEventListener('mouseup',   onUp);
-			window.addEventListener('touchend',  onUp);
+			window.addEventListener('mouseup', onUp);
+			window.addEventListener('touchend', onUp);
 			window.addEventListener('resize', () => {
 				if (!dragging) snapToBottomCorner(false);
 			});
