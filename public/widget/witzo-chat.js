@@ -1582,13 +1582,13 @@
           /* Header */
           .chat-header {
             background: var(--color-banner-bg, #120b14);
-            padding: 0rem 17px;
+            padding: 0 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             flex-shrink: 0;
             height: 60px; /* Fixed height for header */
-            gap:20px;
+            gap:10px;
             border-radius: 10px 10px 0 0;
             position: relative;
             z-index: 20;
@@ -1612,7 +1612,7 @@
           .online-ready-text {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 6px;
 			items-align: center;
           }
 
@@ -1691,7 +1691,7 @@
           .chat-title,
           #banner-text {
 			font-weight: 700;
-			font-size: 16px;
+			font-size: 15px;
 			letter-spacing: 0;
 			vertical-align: middle;
 			font-family: "Plus Jakarta Sans", sans-serif !important;
@@ -1701,7 +1701,7 @@
             display: flex;
             align-items: center;
             position: relative;
-			gap:10px
+			gap:5px
           }
 
 		  .chat-action-row{

@@ -37,7 +37,7 @@ export const headerCSS = `
 		margin: 0 !important;
 
   }
-  .chat-header-right { display: flex; align-items: center;gap:10px }
+  .chat-header-right { display: flex; align-items: center;gap:5px }
   .chat-action-btn {
     border: none; background: transparent; border-radius: 0.5rem;
     display: flex; align-items: center; justify-content: center;
