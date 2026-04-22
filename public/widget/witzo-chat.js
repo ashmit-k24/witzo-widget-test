@@ -2680,6 +2680,13 @@
             pointer-events: none !important;
             transition: opacity 0.5s ease !important;
           }
+
+		  .floating-launcher-prompt {
+			  width:56px !important;
+			  height:56px !important;
+		  }
+
+		  
           #floatingBtn.dragging-mode {
             cursor: grab !important;
           }
@@ -3144,6 +3151,10 @@
           .floating-launcher-prompt.is-typing .floating-prompt-send {
             background: var(--color-primary, #471791);
             box-shadow: 0 14px 30px rgba(var(--color-primary, #471791), 0.3);
+			transform: scale(0.87);
+          }
+		#floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-prompt-send {
+           
 			transform: scale(0.87) translateX(-13px);
           }
           .floating-launcher-prompt.is-typing .floating-input-shell {
