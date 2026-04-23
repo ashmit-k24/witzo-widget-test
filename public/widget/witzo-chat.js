@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Witzo Chat Widget - Standalone Version
  * Updated to match text-widget design
  */
@@ -2678,7 +2678,7 @@
           #floatingBtn.dragging-mode .floating-input-shell::before {
             opacity: 0 !important;
             pointer-events: none !important;
-            transition: opacity 0.5s ease !important;
+            transition: opacity 0.2s ease !important;
           }
 
 		  .floating-launcher-prompt {
@@ -3131,6 +3131,11 @@
             width: 100%;
             height: 100%;
           }
+
+		  .floating-prompt-send-icon-chat{
+		    z-index:2; 
+			pointer-events: none;
+		  }
           .floating-prompt-send-icon-chat img {
             width: 100% !important;
             height: 100% !important;
@@ -4996,6 +5001,7 @@
 			const shadow = this.shadowRoot;
 			const floatingBtn = shadow.getElementById('floatingBtn');
 			const floatingInputShell = shadow.querySelector('.floating-input-shell');
+			const floatingPromptSend = shadow.getElementById('floatingPromptSend');
 			const chatWidget = shadow.getElementById('textChatWidget');
 			if (!floatingBtn) return;
 
@@ -5129,6 +5135,8 @@
 				curBottom += (targetBottom - curBottom) * LERP;
 				floatingBtn.style.left = curLeft + 'px';
 				floatingBtn.style.bottom = curBottom + 'px';
+				// Edge awareness for directional animations
+				floatingBtn.classList.toggle('on-left', curLeft < window.innerWidth / 2);
 				rafId = requestAnimationFrame(tick);
 			};
 
@@ -5212,9 +5220,9 @@
 			};
 
 			// ── Bind events ─────────────────────────────────────────────
-			if (floatingInputShell) {
-				floatingInputShell.addEventListener('mousedown', onDragHandleDown, { passive: true });
-				floatingInputShell.addEventListener('touchstart', onDragHandleDown, { passive: true });
+			if (floatingPromptSend) {
+				floatingPromptSend.addEventListener('mousedown', onDragHandleDown, { passive: true });
+				floatingPromptSend.addEventListener('touchstart', onDragHandleDown, { passive: true });
 			}
 			window.addEventListener('mousemove', onMove, { passive: false });
 			window.addEventListener('touchmove', onMove, { passive: false });

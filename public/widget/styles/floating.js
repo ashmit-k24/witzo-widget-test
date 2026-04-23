@@ -246,6 +246,10 @@ export const floatingCSS = `
     width: 100%;
     height: 100%;
   }
+    .floating-prompt-send-icon-chat{
+		    z-index:2; 
+        pointer-events: none;
+		  }
   .floating-prompt-send-icon-chat img {
     width: 100% !important;
     height: 100% !important;
