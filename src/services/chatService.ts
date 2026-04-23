@@ -1619,7 +1619,7 @@ class ChatService {
 			 FROM chat_conversations c
 			 LEFT JOIN leads l ON l.session_id = c.id::text AND l.user_id = c.user_id
 			 WHERE c.user_id = $1 AND c.is_deleted = FALSE
-			 ORDER BY c.last_message_at DESC`,
+			 ORDER BY c.created_at ASC, c.last_message_at ASC`,
 			[userId],
 		);
 

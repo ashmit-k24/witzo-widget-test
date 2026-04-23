@@ -57,8 +57,8 @@ export const PLAN_CAPABILITIES: Record<
 > = {
 	free: {
 		documentLimit: 4,
-		chatHistoryLimit: 3,
-		leadStorageLimit: 3,
+		chatHistoryLimit: 5,
+		leadStorageLimit: 5,
 		supportedWebsitesLimit: 1,
 		widgetInstancesLimit: 1,
 		teamMembersLimit: 1,
