@@ -2989,6 +2989,7 @@
             transform-origin: right bottom;
             will-change: transform, opacity;
           }
+			
           .floating-help-pill-text {
             display: inline-flex;
             align-items: center;
