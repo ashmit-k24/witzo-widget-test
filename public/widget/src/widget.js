@@ -159,7 +159,7 @@ export class WitzoChatWidget extends HTMLElement {
 		);
 		this.selectedLanguage =
 			this.getAttribute("default-language") !==
-			null
+				null
 				? configuredLang
 				: storedLang || configuredLang;
 		this.config.defaultLanguage =
@@ -635,7 +635,7 @@ export class WitzoChatWidget extends HTMLElement {
 						);
 						return;
 					}
-				} catch (_) {}
+				} catch (_) { }
 				this.successfulChatCount =
 					session.incrementChatCount(
 						this.successfulChatCount,
@@ -663,7 +663,7 @@ export class WitzoChatWidget extends HTMLElement {
 					return;
 				}
 				content = err.message || content;
-			} catch (_) {}
+			} catch (_) { }
 
 			msg.updateBubble(
 				typingEl,
@@ -795,7 +795,7 @@ export class WitzoChatWidget extends HTMLElement {
 			this.elements.conversationRatingSlot?.classList.add(
 				"hidden",
 			);
-		} catch (_) {}
+		} catch (_) { }
 	}
 
 	finalizePendingLeadDraft() {
@@ -804,7 +804,7 @@ export class WitzoChatWidget extends HTMLElement {
 			!this.widgetKey ||
 			!this.sessionId ||
 			this._lastLeadFinalizeSessionId ===
-				this.sessionId
+			this.sessionId
 		)
 			return;
 		this._lastLeadFinalizeSessionId =
@@ -815,7 +815,7 @@ export class WitzoChatWidget extends HTMLElement {
 				widgetKey: this.widgetKey,
 				sessionId: this.sessionId,
 			})
-			.catch(() => {});
+			.catch(() => { });
 	}
 
 	showRatingAcknowledgement(rating) {
@@ -1163,8 +1163,8 @@ export class WitzoChatWidget extends HTMLElement {
 				null,
 			phone: this.elements.cfPhone
 				? phoneCode +
-					" " +
-					this.elements.cfPhone.value.trim()
+				" " +
+				this.elements.cfPhone.value.trim()
 				: null,
 			country:
 				this.elements.cfCountry?.value.trim() ||
@@ -1709,7 +1709,7 @@ export class WitzoChatWidget extends HTMLElement {
 				});
 				return;
 			}
-		} catch (_) {}
+		} catch (_) { }
 
 		container.innerHTML = `
       <iframe
@@ -1758,7 +1758,7 @@ export class WitzoChatWidget extends HTMLElement {
 				);
 				this.showContactForm();
 			}, delay);
-		} catch (_) {}
+		} catch (_) { }
 	}
 
 	_lockSession() {

@@ -126,6 +126,9 @@
 			this._viewportHeightUpdateHandler =
 				this._updateViewportHeight.bind(this);
 
+			// Drag guard — true for 200ms after drag ends to swallow stray clicks
+			this._dragJustEnded = false;
+
 			this.elements = {};
 			this.supportedLanguages = [
 				{ code: "en", label: "English" },
@@ -424,6 +427,7 @@
 				this._viewportHeightUpdateHandler,
 			);
 			this.bindEvents();
+			this.initDrag();
 			// Track this page view for the session (fire-and-forget)
 			this.trackPageView();
 			this.updateSendButtonState();
@@ -1491,6 +1495,9 @@
             animation: slideUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
             transform-origin: right bottom;
             position: relative;
+          }
+          .chat-widget.on-left {
+            transform-origin: left bottom !important;
           }
           :host([preview-mode="embedded"]) .chat-widget {
             animation: none;
@@ -2645,7 +2652,36 @@
             bottom: 20px;
             position: fixed;
             right: 24px;
-            z-index: 0;
+            z-index: 999999;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+          }
+          #floatingBtn.is-dragging {
+            cursor: grabbing;
+            filter: drop-shadow(0 8px 24px rgba(0,0,0,0.22));
+            transition: filter 0.15s ease !important;
+          }
+          /* During drag: fade other elements, keep only the send button visible */
+          #floatingBtn.dragging-mode .floating-close-btn,
+          #floatingBtn.dragging-mode .floating-help-pill,
+          #floatingBtn.dragging-mode .floating-prompt-input-wrapper,
+          #floatingBtn.dragging-mode .floating-exit-prompt,
+          #floatingBtn.dragging-mode .floating-input-shell::before {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transition: opacity 0.5s ease !important;
+          }
+
+		  .floating-launcher-prompt {
+			  width:56px !important;
+			  height:56px !important;
+		  }
+
+		  
+          #floatingBtn.dragging-mode {
+            cursor: grabbing !important;
           }
           :host([preview-mode="embedded"]) #floatingBtn {
             position: absolute;
@@ -2653,6 +2689,53 @@
             bottom: 16px;
             z-index: 4;
           }
+
+          /* ── Left-side layout overrides ───────────────────────────────────── */
+          #floatingBtn.on-left .floating-launcher-prompt {
+            align-items: flex-start;
+            transform-origin: left bottom;
+          }
+          #floatingBtn.on-left .floating-close-btn {
+            right: auto;
+            left: var(--floating-close-btn-right-rest);
+            transform-origin: left bottom;
+          }
+          #floatingBtn.on-left .floating-help-pill {
+            right: auto;
+            left: var(--floating-help-pill-right-rest);
+            border-radius: 999px 999px 999px 0;
+            transform-origin: left bottom;
+          }
+          #floatingBtn.on-left .floating-input-shell {
+            flex-direction: row-reverse;
+            justify-content: flex-start;
+            transform-origin: left center;
+          }
+          #floatingBtn.on-left .floating-input-shell::before,
+          #floatingBtn.on-left .floating-input-shell::after {
+            left: 70px;
+            right: 0;
+            transition: left 1s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+          }
+          #floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-input-shell::before,
+          #floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-input-shell::after {
+            left: 0;
+          }
+          #floatingBtn.on-left .floating-input-shell.is-collapsed {
+            transform-origin: left center;
+          }
+          #floatingBtn.on-left .floating-exit-prompt {
+            right: auto;
+            left: 0;
+          }
+          #floatingBtn.on-left .floating-exit-close {
+            right: auto;
+            left: 0;
+          }
+          #floatingBtn.on-left .floating-exit-card {
+            float: left;
+          }
+          /* ─────────────────────────────────────────────────────────────────── */
           .floating-launcher {
             font-family: inherit;
             cursor: pointer;
@@ -2926,6 +3009,7 @@
             transition: max-width 0.6s cubic-bezier(0.22, 1, 0.36, 1), padding 0.6s cubic-bezier(0.22, 1, 0.36, 1), gap 0.6s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1);
             transform-origin: right center;
             will-change: transform, opacity;
+            cursor: grab;
           }
 					.floating-input-shell::before {
 						content: "";
@@ -3063,6 +3147,10 @@
             box-shadow: 0 14px 30px rgba(var(--color-primary, #471791), 0.3);
 			transform: scale(0.87);
           }
+		#floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-prompt-send {
+           
+			transform: scale(0.87) translateX(-13px);
+          }
           .floating-launcher-prompt.is-typing .floating-input-shell {
             gap: 0;
             padding: 0 0 0 12px;
@@ -3188,6 +3276,30 @@
           .floating-launcher-prompt.entering .floating-help-pill {
             animation: floatingHelpPillIn 0.62s cubic-bezier(0.22, 1, 0.36, 1) 0.56s both;
           }
+          .floating-launcher-prompt.entering.landing-no-zoom {
+            animation: none !important;
+            transform: none !important;
+          }
+
+          /* Left-side mirrored staggering animations */
+          #floatingBtn.on-left .floating-launcher-prompt.entering .floating-prompt-input-wrapper {
+            animation-name: floatingFieldFrameInLeft;
+          }
+          #floatingBtn.on-left .floating-launcher-prompt.entering .floating-prompt-input {
+            animation-name: floatingInputTextInLeft;
+          }
+          #floatingBtn.on-left .floating-launcher-prompt.entering .floating-close-btn {
+            animation-name: floatingCloseBtnInLeft;
+          }
+          #floatingBtn.on-left .floating-launcher-prompt.entering .floating-help-pill {
+            animation-name: floatingHelpPillInLeft;
+          }
+          .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send,
+          .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-chat,
+          .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-arrow,
+          .floating-launcher-prompt.entering.landing-no-zoom .floating-prompt-send-icon-chevron {
+            animation: none !important;
+          }
 
           @keyframes floatingBtnIn {
             0% {
@@ -3255,6 +3367,52 @@
             0% {
               opacity: 0;
               transform: translate3d(18px, 0, 0) scale(0.9);
+              filter: blur(6px);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scale(1);
+              filter: blur(0);
+            }
+          }
+
+          /* Mirrored Keyframes for Left Side */
+          @keyframes floatingFieldFrameInLeft {
+            0% {
+              opacity: 0;
+              transform: translate3d(-28px, 0, 0) scaleX(0.94);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scaleX(1);
+            }
+          }
+          @keyframes floatingInputTextInLeft {
+            0% {
+              opacity: 0;
+              transform: translate3d(-22px, 0, 0);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0);
+            }
+          }
+          @keyframes floatingHelpPillInLeft {
+            0% {
+              opacity: 0;
+              transform: translate3d(-24px, 0, 0) scale(0.96);
+              filter: blur(6px);
+            }
+            100% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) scale(1);
+              filter: blur(0);
+            }
+          }
+          @keyframes floatingCloseBtnInLeft {
+            0% {
+              opacity: 0;
+              transform: translate3d(-18px, 0, 0) scale(0.9);
               filter: blur(6px);
             }
             100% {
@@ -3371,7 +3529,7 @@
               transform: translateY(12px) scale(0.96);
             }
             #textChatWidget {
-              inset: 0;
+              inset: 0 !important;
               right: auto;
               bottom: auto;
               width: 100vw;
@@ -4822,6 +4980,240 @@
 			).catch(() => { });
 		}
 
+		initDrag() {
+			const STORAGE_KEY = 'witzo_widget_pos';
+			const shadow = this.shadowRoot;
+			const floatingBtn = shadow.getElementById('floatingBtn');
+			const floatingInputShell = shadow.querySelector('.floating-input-shell');
+			const chatWidget = shadow.getElementById('textChatWidget');
+			if (!floatingBtn) return;
+
+			const EDGE_GAP = 16;
+			const LERP = 0.12; // 0– 1: lower = more lag (GSAP-scrub feel)
+			const DRAG_START_DISTANCE = 6;
+			const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+			const isMobileViewport = () => window.innerWidth <= 640;
+			const getMaxBottom = (rectHeight = floatingBtn.offsetHeight || 64) => {
+				const viewportLimit = isMobileViewport()
+					? Math.max(EDGE_GAP, Math.floor(window.innerHeight * 0.65))
+					: window.innerHeight - rectHeight - EDGE_GAP;
+				return Math.max(EDGE_GAP, Math.min(viewportLimit, window.innerHeight - rectHeight - EDGE_GAP));
+			};
+
+			// ── Side/snap logic ──────────────────────────────────────────────────
+			const applySide = (side, animate, bottomOverride = null) => {
+				floatingBtn.classList.toggle('on-left', side === 'left');
+				if (chatWidget) chatWidget.classList.toggle('on-left', side === 'left');
+				const btnH = floatingBtn.offsetHeight || 64;
+				const bottomPx = clamp(
+					typeof bottomOverride === 'number' ? bottomOverride : EDGE_GAP,
+					EDGE_GAP,
+					getMaxBottom(btnH),
+				);
+
+				if (!animate) {
+					// Initial restore / resize: use semantic properties (offsetWidth may be 0)
+					floatingBtn.style.transition = 'none';
+					floatingBtn.style.bottom = bottomPx + 'px';
+					floatingBtn.style.top = 'auto';
+					if (side === 'left') {
+						floatingBtn.style.left = EDGE_GAP + 'px';
+						floatingBtn.style.right = 'auto';
+					} else {
+						floatingBtn.style.right = EDGE_GAP + 'px';
+						floatingBtn.style.left = 'auto';
+					}
+					if (chatWidget) {
+						chatWidget.style.transition = 'none';
+						chatWidget.style.bottom = '';
+						if (side === 'left') {
+							chatWidget.style.left = EDGE_GAP + 'px';
+							chatWidget.style.right = 'auto';
+						} else {
+							chatWidget.style.right = EDGE_GAP + 'px';
+							chatWidget.style.left = 'auto';
+						}
+					}
+					return;
+				}
+
+				// Animated snap: always interpolate via `left` (avoids left↔right jump)
+				const vw = window.innerWidth;
+				const btnW = floatingBtn.offsetWidth || 64;
+				const leftPx = side === 'left' ? EDGE_GAP : vw - EDGE_GAP - btnW;
+				const tr = 'left 1s cubic-bezier(0.16,1,0.3,1), bottom 1s cubic-bezier(0.16,1,0.3,1)';
+				floatingBtn.style.transition = tr;
+				floatingBtn.style.left = leftPx + 'px';
+				floatingBtn.style.right = 'auto';
+				floatingBtn.style.bottom = bottomPx + 'px';
+				floatingBtn.style.top = 'auto';
+				// After animation, revert right-side to semantic `right` for viewport resize
+				if (side === 'right') {
+					setTimeout(() => {
+						floatingBtn.style.transition = 'none';
+						floatingBtn.style.right = EDGE_GAP + 'px';
+						floatingBtn.style.left = 'auto';
+					}, 1010);
+				}
+				if (chatWidget) {
+					chatWidget.style.transition = tr;
+					chatWidget.style.left = leftPx + 'px';
+					chatWidget.style.right = 'auto';
+					if (side === 'right') {
+						setTimeout(() => {
+							chatWidget.style.transition = 'none';
+							chatWidget.style.right = EDGE_GAP + 'px';
+							chatWidget.style.left = 'auto';
+						}, 1010);
+					}
+				}
+			};
+
+			const snapToBottomCorner = (animate) => {
+				const rect = floatingBtn.getBoundingClientRect();
+				const side = (rect.left + rect.width / 2) < window.innerWidth / 2 ? 'left' : 'right';
+				const bottom = window.innerHeight - rect.bottom;
+				const storedBottom = isMobileViewport()
+					? clamp(bottom, EDGE_GAP, getMaxBottom(rect.height || floatingBtn.offsetHeight || 64))
+					: EDGE_GAP;
+				applySide(side, animate, storedBottom);
+				try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ side, bottom: storedBottom })); } catch (_) { }
+			};
+
+			// Restore persisted side
+			setTimeout(() => {
+				try {
+					const raw = localStorage.getItem(STORAGE_KEY);
+					const saved = raw ? JSON.parse(raw) : {};
+					const side = typeof saved?.side === 'string' ? saved.side : 'right';
+					const bottom = isMobileViewport() && typeof saved?.bottom === 'number'
+						? saved.bottom
+						: EDGE_GAP;
+					applySide(side, false, bottom);
+				} catch (_) { applySide('right', false, EDGE_GAP); }
+			}, 50);
+
+			// ── Helpers ─────────────────────────────────────────────────
+			const xy = (e) => e.touches?.length
+				? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+				: e.changedTouches?.length
+					? { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }
+					: { x: e.clientX, y: e.clientY };
+
+			// ── Drag state ──────────────────────────────────────────────
+			let dragging = false;
+			let startX = 0, startY = 0;
+			let startLeft = 0, startBottom = 0;
+			let targetLeft = 0, targetBottom = 0;  // pointer-driven target
+			let curLeft = 0, curBottom = 0;     // lerp-smoothed position
+			let rafId = null;
+
+			let pressX = 0, pressY = 0;  // position at press start
+			let pendingDrag = false;
+
+			// ── RAF lerp loop ──────────────────────────────────────────
+			const tick = () => {
+				if (!dragging) { rafId = null; return; }
+				curLeft += (targetLeft - curLeft) * LERP;
+				curBottom += (targetBottom - curBottom) * LERP;
+				floatingBtn.style.left = curLeft + 'px';
+				floatingBtn.style.bottom = curBottom + 'px';
+				rafId = requestAnimationFrame(tick);
+			};
+
+			const activateDrag = () => {
+				if (dragging) return;
+				dragging = true;
+				const rect = floatingBtn.getBoundingClientRect();
+				startX = pressX; startY = pressY;
+				startLeft = rect.left;
+				startBottom = window.innerHeight - rect.bottom;
+				curLeft = targetLeft = startLeft;
+				curBottom = targetBottom = startBottom;
+				floatingBtn.style.transition = 'none';
+				floatingBtn.style.left = startLeft + 'px';
+				floatingBtn.style.right = 'auto';
+				floatingBtn.style.bottom = startBottom + 'px';
+				floatingBtn.style.top = 'auto';
+				// Collapse launcher visuals to just the send button
+				floatingBtn.classList.add('is-dragging', 'dragging-mode');
+				document.body.style.userSelect = 'none';
+				document.body.style.webkitUserSelect = 'none';
+				if (!rafId) rafId = requestAnimationFrame(tick);
+			};
+
+			const onDragHandleDown = (e) => {
+				if (this.isOpen) return; // disable drag when widget is opened
+				if (e.type === 'mousedown' && e.button !== 0) return;
+				const pos = xy(e);
+				pressX = pos.x; pressY = pos.y;
+				pendingDrag = true;
+			};
+
+			// ── Move (window) ─────────────────────────────────────────────
+			const onMove = (e) => {
+				const { x, y } = xy(e);
+				if (!dragging && pendingDrag) {
+					const dxFromPress = x - pressX;
+					const dyFromPress = y - pressY;
+					if (Math.hypot(dxFromPress, dyFromPress) >= DRAG_START_DISTANCE) {
+						activateDrag();
+					}
+				}
+				if (!dragging) return;
+				e.preventDefault();
+				const dx = x - startX, dy = y - startY;
+				const vw = window.innerWidth, vh = window.innerHeight;
+				const rect = floatingBtn.getBoundingClientRect();
+				targetLeft = clamp(startLeft + dx, EDGE_GAP, vw - rect.width - EDGE_GAP);
+				targetBottom = clamp(startBottom - dy, EDGE_GAP, getMaxBottom(rect.height));
+			};
+
+			// ── Release (window) ──────────────────────────────────────────
+			const onUp = () => {
+				pendingDrag = false;
+				if (!dragging) return;
+				dragging = false;
+				if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+				floatingBtn.classList.remove('is-dragging');
+				document.body.style.userSelect = '';
+				document.body.style.webkitUserSelect = '';
+				// Snap to corner with smooth animation
+				snapToBottomCorner(true);
+				// Re-expand launcher elements after snap lands (~950ms)
+				setTimeout(() => {
+					floatingBtn.classList.remove('dragging-mode');
+					// Re-trigger the stagger entrance animation
+					const prompt = floatingBtn.querySelector('.floating-launcher-prompt');
+					if (prompt) {
+						prompt.classList.remove('entering');
+						prompt.classList.add('landing-no-zoom');
+						void prompt.offsetWidth; // flush so re-add is treated as new animation
+						prompt.classList.add('entering');
+						setTimeout(() => {
+							prompt.classList.remove('entering');
+							prompt.classList.remove('landing-no-zoom');
+						}, 1300);
+					}
+				}, 600);
+				this._dragJustEnded = true;
+				setTimeout(() => { this._dragJustEnded = false; }, 250);
+			};
+
+			// ── Bind events ─────────────────────────────────────────────
+			if (floatingInputShell) {
+				floatingInputShell.addEventListener('mousedown', onDragHandleDown, { passive: true });
+				floatingInputShell.addEventListener('touchstart', onDragHandleDown, { passive: true });
+			}
+			window.addEventListener('mousemove', onMove, { passive: false });
+			window.addEventListener('touchmove', onMove, { passive: false });
+			window.addEventListener('mouseup', onUp);
+			window.addEventListener('touchend', onUp);
+			window.addEventListener('resize', () => {
+				if (!dragging) snapToBottomCorner(false);
+			});
+		}
+
 		bindEvents() {
 			if (this.elements.floatingCloseBtn) {
 				this.elements.floatingCloseBtn.addEventListener(
@@ -4837,6 +5229,7 @@
 				this.elements.floatingHelpBtn.addEventListener(
 					"click",
 					() => {
+						if (this._dragJustEnded) return;
 						this.hideFloatingExitPrompt();
 						this.openFromFloatingLauncher();
 					},
@@ -4846,6 +5239,7 @@
 				this.elements.floatingPromptSend.addEventListener(
 					"click",
 					() => {
+						if (this._dragJustEnded) return;
 						if (this.isOpen) {
 							this.requestWidgetClose();
 							return;

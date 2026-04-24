@@ -6,7 +6,7 @@ export const baseCSS = `
 
   #textChatWidget {
     position: fixed;
-    bottom: 6em; right: 2em;
+    bottom: auto; right: auto;
     z-index: 2147483647;
     width: 27rem; height: 100%;
     max-width: 90vw; max-height: 70vh;
