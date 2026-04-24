@@ -3155,7 +3155,7 @@
           }
 		#floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-prompt-send {
            
-			transform: scale(0.87) translateX(-13px);
+			transform: scale(0.87) translateX(-14px);
           }
           .floating-launcher-prompt.is-typing .floating-input-shell {
             gap: 0;
@@ -4999,6 +4999,12 @@
 			const LERP = 0.12; // 0– 1: lower = more lag (GSAP-scrub feel)
 			const DRAG_START_DISTANCE = 6;
 			const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+			const getScrollbarWidth = () => {
+				const docWidth = document.documentElement?.clientWidth || window.innerWidth;
+				return Math.max(0, window.innerWidth - docWidth);
+			};
+			const getUsableViewportWidth = () =>
+				Math.max(0, window.innerWidth - getScrollbarWidth());
 			const isMobileViewport = () => window.innerWidth <= 640;
 			const getMaxBottom = (rectHeight = floatingBtn.offsetHeight || 64) => {
 				const viewportLimit = isMobileViewport()
@@ -5045,7 +5051,7 @@
 				}
 
 				// Animated snap: always interpolate via `left` (avoids left↔right jump)
-				const vw = window.innerWidth;
+				const vw = getUsableViewportWidth();
 				const btnW = floatingBtn.offsetWidth || 64;
 				const leftPx = side === 'left' ? EDGE_GAP : vw - EDGE_GAP - btnW;
 				const tr = 'left 1s cubic-bezier(0.16,1,0.3,1), bottom 1s cubic-bezier(0.16,1,0.3,1)';
@@ -5078,7 +5084,7 @@
 
 			const snapToBottomCorner = (animate) => {
 				const rect = floatingBtn.getBoundingClientRect();
-				const side = (rect.left + rect.width / 2) < window.innerWidth / 2 ? 'left' : 'right';
+				const side = (rect.left + rect.width / 2) < getUsableViewportWidth() / 2 ? 'left' : 'right';
 				const bottom = window.innerHeight - rect.bottom;
 				const storedBottom = isMobileViewport()
 					? clamp(bottom, EDGE_GAP, getMaxBottom(rect.height || floatingBtn.offsetHeight || 64))
@@ -5126,7 +5132,7 @@
 				floatingBtn.style.left = curLeft + 'px';
 				floatingBtn.style.bottom = curBottom + 'px';
 				// Edge awareness for directional animations
-				floatingBtn.classList.toggle('on-left', curLeft < window.innerWidth / 2);
+				floatingBtn.classList.toggle('on-left', curLeft < getUsableViewportWidth() / 2);
 				rafId = requestAnimationFrame(tick);
 			};
 
@@ -5172,7 +5178,7 @@
 				if (!dragging) return;
 				e.preventDefault();
 				const dx = x - startX, dy = y - startY;
-				const vw = window.innerWidth, vh = window.innerHeight;
+				const vw = getUsableViewportWidth();
 				const rect = floatingBtn.getBoundingClientRect();
 				targetLeft = clamp(startLeft + dx, EDGE_GAP, vw - rect.width - EDGE_GAP);
 				targetBottom = clamp(startBottom - dy, EDGE_GAP, getMaxBottom(rect.height));
