@@ -38,6 +38,9 @@ const OBVIOUS_GREETINGS = new Set([
 	"good morning", "good afternoon", "good evening",
 ]);
 
+const CONNECTION_OFFER_PATTERN =
+	/connect you with (our|their|the) team|shall I (do that|connect|pass)|pass your (information|details)/i;
+
 export async function classifyTurn(
 	query: string,
 	history: ChatMessage[],
@@ -46,6 +49,12 @@ export async function classifyTurn(
 	const q = query.trim().toLowerCase().replace(/[.!?]+$/, "");
 
 	if (OBVIOUS_CONTINUATIONS.has(q)) {
+		// If the last assistant message was a connection offer, treat the affirmative
+		// as a new_question so the LLM gets full history context to confirm the handoff.
+		const lastAssistant = [...history].reverse().find((m) => m.role === "assistant");
+		if (lastAssistant && CONNECTION_OFFER_PATTERN.test(lastAssistant.content)) {
+			return "new_question";
+		}
 		return "continuation";
 	}
 

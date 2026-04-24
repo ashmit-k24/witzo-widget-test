@@ -127,7 +127,7 @@ export function buildVerificationEmailTemplate(
                       align="center"
                       style="
                         background:#7a08fa; background:linear-gradient(102.39deg, #7a08fa -79.19%, #f4464b 130.72%);
-                        color:#7916bb;
+                        color:#ffffff;
                         border:1px solid #8f22d74c;
                         font-size:24px;
                         font-weight:700;

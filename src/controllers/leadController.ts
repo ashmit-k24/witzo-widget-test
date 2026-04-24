@@ -25,6 +25,12 @@ export const listLeads = async (
 		);
 		const planLeadLimit =
 			getPlanCapabilities(planType).leadStorageLimit;
+		const requestedLimit = Number(req.query.limit);
+		const listLimit =
+			Number.isFinite(requestedLimit) && requestedLimit > 0
+				? Math.min(Math.trunc(requestedLimit), 1000)
+				: 1000;
+		const responseLimit = planLeadLimit ?? listLimit;
 
 		const status = req.query.status as string | undefined;
 		const search = req.query.search as string | undefined;
@@ -32,7 +38,7 @@ export const listLeads = async (
 		const { leads, total } =
 			await leadService.getLeads(userId, {
 				page: 1,
-				limit: planLeadLimit ?? undefined,
+				limit: responseLimit,
 				status,
 				search,
 			});
@@ -79,6 +85,25 @@ export const getLead = async (
 				message: "Lead not found",
 			});
 			return;
+		}
+
+		const planType = coercePlanType(
+			req.user?.plan_type,
+		);
+		const planLeadLimit =
+			getPlanCapabilities(planType).leadStorageLimit;
+		if (planLeadLimit !== null) {
+			const { leads } = await leadService.getLeads(userId, {
+				page: 1,
+				limit: planLeadLimit,
+			});
+			if (!leads.some((visibleLead) => visibleLead.id === lead.id)) {
+				res.status(403).json({
+					success: false,
+					message: "Lead is locked under your current plan",
+				});
+				return;
+			}
 		}
 
 		res.status(200).json({

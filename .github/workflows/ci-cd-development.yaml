@@ -121,7 +121,6 @@ jobs:
           REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
           REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
           REDIS_TLS_ENABLED=${{ secrets.REDIS_TLS_ENABLED }}
-         
           REDIS_CACHE_HOST=${{ secrets.REDIS_CACHE_HOST }}
           REDIS_CACHE_PORT=${{ secrets.REDIS_CACHE_PORT }}
           REDIS_CACHE_USERNAME=${{ secrets.REDIS_CACHE_USERNAME }}
@@ -219,4 +218,9 @@ jobs:
             --restart always \
             -v /home/ubuntu/logsfiles:/logs \
             --env-file $GITHUB_WORKSPACE/.env \
+            --log-driver=awslogs \
+            --log-opt awslogs-region=ap-south-1 \
+            --log-opt awslogs-group=witzo-logs \
+            --log-opt awslogs-create-group=true \
+            --log-opt awslogs-stream=cicd-pipeline-witzo-automation-$(date +%s) \
             webomindapps1/witzo-automation-dev:latest

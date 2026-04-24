@@ -22,7 +22,7 @@ export type AnalyticsTier =
 	| "standard"
 	| "advanced";
 
-export const SCRAPER_PAGE_LIMIT_FREE = 100;
+export const SCRAPER_PAGE_LIMIT_FREE = 600;
 export const SCRAPER_PAGE_LIMIT_BASIC = 300;
 export const SCRAPER_PAGE_LIMIT_STANDARD = 600;
 // Enterprise has no page limit (null = unlimited)
@@ -57,8 +57,8 @@ export const PLAN_CAPABILITIES: Record<
 > = {
 	free: {
 		documentLimit: 4,
-		chatHistoryLimit: 3,
-		leadStorageLimit: 3,
+		chatHistoryLimit: 5,
+		leadStorageLimit: 5,
 		supportedWebsitesLimit: 1,
 		widgetInstancesLimit: 1,
 		teamMembersLimit: 1,
@@ -147,7 +147,9 @@ export const PLAN_CONVERSATION_DEFAULT_LIMITS: Record<
 	enterprise: null,
 };
 
-export function getScraperPageLimit(planType: PlanType): number | null {
+export function getScraperPageLimit(
+	planType: PlanType,
+): number | null {
 	switch (planType) {
 		case "free":
 			return SCRAPER_PAGE_LIMIT_FREE;
@@ -177,7 +179,9 @@ export function coercePlanType(
 export function getPlanCapabilities(
 	planType: unknown,
 ): PlanCapabilities {
-	return PLAN_CAPABILITIES[coercePlanType(planType)];
+	return PLAN_CAPABILITIES[
+		coercePlanType(planType)
+	];
 }
 
 export function isUnlimited(

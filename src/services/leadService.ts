@@ -1217,7 +1217,7 @@ ${fullConversation}`;
              message_count,
              created_at
            FROM leads WHERE ${where}
-					 ORDER BY created_at DESC
+					 ORDER BY created_at ASC
 					 LIMIT $${idx} OFFSET $${idx + 1}`,
 					[...values, limit, offset],
 				),
