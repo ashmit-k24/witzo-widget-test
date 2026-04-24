@@ -213,7 +213,7 @@ export const getUserChatSessions = async (
 				userId,
 			);
 
-		// Mark each session as locked if it's beyond the plan's visible limit.
+		// Mark each session as locked if it's beyond the plan's first-created visible limit.
 		// We send ALL sessions so the frontend can show real blurred sessions
 		// instead of dummy placeholders — but locked sessions get no messages.
 		const taggedSessions = sessions.map((s, i) => ({
@@ -284,19 +284,19 @@ export const getChatSession = async (
 
 		let isGated = false;
 		if (maxVisible !== null) {
-			// Find the rank of this session among all sessions ordered by last_message_at DESC
+			// Find the rank of this session among all sessions ordered by creation time ASC.
 			const rankResult = await pool.query<{ rank: string }>(
 				`SELECT COUNT(*) AS rank
 				 FROM chat_conversations
 				 WHERE user_id = $1 AND is_deleted = FALSE
-				   AND last_message_at > (
-				     SELECT COALESCE(last_message_at, created_at)
+				   AND created_at < (
+				     SELECT created_at
 				     FROM chat_conversations
 				     WHERE id = $2 AND user_id = $1 AND is_deleted = FALSE
 				   )`,
 				[userId, sessionId],
 			);
-			// rank = number of sessions newer than this one (0-based index)
+			// rank = number of sessions older than this one (0-based index)
 			const rank = parseInt(rankResult.rows[0]?.rank ?? "0", 10);
 			isGated = rank >= maxVisible;
 		}
