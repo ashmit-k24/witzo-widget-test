@@ -3153,7 +3153,8 @@
             box-shadow: 0 14px 30px rgba(var(--color-primary, #471791), 0.3);
 			transform: scale(0.87);
           }
-		#floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-prompt-send {
+
+		 #floatingBtn.on-left .floating-launcher-prompt.is-typing .floating-prompt-send {
            
 			transform: scale(0.87) translateX(-14px);
           }
